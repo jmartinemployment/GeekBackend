@@ -976,7 +976,76 @@ public sealed class GccGenerationCoordinator
                     scores = GccToolFaqEvidence.ScoresOf(e.Pages),
                 })
                 .ToList(),
+            // What each of the brief's searches brought into the pages every writer reads, and the kinds
+            // of page those are. Kept since 2026-10-11 (plans/research-classification.md, stage 1); null
+            // on research that kept neither.
+            poolSearches = PoolSearches(research.Quoteables),
+            pageKinds = PageKinds(research.Quoteables),
         };
+    }
+
+    /// <summary>
+    /// Each search of a partner's crawl that found a passage the writers read, in the order it first
+    /// found one: the partner, the kind of search, the failure it was for, what it asked, and how many
+    /// pages and passages it found. A passage two searches found counts for both. Null when no page
+    /// says what found it.
+    /// </summary>
+    internal static IReadOnlyList<object>? PoolSearches(IReadOnlyList<GccQuoteablePage>? pages)
+    {
+        if (pages is null || !pages.Any(page => page.Searches is not null)) return null;
+
+        var order = new List<(string Host, GccPassageSearch Search)>();
+        var found = new Dictionary<(string Host, GccPassageSearch Search), (HashSet<string> Pages, int Passages)>();
+        foreach (var page in pages)
+        {
+            var host = GccRequiredToolMentions.HostKeyOf(page.Url);
+            for (var i = 0; i < page.Paragraphs.Count; i++)
+            {
+                foreach (var search in page.SearchesThatFound(i))
+                {
+                    var key = (host, search);
+                    if (!found.TryGetValue(key, out var seen))
+                    {
+                        seen = (new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0);
+                        order.Add(key);
+                    }
+
+                    seen.Pages.Add(page.Url);
+                    found[key] = (seen.Pages, seen.Passages + 1);
+                }
+            }
+        }
+
+        return
+        [
+            .. order.Select(key => (object)new
+            {
+                host = key.Host,
+                kind = key.Search.Kind,
+                failure = key.Search.Failure,
+                asked = key.Search.Asked,
+                pages = found[key].Pages.Count,
+                passages = found[key].Passages,
+            }),
+        ];
+    }
+
+    /// <summary>
+    /// How many of the partner pages the index marked as each kind, most first; a page the index did
+    /// not mark is counted under "not said". Null when no page is marked.
+    /// </summary>
+    internal static IReadOnlyList<object>? PageKinds(IReadOnlyList<GccQuoteablePage>? pages)
+    {
+        if (pages is null || !pages.Any(page => page.Category is not null)) return null;
+
+        return
+        [
+            .. pages
+                .GroupBy(page => page.Category ?? "not said", StringComparer.Ordinal)
+                .OrderByDescending(kind => kind.Count())
+                .ThenBy(kind => kind.Key, StringComparer.Ordinal)
+                .Select(kind => (object)new { kind = kind.Key, pages = kind.Count() }),
+        ];
     }
 
     private static readonly JsonSerializerOptions RecordJson = new(JsonSerializerDefaults.Web);

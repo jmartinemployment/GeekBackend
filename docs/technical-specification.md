@@ -184,6 +184,13 @@ every project was accounts payable. On the same run three cash flow forecasting 
 the product's own pages name them, and the blog's names data, mapping and who owns what. The Workflow product's
 per-section writer still lists "approval chains, routing" (`BuildImplementationSectionGuidance`) and is not changed.
 
+**Each passage keeps what found it** (2026-10-11, `plans/research-classification.md` stage 1). A partner's crawl is
+searched with the brief's problem and then one search per row. Which search found which passage was dropped where the
+results came back, and the kind of page the index marks each page as (pricing, docs, blog, product, about, careers,
+legal, compare, page) was sent on every result and not read. Both are now kept on the page (`GccQuoteablePage.Category`,
+`Searches`, `FoundBy`) and listed on the run log's `grounding` event (`poolSearches`, `pageKinds`). No writer is shown
+either and no passage is chosen by them yet: this is the record stage 2 will choose from.
+
 **The 13:14 UTC run of 2026-10-11** (project "Cash Flow Forecasting: Automated Spreadsheet Data", five partners, 30 body
 searches and 123 question searches) is the first run since 2026-10-10 to write a pillar and a blog. All seven pages were
 written and none refused. A pillar body call was about 66,500 prompt tokens with 8,192 reserved, about 74,700 of 128,000;

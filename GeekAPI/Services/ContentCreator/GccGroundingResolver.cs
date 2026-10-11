@@ -604,8 +604,10 @@ public sealed class GccGroundingResolver(
                     }
 
                     var fresh = new List<GccQuoteablePage>();
-                    foreach (var page in pages)
+                    var search = question.AsSearch();
+                    foreach (var found in pages)
                     {
+                        var page = FoundBy(found, search);
                         if (seenUrls.TryGetValue(page.Url, out var held))
                         {
                             into[held] = WithLaterPassages(into[held], page);
@@ -747,7 +749,38 @@ public sealed class GccGroundingResolver(
     /// Set when the search is one of the operator's FAQ questions for this host's tool page: the host
     /// its passages are filed under. Null for every search that feeds the shared pool.
     /// </param>
-    internal sealed record PartnerQuestion(string Need, string? Keyword, int TopK, string? FaqHost = null);
+    /// <param name="Kind">
+    /// What kind of search this is, for the record each passage keeps of what found it
+    /// (<see cref="GccPassageSearch"/>): the brief's problem, one of its rows, or the keyword.
+    /// </param>
+    /// <param name="Failure">For a row's search, the failure the operator entered on that row.</param>
+    internal sealed record PartnerQuestion(
+        string Need,
+        string? Keyword,
+        int TopK,
+        string? FaqHost = null,
+        string Kind = GccPassageSearch.KindKeyword,
+        string? Failure = null)
+    {
+        /// <summary>This search as a page keeps it.</summary>
+        public GccPassageSearch AsSearch() => new(Kind, Need, Failure, Keyword);
+    }
+
+    /// <summary>
+    /// A page a search returned, saying of every passage on it that this search found it.
+    /// </summary>
+    /// <remarks>
+    /// The one place it is known. The library's answer does not say which question it answers, and
+    /// until 2026-10-11 nothing wrote it down: a partner is asked the brief's problem and then one
+    /// question per row, and every passage reached the writers as one undivided pool
+    /// (plans/research-classification.md, stage 1).
+    /// </remarks>
+    internal static GccQuoteablePage FoundBy(GccQuoteablePage page, GccPassageSearch search) =>
+        page with
+        {
+            Searches = [search],
+            FoundBy = [.. page.Paragraphs.Select(_ => (IReadOnlyList<int>)[0])],
+        };
 
     /// <summary>
     /// A page an earlier question returned, with the passages a later question found on it added.
@@ -765,26 +798,86 @@ public sealed class GccGroundingResolver(
     /// passages. The typed read of a partner page is by address and takes the whole page, so it is
     /// made once, when the page is first seen, and needs nothing from here.
     /// </para>
+    /// <para>
+    /// Which search found which passage stays in step too (<see cref="FoundBy"/>, 2026-10-11). A
+    /// passage the page already carries that the later search found as well is still not added twice,
+    /// and now says both searches found it; a page that gains nothing but that is a changed page.
+    /// </para>
     /// </remarks>
     internal static GccQuoteablePage WithLaterPassages(GccQuoteablePage held, GccQuoteablePage later)
     {
         var scored = held.Scores is not null && held.Scores.Count == held.Paragraphs.Count
             && later.Scores is not null && later.Scores.Count == later.Paragraphs.Count;
+        // Which search found which passage is carried on only where the held page says it of every
+        // passage it has. A later page that does not say adds passages found by nothing known.
+        var traced = held.Searches is not null && held.FoundBy is not null
+            && held.FoundBy.Count == held.Paragraphs.Count;
 
-        var have = new HashSet<string>(held.Paragraphs, StringComparer.Ordinal);
+        var at = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < held.Paragraphs.Count; i++) at.TryAdd(held.Paragraphs[i], i);
+
         var paragraphs = new List<string>(held.Paragraphs);
         var scores = scored ? new List<GccPassageScore>(held.Scores!) : null;
+        var searches = traced ? new List<GccPassageSearch>(held.Searches!) : null;
+        var foundBy = traced ? held.FoundBy!.Select(found => new List<int>(found)).ToList() : null;
+        var foundAgain = false;
         for (var i = 0; i < later.Paragraphs.Count; i++)
         {
-            if (paragraphs.Count >= GccPartnerResearchCaps.MaxParagraphsPerPage) break;
-            if (!have.Add(later.Paragraphs[i])) continue;
+            if (at.TryGetValue(later.Paragraphs[i], out var heldAt))
+            {
+                // The page already carries the passage, and is not given it twice. That the later
+                // search found it as well is kept: two of the brief's questions led to it.
+                if (traced) foundAgain |= AddSearches(searches!, foundBy![heldAt], later.SearchesThatFound(i));
+                continue;
+            }
+
+            // A full page takes no more passages. The rest are still read, for the ones it has.
+            if (paragraphs.Count >= GccPartnerResearchCaps.MaxParagraphsPerPage) continue;
+
+            at[later.Paragraphs[i]] = paragraphs.Count;
             paragraphs.Add(later.Paragraphs[i]);
             scores?.Add(later.Scores![i]);
+            if (traced)
+            {
+                foundBy!.Add([]);
+                AddSearches(searches!, foundBy[^1], later.SearchesThatFound(i));
+            }
         }
 
-        return paragraphs.Count == held.Paragraphs.Count
-            ? held
-            : held with { Paragraphs = paragraphs, Scores = scores };
+        if (paragraphs.Count == held.Paragraphs.Count && !foundAgain) return held;
+
+        return held with
+        {
+            Paragraphs = paragraphs,
+            Scores = scores,
+            Searches = traced ? searches : held.Searches,
+            FoundBy = traced ? [.. foundBy!.Select(found => (IReadOnlyList<int>)found)] : held.FoundBy,
+        };
+    }
+
+    /// <summary>
+    /// Adds <paramref name="found"/> to a page's searches where it does not hold them, and to one
+    /// passage's list of what found it. True when the passage's list grew.
+    /// </summary>
+    private static bool AddSearches(
+        List<GccPassageSearch> searches, List<int> passage, IReadOnlyList<GccPassageSearch> found)
+    {
+        var grew = false;
+        foreach (var search in found)
+        {
+            var position = searches.IndexOf(search);
+            if (position < 0)
+            {
+                position = searches.Count;
+                searches.Add(search);
+            }
+
+            if (passage.Contains(position)) continue;
+            passage.Add(position);
+            grew = true;
+        }
+
+        return grew;
     }
 
     /// <summary>
@@ -867,13 +960,18 @@ public sealed class GccGroundingResolver(
         var questions = new List<PartnerQuestion>();
         if (framing is not null && framing.CoreProblem.Length > 0)
         {
-            questions.Add(new PartnerQuestion(framing.CoreProblem, null, EvidenceTopK));
+            questions.Add(new PartnerQuestion(framing.CoreProblem, null, EvidenceTopK, Kind: GccPassageSearch.KindProblem));
         }
 
         foreach (var row in framing?.Evidence ?? [])
         {
             if (row.Need.Length == 0) continue;
-            questions.Add(new PartnerQuestion(row.Need, row.Keyword, EvidenceTopK));
+            questions.Add(new PartnerQuestion(
+                row.Need,
+                row.Keyword,
+                EvidenceTopK,
+                Kind: GccPassageSearch.KindRow,
+                Failure: row.Problem.Length > 0 ? row.Problem : null));
         }
 
         if (questions.Count == 0)

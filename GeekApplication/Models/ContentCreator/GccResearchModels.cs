@@ -81,6 +81,31 @@ public sealed record GccFaqEvidence(
 /// </summary>
 public sealed record GccPassageScore(double Score, double? Reranked = null);
 
+/// <summary>
+/// One search of a crawl, as it is kept on a page it found a passage on: what kind of search it was and
+/// what it asked. For choosing which passages a request carries and for the run's record; never printed
+/// to a writer.
+/// </summary>
+/// <remarks>
+/// A partner's crawl is searched with the brief: the problem, then one search per row of failure and
+/// remedy. Until 2026-10-11 which search found which passage was dropped where the results came back,
+/// so nothing downstream could tell a passage found for one failure from a passage found for another.
+/// </remarks>
+/// <param name="Kind">
+/// <see cref="KindProblem"/> for the brief's statement of the problem, <see cref="KindRow"/> for one of
+/// its rows of failure and remedy, <see cref="KindKeyword"/> for the project's keyword, which is what a
+/// crawl is asked when the brief says nothing of it.
+/// </param>
+/// <param name="Asked">What the meaning half of the search was sent.</param>
+/// <param name="Failure">For a row, the failure the operator entered on it; null when the row has none.</param>
+/// <param name="Terms">What the keyword half of the search was sent; null when it was sent nothing.</param>
+public sealed record GccPassageSearch(string Kind, string Asked, string? Failure = null, string? Terms = null)
+{
+    public const string KindProblem = "problem";
+    public const string KindRow = "row";
+    public const string KindKeyword = "keyword";
+}
+
 /// <summary>One position the publisher states on their own site: a named section and its text.</summary>
 /// <param name="Heading">The section's heading, as written on the site.</param>
 /// <param name="Paragraphs">The section's text, one entry per block, in order; a sub-heading is an entry.</param>
@@ -150,10 +175,48 @@ public sealed record GccQuoteablePage(
     /// What the search scored each of <see cref="Paragraphs"/>, in the same order. Null on a page that
     /// did not come from a search, and never read by a writer: see <see cref="GccPassageScore"/>.
     /// </summary>
-    IReadOnlyList<GccPassageScore>? Scores = null)
+    IReadOnlyList<GccPassageScore>? Scores = null,
+    /// <summary>
+    /// The kind of page the index marked this as when it was indexed: <c>pricing</c>, <c>docs</c>,
+    /// <c>blog</c>, <c>product</c>, <c>about</c>, <c>careers</c>, <c>legal</c>, <c>compare</c>, or
+    /// <c>page</c> for none of those. Lower case. Null on a page that did not come from a search, or
+    /// when the index did not say. Never printed to a writer.
+    /// </summary>
+    string? Category = null,
+    /// <summary>
+    /// The searches that found a passage on this page, each once, in the order they first found one.
+    /// The page's own list, so a page kept from one run to the next keeps what its
+    /// <see cref="FoundBy"/> points at. Null on a page that did not come from a search.
+    /// </summary>
+    IReadOnlyList<GccPassageSearch>? Searches = null,
+    /// <summary>
+    /// Which of <see cref="Searches"/> found each of <see cref="Paragraphs"/>, in the same order: one
+    /// list of positions in <see cref="Searches"/> for each passage. Null on a page that did not come
+    /// from a search. Read through <see cref="SearchesThatFound"/>, which answers nothing when the two
+    /// lists are out of step.
+    /// </summary>
+    IReadOnlyList<IReadOnlyList<int>>? FoundBy = null)
 {
     public const string RetrievalModeRagChunk = "rag_chunk";
     public const string RetrievalModeSeedHtml = "seed_html";
+
+    /// <summary>
+    /// The searches that found the passage at <paramref name="paragraph"/>, or none when the page does
+    /// not say: it did not come from a search, or its lists are not in step with its passages.
+    /// </summary>
+    public IReadOnlyList<GccPassageSearch> SearchesThatFound(int paragraph)
+    {
+        if (Searches is null || FoundBy is null || FoundBy.Count != Paragraphs.Count) return [];
+        if (paragraph < 0 || paragraph >= FoundBy.Count) return [];
+
+        var found = new List<GccPassageSearch>(FoundBy[paragraph].Count);
+        foreach (var position in FoundBy[paragraph])
+        {
+            if (position >= 0 && position < Searches.Count) found.Add(Searches[position]);
+        }
+
+        return found;
+    }
 }
 
 public static class GccResearchCaps

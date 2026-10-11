@@ -365,6 +365,196 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Null(merged.Scores);
     }
 
+    // ---- which search found which passage (plans/research-classification.md, stage 1) --------------
+    //
+    // A partner is asked the brief's problem and then one question per row. The library's answer does
+    // not say which question it answers, and until 2026-10-11 nothing kept it: every passage reached
+    // the writers as one pool. It is kept on the page now, and no writer is shown it.
+
+    [Fact]
+    public async Task Every_passage_says_which_of_the_briefs_searches_found_it()
+    {
+        var project = Project("https://tipalti.com/");
+        var rag = new AnswersWith(asked =>
+        [
+            new GccQuoteablePage(
+                "https://tipalti.com/product-updates/", "Product updates", [],
+                ["On every answer.", "Found by question " + asked + "."]),
+        ]);
+
+        var outcome = await Build(project, rag, new OneBlockPages())
+            .ResolveAsync(Create(project.Id, Brief), "tool");
+
+        var page = Assert.Single(outcome.Pages, p => p.Url == "https://tipalti.com/product-updates/");
+        // The partner's own problem, the row entered for every partner, the row entered for this one.
+        Assert.Equal(
+            [
+                new GccPassageSearch(
+                    GccPassageSearch.KindProblem,
+                    "International vendors, multiple entities and contractors need controlled global payment execution."),
+                new GccPassageSearch(
+                    GccPassageSearch.KindRow,
+                    "Approval workflows route each bill with an audit trail.",
+                    Failure: "Approval is informal.",
+                    Terms: "approval workflow audit trail"),
+                new GccPassageSearch(
+                    GccPassageSearch.KindRow,
+                    "Automated payment reconciliation syncs payment results with the ERP and sub-ledgers.",
+                    Failure: "Cannot reconcile global payments.",
+                    Terms: "payment reconciliation multi-entity"),
+            ],
+            page.Searches);
+
+        // The passage every search returned names all three; each of the others names its own.
+        Assert.Equal(page.Paragraphs.Count, page.FoundBy!.Count);
+        Assert.Equal([0, 1, 2], page.FoundBy[0]);
+        Assert.Equal([0], page.FoundBy[1]);
+        Assert.Equal([1], page.FoundBy[2]);
+        Assert.Equal([2], page.FoundBy[3]);
+        Assert.Equal("Cannot reconcile global payments.", Assert.Single(page.SearchesThatFound(3)).Failure);
+    }
+
+    [Fact]
+    public async Task Without_a_brief_a_passage_was_found_by_the_keyword()
+    {
+        var project = Project("https://tipalti.com/");
+        var rag = new RecordingRag();
+
+        var outcome = await Build(project, rag, new OneBlockPages())
+            .ResolveAsync(Create(project.Id, briefJson: null), "tool");
+
+        var page = Assert.Single(outcome.Pages);
+        var search = Assert.Single(page.SearchesThatFound(0));
+        Assert.Equal(GccPassageSearch.KindKeyword, search.Kind);
+        Assert.Equal("Automated Payment Execution", search.Asked);
+        Assert.Null(search.Failure);
+    }
+
+    [Fact]
+    public async Task What_a_faq_search_finds_is_filed_under_its_question_and_needs_no_search_named()
+    {
+        const string faq = "Does Tipalti reconcile payments in multiple currencies?";
+        var project = Project("https://tipalti.com/");
+        var brief = Brief.Replace(
+            "\"coreProblem\": \"International vendors",
+            "\"faqQuestions\": \"" + faq + "\", \"coreProblem\": \"International vendors",
+            StringComparison.Ordinal);
+
+        var outcome = await Build(project, new RecordingRag(), new OneBlockPages())
+            .ResolveAsync(Create(project.Id, brief), "tool");
+
+        var filed = Assert.Single(outcome.FaqEvidence!, e => e.Question == faq);
+        Assert.All(filed.Pages, page => Assert.Null(page.Searches));
+        // And every page the writers read does name one.
+        Assert.All(outcome.Pages, page => Assert.NotEmpty(page.SearchesThatFound(0)));
+    }
+
+    private static readonly GccPassageSearch First = new(GccPassageSearch.KindProblem, "The problem.");
+    private static readonly GccPassageSearch Second = new(GccPassageSearch.KindRow, "A remedy.", Failure: "A failure.");
+
+    [Fact]
+    public void A_passage_a_later_search_finds_again_is_kept_once_and_names_both_searches()
+    {
+        var held = GccGroundingResolver.FoundBy(
+            new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["One.", "Two."]), First);
+        var later = GccGroundingResolver.FoundBy(
+            new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["Two."]), Second);
+
+        var merged = GccGroundingResolver.WithLaterPassages(held, later);
+
+        Assert.Equal(["One.", "Two."], merged.Paragraphs);
+        Assert.Equal([First, Second], merged.Searches);
+        Assert.Equal([First], merged.SearchesThatFound(0));
+        Assert.Equal([First, Second], merged.SearchesThatFound(1));
+        // Asked the same thing again, it is the page it was.
+        Assert.Same(merged, GccGroundingResolver.WithLaterPassages(merged, later));
+    }
+
+    [Fact]
+    public void A_full_page_takes_no_more_passages_and_still_learns_what_found_the_ones_it_has()
+    {
+        var full = Enumerable.Range(1, GccPartnerResearchCaps.MaxParagraphsPerPage).Select(n => $"Passage {n}.").ToList();
+        var held = GccGroundingResolver.FoundBy(new GccQuoteablePage("https://tipalti.com/a/", "A", [], full), First);
+        var later = GccGroundingResolver.FoundBy(
+            new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["One too many.", full[^1]]), Second);
+
+        var merged = GccGroundingResolver.WithLaterPassages(held, later);
+
+        Assert.Equal(full, merged.Paragraphs);
+        Assert.Equal([First, Second], merged.SearchesThatFound(full.Count - 1));
+        Assert.Equal([First], merged.SearchesThatFound(0));
+    }
+
+    [Fact]
+    public void A_later_page_that_names_no_search_adds_passages_found_by_nothing_known()
+    {
+        var held = GccGroundingResolver.FoundBy(new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["One."]), First);
+        var later = new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["Two."]);
+
+        var merged = GccGroundingResolver.WithLaterPassages(held, later);
+
+        Assert.Equal(["One.", "Two."], merged.Paragraphs);
+        Assert.Equal([First], merged.SearchesThatFound(0));
+        Assert.Empty(merged.SearchesThatFound(1));
+    }
+
+    [Fact]
+    public void A_page_whose_lists_are_out_of_step_names_no_search_for_any_passage()
+    {
+        var page = new GccQuoteablePage(
+            "https://tipalti.com/a/", "A", [], ["One.", "Two."], Searches: [First], FoundBy: [[0]]);
+
+        Assert.Empty(page.SearchesThatFound(0));
+        Assert.Empty(page.SearchesThatFound(1));
+        // Nor does a page that never came from a search, or a place past its passages.
+        var plain = new GccQuoteablePage("https://tipalti.com/b/", "B", [], ["One."]);
+        Assert.Empty(plain.SearchesThatFound(0));
+        Assert.Empty(GccGroundingResolver.FoundBy(plain, First).SearchesThatFound(5));
+    }
+
+    [Fact]
+    public void What_found_a_passage_and_the_kind_of_page_survive_the_research_being_stored_and_read_back()
+    {
+        var page = GccGroundingResolver.WithLaterPassages(
+            GccGroundingResolver.FoundBy(
+                new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["One.", "Two."], Category: "pricing"), First),
+            GccGroundingResolver.FoundBy(new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["Two.", "Three."]), Second));
+
+        var read = GccResearchFetchService.Deserialize(
+            GccResearchFetchService.Serialize(new GccResearchDocument(null, [page])))!.Quoteables[0];
+
+        Assert.Equal("pricing", read.Category);
+        Assert.Equal([First, Second], read.Searches);
+        Assert.Equal([First], read.SearchesThatFound(0));
+        Assert.Equal([First, Second], read.SearchesThatFound(1));
+        Assert.Equal([Second], read.SearchesThatFound(2));
+
+        // Research stored before any of this was kept reads back saying nothing of it.
+        var before = GccResearchFetchService.Deserialize(
+            """{"serpIndex":null,"quoteables":[{"url":"https://tipalti.com/a/","title":"A","headings":[],"paragraphs":["One."]}]}""")!
+            .Quoteables[0];
+        Assert.Null(before.Category);
+        Assert.Null(before.Searches);
+        Assert.Empty(before.SearchesThatFound(0));
+    }
+
+    [Fact]
+    public void No_writer_is_shown_what_found_a_passage_or_the_kind_of_page_it_is_on()
+    {
+        var plain = new GccQuoteablePage(
+            "https://tipalti.com/a/", "A", [], ["One passage.", "Another passage."],
+            RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk);
+        var traced = GccGroundingResolver.FoundBy(plain with { Category = "pricing" }, Second);
+        var project = Project("https://tipalti.com/");
+        GccCreateDto With(GccQuoteablePage page) => Create(project.Id, Brief) with
+        {
+            ResearchJson = GccResearchFetchService.Serialize(new GccResearchDocument(null, [page])),
+        };
+
+        Assert.Equal(GccGenerateService.BuildResearchBlock(With(plain)), GccGenerateService.BuildResearchBlock(With(traced)));
+        Assert.Contains("One passage.", GccGenerateService.BuildResearchBlock(With(traced)), StringComparison.Ordinal);
+    }
+
     /// <summary>What BILL's crawl returned on 2026-10-10: its terms of service, a template stub, and a real page.</summary>
     private static IReadOnlyList<GccQuoteablePage> WithALegalPageAndAStub(int asked) =>
     [

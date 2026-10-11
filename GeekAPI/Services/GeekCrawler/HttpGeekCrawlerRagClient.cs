@@ -971,7 +971,10 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 SectionTitle: kept.Select(c => c.SectionTitle)
                     .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)),
                 RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk,
-                Scores: scores));
+                Scores: scores,
+                // The index marks a page once and stamps each of its chunks, so any chunk's is the page's.
+                Category: group.Select(c => c.Category?.Trim().ToLowerInvariant())
+                    .FirstOrDefault(category => !string.IsNullOrEmpty(category))));
         }
 
         return pages;
@@ -1250,6 +1253,14 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         public double? RerankScore { get; set; }
         public string? PageId { get; set; }
         public string? SectionTitle { get; set; }
+
+        /// <summary>
+        /// The kind of page the index marked this chunk's page as when it indexed it
+        /// (Geek-Crawler-Rag <c>metadata.infer_category</c>): pricing, docs, blog, product, about,
+        /// careers, legal, compare, or page. Returned on every hit and not read here until
+        /// 2026-10-11.
+        /// </summary>
+        public string? Category { get; set; }
 
         /// <summary>
         /// Geek-Crawler-Rag scores every chunk at index time (metadata.quality_score) and returns it

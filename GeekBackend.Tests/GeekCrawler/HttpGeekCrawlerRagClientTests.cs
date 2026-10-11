@@ -70,6 +70,36 @@ public sealed class HttpGeekCrawlerRagClientTests
     }
 
     [Fact]
+    public void MapChunksToQuoteable_keeps_the_kind_of_page_the_index_marked_it()
+    {
+        // The index marks a page once and stamps every chunk of it. It sent this on every hit and it
+        // was not read until 2026-10-11 (plans/research-classification.md, stage 1).
+        var chunks = new List<HttpGeekCrawlerRagClient.ChunkDto>
+        {
+            new() { Url = "https://partner.example/pricing", Title = "Pricing", ChunkIndex = 0, Text = "Plans start at a monthly rate.", Score = 0.9, Category = " Pricing " },
+            new() { Url = "https://partner.example/pricing", Title = "Pricing", ChunkIndex = 1, Text = "Annual billing is discounted.", Score = 0.8, Category = "pricing" },
+            new() { Url = "https://partner.example/old", Title = "Old", ChunkIndex = 0, Text = "Indexed before pages were marked.", Score = 0.5 },
+        };
+
+        var pages = HttpGeekCrawlerRagClient.MapChunksToQuoteable(chunks);
+
+        Assert.Equal("pricing", Assert.Single(pages, p => p.Url.EndsWith("/pricing", StringComparison.Ordinal)).Category);
+        Assert.Null(Assert.Single(pages, p => p.Url.EndsWith("/old", StringComparison.Ordinal)).Category);
+    }
+
+    [Fact]
+    public void The_kind_of_page_is_read_from_the_librarys_answer()
+    {
+        const string answer = """{"runId":"r","chunks":[{"url":"https://partner.example/docs/api","text":"Call the endpoint.","score":0.7,"category":"docs"}]}""";
+
+        using var doc = System.Text.Json.JsonDocument.Parse(answer);
+        var chunk = System.Text.Json.JsonSerializer.Deserialize<HttpGeekCrawlerRagClient.ChunkDto>(
+            doc.RootElement.GetProperty("chunks")[0].GetRawText(), HttpGeekCrawlerRagClient.JsonOpts)!;
+
+        Assert.Equal("docs", chunk.Category);
+    }
+
+    [Fact]
     public void A_child_that_is_its_parent_word_for_word_is_printed_once_with_neither_label()
     {
         // A section shorter than the index's child window gives a child identical to its parent. Under

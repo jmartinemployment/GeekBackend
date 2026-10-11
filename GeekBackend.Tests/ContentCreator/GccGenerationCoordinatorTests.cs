@@ -266,6 +266,57 @@ public class GccGenerationCoordinatorTests
         Assert.Empty(searches[1].GetProperty("scores").EnumerateArray());
     }
 
+    [Fact]
+    public void The_grounding_record_says_what_each_of_the_briefs_searches_found_and_the_kinds_of_page()
+    {
+        // plans/research-classification.md, stage 1: which search found which passage, and the kind of
+        // page it is on, are kept, and a run's record shows them before anything is chosen by them.
+        var problem = new GccPassageSearch(GccPassageSearch.KindProblem, "Cash arrives late.");
+        var row = new GccPassageSearch(GccPassageSearch.KindRow, "Automated reminders.", Failure: "Reminders are sent by hand.");
+        var pricing = new GccQuoteablePage(
+            "https://www.partner.test/pricing", "Pricing", [], ["One.", "Two."],
+            Category: "pricing", Searches: [problem, row], FoundBy: [[0, 1], [1]]);
+        var product = new GccQuoteablePage(
+            "https://partner.test/product", "Product", [], ["Three."],
+            Category: "product", Searches: [row], FoundBy: [[0]]);
+        var unmarked = new GccQuoteablePage(
+            "https://partner.test/old", "Old", [], ["Four."], Searches: [problem], FoundBy: [[0]]);
+        var merged = GccGenerationCoordinator.MergeRetrievedEvidence(
+            Create(null), new GccGroundingOutcome([pricing, product, unmarked], [], null, [], [], []));
+
+        var record = System.Text.Json.JsonSerializer.SerializeToElement(GccGenerationCoordinator.GroundingCounts(merged));
+
+        var searches = record.GetProperty("poolSearches").EnumerateArray().ToList();
+        Assert.Equal(2, searches.Count);
+        Assert.Equal("partner.test", searches[0].GetProperty("host").GetString());
+        Assert.Equal("problem", searches[0].GetProperty("kind").GetString());
+        Assert.Equal("Cash arrives late.", searches[0].GetProperty("asked").GetString());
+        Assert.Equal(2, searches[0].GetProperty("pages").GetInt32());
+        Assert.Equal(2, searches[0].GetProperty("passages").GetInt32());
+        Assert.Equal("row", searches[1].GetProperty("kind").GetString());
+        Assert.Equal("Reminders are sent by hand.", searches[1].GetProperty("failure").GetString());
+        Assert.Equal(2, searches[1].GetProperty("pages").GetInt32());
+        // A passage two searches found counts for both.
+        Assert.Equal(3, searches[1].GetProperty("passages").GetInt32());
+
+        Assert.Equal(
+            ["not said:1", "pricing:1", "product:1"],
+            record.GetProperty("pageKinds").EnumerateArray()
+                .Select(kind => $"{kind.GetProperty("kind").GetString()}:{kind.GetProperty("pages").GetInt32()}"));
+    }
+
+    [Fact]
+    public void Research_that_kept_neither_records_neither()
+    {
+        var merged = GccGenerationCoordinator.MergeRetrievedEvidence(
+            Create(null), new GccGroundingOutcome([Page("https://partner.test/a")], [], null, [], [], []));
+
+        var record = System.Text.Json.JsonSerializer.SerializeToElement(GccGenerationCoordinator.GroundingCounts(merged));
+
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, record.GetProperty("poolSearches").ValueKind);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, record.GetProperty("pageKinds").ValueKind);
+    }
+
     // ---- RecordGroundingWarningsAsync ---------------------------------------------------------
 
     [Fact]
