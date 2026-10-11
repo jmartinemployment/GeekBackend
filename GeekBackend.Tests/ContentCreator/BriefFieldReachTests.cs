@@ -129,6 +129,18 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         return brief.ToJsonString();
     }
 
+    /// <summary>
+    /// The brief as the operator's research is entered since 2026-10-11: every failure under a partner
+    /// and none for the category.
+    /// </summary>
+    private static string WithEveryFailureUnderAPartner(string briefJson)
+    {
+        var brief = (JsonObject)JsonNode.Parse(briefJson)!;
+        Framing(brief)["painPoints"] = "";
+        Framing(brief)["evidence"] = new JsonArray();
+        return brief.ToJsonString();
+    }
+
     private static string Changed(string briefJson, Field field)
     {
         var brief = (JsonObject)JsonNode.Parse(briefJson)!;
@@ -348,6 +360,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     {
         var provider = new Recorder(page);
         var plain = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), null);
+        // The project the pages belong to, declaring the partner the brief's per-tool fields are entered
+        // under. The pillar and the blog were written for no project until 2026-10-11, so nothing a
+        // partner's own field could reach on them was ever in a prompt this audit read.
+        var project = new GccProjectDto(
+            ProjectId, CreateId, "Acme", null, null, "active", null, null, null,
+            PartnerUrls, [], new DateOnly(2026, 10, 10), null, null, null, null, null, At, At);
+        var forProject = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), project);
         string saved;
         switch (page)
         {
@@ -355,12 +374,12 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                 // The research the search step leaves: each of the brief's questions for these two pages,
                 // searched for and found. A question with no passages is not sent, so without it neither
                 // page would make its FAQ call and no field could be seen to reach it.
-                saved = await plain.GeneratePillarBodyAsync(
-                    Create("pillar", "AI implementation", briefJson, PageFaqResearch.For(briefJson), null), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                saved = await forProject.GeneratePillarBodyAsync(
+                    Create("pillar", "AI implementation", briefJson, PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "blog":
-                saved = await plain.GenerateBlogBodyAsync(
-                    Create("blog", "AI implementation", briefJson, PageFaqResearch.For(briefJson), null), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                saved = await forProject.GenerateBlogBodyAsync(
+                    Create("blog", "AI implementation", briefJson, PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "email":
                 saved = await plain.GenerateEmailAsync(
@@ -383,9 +402,6 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                     Integrations = [new PartnerIntegrationItem("QuickBooks Online", "accounting", null, null)],
                     Faqs = [new PartnerFaqItem("Is it secure?", "Yes, access is role based.", null)],
                 };
-                var project = new GccProjectDto(
-                    ProjectId, CreateId, "Acme", null, null, "active", null, null, null,
-                    PartnerUrls, [], new DateOnly(2026, 10, 10), null, null, null, null, null, At, At);
                 var service = Build(provider, GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction), project);
                 var toolName = GccRequiredToolMentions.AnchorLookup(briefJson, PartnerUrls).Values.Single();
                 // What the fan-out does for each partner: the tool branch of the one dispatcher, told the product.
@@ -569,6 +585,41 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     private static int Count(string text, string label) =>
         text.Split('\n').Count(line => line.TrimStart().StartsWith(label, StringComparison.Ordinal));
 
+    /// <summary>
+    /// A brief with every failure under a partner still tells the pillar's and the blog's failure
+    /// sections what to argue, and only in a call that carries those failures.
+    /// </summary>
+    /// <remarks>
+    /// The 13:14 UTC run of 2026-10-11 was the first brief entered that way: 25 failures, and neither
+    /// page was told one. The record below could not show it, because the complete brief it changes a
+    /// field of names failures for the category as well.
+    /// </remarks>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public async Task With_every_failure_under_a_partner_the_failure_sections_argue_the_partners(string page)
+    {
+        const string sentToThePartners = "entered those failures under the partner that answers each";
+
+        var calls = await WriteAsync(page, WithEveryFailureUnderAPartner(CompleteBrief));
+
+        var sent = calls.Where(c => c.Text.Contains(sentToThePartners, StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(sent);
+        foreach (var call in sent)
+        {
+            // A section is never sent to a block its own call does not carry.
+            Assert.Contains($"{GccPartnerAnswers.Heading} -- THE OPERATOR'S OWN RESEARCH", call.Text, StringComparison.Ordinal);
+            Assert.Contains(
+                $"1. {GccPartnerAnswers.FailureLabel}: The vendor master has to be mapped by hand.", call.Text, StringComparison.Ordinal);
+            Assert.Contains("The operator named no failure apart from these.", call.Text, StringComparison.Ordinal);
+        }
+
+        // With a failure for the category, the sections cover the category's and are sent nowhere.
+        var asEntered = await WriteAsync(page, CompleteBrief);
+        Assert.DoesNotContain(asEntered, c => c.Text.Contains(sentToThePartners, StringComparison.Ordinal));
+        Assert.Contains(asEntered, c => c.Text.Contains("add no failure the operator did not name:", StringComparison.Ordinal));
+    }
+
     [Theory]
     [InlineData("pillar")]
     [InlineData("blog")]
@@ -648,8 +699,10 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.coreProblem => nothing
             perTool.painPoints => nothing
             perTool.automationToPitch => nothing
-            perTool.evidence.problem => nothing
-            perTool.evidence.solution => nothing
+            # A partner's own rows: which partner answers which failure, and what it does about it
+            # (GccPartnerAnswers, 2026-10-11). Beside the partners the page must name, in every body call.
+            perTool.evidence.problem => every body call
+            perTool.evidence.solution => every body call
             perTool.evidence.terms => nothing
             perTool.faqQuestions => nothing
             """
@@ -682,8 +735,10 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.coreProblem => nothing
             perTool.painPoints => nothing
             perTool.automationToPitch => nothing
-            perTool.evidence.problem => nothing
-            perTool.evidence.solution => nothing
+            # A partner's own rows: which partner answers which failure, and what it does about it
+            # (GccPartnerAnswers, 2026-10-11). Beside the partners the page must name, in every body call.
+            perTool.evidence.problem => every body call
+            perTool.evidence.solution => every body call
             perTool.evidence.terms => nothing
             perTool.faqQuestions => nothing
             """

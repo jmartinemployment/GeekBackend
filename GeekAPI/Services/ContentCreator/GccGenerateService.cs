@@ -2516,7 +2516,7 @@ public partial class GccGenerateService
             context,
             BlogMetadata: metadata,
             EvidenceBlock: WithForeignAmountsNamed(ledeEvidence, blogForeignAmounts),
-            NicheFraming: GccNicheFramingReader.ForCategory(create.BriefJson));
+            NicheFraming: GccNicheFramingReader.ForEveryPartner(create.BriefJson, partnerTools.FailuresAreUnderThePartners));
         var ledeResult = await llm.CompleteAsync(blogType.Lede(blogPromptCtx), ct);
         // Same mismatch as pillar above: this prompt asks for LedeJsonContract, so it is read with
         // ParseLede. Reading it as a sections array failed every blog generation.
@@ -3228,12 +3228,22 @@ public partial class GccGenerateService
     /// <param name="Unlisted">Tools the publisher's own site lists under this keyword that are not this
     /// project's partners. The writer can see them in the site's own prose; it is told not to use them,
     /// and the guard refuses a draft that does.</param>
+    /// <param name="Answers">What the operator's research says each partner answers
+    /// (<see cref="GccPartnerAnswers"/>), or null when the brief holds no row under any partner.</param>
+    /// <param name="FailuresAreUnderThePartners">Whether the failures the piece argues are the ones in
+    /// <paramref name="Answers"/>, the operator having entered none for the category
+    /// (<see cref="GccPartnerAnswers.CarryThePagesFailures"/>).</param>
     private sealed record PartnerTools(
         IReadOnlyList<string> Required,
         IReadOnlyList<KnownCrawlTool> Linked,
-        IReadOnlyList<string> Unlisted)
+        IReadOnlyList<string> Unlisted,
+        string? Answers,
+        bool FailuresAreUnderThePartners)
     {
-        /// <summary>What the writer is told: the names it must use, then the names it must not.</summary>
+        /// <summary>
+        /// What the writer is told: the names it must use, which failure each answers, then the names
+        /// it must not use.
+        /// </summary>
         public string? Instruction
         {
             get
@@ -3241,6 +3251,7 @@ public partial class GccGenerateService
                 var blocks = new[]
                 {
                     GccRequiredToolMentions.Instruction(Required),
+                    Answers,
                     GccRequiredToolMentions.UnlistedInstruction(Unlisted),
                 }.Where(b => !string.IsNullOrWhiteSpace(b)).ToList();
                 return blocks.Count == 0 ? null : string.Join(Environment.NewLine, blocks);
@@ -3272,7 +3283,12 @@ public partial class GccGenerateService
             .Where(name => !required.Any(partner => GccRequiredToolMentions.SameProduct(partner, name)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        return new PartnerTools(required, linked, unlisted);
+        return new PartnerTools(
+            required,
+            linked,
+            unlisted,
+            GccPartnerAnswers.Instruction(create.BriefJson, partnerUrls),
+            GccPartnerAnswers.CarryThePagesFailures(create.BriefJson, partnerUrls));
     }
 
     /// <summary>

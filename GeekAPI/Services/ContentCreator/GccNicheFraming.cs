@@ -42,18 +42,38 @@ public sealed record GccNicheFraming(
     /// <summary>
     /// One retrieval question per failure (Geek-Crawler-Rag plans/retrieval-from-the-brief.md,
     /// 2026-10-08): the reader's problem, the vendor's solution in the vendor's own vocabulary, and
-    /// a few of the vendor's terms. Retrieval input, never guidance and never quoted: the solution
+    /// a few of the vendor's terms. Retrieval input, never evidence and never quoted: the solution
     /// goes to the index's meaning half and the terms to its keyword half. Per tool, rows are added
     /// to the category's, like pain points. Empty when the brief carries none.
+    /// <para>
+    /// One use besides retrieval, since 2026-10-11: a partner's own rows are told to the pillar and
+    /// the blog as the operator's note of which partner answers which failure
+    /// (<see cref="GccPartnerAnswers"/>). The category's rows and a tool page's own are still shown
+    /// to no writer.
+    /// </para>
     /// </summary>
     public IReadOnlyList<GccEvidenceRow> Evidence { get; init; } = [];
+
+    /// <summary>
+    /// True when the failures this page argues are the ones the operator entered under the partners:
+    /// none was entered for the category, and the page is shown the partners' in
+    /// <see cref="GccPartnerAnswers"/>. Set only by <see cref="GccNicheFramingReader.ForEveryPartner"/>,
+    /// for the pillar and the blog.
+    /// </summary>
+    /// <remarks>
+    /// The operator's research is per partner, so a brief entered that way has no failure for the
+    /// category. Until 2026-10-11 the sections that argue where the work goes wrong were then told
+    /// none and the writer chose its own, the thing the framing exists to stop.
+    /// </remarks>
+    public bool FailuresAreUnderThePartners { get; init; }
 
     /// <summary>True when any part carries something. An all-blank set is not framing.</summary>
     public bool HasAny =>
         !string.IsNullOrWhiteSpace(CoreProblem)
         || PainPoints.Count > 0
         || !string.IsNullOrWhiteSpace(AutomationToPitch)
-        || Evidence.Count > 0;
+        || Evidence.Count > 0
+        || FailuresAreUnderThePartners;
 
     /// <summary>
     /// The three parts as section guidance, or null when there is nothing to say.
@@ -108,7 +128,14 @@ public sealed record GccNicheFraming(
 
     private string? Render(string failuresInstruction)
     {
-        if (!HasAny) return null;
+        // Only what this prints counts. A set that carries rows and nothing else, or only the word that
+        // its failures are under the partners, has no line to put under the heading below.
+        if (string.IsNullOrWhiteSpace(CoreProblem)
+            && PainPoints.Count == 0
+            && string.IsNullOrWhiteSpace(AutomationToPitch))
+        {
+            return null;
+        }
 
         var sb = new StringBuilder();
         sb.Append("THE OPERATOR'S OWN FRAMING OF THIS PROBLEM -- argue from it, never cite it. ");
@@ -155,10 +182,17 @@ public sealed record GccNicheFraming(
     /// prose and competitor coverage -- a methodology of its own. Jeff, 2026-10-06: "It is again
     /// inventing its own Methodology versus using mine?" This section's substance is the operator's
     /// failures, every one of them and no other.
+    /// <para>
+    /// When the operator entered the failures under the partners and none for the category
+    /// (<see cref="FailuresAreUnderThePartners"/>), the section is sent to them where the page already
+    /// lists them, under each partner. It is not told to cover every one: five partners with five
+    /// failures each are twenty-five, several of them one failure in different words, and the blog
+    /// has one section of 450 to 600 words for them. It is still told to add none of its own.
+    /// </para>
     /// </remarks>
     public string? FailuresGuidance()
     {
-        if (PainPoints.Count == 0) return null;
+        if (PainPoints.Count == 0) return FailuresAreUnderThePartners ? PartnersFailuresGuidance : null;
 
         var sb = new StringBuilder();
         sb.Append("THE OPERATOR'S OWN FRAMING -- argue from it, never cite it; it is the publisher's position, ");
@@ -174,6 +208,15 @@ public sealed record GccNicheFraming(
 
         return sb.ToString();
     }
+
+    private const string PartnersFailuresGuidance =
+        "THE OPERATOR'S OWN FRAMING -- argue from it, never cite it; it is the publisher's position, "
+        + "not retrieved evidence, so attribute none of it to a source. "
+        + "This section's substance is where the work goes wrong, in the operator's own analysis. The operator "
+        + "entered those failures under the partner that answers each: they are the \"" + GccPartnerAnswers.FailureLabel
+        + "\" lines in " + GccPartnerAnswers.Heading + ". Argue this section from them, in your own prose, never "
+        + "as a list and never verbatim, and add no failure the operator did not name. Failures that say the same "
+        + "thing under different partners are one failure.";
 
     /// <summary>
     /// The automation alone, for the sections about how the approach works, what makes it hold up and
@@ -252,6 +295,25 @@ public static class GccNicheFramingReader
 
         var framing = ReadFraming(root.Value);
         return framing is not null && framing.HasAny ? framing : null;
+    }
+
+    /// <summary>
+    /// The framing for a page about every partner, the pillar and the blog: the category's, and the
+    /// word that its failures are the partners' when the operator entered none for the category.
+    /// </summary>
+    /// <param name="failuresAreUnderThePartners">
+    /// <see cref="GccPartnerAnswers.CarryThePagesFailures"/> for this brief and this project's partners:
+    /// the same answer the block the page is shown was worded by.
+    /// </param>
+    /// <remarks>
+    /// A brief with nothing for the category and failures under its partners still gives a framing here,
+    /// where <see cref="ForCategory"/> gives none: the failure sections have something to argue from.
+    /// </remarks>
+    public static GccNicheFraming? ForEveryPartner(string? briefJson, bool failuresAreUnderThePartners)
+    {
+        var category = ForCategory(briefJson);
+        if (!failuresAreUnderThePartners || category is { PainPoints.Count: > 0 }) return category;
+        return (category ?? new GccNicheFraming(string.Empty, [], string.Empty)) with { FailuresAreUnderThePartners = true };
     }
 
     /// <summary>
@@ -359,6 +421,47 @@ public static class GccNicheFramingReader
         }
 
         return category;
+    }
+
+    /// <summary>
+    /// The rows the operator entered under one partner host: that partner's own failures and what it
+    /// does about each, not merged with the category's. Empty when the brief holds none for the host.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ForHost"/> answers what a partner's crawl is searched with, the category's rows
+    /// included. This answers what the operator said of this partner and of no other, which is what
+    /// a page about every partner needs to say which one answers which failure
+    /// (<see cref="GccPartnerAnswers"/>).
+    /// </remarks>
+    public static IReadOnlyList<GccEvidenceRow> OwnRowsForHost(string? briefJson, string? host)
+    {
+        host = (host ?? string.Empty).Trim();
+        if (host.Length == 0) return [];
+
+        var root = ReadRoot(briefJson);
+        if (root is null) return [];
+
+        if (!TryGetPropertyIgnoreCase(root.Value, "perTool", out var perTool)
+            || perTool.ValueKind != JsonValueKind.Object)
+        {
+            return [];
+        }
+
+        foreach (var entry in perTool.EnumerateObject())
+        {
+            if (!string.Equals(GccRequiredToolMentions.HostKeyOf(Absolute(entry.Name)), host, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(entry.Name.Trim(), host, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
+
+            var rows = ReadEvidence(entry.Value);
+            if (rows.Count > 0) return rows;
+        }
+
+        return [];
     }
 
     /// <summary>
@@ -721,7 +824,9 @@ public static class GccNicheFramingReader
 /// the reader's failure, the vendor's solution in the vendor's own vocabulary, and a few of the
 /// vendor's terms. <paramref name="Solution"/> is sent to the index as <c>need</c> (the meaning
 /// half); <paramref name="Terms"/>, joined, as <c>keyword</c> (the keyword half). Never quoted and
-/// never shown to the writer as evidence: what retrieval returns for it is the evidence.
+/// never shown to the writer as evidence: what retrieval returns for it is the evidence. A row entered
+/// under one partner is also shown to the pillar's and the blog's writer as the operator's own note of
+/// what that partner answers (<see cref="GccPartnerAnswers"/>).
 /// </summary>
 public sealed record GccEvidenceRow(string Problem, string Solution, IReadOnlyList<string> Terms)
 {

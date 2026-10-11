@@ -70,7 +70,8 @@ public partial class GccGenerateService
         // The operator's framing of the category: what the pillar argues from. Until 2026-10-06 only
         // the tool page received it, and the pillar's slots were filled from retrieved prose instead.
         var outlineCtx = new ContentTypes.ContentTypePromptContext(
-            context, NicheFraming: GccNicheFramingReader.ForCategory(create.BriefJson));
+            context,
+            NicheFraming: GccNicheFramingReader.ForEveryPartner(create.BriefJson, partnerTools.FailuresAreUnderThePartners));
         var metadata = new ArticleMetadataDraft(
             Title: create.Topic.Trim(),
             MetaDescription: Truncate((create.Notes ?? create.Topic).Trim(), 160),
