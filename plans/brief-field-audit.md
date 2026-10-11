@@ -81,8 +81,27 @@ blog three.
 | category `automationToPitch` | second body call | first and second body call | first body call, when the tool has none of its own | **no** |
 | tool's own `coreProblem`, `painPoints`, `automationToPitch` | no | no | first body call | no |
 | tool's own `faqQuestions` | no | no | answered in the operator's FAQ | no |
-| `evidence` rows: `solution`, `terms` | no | no | no | no |
+| a partner's own `evidence` rows: `problem`, `solution` | every body call, since 2026-10-11 | every body call, since 2026-10-11 | `problem` reaches it as the tool's `painPoints`; `solution` no | no |
+| the category's rows' `solution`; any row's `terms` | no | no | no | no |
 | category `faqQuestions`, `lengthBand`, `briefVersion` | no | no | no | no |
+
+**A partner's own rows reach the pillar and the blog since 2026-10-11** (Jeff: yes to "the pillar and blog should also be
+given each partner's failures and remedies"). Until then they were read for that partner's search and tool page alone, and
+the two pages about every partner were told to name each one and nothing of which failure each answers. `GccPartnerAnswers`
+prints them under each partner's name beside the partners the page must name, as the operator's note and not as evidence.
+`BriefFieldReachTests` did not see this before because it wrote the pillar and the blog for no project, so no partner was
+ever in their prompts; it now writes them for a project that declares the partner. Not yet seen in a real run.
+
+**A brief with every failure under a partner told the pillar and the blog no failure** (found on the 13:14 UTC run of
+2026-10-11, fixed the same day on Jeff's word). The form has put a Partner on each row since 2026-10-11, and the first
+brief entered that way had 25 failures under five partners and none for all of them. `FailuresGuidance` read the
+category's failures alone, so the pillar's two sections on what is going wrong and the blog's section on what the work
+costs were told none, and the writer chose its own. Those sections are now sent to the partners' failures in the block
+(`GccNicheFramingReader.ForEveryPartner`), told to argue from them and to add none, and the block says the operator named
+no others. A brief with a failure for all partners is read as before. The record below could not show the gap, because the
+complete brief it changes one field of names failures for the category too;
+`With_every_failure_under_a_partner_the_failure_sections_argue_the_partners` writes both pages from a brief that does not.
+Not yet seen in a real run.
 
 **The searches of a partner's crawl** read four things and nothing else: the core problem (the
 tool's own, else the category's), each row's `solution` (its `problem` when it has no solution,
@@ -140,7 +159,7 @@ no brief field.
 |---|---|---|
 | `ctaType`, `ctaLabel` | the writer of a pillar, blog or tool page | Jeff, 2026-10-07: the closing is built by code. So on those three pages the operator's call to action and its label change nothing; the closing is the consultation line from `appsettings.json`. `ctaType` is still required before any page is written (`GccGenerateService.cs:182`) |
 | `diagnosisQuestions` | every writer | Jeff, 2026-10-07: code puts them in the closing |
-| rows' `solution` and `terms` | every writer | 2026-10-08: search input, never quoted |
+| the category's rows' `solution`, every row's `terms`, and a partner's own rows' `solution` on that partner's tool page | their writers | 2026-10-08: search input, never quoted |
 | `lengthBand` | everything | the form saves it empty and the project route strips it |
 | category `coreProblem`, `automationToPitch` | a tool page whose tool has its own | the tool's own replaces them; pain points and rows are added |
 | `paaQuestions`, `blogFaqQuestions`, a tool's `faqQuestions` | each other's page | each page answers its own |

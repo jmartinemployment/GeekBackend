@@ -157,6 +157,42 @@ The pillar's opening carries the operator's whole framing; a blog's and a tool p
 refuses a missing required field and a taxonomy path whose first level is not one of `Departments.Slugs`: that level is the
 department directory of every address the run builds. `BriefFieldReachTests` records which field reaches which call.
 
+**A partner's own rows, on the pillar and the blog.** The brief's rows of failure and remedy are each entered for all
+partners or for one. A row for all partners is the category's: its failure is what the pillar's and the blog's sections
+cover. A row for one partner is searched for on that partner's site, and since 2026-10-11 every body call of the pillar and
+the blog is told it under that partner's name, beside the list of partners the page must name (`GccPartnerAnswers`): the
+failure, and what the operator noted the partner does about it. It is the operator's note, not evidence: the writer is told
+to say what a partner does only as that partner's passages show it and to take no figure from the note. No code checks a
+sentence about a partner against a passage. The partner's own tool page is told its failures and not its remedies, as
+before. On the accounts receivable project the block is about 6,400 characters, 1,260 tokens a body call, worked out from
+the brief's field lengths and not yet seen in a real run.
+
+**A brief with no row for all partners.** The operator's research is per partner, so a brief can hold every failure under
+a partner and none for the category. The pillar's two sections on what is going wrong and the blog's section on what the
+work costs by hand were then told no failure: on the 13:14 UTC run of 2026-10-11, the first brief entered that way, 25
+failures were in the brief and neither page was told one. Since 2026-10-11 those sections are sent to the partners'
+failures in the block above (`GccNicheFramingReader.ForEveryPartner`, `GccNicheFraming.FailuresGuidance`), and the block
+says the operator named no others. They are told to argue from them and add none of their own, not to cover every one:
+five partners with five failures each do not fit one section. One answer decides both wordings
+(`GccPartnerAnswers.CarryThePagesFailures`), so a section is never sent to a block that lists no failure. A brief with a
+failure for all partners is read as before. Not yet seen in a real run.
+
+**An outline's section label names no one subject's features.** The tool page's section on what gets configured read
+"approval chains, routing, automation logic", and the blog's section on early decisions "approval routing", written when
+every project was accounts payable. On the same run three cash flow forecasting tools were each given a section headed
+"Approval Chains, Routing, and Automation Logic". The tool label now reads "its own rules and automation logic", named as
+the product's own pages name them, and the blog's names data, mapping and who owns what. The Workflow product's
+per-section writer still lists "approval chains, routing" (`BuildImplementationSectionGuidance`) and is not changed.
+
+**The 13:14 UTC run of 2026-10-11** (project "Cash Flow Forecasting: Automated Spreadsheet Data", five partners, 30 body
+searches and 123 question searches) is the first run since 2026-10-10 to write a pillar and a blog. All seven pages were
+written and none refused. A pillar body call was about 66,500 prompt tokens with 8,192 reserved, about 74,700 of 128,000;
+the accounts receivable project's calls, about 107,600, have still not been run. The pillar answered five of its eight
+questions and the blog four of its six from searched passages, and the five left out were listed; the tool pages answered
+52 of 53. The pillar was 4,076 words and the tool pages 3,858 to 4,468. Fifteen lines were listed, eight of them the
+keyword: the writer wrote "Automated Spreadsheet Data" two to four times on a tool page and code found no shortened form
+to restore on any of the five.
+
 **Checks (`GccDraftGuard`).** Refuse: names-product, quotation and one-quotation (tool), no-quotation (pillar, blog),
 tools-section, heading-provenance, unlisted-tools, links, link-text (a link may sit on 12 words at most), numbers, currency,
 questions-quiz. Report only: partner-mentions, closing-link, opening-links, blockquote-missing (tool), keyword-density
