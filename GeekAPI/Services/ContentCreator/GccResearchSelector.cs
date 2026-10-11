@@ -1,0 +1,417 @@
+using GeekAPI.Services.Workflow.Services.PromptBuilders;
+using GeekApplication.Models.ContentCreator;
+
+namespace GeekAPI.Services.ContentCreator;
+
+/// <summary>One passage of partner research, as a request would carry it.</summary>
+/// <param name="Host">The partner it belongs to, by the one key anything is bucketed by partner with
+/// (<see cref="GccRequiredToolMentions.HostKeyOf"/>).</param>
+/// <param name="Url">The page it is on.</param>
+/// <param name="Position">Its place among that page's passages.</param>
+/// <param name="Chars">What printing it adds to a request.</param>
+/// <param name="PageChars">What printing its page's own lines adds, once however many of the page's
+/// passages a request carries.</param>
+/// <param name="Labels">The labels it is given, each with its strength; empty for a general passage.</param>
+/// <param name="FoundBySearches">How many of the brief's searches found it.</param>
+/// <param name="Score">What the search scored it, or zero when the page does not say.</param>
+public sealed record GccResearchPassage(
+    string Host,
+    string Url,
+    int Position,
+    int Chars,
+    int PageChars,
+    IReadOnlyDictionary<string, int> Labels,
+    int FoundBySearches,
+    double Score);
+
+/// <summary>A passage a request would carry, and why.</summary>
+/// <param name="Why">One of the selector's four reasons: the whole research fits, the passage is
+/// labelled for the request's sections, it is general, or it makes up its partner's share.</param>
+public sealed record GccChosenPassage(GccResearchPassage Passage, string Why);
+
+/// <summary>What one request would carry of a page's partner research.</summary>
+/// <param name="Whole">True when all of the research fits under the limit and is carried as it is today.</param>
+/// <param name="Labels">The labels of the sections the request writes.</param>
+/// <param name="Chosen">What it would carry, partner by partner, best first within each.</param>
+/// <param name="LeftOut">What it would not.</param>
+public sealed record GccResearchSelection(
+    bool Whole,
+    IReadOnlyList<string> Labels,
+    IReadOnlyList<GccChosenPassage> Chosen,
+    IReadOnlyList<GccResearchPassage> LeftOut);
+
+/// <summary>
+/// Chooses, for one request of a pillar or a blog, the passages of partner research that request
+/// would carry (plans/research-classification.md, "What each request then carries").
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Why.</b> Every request that writes part of a pillar or a blog carries all of the research, every
+/// passage found on every partner's site. On 2026-10-10 that put both pages over the model's limit,
+/// and the room made since is about 9% on the project it happened to. A request that writes two
+/// sections needs the passages for those two.
+/// </para>
+/// <para>
+/// <b>The rules, in the order they apply.</b>
+/// <list type="number">
+/// <item>Research that fits under <see cref="MaxCharsInAll"/> is carried whole. A small project is
+/// not changed.</item>
+/// <item>Every partner has the same limit, <see cref="MaxCharsPerPartner"/> or its equal part of
+/// <see cref="MaxCharsInAll"/> when there are many partners, so no partner is crowded out: the page
+/// names every one and needs something to say about each.</item>
+/// <item>Within a partner, passages labelled for the request's sections come first, the strongest
+/// first, then general ones. A passage an earlier request of the same page carried counts half as
+/// much each time, so the page as a whole sees more of the research.</item>
+/// <item>A partner with too little of either is made up to a quarter of its limit from its other
+/// passages, the search's best first.</item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>Plain code.</b> No network and no model, and the same passages in the same order give the same
+/// choice. Since stage 2 it runs on every pillar and blog and chooses nothing a writer is sent:
+/// <see cref="GccResearchWatch"/> writes what it would have chosen to the run's record.
+/// </para>
+/// </remarks>
+public static class GccResearchSelector
+{
+    /// <summary>The most of one partner's research a request carries, in characters as printed.</summary>
+    public const int MaxCharsPerPartner = 40_000;
+
+    /// <summary>The most partner research a request carries in all, in characters as printed.</summary>
+    public const int MaxCharsInAll = 240_000;
+
+    /// <summary>A partner is made up to this part of its limit whatever its passages are labelled.</summary>
+    public const int GuaranteedPartOfLimit = 4;
+
+    public const string WhyWhole = "whole";
+    public const string WhyLabelled = "labelled";
+    public const string WhyGeneral = "general";
+    public const string WhyShare = "share";
+
+    /// <summary>
+    /// The passages a writer is sent today, each with its labels: every page's first
+    /// <see cref="GccResearchCaps.MaxParagraphsPerPage"/>, which is what the research block prints.
+    /// </summary>
+    public static IReadOnlyList<GccResearchPassage> PassagesOf(IReadOnlyList<GccQuoteablePage>? pages)
+    {
+        var passages = new List<GccResearchPassage>();
+        var line = Environment.NewLine.Length;
+        foreach (var page in pages ?? [])
+        {
+            // Research is read back from stored JSON, where a field the record calls required can be
+            // missing. The block prints such a page as it is, so it is counted as it is: this runs on
+            // every pillar and blog and must not be what stops one.
+            if (page?.Paragraphs is null) continue;
+            var url = page.Url ?? string.Empty;
+            var host = GccRequiredToolMentions.HostKeyOf(url);
+            // The page's own lines as GccGenerateService.BuildResearchBlock prints them: its title and
+            // address, its headings, and the blank line after its passages.
+            var pageChars = (page.Title?.Length ?? 0) + url.Length + 3 + line + line;
+            foreach (var heading in (page.Headings ?? []).Take(GccResearchCaps.MaxHeadingsPerPage))
+            {
+                pageChars += (heading?.Text?.Length ?? 0) + 6 + line;
+            }
+
+            var scored = page.Scores is not null && page.Scores.Count == page.Paragraphs.Count;
+            var printed = Math.Min(page.Paragraphs.Count, GccResearchCaps.MaxParagraphsPerPage);
+            for (var i = 0; i < printed; i++)
+            {
+                passages.Add(new GccResearchPassage(
+                    host,
+                    url,
+                    i,
+                    (page.Paragraphs[i]?.Length ?? 0) + 2 + line,
+                    pageChars,
+                    GccPassageClassifier.LabelsOf(page, i),
+                    page.SearchesThatFound(i).Count,
+                    scored ? page.Scores![i]?.Score ?? 0 : 0));
+            }
+        }
+
+        return passages;
+    }
+
+    /// <summary>What printing <paramref name="passages"/> costs: each passage, and each page's own lines once.</summary>
+    public static int CharsOf(IEnumerable<GccResearchPassage> passages)
+    {
+        var chars = 0;
+        var pages = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var passage in passages)
+        {
+            chars += passage.Chars;
+            if (pages.Add(passage.Url)) chars += passage.PageChars;
+        }
+
+        return chars;
+    }
+
+    /// <summary>
+    /// What a request writing sections labelled <paramref name="labels"/> would carry of
+    /// <paramref name="passages"/>.
+    /// </summary>
+    /// <param name="shownBefore">How many earlier requests of the same page carried each passage, by
+    /// its page and its place on it. A passage not listed was carried by none.</param>
+    public static GccResearchSelection Select(
+        IReadOnlyList<GccResearchPassage> passages,
+        IReadOnlyList<string> labels,
+        IReadOnlyDictionary<(string Url, int Position), int> shownBefore)
+    {
+        if (CharsOf(passages) <= MaxCharsInAll)
+        {
+            return new GccResearchSelection(
+                Whole: true, labels, [.. passages.Select(passage => new GccChosenPassage(passage, WhyWhole))], []);
+        }
+
+        var hosts = new List<string>();
+        foreach (var passage in passages)
+        {
+            if (!hosts.Contains(passage.Host, StringComparer.Ordinal)) hosts.Add(passage.Host);
+        }
+
+        // Over the limit there is at least one passage, so at least one host.
+        var limit = Math.Min(MaxCharsPerPartner, MaxCharsInAll / hosts.Count);
+        var guaranteed = limit / GuaranteedPartOfLimit;
+
+        var chosen = new List<GccChosenPassage>();
+        var leftOut = new List<GccResearchPassage>();
+        foreach (var host in hosts)
+        {
+            var mine = passages.Where(passage => passage.Host == host).ToList();
+            var taken = new HashSet<GccResearchPassage>(ReferenceEqualityComparer.Instance);
+            var pagesIn = new HashSet<string>(StringComparer.Ordinal);
+            var used = 0;
+
+            bool Take(GccResearchPassage passage, string why)
+            {
+                var cost = passage.Chars + (pagesIn.Contains(passage.Url) ? 0 : passage.PageChars);
+                if (used + cost > limit) return false;
+                used += cost;
+                pagesIn.Add(passage.Url);
+                taken.Add(passage);
+                chosen.Add(new GccChosenPassage(passage, why));
+                return true;
+            }
+
+            // For this request: labelled for its sections, or general. Strongest first; of two as
+            // strong, the one more of the brief's searches found, then the one the search scored
+            // higher, then the one that came first.
+            var forThisRequest = mine
+                .Select(passage => (Passage: passage, Value: ValueOf(passage, labels, shownBefore)))
+                .Where(ranked => ranked.Value > 0)
+                .OrderByDescending(ranked => ranked.Value)
+                .ThenByDescending(ranked => ranked.Passage.FoundBySearches)
+                .ThenByDescending(ranked => ranked.Passage.Score)
+                .ToList();
+            foreach (var (passage, _) in forThisRequest)
+            {
+                // One that does not fit is passed over, and a shorter one after it may still fit.
+                Take(passage, passage.Labels.Count == 0 ? WhyGeneral : WhyLabelled);
+            }
+
+            // The partner's share: the page names every partner, so each request has something of each.
+            if (used < guaranteed)
+            {
+                foreach (var passage in mine
+                    .Where(passage => !taken.Contains(passage))
+                    .OrderByDescending(passage => passage.Score)
+                    .ThenByDescending(passage => passage.FoundBySearches))
+                {
+                    if (used >= guaranteed) break;
+                    Take(passage, WhyShare);
+                }
+            }
+
+            leftOut.AddRange(mine.Where(passage => !taken.Contains(passage)));
+        }
+
+        return new GccResearchSelection(Whole: false, labels, chosen, leftOut);
+    }
+
+    /// <summary>
+    /// What a passage is worth to a request: its strength for the strongest of the request's labels it
+    /// carries, one for a general passage, nothing for a passage labelled only for other sections,
+    /// halved for each earlier request of the page that carried it.
+    /// </summary>
+    internal static double ValueOf(
+        GccResearchPassage passage,
+        IReadOnlyList<string> labels,
+        IReadOnlyDictionary<(string Url, int Position), int> shownBefore)
+    {
+        double worth = 0;
+        if (passage.Labels.Count == 0)
+        {
+            worth = 1;
+        }
+        else
+        {
+            foreach (var label in labels)
+            {
+                if (passage.Labels.TryGetValue(label, out var strength) && strength > worth) worth = strength;
+            }
+        }
+
+        var shown = shownBefore.GetValueOrDefault((passage.Url, passage.Position));
+        for (var i = 0; i < shown; i++) worth /= 2;
+        return worth;
+    }
+}
+
+/// <summary>
+/// What each body request of one pillar or one blog would carry if its research were chosen for it,
+/// worked out as the page is written and put on the run's record. The writer is sent everything, as
+/// before (plans/research-classification.md, stage 2: "watch" mode).
+/// </summary>
+/// <remarks>
+/// One per page being written, because what a request would carry depends on what the requests before
+/// it carried. It is told nothing by the writer and tells the writer nothing: it reads the page's
+/// partner research and the labels of the sections each request writes, and returns a record.
+/// </remarks>
+public sealed class GccResearchWatch
+{
+    private readonly IReadOnlyList<GccResearchPassage> _passages;
+    private readonly Dictionary<(string Url, int Position), int> _shown = [];
+
+    /// <param name="partnerPages">The page's partner research, as its research block prints it.</param>
+    public GccResearchWatch(IReadOnlyList<GccQuoteablePage>? partnerPages) =>
+        _passages = GccResearchSelector.PassagesOf(partnerPages);
+
+    /// <summary>
+    /// How the page's partner research divides by label, for the run's record: every passage counted
+    /// under each label it is given, a passage with none under "general", and the same partner by
+    /// partner. This is what shows whether a label has anything to choose from.
+    /// </summary>
+    public object LabelsRecord() => new
+    {
+        passages = _passages.Count,
+        chars = GccResearchSelector.CharsOf(_passages),
+        byLabel = CountsByLabel(_passages),
+        partners = HostsOf(_passages)
+            .Select(host => _passages.Where(passage => passage.Host == host).ToList())
+            .Select(mine => new
+            {
+                host = mine[0].Host,
+                passages = mine.Count,
+                chars = GccResearchSelector.CharsOf(mine),
+                byLabel = CountsByLabel(mine),
+            })
+            .ToList(),
+    };
+
+    /// <summary>
+    /// What a request writing <paramref name="batch"/> would carry, as the run's record of it, or null
+    /// when none of its sections names a label. Counts what it chose as carried, for the requests
+    /// after it.
+    /// </summary>
+    public object? WouldCarry(IReadOnlyList<SectionSlot> batch, string batchLabel, int call, int of)
+    {
+        var labels = new List<string>();
+        foreach (var slot in batch)
+        {
+            if (slot.ResearchLabel is { Length: > 0 } label && !labels.Contains(label, StringComparer.Ordinal))
+            {
+                labels.Add(label);
+            }
+        }
+
+        if (labels.Count == 0) return null;
+
+        var selection = GccResearchSelector.Select(_passages, labels, _shown);
+        foreach (var chosen in selection.Chosen)
+        {
+            var key = (chosen.Passage.Url, chosen.Passage.Position);
+            _shown[key] = _shown.GetValueOrDefault(key) + 1;
+        }
+
+        var carried = selection.Chosen.Select(chosen => chosen.Passage).ToList();
+        return new
+        {
+            batch = batchLabel,
+            call,
+            of,
+            // The writer was sent everything. This is what the request would have carried.
+            watch = true,
+            labels,
+            whole = selection.Whole,
+            limits = new
+            {
+                perPartner = GccResearchSelector.MaxCharsPerPartner,
+                inAll = GccResearchSelector.MaxCharsInAll,
+            },
+            sent = Size(_passages),
+            wouldCarry = Size(carried),
+            partners = HostsOf(_passages)
+                .Select(host => new
+                {
+                    host,
+                    sent = Size([.. _passages.Where(passage => passage.Host == host)]),
+                    wouldCarry = Size([.. carried.Where(passage => passage.Host == host)]),
+                    labelled = CountWhy(selection, host, GccResearchSelector.WhyLabelled),
+                    general = CountWhy(selection, host, GccResearchSelector.WhyGeneral),
+                    share = CountWhy(selection, host, GccResearchSelector.WhyShare),
+                    leftOut = selection.LeftOut.Count(passage => passage.Host == host),
+                })
+                .ToList(),
+            // Listed only when something was chosen between: research carried whole has nothing to review.
+            chosen = selection.Whole
+                ? null
+                : selection.Chosen
+                    .Select(chosen => new
+                    {
+                        url = chosen.Passage.Url,
+                        passage = chosen.Passage.Position + 1,
+                        why = chosen.Why,
+                        labels = LabelNames(chosen.Passage),
+                    })
+                    .ToList(),
+            leftOut = selection.Whole
+                ? null
+                : selection.LeftOut
+                    .Select(passage => new
+                    {
+                        url = passage.Url,
+                        passage = passage.Position + 1,
+                        labels = LabelNames(passage),
+                    })
+                    .ToList(),
+        };
+    }
+
+    private static object Size(IReadOnlyList<GccResearchPassage> passages) => new
+    {
+        pages = passages.Select(passage => passage.Url).Distinct(StringComparer.Ordinal).Count(),
+        passages = passages.Count,
+        chars = GccResearchSelector.CharsOf(passages),
+    };
+
+    private static int CountWhy(GccResearchSelection selection, string host, string why) =>
+        selection.Chosen.Count(chosen => chosen.Passage.Host == host && chosen.Why == why);
+
+    private static IReadOnlyList<string> HostsOf(IReadOnlyList<GccResearchPassage> passages)
+    {
+        var hosts = new List<string>();
+        foreach (var passage in passages)
+        {
+            if (!hosts.Contains(passage.Host, StringComparer.Ordinal)) hosts.Add(passage.Host);
+        }
+
+        return hosts;
+    }
+
+    private static IReadOnlyList<string> LabelNames(GccResearchPassage passage) =>
+        passage.Labels.Count == 0
+            ? [GccResearchLabel.General]
+            : [.. GccResearchLabel.All.Where(passage.Labels.ContainsKey)];
+
+    /// <summary>How many passages carry each label, in the plan's order, then how many carry none.</summary>
+    private static IReadOnlyDictionary<string, int> CountsByLabel(IReadOnlyList<GccResearchPassage> passages)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var label in GccResearchLabel.All)
+        {
+            counts[label] = passages.Count(passage => passage.Labels.ContainsKey(label));
+        }
+
+        counts[GccResearchLabel.General] = passages.Count(passage => passage.Labels.Count == 0);
+        return counts;
+    }
+}

@@ -193,7 +193,9 @@ public partial class GccGenerateService
                 [.. pillarOutline.Skip(1)],
                 "Pillar body",
                 ct,
-                callsUnderFloor);
+                callsUnderFloor,
+                // Watching only: what each request would carry is recorded, and each carries everything.
+                new GccResearchWatch(GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables));
             // The keyword's shortenings put back on the opening and the body as written, then partner
             // tool pages on the body alone, then the page's own closing, then the section written
             // outside the outline: neither of the last two can carry a tool link, and neither is remapped.

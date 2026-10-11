@@ -191,6 +191,15 @@ legal, compare, page) was sent on every result and not read. Both are now kept o
 `Searches`, `FoundBy`) and listed on the run log's `grounding` event (`poolSearches`, `pageKinds`). No writer is shown
 either and no passage is chosen by them yet: this is the record stage 2 will choose from.
 
+**What each request would carry is recorded, and each still carries everything** (2026-10-11, the same plan's stage 2:
+"watch" mode). Each pillar and blog section names one of seven labels for the part of the research it is written from
+(`SectionSlot.ResearchLabel`; `GccResearchLabel`). Code gives each passage its labels from the kind of page, the searches
+that found it and its own words (`GccPassageClassifier`), and works out what a request writing two sections would carry
+(`GccResearchSelector`): research under 240,000 characters whole; otherwise up to 40,000 for each partner, passages
+labelled for the request's sections first, then general ones, a passage an earlier request carried counted at half, and
+every partner made up to a quarter of its limit. The run log gets `evidence-labels` once a page and `evidence` once a
+body request (`GccResearchWatch`). No prompt is built from it: stages 4 and 5 of the plan do that, on Jeff's word.
+
 **The 13:14 UTC run of 2026-10-11** (project "Cash Flow Forecasting: Automated Spreadsheet Data", five partners, 30 body
 searches and 123 question searches) is the first run since 2026-10-10 to write a pillar and a blog. All seven pages were
 written and none refused. A pillar body call was about 66,500 prompt tokens with 8,192 reserved, about 74,700 of 128,000;

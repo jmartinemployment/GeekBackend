@@ -1,8 +1,9 @@
 # Research classification: plan
 
-Written 2026-10-11. **Status: approved by Jeff on 2026-10-11 ("execute"). Stage 1 is built. Stages 2 to
-5 are not.** What was built, and how it differs from what is written below, is under "Progress" at the
-end.
+Written 2026-10-11. **Status: approved by Jeff on 2026-10-11 ("execute"). Stages 1 and 2 are built.
+Stage 3 waits for a real run. Stages 4 and 5, which change what a writer is sent, are not built
+and wait for Jeff's word.** What was built, and how it differs from what is written below, is under
+"Progress" at the end.
 
 ## What it is
 
@@ -179,3 +180,62 @@ request carries. The plan uses about 40% of today's size.
 **What a real run will show for stage 1:** the `grounding` event of the next Generate lists
 `poolSearches` and `pageKinds`. That is the first sight of how the research divides by the brief's
 questions and by kind of page, and it is what stage 2's word lists are checked against.
+
+**Stage 2, classify and select in "watch" mode: built 2026-10-11.** Nothing a writer is sent changed.
+Every pillar and blog body request still carries all of the research.
+
+- **The labels** are the seven above (`GccResearchLabel`). Each pillar and blog section names the one
+  it is written from (`SectionSlot.ResearchLabel`, set in `PillarPrompts` and `BlogPrompts` as the
+  table above says). A tool page's sections name none.
+- **How a passage gets its labels** (`GccPassageClassifier`). Each of the three things adds to a
+  label's strength, and a label needs a strength of 2:
+  - the kind of page: a pricing or a comparison page gives "fit, price and limits" 2; a product page
+    gives "how it works" 1; a documentation page gives "how it works", "getting it running" and "data
+    and integrations" 1 each; a blog post, an about page and an unmarked page give nothing;
+  - the searches that found it: the brief's problem gives "the problem" 2; a row's search gives "how
+    it works" 2, and each other label the remedy's own words name 1;
+  - its own words: 1 for each of a label's words it holds, up to 3. One common word alone gives no
+    label.
+  The word lists name no subject (no "invoice", no "approval"), and a test fails if one does. The line
+  of link text printed under a passage is not read: it is often the site's menu.
+- **What a request would carry** (`GccResearchSelector`), in this order: research under 240,000
+  characters is carried whole; otherwise each partner has the same limit, 40,000 or its equal part of
+  240,000; within a partner, passages labelled for the request's sections first, strongest first,
+  then general ones; a passage an earlier request of the same page carried counts half each time; a
+  partner left with less than a quarter of its limit is made up to that from its other passages, the
+  search's best first.
+- **Decided while building, not in the plan above:**
+  - a partner's guaranteed share is a quarter of its limit. The plan said "a guaranteed share" and
+    named no figure;
+  - a passage labelled only for other sections is left out unless it is needed for that share. The
+    plan's table assumed about 195,000 characters a request; with this rule a request carries less
+    than its limit when a partner has few passages for its sections. The run log will say how much;
+  - partners are told apart by host, the way a tool page's research already is
+    (`GccRequiredToolMentions.HostKeyOf`). A partner's page on another host of its own (a help or a
+    documentation subdomain) counts as a separate partner. If a real run shows one, that is fixed
+    before stage 4.
+- **On the run log, for every pillar and blog:**
+  - `evidence-labels`, once: how many passages carry each label, in all and partner by partner. This
+    is what shows whether a label has anything to choose from.
+  - `evidence`, once for each body request: the sections' labels, what was sent, what would be
+    carried, the same partner by partner (labelled, general, share, left out), and each passage chosen
+    and left out with its labels. When the research fits whole it says `whole` and lists nothing.
+- **Checked by test:** the same passages give the same choice; every partner is kept and none passes
+  its limit; the limit in all is never passed; research that fits is carried whole; a passage is
+  counted at what the research block prints for it; and, through the real pillar and blog writers
+  with more research than the limit, every body request is still sent every passage and is told no
+  label.
+
+**Stage 3 needs one or two real runs.** What to read from them:
+
+1. `grounding`: `poolSearches` and `pageKinds`. Do the brief's rows each bring back passages, and what
+   kinds of page are they on?
+2. `evidence-labels`: is any label nearly empty? An empty one means the research holds little for
+   those sections, and the answer is to search for them, which is a separate plan.
+3. `evidence`: on a project over 240,000 characters, how much would each request carry, does every
+   partner have enough, and are the passages chosen for a section the right ones? A project under
+   that size says `whole` on every request and shows nothing to adjust: the accounts receivable
+   project is the one that is over.
+
+**Not built:** stages 4 and 5. Nothing reads a selection into a prompt. The four sentences listed under
+"For the code" that assume the whole research is present are unchanged, and are reworded in stage 4.

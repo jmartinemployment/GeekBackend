@@ -2588,7 +2588,9 @@ public partial class GccGenerateService
                 blogOutline,
                 "Blog body",
                 ct,
-                callsUnderFloor);
+                callsUnderFloor,
+                // Watching only: what each request would carry is recorded, and each carries everything.
+                new GccResearchWatch(GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables));
             // The keyword's shortenings put back on the opening and the body as written, then the links,
             // the closing and the FAQ, none of which is remapped.
             var (blogOpening, blogBody) = await RemapKeywordAsync(
@@ -3475,15 +3477,34 @@ public partial class GccGenerateService
         IReadOnlyList<SectionSlot> outline,
         string label,
         CancellationToken ct,
-        List<string>? callsUnderFloor = null)
+        List<string>? callsUnderFloor = null,
+        GccResearchWatch? researchWatch = null)
     {
         var written = new List<Section>();
         // The keyword the page is scored against: the one its prompts name and the SEO report counts.
         var keyword = promptCtx.Context.TargetKeyword;
+
+        // How the page's partner research divides by label, once, before its requests are recorded.
+        if (researchWatch is not null)
+        {
+            await GccRunLog.RecordIfAnyAsync("evidence-labels", researchWatch.LabelsRecord());
+        }
+
         for (var i = 0; i < outline.Count; i += SectionsPerBatch)
         {
             var batch = outline.Skip(i).Take(SectionsPerBatch).ToList();
             var batchLabel = $"{label} sections {i + 1}-{i + batch.Count}";
+
+            // What this request would carry if its research were chosen for its sections, on the run's
+            // record (plans/research-classification.md, stage 2). Recorded and nothing more: the request
+            // below is built from promptCtx, which this does not touch, and carries all of the research.
+            if (researchWatch?.WouldCarry(
+                    batch, batchLabel, i / SectionsPerBatch + 1, (outline.Count + SectionsPerBatch - 1) / SectionsPerBatch)
+                is { } wouldCarry)
+            {
+                await GccRunLog.RecordIfAnyAsync("evidence", wouldCarry);
+            }
+
             // What the calls before this one wrote, so this one does not make their points again. Each
             // call sees the outline and the opening; until 2026-10-10 none saw another call's text.
             var batchCtx = promptCtx with

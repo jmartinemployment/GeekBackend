@@ -34,44 +34,48 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     /// (<c>GccGenerateService.MeasuredWordsPerBodyCall</c>), so five sections were three calls and about 2,000
     /// words against a 3,000-word floor. Ten are five calls. Each of the five obligations was split along what
     /// it already said; none is a new topic.
+    /// <para>
+    /// Each names the part of the page's research it is written from (<see cref="SectionSlot.ResearchLabel"/>,
+    /// plans/research-classification.md, "The labels"). No prompt prints it.
+    /// </para>
     /// </summary>
     private static readonly SectionSlot[] Sections =
     [
         SectionSlot.Cover(
             "the opening: what this reader is dealing with, told concretely, and what this page settles for them",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.Problem },
         SectionSlot.Cover(
             "what is actually going wrong in this work today",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.Problem },
         SectionSlot.Cover(
             "what the status quo costs -- hours, errors, delay, risk, and who absorbs them",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.Problem },
         // The page's keyword heading belongs here: this is the section about the work once it is automated, so
         // the exact phrase reads true in its heading. The two before it are about the work as it is done today.
         SectionSlot.Cover(
             "how the approach works end to end: the mechanics, in the order they happen, specific enough that a reader could describe it back",
-            SectionDepth) with { OwnsKeywordHeading = true },
+            SectionDepth) with { OwnsKeywordHeading = true, ResearchLabel = GccResearchLabel.HowItWorks },
         SectionSlot.Cover(
             "what separates an implementation that holds up from one that stalls",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.GettingItRunning },
         SectionSlot.Cover(
             "the decisions that are made early and cannot be unmade",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.GettingItRunning },
         SectionSlot.Cover(
             "what rolling this out actually involves in a real environment: the sequence it happens in",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.GettingItRunning },
         SectionSlot.Cover(
             "the data and the integration a real environment has to supply",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.DataAndIntegrations },
         SectionSlot.Cover(
             "the people whose work changes, and what changes for them",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.PeopleAndRoles },
         SectionSlot.Cover(
             "when this is the right call and when it is not",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.FitPriceAndLimits },
         SectionSlot.Cover(
             "what the reader should do next, and what they should be able to expect",
-            SectionDepth),
+            SectionDepth) with { ResearchLabel = GccResearchLabel.FitPriceAndLimits },
     ];
 
     /// <summary>How many of <see cref="Sections"/> the body calls write: all but the opening, which the lede call writes.</summary>

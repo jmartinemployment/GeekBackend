@@ -206,13 +206,14 @@ public sealed record GccQuoteablePage(
     /// </summary>
     public IReadOnlyList<GccPassageSearch> SearchesThatFound(int paragraph)
     {
-        if (Searches is null || FoundBy is null || FoundBy.Count != Paragraphs.Count) return [];
+        if (Searches is null || FoundBy is null || Paragraphs is null || FoundBy.Count != Paragraphs.Count) return [];
         if (paragraph < 0 || paragraph >= FoundBy.Count) return [];
 
-        var found = new List<GccPassageSearch>(FoundBy[paragraph].Count);
-        foreach (var position in FoundBy[paragraph])
+        // Read back from stored JSON, a passage's list or a search in it can be missing.
+        var found = new List<GccPassageSearch>();
+        foreach (var position in FoundBy[paragraph] ?? [])
         {
-            if (position >= 0 && position < Searches.Count) found.Add(Searches[position]);
+            if (position >= 0 && position < Searches.Count && Searches[position] is { } search) found.Add(search);
         }
 
         return found;

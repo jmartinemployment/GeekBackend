@@ -72,7 +72,9 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
 
         return
         [
-            Opening(ctx.Context.ContentAngle, keyword, niche),
+            // Each section names the part of the page's research it is written from
+            // (SectionSlot.ResearchLabel, plans/research-classification.md, "The labels"). No prompt prints it.
+            Opening(ctx.Context.ContentAngle, keyword, niche) with { ResearchLabel = GccResearchLabel.Problem },
             SectionSlot.Cover(
                 $"what doing {keyword} by hand actually costs this reader -- the hours, the errors, the "
                 + "delay, and who absorbs them",
@@ -81,7 +83,7 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
                     "Concrete and attributable, from the evidence in front of you. Not a list of generic pain "
                     + "points, and no tool is named here -- this section is the problem, stated so plainly that "
                     + "the rest of the page has something to solve.",
-                    niche?.FailuresGuidance())),
+                    niche?.FailuresGuidance())) with { ResearchLabel = GccResearchLabel.Problem },
             // The page's keyword heading belongs here: this is the section about the work once it is automated,
             // so the exact phrase reads true in its heading. The two before it are about doing it by hand.
             //
@@ -99,7 +101,8 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
                         + "reaches them -- what each one does about THIS step, not what it is in general. Never a "
                         + "heading, never a sub-section, never one paragraph per product.",
                         niche?.ApproachGuidance()),
-                    GccPublisherPositions.ApproachSlotGuidance)) with { OwnsKeywordHeading = true },
+                    GccPublisherPositions.ApproachSlotGuidance))
+                with { OwnsKeywordHeading = true, ResearchLabel = GccResearchLabel.HowItWorks },
             SectionSlot.Cover(
                 $"what separates an implementation of {keyword} that holds up from one that stalls",
                 depth,
@@ -108,19 +111,20 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
                 With(
                     "The decisions made early that cannot be unmade -- data, mapping, who owns what. Name the "
                     + "tools whose behaviour decides these, where that matters to the point being made.",
-                    pointer)),
+                    pointer)) with { ResearchLabel = GccResearchLabel.GettingItRunning },
             SectionSlot.Cover(
                 $"what the evidence shows about {keyword} -- measured outcomes, and what they do not prove",
                 depth,
                 "Only figures the retrieved evidence carries, attributed to the partner that published them. "
-                + "Where the evidence is thin, say what is unknown rather than filling it."),
+                + "Where the evidence is thin, say what is unknown rather than filling it.")
+                with { ResearchLabel = GccResearchLabel.ResultsAndProof },
             SectionSlot.Cover(
                 $"when automating {keyword} is the right call, when it is not, and what this reader does next",
                 depth,
                 With(
                     "An honest boundary -- the cases where the manual way is still correct. Then one concrete "
                     + "next step, not a summary of the page.",
-                    pointer)),
+                    pointer)) with { ResearchLabel = GccResearchLabel.FitPriceAndLimits },
         ];
     }
 

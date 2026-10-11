@@ -356,7 +356,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// Writes one page through the path the project's Generate takes for it, and returns every call it
     /// made with the page it saved as the last entry.
     /// </summary>
-    private static async Task<IReadOnlyList<(string Label, string Text)>> WriteAsync(string page, string briefJson)
+    private static async Task<IReadOnlyList<(string Label, string Text)>> WriteAsync(
+        string page, string briefJson, string? pageResearch = null)
     {
         var provider = new Recorder(page);
         var plain = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), null);
@@ -375,11 +376,11 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                 // searched for and found. A question with no passages is not sent, so without it neither
                 // page would make its FAQ call and no field could be seen to reach it.
                 saved = await forProject.GeneratePillarBodyAsync(
-                    Create("pillar", "AI implementation", briefJson, PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                    Create("pillar", "AI implementation", briefJson, pageResearch ?? PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "blog":
                 saved = await forProject.GenerateBlogBodyAsync(
-                    Create("blog", "AI implementation", briefJson, PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                    Create("blog", "AI implementation", briefJson, pageResearch ?? PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "email":
                 saved = await plain.GenerateEmailAsync(
@@ -584,6 +585,82 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// </summary>
     private static int Count(string text, string label) =>
         text.Split('\n').Count(line => line.TrimStart().StartsWith(label, StringComparison.Ordinal));
+
+    /// <summary>
+    /// What each body request would carry if its research were chosen for it is on the run's record, and
+    /// every request is still sent all of the research (plans/research-classification.md, stage 2).
+    /// </summary>
+    /// <remarks>
+    /// The page is given more partner research than the selector's limit, so there is something to choose
+    /// between: a record that only ever said "whole" would show nothing was watched.
+    /// </remarks>
+    [Theory]
+    [InlineData("pillar", 5)]
+    [InlineData("blog", 3)]
+    public async Task What_each_request_would_carry_is_recorded_and_every_request_is_still_sent_everything(string page, int bodyRequests)
+    {
+        var filler = new string('x', 1_900);
+        var passages = Enumerable.Range(0, 130).Select(i => $"Passage {i:000} of the partner's research. {filler}").ToList();
+        var research = GccResearchFetchService.Serialize(
+            GccResearchFetchService.Deserialize(PageFaqResearch.For(CompleteBrief))! with
+            {
+                Quoteables =
+                [
+                    .. passages.Select((passage, i) => new GccQuoteablePage(
+                        $"https://{Host}/research/{i}", "Partner Widget", [], [passage],
+                        RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk,
+                        Category: i % 2 == 0 ? "pricing" : "blog")),
+                ],
+            });
+        var recorded = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(
+            Guid.NewGuid(),
+            (events, _) =>
+            {
+                lock (recorded) recorded.AddRange(events);
+                return Task.CompletedTask;
+            },
+            NullLogger.Instance);
+
+        var calls = await WriteAsync(page, CompleteBrief, research);
+
+        // Once for the page: how its research divides by label.
+        var labels = JsonDocument.Parse(Assert.Single(recorded, e => e.Kind == "evidence-labels").PayloadJson).RootElement;
+        Assert.Equal(130, labels.GetProperty("passages").GetInt32());
+        Assert.Equal(65, labels.GetProperty("byLabel").GetProperty(GccResearchLabel.FitPriceAndLimits).GetInt32());
+
+        // Once for each body request: what it would have carried.
+        var evidence = recorded.Where(e => e.Kind == "evidence").Select(e => JsonDocument.Parse(e.PayloadJson).RootElement).ToList();
+        Assert.Equal(bodyRequests, evidence.Count);
+        Assert.Equal(Enumerable.Range(1, bodyRequests), evidence.Select(e => e.GetProperty("call").GetInt32()));
+        foreach (var record in evidence)
+        {
+            Assert.True(record.GetProperty("watch").GetBoolean());
+            Assert.False(record.GetProperty("whole").GetBoolean());
+            Assert.Equal(bodyRequests, record.GetProperty("of").GetInt32());
+            Assert.Equal(130, record.GetProperty("sent").GetProperty("passages").GetInt32());
+            Assert.InRange(record.GetProperty("sent").GetProperty("chars").GetInt32(), GccResearchSelector.MaxCharsInAll + 1, int.MaxValue);
+            Assert.InRange(record.GetProperty("wouldCarry").GetProperty("chars").GetInt32(), 1, GccResearchSelector.MaxCharsPerPartner);
+            Assert.NotEmpty(record.GetProperty("leftOut").EnumerateArray());
+        }
+
+        // And each of those requests was sent every passage, the ones its record leaves out included.
+        var body = calls.Where(c => c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal)).ToList();
+        Assert.Equal(bodyRequests, body.Count);
+        foreach (var call in body)
+        {
+            Assert.All(passages, passage => Assert.Contains(passage, call.Text, StringComparison.Ordinal));
+        }
+
+        // No request is told a label. "problem" is a word any prompt uses; the other six are spelled as no
+        // prose is, so finding one would mean a label had been printed.
+        foreach (var call in calls.Where(c => c.Label != "the saved page"))
+        {
+            Assert.All(
+                GccResearchLabel.All.Where(label => label.Contains('-')),
+                label => Assert.DoesNotContain(label, call.Text, StringComparison.Ordinal));
+        }
+    }
 
     /// <summary>
     /// A brief with every failure under a partner still tells the pillar's and the blog's failure

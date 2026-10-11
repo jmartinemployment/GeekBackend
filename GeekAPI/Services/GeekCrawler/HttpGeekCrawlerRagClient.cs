@@ -1074,6 +1074,13 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
     /// prompt that OpenAI then refused as over its limit.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// What heads the line of link text under a passage. The line is a section's links, often a site's
+    /// menu, and not what the passage says: a reader of the passage's words leaves it out
+    /// (<c>GccPassageClassifier</c>).
+    /// </summary>
+    internal const string LinkedFromLabel = "Linked from this section:";
+
     private static string RenderChunk(ChunkDto chunk)
     {
         var body = new StringBuilder();
@@ -1111,7 +1118,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             .ToList();
         if (anchors.Count > 0)
         {
-            body.AppendLine($"Linked from this section: {string.Join(", ", anchors)}");
+            body.AppendLine($"{LinkedFromLabel} {string.Join(", ", anchors)}");
         }
 
         return body.ToString().TrimEnd();

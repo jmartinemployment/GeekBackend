@@ -90,6 +90,14 @@ public sealed record SectionSlot(
             : batchIndex == 0;
 
     /// <summary>
+    /// The part of the page's research this section is written from, as one of the Content Creator's research
+    /// labels (<c>GccResearchLabel</c>), or null when the type that owns the outline names none. Read by the code
+    /// that works out which passages a request writing this section would carry (<c>GccResearchWatch</c>,
+    /// plans/research-classification.md). Never printed to a writer.
+    /// </summary>
+    public string? ResearchLabel { get; init; }
+
+    /// <summary>
     /// The words this section owes its page: what the call that writes it is checked against. Separate from
     /// <see cref="Depth"/>, which is the size the writer is asked for.
     /// </summary>
