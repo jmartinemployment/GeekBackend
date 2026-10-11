@@ -264,6 +264,35 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// </summary>
     private const int LongFormBodyMaxOutputTokens = 16384;
 
+    /// <summary>
+    /// What a call that writes two sections of a page reserves for its reply.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The reservation counts against the model's limit whether or not it is used. A body is written
+    /// two sections a call, and every call carries the page's whole evidence, so each one reserved
+    /// the 16,384 sized for a whole body: on 2026-10-10 a pillar call of 125,253 prompt tokens was
+    /// refused as 141,637 against 128,000, and the largest reply any such call gave that run was 1,146.
+    /// </para>
+    /// <para>
+    /// 8,192 holds two sections at the most they are asked for (700 words each) at the 5.4 tokens a
+    /// word <see cref="LongFormBodyMaxOutputTokens"/> was sized by.
+    /// </para>
+    /// </remarks>
+    private const int BatchedBodyMaxOutputTokens = 8192;
+
+    /// <summary>The most sections a call may write and still be a part of the page, not the page.</summary>
+    private const int MaxSectionsInABatch = 2;
+
+    /// <summary>
+    /// The reply a body call reserves: a part of the page, at most two sections, reserves for two
+    /// sections; a call that writes the whole outline reserves for the whole body.
+    /// </summary>
+    private static int BodyMaxOutputTokens(int sectionsInThisCall, int sectionsOnThePage) =>
+        sectionsInThisCall < sectionsOnThePage && sectionsInThisCall <= MaxSectionsInABatch
+            ? BatchedBodyMaxOutputTokens
+            : LongFormBodyMaxOutputTokens;
+
     private const string TopicFocusJsonContract =
         "{\"focus\": string[] (4-8 short topic phrases, 1-4 words each, describing the site's real services/subject matter — no generic filler words)}";
 
@@ -2367,7 +2396,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user.ToString()) },
             Temperature: 0.7,
-            MaxOutputTokens: LongFormBodyMaxOutputTokens));
+            MaxOutputTokens: BodyMaxOutputTokens(blogBatch.Count, blogOutline.Count)));
     }
 
     public ChatCompletionRequest BuildSocialPrompt(ProjectGenerationContext context, ArticleDraft sourceArticle, string platform, string articleUrl)
@@ -2792,9 +2821,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: 0.5,
-            // 16384 to match BuildArticleSectionBatchPrompt (Pillar's own body-batch call) now that
-            // Tool targets the same 3,000-5,000 word range across its JSON-structured sections.
-            MaxOutputTokens: LongFormBodyMaxOutputTokens));
+            // The same reservation as the pillar's body: for two sections when this call writes a part
+            // of the page, for the whole body when it writes the whole outline (the Workflow product).
+            MaxOutputTokens: BodyMaxOutputTokens(outline.Count, fullOutline?.Count ?? outline.Count)));
     }
 
     /// <summary>

@@ -4,6 +4,7 @@ using GeekAPI.Services.Workflow.DTOs;
 using GeekAPI.Services.Workflow.Providers;
 using GeekAPI.Services.Workflow.Services;
 using GeekAPI.Services.Workflow.Services.PromptBuilders;
+using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 
 namespace GeekBackend.Tests.Workflow.PromptBuilders;
 
@@ -230,6 +231,90 @@ public class OutlinePromptRulesTests
             request.MaxOutputTokens >= minWords * 5.4,
             $"{which}: {request.MaxOutputTokens} output tokens for a {minWords:N0}-word floor is "
             + $"{request.MaxOutputTokens / (double)minWords:0.0} a word; 5.4 is the ratio that works.");
+    }
+
+    private static readonly IReadOnlyList<SectionSlot> SixSections =
+    [
+        SectionSlot.Assigned("One"), SectionSlot.Assigned("Two"), SectionSlot.Assigned("Three"),
+        SectionSlot.Assigned("Four"), SectionSlot.Assigned("Five"), SectionSlot.Assigned("Six"),
+    ];
+
+    private static ChatCompletionRequest BodyCall(string which, int sectionsInThisCall)
+    {
+        var builder = new ContentPromptBuilder();
+        IReadOnlyList<SectionSlot> batch = [.. SixSections.Take(sectionsInThisCall)];
+        if (which == "pillar")
+        {
+            return builder.BuildArticleSectionBatchPrompt(
+                Context(),
+                new ArticleMetadataDraft("T", "M", ["ai"], ["One"]),
+                slots: batch,
+                fullOutline: SixSections,
+                isRegeneration: false);
+        }
+
+        if (which == "blog")
+        {
+            return builder.BuildStandaloneBlogBodyPrompt(
+                Context(), new BlogMetadataDraft("T", "M", ["ai"], ["One"]),
+                sectionBatch: batch, fullOutline: SixSections);
+        }
+
+        var app = new SoftwareApplicationDescriptor("Partner Widget", "A widget.");
+        var outline = ToolPrompts.Outline(Context(), app.Name);
+        return builder.BuildToolBodyPrompt(
+            Context(),
+            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
+            app,
+            "partner-widget",
+            outline: [.. outline.Take(sectionsInThisCall)],
+            fullOutline: outline);
+    }
+
+    [Theory]
+    [InlineData("pillar", ContentLengthTargets.PillarSectionTargetMaxWords)]
+    [InlineData("blog", ContentLengthTargets.BlogSectionTargetMaxWords)]
+    [InlineData("tool", ContentLengthTargets.PillarSectionTargetMaxWords)]
+    public void A_call_that_writes_two_sections_of_a_longer_page_reserves_for_two_sections(
+        string which, int mostWordsASectionIsAskedFor)
+    {
+        // The reservation counts against the model's limit whether or not it is used, and every
+        // body call carries the page's whole evidence. On 2026-10-10 a pillar call of 125,253 prompt
+        // tokens reserved the 16,384 sized for a whole body and was refused as 141,637 against
+        // 128,000; the largest reply any two-section call gave that run was 1,146 tokens.
+        var request = BodyCall(which, sectionsInThisCall: 2);
+
+        Assert.Equal(8192, request.MaxOutputTokens);
+        Assert.True(
+            request.MaxOutputTokens >= 2 * mostWordsASectionIsAskedFor * 5.4,
+            $"{which}: {request.MaxOutputTokens} output tokens cannot hold two sections of "
+            + $"{mostWordsASectionIsAskedFor:N0} words at 5.4 tokens a word.");
+    }
+
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public void A_call_that_writes_more_than_two_sections_keeps_the_whole_body_reservation(string which)
+    {
+        // Two is what the live writers batch by. A call handed three sections is not one of theirs,
+        // and nothing has measured what it writes, so it keeps the reservation a whole body has.
+        Assert.Equal(16384, BodyCall(which, sectionsInThisCall: 3).MaxOutputTokens);
+    }
+
+    [Fact]
+    public void A_tool_call_handed_the_whole_outline_keeps_the_whole_body_reservation()
+    {
+        // The Workflow product's tool page: one call, the whole outline, no fullOutline passed.
+        var app = new SoftwareApplicationDescriptor("Partner Widget", "A widget.");
+        var request = new ContentPromptBuilder().BuildToolBodyPrompt(
+            Context(),
+            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
+            app,
+            "partner-widget",
+            ToolPrompts.Outline(Context(), app.Name));
+
+        Assert.Equal(16384, request.MaxOutputTokens);
     }
 
     [Theory]

@@ -401,7 +401,7 @@ public partial class ContentPromptBuilder
         return WithSectionsArraySchema(new ChatCompletionRequest(
             Messages: [new(ChatRole.System, system), new(ChatRole.User, user.ToString())],
             Temperature: isRegeneration ? 0.72 : 0.65,
-            MaxOutputTokens: LongFormBodyMaxOutputTokens));
+            MaxOutputTokens: BodyMaxOutputTokens(slots.Count, fullOutline.Count)));
     }
 
     public ChatCompletionRequest BuildArticleFaqSectionPrompt(
