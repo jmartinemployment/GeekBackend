@@ -46,6 +46,31 @@ public class GccToolPagesPerPartnerTests
         Assert.Contains("not one of this project's declared partners", only.Refusal!, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The pages a run deletes before it writes are the pages it writes. A run asked for two of five
+    /// partners names those two and writes for those two, under the same names.
+    /// </summary>
+    [Fact]
+    public async Task A_run_for_some_partners_names_the_pages_it_then_writes_for()
+    {
+        var fixtures = GccToolPageFanOutFixture.WithPartners(
+            "https://dext.com", "https://bill.com", "https://avidxchange.com",
+            "https://stampli.com", "https://melio.com");
+        string[] only = ["https://www.bill.com/", "https://melio.com"];
+
+        var names = await fixtures.Service.ToolPageNamesAsync(fixtures.Create, only, CancellationToken.None);
+        var outcomes = await fixtures.Service.GenerateToolPagesPerPartnerAsync(
+            fixtures.Create, null, ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            onlyPartners: only);
+        var undeclared = await fixtures.Service.ToolPageNamesAsync(
+            fixtures.Create, ["https://notion.so"], CancellationToken.None);
+
+        Assert.Equal(2, names.Count);
+        Assert.Equal(names, outcomes.Select(o => o.ProductName));
+        // A partner the project does not declare names no page, so nothing is deleted for it.
+        Assert.Empty(undeclared);
+    }
+
     [Fact]
     public async Task Every_declared_partner_gets_an_outcome_named_for_its_product()
     {

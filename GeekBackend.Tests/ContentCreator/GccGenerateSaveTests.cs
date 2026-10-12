@@ -118,6 +118,45 @@ public sealed class GccGenerateSaveTests
         Assert.Equal((3, 1), (deleted.Pages, deleted.DerivedPages));
     }
 
+    /// <summary>
+    /// A run asked for some partners' tool pages deletes those tool pages and no others (Jeff,
+    /// 2026-10-09: "need a way to select just one tool"). The other types it writes still go whole.
+    /// </summary>
+    [Fact]
+    public async Task A_run_for_some_tool_pages_deletes_only_the_tool_pages_it_writes()
+    {
+        var repository = new Repository(saved: true);
+
+        await GccGenerationCoordinator.DeleteOldPagesAsync(
+            Repo(repository), Create(ProjectId), ["pillar", "tool"], CancellationToken.None,
+            toolPageNames: ["Clockwork", "Zone & Co"]);
+
+        Assert.Equal(
+            ["type=pillar", "type=tool&name=Clockwork&name=Zone%20%26%20Co"],
+            repository.Calls.Select(call => call.Query));
+        Assert.All(repository.Calls, call => Assert.Equal($"/repo/content-creator/projects/{ProjectId}/pages", call.Path));
+    }
+
+    /// <summary>
+    /// Chosen partners that name no page delete no tool page: the list is never dropped and read as
+    /// "every tool page".
+    /// </summary>
+    [Fact]
+    public async Task A_run_for_tool_pages_that_names_none_deletes_no_tool_page()
+    {
+        var toolOnly = new Repository(saved: true);
+        var withPillar = new Repository(saved: true);
+
+        var nothing = await GccGenerationCoordinator.DeleteOldPagesAsync(
+            Repo(toolOnly), Create(ProjectId), ["tool"], CancellationToken.None, toolPageNames: []);
+        await GccGenerationCoordinator.DeleteOldPagesAsync(
+            Repo(withPillar), Create(ProjectId), ["pillar", "tool"], CancellationToken.None, toolPageNames: []);
+
+        Assert.Empty(toolOnly.Calls);
+        Assert.Equal((0, 0), (nothing.Pages, nothing.DerivedPages));
+        Assert.Equal(["type=pillar"], withPillar.Calls.Select(call => call.Query));
+    }
+
     [Fact]
     public async Task A_run_on_a_project_that_is_gone_is_refused_before_a_model_call()
     {

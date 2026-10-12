@@ -466,10 +466,15 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     /// Delete the project's pages of these types, with their content and the pages derived from them.
     /// What a Generate does before it writes anything. Null when the project does not exist.
     /// </summary>
+    /// <param name="names">Null is every page of those types. A list is only the pages with one of
+    /// these names; with nothing in it no page is deleted and the repository is not asked.</param>
     public async Task<GccPagesDeleteResult?> DeleteProjectPagesAsync(
-        Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default)
+        Guid projectId, IReadOnlyList<string> types, IReadOnlyList<string>? names = null, CancellationToken ct = default)
     {
-        var query = string.Join("&", types.Select(t => $"type={Uri.EscapeDataString(t.Trim())}"));
+        if (names is { Count: 0 }) return new GccPagesDeleteResult(false, 0, 0);
+
+        var query = string.Join("&", types.Select(t => $"type={Uri.EscapeDataString(t.Trim())}")
+            .Concat((names ?? []).Select(n => $"name={Uri.EscapeDataString(n.Trim())}")));
         var path = $"repo/content-creator/projects/{projectId}/pages?{query}";
         var res = await _http.DeleteAsync(path, ct);
         if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;

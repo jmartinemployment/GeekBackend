@@ -324,6 +324,46 @@ public sealed class GccProjectPageRepositoryTests
         Assert.DoesNotContain(await read.GccArtifacts.ToListAsync(), a => a.Id == pillar || a.Id == ramp || a.Id == social);
     }
 
+    /// <summary>
+    /// A run for one partner's tool page deletes that page and leaves the project's other tool pages.
+    /// The 11:37 UTC run of 2026-10-12 was asked for one and deleted five, then was refused.
+    /// </summary>
+    [Fact]
+    public async Task Deleting_tool_pages_by_name_removes_those_and_leaves_the_projects_other_tool_pages()
+    {
+        var (options, projectId, createId) = await Seed();
+        Guid pillar, ramp, bill, dext;
+        await using (var seed = new ContentCreatorDbContext(options))
+        {
+            var p = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "pillar", Name = "Ramp", CreatedAtUtc = Morning };
+            var r = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "tool", Name = "Ramp", CreatedAtUtc = Morning };
+            var b = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "tool", Name = "Bill", CreatedAtUtc = Morning };
+            var d = new GccArtifact { ProjectId = projectId, CreateId = createId, Type = "Tool", Name = " Dext ", CreatedAtUtc = Morning };
+            (pillar, ramp, bill, dext) = (p.Id, r.Id, b.Id, d.Id);
+            seed.AddRange(
+                p, r, b, d,
+                Version(p, Morning, "pillar"), Version(r, Morning, "ramp"), Version(b, Morning, "bill"), Version(d, Morning, "dext"));
+            await seed.SaveChangesAsync();
+        }
+
+        await using var db = new ContentCreatorDbContext(options);
+        var repo = new GccProjectPageRepository(db);
+        // Named with nothing: a run that writes none of them. Never read as every page.
+        var none = await repo.DeletePagesAsync(projectId, ["tool"], []);
+        var blank = await repo.DeletePagesAsync(projectId, ["tool"], [" "]);
+        // A name is compared as a page's name is: without regard to case or surrounding spaces.
+        var result = await repo.DeletePagesAsync(projectId, ["tool"], [" ramp ", "DEXT"]);
+
+        Assert.Equal((0, 0), (none.Pages, none.DerivedPages));
+        Assert.Equal((0, 0), (blank.Pages, blank.DerivedPages));
+        Assert.Equal((2, 0), (result.Pages, result.DerivedPages));
+        await using var read = new ContentCreatorDbContext(options);
+        // Bill's page stands, and so does the pillar that happens to share Ramp's name: it is not a tool page.
+        Assert.Equal(new[] { pillar, bill }.Order(), (await read.GccArtifacts.Select(a => a.Id).ToListAsync()).Order());
+        Assert.Equal(["bill", "pillar"], (await read.GccArtifactVersions.Select(v => v.BodyJson).ToListAsync()).Order());
+        Assert.DoesNotContain(await read.GccArtifacts.ToListAsync(), a => a.Id == ramp || a.Id == dext);
+    }
+
     [Fact]
     public async Task The_projects_draft_list_says_when_each_page_was_last_written_and_lists_the_newest_first()
     {

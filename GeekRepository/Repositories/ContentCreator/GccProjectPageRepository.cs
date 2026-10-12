@@ -167,7 +167,7 @@ public class GccProjectPageRepository : IGccProjectPageRepository
     /// An old page left in place is a middle state; no page, with a failed job that says why, is not.
     /// </remarks>
     public async Task<GccPagesDeleteResult> DeletePagesAsync(
-        Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default)
+        Guid projectId, IReadOnlyList<string> types, IReadOnlyList<string>? names = null, CancellationToken ct = default)
     {
         if (!await _db.GccProjects.AnyAsync(p => p.Id == projectId, ct))
             return GccPagesDeleteResult.Missing();
@@ -178,8 +178,19 @@ public class GccProjectPageRepository : IGccProjectPageRepository
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (wanted.Count == 0) return new GccPagesDeleteResult(false, 0, 0);
 
+        // Named pages only, when the run names them. A list with nothing in it is a run that writes
+        // none of these pages, so none goes: it is never read as "every page".
+        var named = names?
+            .Select(n => n.Trim())
+            .Where(n => n.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (named is { Count: 0 }) return new GccPagesDeleteResult(false, 0, 0);
+
         var all = await _db.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync(ct);
-        var pages = all.Where(a => a.ParentArtifactId == null && wanted.Contains(a.Type.Trim())).ToList();
+        var pages = all
+            .Where(a => a.ParentArtifactId == null && wanted.Contains(a.Type.Trim()))
+            .Where(a => named is null || named.Contains(a.Name.Trim()))
+            .ToList();
         if (pages.Count == 0) return new GccPagesDeleteResult(false, 0, 0);
 
         // A page derived from a deleted one has nothing to derive from, so it goes too -- and anything

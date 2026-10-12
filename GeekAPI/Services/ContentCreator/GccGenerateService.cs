@@ -69,6 +69,25 @@ public partial class GccGenerateService
         return project?.PartnerUrls ?? [];
     }
 
+    /// <summary>
+    /// The names of the tool pages a run writes when it is asked for these partners' pages instead of
+    /// every partner's: each one's product, as <see cref="GenerateToolPagesPerPartnerAsync"/> will name
+    /// the page it writes. Read before the run deletes anything, so it deletes those pages and no others.
+    /// </summary>
+    /// <remarks>
+    /// The same partner URLs, the same slices and the same choice among them as the writer's
+    /// (<see cref="GccPartnerToolSlices.Chosen"/>), so the two cannot name a page differently. A partner
+    /// the project does not declare has no slice and so no name: the writer refuses it, and nothing is
+    /// deleted for it.
+    /// </remarks>
+    public async Task<IReadOnlyList<string>> ToolPageNamesAsync(
+        GccCreateDto create, IReadOnlyList<string> onlyPartners, CancellationToken ct)
+    {
+        var partnerUrls = await PartnerUrlsForAsync(create, ct);
+        var slices = GccPartnerToolSlices.Build(create, partnerUrls, []);
+        return [.. GccPartnerToolSlices.Chosen(slices, onlyPartners).Select(slice => slice.ProductName)];
+    }
+
     public GccGenerateService(
         IContentPromptBuilder prompts,
         GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePromptRegistry types,
@@ -780,10 +799,7 @@ public partial class GccGenerateService
                         + "is no crawl to ground a tool page on."))];
                 }
 
-                var wantedHosts = onlyPartners
-                    .Select(GccRequiredToolMentions.HostKeyOf)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                slices = slices.Where(s => wantedHosts.Contains(s.Host)).ToList();
+                slices = GccPartnerToolSlices.Chosen(slices, onlyPartners);
             }
         }
 

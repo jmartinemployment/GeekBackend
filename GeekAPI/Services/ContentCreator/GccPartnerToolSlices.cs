@@ -134,6 +134,25 @@ public static class GccPartnerToolSlices
             .FirstOrDefault(slice => string.Equals(slice.ProductName, wanted, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// The slices a run takes when it is asked for some partners' pages instead of all: the ones whose
+    /// partner is named, by declared URL. Matched by host, the way the slices themselves are keyed.
+    /// </summary>
+    /// <remarks>
+    /// One answer for the writer and for the delete that goes before it. The pages a run deletes are
+    /// the pages it is about to write, so both read this: until 2026-10-12 only the writer narrowed,
+    /// and a run for one partner's page deleted every tool page of the project first.
+    /// </remarks>
+    public static IReadOnlyList<GccPartnerToolSlice> Chosen(
+        IReadOnlyList<GccPartnerToolSlice> slices, IReadOnlyList<string> onlyPartners)
+    {
+        var wantedHosts = onlyPartners
+            .Select(GccRequiredToolMentions.HostKeyOf)
+            .Where(host => host.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return [.. slices.Where(slice => wantedHosts.Contains(slice.Host))];
+    }
+
     private static Dictionary<string, List<T>> Bucket<T>(
         IReadOnlyList<T> items, Func<T, string?> urlOf)
     {

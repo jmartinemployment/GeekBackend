@@ -187,6 +187,22 @@ public class GccPartnerToolSlicesTests
         Assert.Null(GccPartnerToolSlices.ForProduct(Create(), PartnerUrls, [], name));
     }
 
+    /// <summary>
+    /// A run asked for some partners takes their slices and no others, whichever way the partner's
+    /// address is written. The writer and the delete that goes before it both read this.
+    /// </summary>
+    [Fact]
+    public void Chosen_takes_the_named_partners_slices_and_no_others()
+    {
+        var slices = GccPartnerToolSlices.Build(Create(), PartnerUrls, []);
+
+        var chosen = GccPartnerToolSlices.Chosen(slices, ["https://bill.com/pricing", "HTTPS://WWW.MELIO.COM"]);
+        var undeclared = GccPartnerToolSlices.Chosen(slices, ["https://notion.so", "not an address"]);
+
+        Assert.Equal(["bill.com", "melio.com"], chosen.Select(s => s.Host));
+        Assert.Empty(undeclared);
+    }
+
     [Fact]
     public void No_declared_partners_is_no_slices()
     {

@@ -34,14 +34,28 @@ public class GccProjectPagesController : ControllerBase
     /// The project's pages of the named types, deleted with their content. What a Generate does first.
     /// No types is a bad request, not a delete of everything.
     /// </summary>
+    /// <remarks>
+    /// <c>name</c>, when sent, narrows the delete to the pages of those types with one of these names:
+    /// a run for some of a project's tool pages deletes those and leaves the others. Until 2026-10-12
+    /// there was no such narrowing, and a run for one tool page deleted every tool page of the project
+    /// before it wrote its one. A <c>name</c> that is sent blank is a bad request, never a delete of
+    /// every page of the type.
+    /// </remarks>
     [HttpDelete("pages")]
     public async Task<ActionResult<GccPagesDeleteResult>> DeletePages(
-        Guid projectId, [FromQuery(Name = "type")] string[] types, CancellationToken ct)
+        Guid projectId,
+        [FromQuery(Name = "type")] string[] types,
+        [FromQuery(Name = "name")] string[] names,
+        CancellationToken ct)
     {
         if (types is null || types.Length == 0 || types.All(string.IsNullOrWhiteSpace))
             return BadRequest("Name the types of page to delete; nothing is deleted without them.");
 
-        var result = await _pages.DeletePagesAsync(projectId, types, ct);
+        var named = names is { Length: > 0 };
+        if (named && names!.Any(string.IsNullOrWhiteSpace))
+            return BadRequest("A page was named with a blank name; nothing is deleted on a name that is not there.");
+
+        var result = await _pages.DeletePagesAsync(projectId, types, named ? names : null, ct);
         return result.ProjectNotFound ? NotFound() : Ok(result);
     }
 }

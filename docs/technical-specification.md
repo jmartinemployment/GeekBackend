@@ -127,7 +127,10 @@ service, local, whitepaper, LinkedIn document, three email variants. Only pillar
 1. `GccProjectsController.Generate` validates the actor, provider, types, declared URL index, site crawl and brief; inserts the
    job row (`409` if one is running); returns 202.
 2. `GccGenerateJobRunner` starts `Task.Run` (fire and forget, own DI scope, no cancellation) and opens the run log.
-3. `GccGenerationCoordinator.RunGenerateAsync`: validate types; **delete the project's old pages of the requested types**;
+3. `GccGenerationCoordinator.RunGenerateAsync`: validate types; **delete the project's old pages of the requested types**
+   (a run asked for some partners' tool pages deletes those tool pages and no others: `GccPartnerToolSlices.Chosen` answers
+   for the delete and for the writer, and the repository's delete takes the page names; until 2026-10-12 it deleted every
+   tool page, and the 11:37 UTC run that day, asked for one, deleted five and was refused);
    resolve grounding once (`GccGroundingResolver`: one search per crawl type, 32 passages per partner site, 8 for the project
    site and competitors); fan out over the types with `Task.WhenAll`, each through `GccGenerateService`; settle
    (`GccRunSettlement`); persist the pieces that wrote in one write; the job fails only when no type wrote anything.

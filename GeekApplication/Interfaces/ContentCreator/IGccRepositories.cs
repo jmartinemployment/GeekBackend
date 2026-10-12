@@ -59,7 +59,12 @@ public interface IGccProjectPageRepository
     /// them. A Generate calls this first (Jeff, 2026-10-06: "delete should happen first"), so a run that
     /// is refused leaves no old page behind to be read as the new one.
     /// </summary>
-    Task<GccPagesDeleteResult> DeletePagesAsync(Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default);
+    /// <param name="names">Null is every page of those types. A list is only the pages with one of
+    /// these names, compared as a page's name is: without regard to case or surrounding spaces. An
+    /// empty list deletes nothing. A run for some of a project's tool pages names the ones it writes,
+    /// so the others stand.</param>
+    Task<GccPagesDeleteResult> DeletePagesAsync(
+        Guid projectId, IReadOnlyList<string> types, IReadOnlyList<string>? names = null, CancellationToken ct = default);
 }
 
 public interface IGccArtifactVersionRepository

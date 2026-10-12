@@ -236,10 +236,19 @@ public sealed class GccGenerationCoordinator
         // The old pages of every requested type go now, before a word is written (Jeff, 2026-10-06:
         // "delete should happen first"). A run that is then refused leaves the project with no page of
         // that type and a failed job that says why -- not the previous run's page, read as this one's.
-        var deleted = await DeleteOldPagesAsync(repo, create, requested, ct);
+        //
+        // A run for some partners' tool pages deletes those pages and not the rest. It deleted every
+        // tool page until 2026-10-12: the choice of partners (2026-10-09) reached the writer and not
+        // this delete, so the 11:37 UTC run that day, asked for one partner's page, deleted five and,
+        // refused, wrote none.
+        var toolPageNames = toolPartners is { Count: > 0 }
+            ? await gen.ToolPageNamesAsync(create, toolPartners, ct)
+            : null;
+        var deleted = await DeleteOldPagesAsync(repo, create, requested, ct, toolPageNames);
         _logger.LogInformation(
-            "Generate on project {ProjectId} deleted {Pages} page(s) and {Derived} derived page(s) of {Types} before writing",
-            create.ProjectId, deleted.Pages, deleted.DerivedPages, string.Join(", ", requested));
+            "Generate on project {ProjectId} deleted {Pages} page(s) and {Derived} derived page(s) of {Types} before writing{Only}",
+            create.ProjectId, deleted.Pages, deleted.DerivedPages, string.Join(", ", requested),
+            toolPageNames is null ? string.Empty : $"; of the tool pages, only {string.Join(", ", toolPageNames)}");
 
         // Recorded as well as pushed. A hub event is live-only: an operator who reloads or reconnects
         // after the push would have no way back to the pre-flight, which is the same shape of loss as
@@ -572,7 +581,7 @@ public sealed class GccGenerationCoordinator
         // Strips hyphens/spaces so "tech-article"/"techArticle" and "email-cold-outreach"/"email"
         // (CONTENT_TYPES' real values once the picker unified onto it, Jeff: "they should be
         // identical") each reach one case, the same normalization the disabled-type check uses.
-        var normalizedType = new string(contentType.Where(char.IsLetter).ToArray());
+        var normalizedType = LettersOf(requestedType);
 
         string bodyJson;
         switch (normalizedType)
@@ -1064,16 +1073,43 @@ public sealed class GccGenerationCoordinator
     /// string, so the types requested are the types deleted. A project that is gone fails the run here,
     /// before a model call; a repository that cannot be reached does the same.
     /// </remarks>
+    /// <param name="toolPageNames">Null when the run writes every partner's tool page: every tool page
+    /// goes. Otherwise the names of the tool pages it writes, and only those go; the pages of the
+    /// other requested types go whole either way.</param>
     internal static async Task<GccPagesDeleteResult> DeleteOldPagesAsync(
-        HttpGccRepository repo, GccCreateDto create, IReadOnlyList<string> requestedTypes, CancellationToken ct)
+        HttpGccRepository repo,
+        GccCreateDto create,
+        IReadOnlyList<string> requestedTypes,
+        CancellationToken ct,
+        IReadOnlyList<string>? toolPageNames = null)
     {
         if (create.ProjectId is not Guid projectId) throw new InvalidOperationException(NoProjectRefusal);
         if (requestedTypes.Count == 0) return new GccPagesDeleteResult(false, 0, 0);
 
-        return await repo.DeleteProjectPagesAsync(projectId, requestedTypes, ct)
+        if (toolPageNames is null) return await DeleteAsync(requestedTypes, null);
+
+        // Two deletes: the types whose every page the run writes, and the tool pages it names.
+        var toolTypes = requestedTypes.Where(WritesToolPages).ToList();
+        var otherTypes = requestedTypes.Where(type => !WritesToolPages(type)).ToList();
+        var others = otherTypes.Count == 0 ? new GccPagesDeleteResult(false, 0, 0) : await DeleteAsync(otherTypes, null);
+        var tools = toolTypes.Count == 0 ? new GccPagesDeleteResult(false, 0, 0) : await DeleteAsync(toolTypes, toolPageNames);
+        return new GccPagesDeleteResult(false, others.Pages + tools.Pages, others.DerivedPages + tools.DerivedPages);
+
+        async Task<GccPagesDeleteResult> DeleteAsync(IReadOnlyList<string> types, IReadOnlyList<string>? names) =>
+            await repo.DeleteProjectPagesAsync(projectId, types, names, ct)
             ?? throw new InvalidOperationException(
                 $"Refused: project {projectId} no longer exists, so there is nowhere to write to. Nothing was generated.");
     }
+
+    /// <summary>
+    /// A requested type as the writer reads it: its letters, lower case, so "tech-article" and
+    /// "techArticle" are one type.
+    /// </summary>
+    internal static string LettersOf(string requestedType) =>
+        new(requestedType.Trim().ToLowerInvariant().Where(char.IsLetter).ToArray());
+
+    /// <summary>Whether a requested type is the one written as a page per partner.</summary>
+    internal static bool WritesToolPages(string requestedType) => LettersOf(requestedType) is "aitool" or "tool";
 
     /// <summary>What a run on a create with no project is told, before anything is written or spent.</summary>
     internal const string NoProjectRefusal =
