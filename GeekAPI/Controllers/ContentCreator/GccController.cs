@@ -972,19 +972,18 @@ public class GccController : ControllerBase
         // introducing a second one. Results are read back in request order.
         var findings = await Task.WhenAll(urls.Select(url =>
         {
-            // The brief's question for this partner, when it has one: the tool's core problem (else
-            // the category's) for the meaning half, the first evidence row's terms for the keyword
-            // half. Without a brief the angle's sentence is asked, as before.
+            // The brief's questions for this partner, when it has any: each statement of the problem,
+            // the tool's own and the category's, as Generate searches with both; the first evidence
+            // row's terms for the keyword half. Without a brief the angle's sentence is asked, as before.
             var framing = GccNicheFramingReader.ForHost(project.BriefJson, GccRequiredToolMentions.HostKeyOf(url));
-            var need = framing is { CoreProblem.Length: > 0 } ? framing.CoreProblem : null;
-            var keyword = framing?.Evidence.FirstOrDefault(r => r.Keyword is not null)?.Keyword;
+            var keyword = framing?.RowsToSearch.FirstOrDefault(r => r.Keyword is not null)?.Keyword;
             return _angleQuote.ProbeAsync(
                 spec,
                 url,
                 runByUrl.TryGetValue(url, out var runId) ? runId : Guid.Empty,
                 probeProvider,
                 ct,
-                need,
+                framing?.Problems,
                 keyword);
         }));
 

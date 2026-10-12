@@ -208,10 +208,11 @@ public sealed class GccGroundingResolver(
     private const int PartnerTopK = 32;
 
     /// <summary>
-    /// Passages per question when a partner run is asked from the brief: the core problem, then one
-    /// question per evidence row. Eight each, page-diverse on the index's side, so a partner with
-    /// five rows reaches up to forty-eight pages chosen for six different things rather than
-    /// thirty-two chosen for one (plans/retrieval-from-the-brief.md P5). The union is deduped by URL.
+    /// Passages per question when a partner run is asked from the brief: each statement of the
+    /// problem, then one question per evidence row. Eight each, page-diverse on the index's side, so
+    /// a partner with five rows reaches up to forty-eight pages chosen for six different things rather
+    /// than thirty-two chosen for one, and eight more where the tool has a pain point of its own
+    /// beside the category's problem. The union is deduped by URL.
     /// </summary>
     private const int EvidenceTopK = 8;
 
@@ -518,9 +519,9 @@ public sealed class GccGroundingResolver(
                     seenByCrawlType[crawlType] = seenUrls;
                 }
 
-                // A partner run is asked from the brief: its core problem, then one question per
-                // evidence row, each with the vendor's solution for the meaning half and the row's
-                // terms for the keyword half. Without a brief it is asked the keyword alone. The
+                // A partner run is asked from the brief: each statement of the problem (the tool's own
+                // and the category's), then one question per evidence row, each with the vendor's
+                // solution for the meaning half and the row's terms for the keyword half. Without a brief it is asked the keyword alone. The
                 // other corpora are asked their one question as before.
                 var isPartner = string.Equals(crawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase);
                 var questions = isPartner
@@ -938,17 +939,25 @@ public sealed class GccGroundingResolver(
     }
 
     /// <summary>
-    /// What a partner run is asked, from the brief's niche framing for that host: the core problem
-    /// (the tool's own, else the category's), then one question per evidence row -- the vendor's
-    /// solution for the meaning half, the row's terms for the keyword half. A brief with neither
-    /// falls back to the keyword alone at <see cref="PartnerTopK"/>, which is what every partner was
-    /// asked before 2026-10-08.
+    /// What a partner run is asked, from the brief's niche framing for that host: each statement of
+    /// the problem (the tool's own "Core pain point", then the category's "The core problem"), then
+    /// one question per evidence row -- the vendor's solution for the meaning half, the row's terms
+    /// for the keyword half. A brief with none of them falls back to the keyword alone at
+    /// <see cref="PartnerTopK"/>, which is what every partner was asked before 2026-10-08.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Measured on Tipalti the day this was written: the keyword alone returned product and ERP
     /// integration pages; the tool's core problem returned case studies, pricing and solution pages;
     /// solution descriptions in the vendor's own vocabulary found the product page for all six of
     /// the operator's failures, including the three the pain points missed.
+    /// </para>
+    /// <para>
+    /// <b>Both problems, since 2026-10-12.</b> A tool with a pain point of its own was searched with
+    /// that and never with the category's problem, which the operator also entered (Jeff: "it is not
+    /// an OR it is both PAIN POINTS"). Each is its own search of <see cref="EvidenceTopK"/> passages;
+    /// one statement entered in both boxes is one search.
+    /// </para>
     /// </remarks>
     internal static IReadOnlyList<PartnerQuestion> PartnerQuestions(GccCreateDto create, string? hostKey)
     {
@@ -957,12 +966,12 @@ public sealed class GccGroundingResolver(
             : GccNicheFramingReader.ForHost(create.BriefJson, hostKey);
 
         var questions = new List<PartnerQuestion>();
-        if (framing is not null && framing.CoreProblem.Length > 0)
+        foreach (var problem in framing?.Problems ?? [])
         {
-            questions.Add(new PartnerQuestion(framing.CoreProblem, null, EvidenceTopK, Kind: GccPassageSearch.KindProblem));
+            questions.Add(new PartnerQuestion(problem, null, EvidenceTopK, Kind: GccPassageSearch.KindProblem));
         }
 
-        foreach (var row in framing?.Evidence ?? [])
+        foreach (var row in framing?.RowsToSearch ?? [])
         {
             if (row.Need.Length == 0) continue;
             questions.Add(new PartnerQuestion(

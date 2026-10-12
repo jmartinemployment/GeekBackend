@@ -12,11 +12,13 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 /// <remarks>
 /// <see cref="GccNicheFramingTests"/> pins that the brief parses. This pins that the parsed value
-/// survives six hops to the model: <c>GenerateToolPageAsync</c> resolves it →
-/// <c>ContentTypePromptContext.NicheFraming</c> → <c>ToolPrompts.OutlineFor</c> → <c>Outline</c> →
-/// <c>Opening</c>'s <c>SectionSlot.Guidance</c> → <c>BuildToolBodyPrompt</c>'s slot renderer. A reader
-/// that works and a wiring that does not is indistinguishable from the operator's side: a missing
-/// <c>Guidance</c> is null, and null is what it was before.
+/// survives its hops to the model: <c>GenerateToolPageAsync</c> resolves it →
+/// <c>ContentTypePromptContext.ToolFraming</c> → <c>ToolPrompts.Body</c>, which adds
+/// <c>GccPartnerAnswers.ForToolPage</c> to each body request's evidence → <c>BuildToolBodyPrompt</c>;
+/// and <c>ToolPrompts.Outline</c> → <c>Opening</c>'s <c>SectionSlot.Guidance</c>, which sends the
+/// opening section to that block. A reader that works and a wiring that does not is
+/// indistinguishable from the operator's side: a missing block is nothing, and nothing is what it
+/// was before.
 /// </remarks>
 public class NicheFramingReachesTheWriterTests
 {
@@ -71,6 +73,30 @@ public class NicheFramingReachesTheWriterTests
         Assert.Contains("Invoices are keyed by hand twice", prompts, StringComparison.Ordinal);
         Assert.Contains("Nobody owns the inbox.", prompts, StringComparison.Ordinal);
         Assert.Contains("Capture, code and route every invoice on arrival.", prompts, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The framing is a block the body request carries, and the section that opens on the problem is
+    /// sent to it: one copy in a request, not two. That every body request of a page carries it is
+    /// read off a whole page in <see cref="BriefFieldReachTests"/>; this fixture's provider stops
+    /// after the first.
+    /// </summary>
+    [Fact]
+    public async Task It_arrives_as_a_block_the_opening_section_is_sent_to()
+    {
+        var fixtures = GccToolPageFanOutFixture.Build(
+            GroundablePage, ["https://dext.com"], pagesPerPartner: 2,
+            draftable: true, briefJson: BriefWithFraming);
+        await fixtures.Service.GenerateToolPagesPerPartnerAsync(
+            fixtures.Create, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
+
+        var body = Assert.Single(
+            fixtures.Calls.Prompts,
+            prompt => prompt.Contains("top-level (h2) sections, in this order", StringComparison.Ordinal));
+        Assert.Contains($"{GccPartnerAnswers.ToolPageHeading} -- THE OPERATOR'S OWN RESEARCH", body, StringComparison.Ordinal);
+        Assert.Contains(GccPartnerAnswers.ToolOpeningGuidance, body, StringComparison.Ordinal);
+        Assert.Equal(1, body.Split("The problem: Invoices are keyed by hand twice", StringSplitOptions.None).Length - 1);
+        Assert.Contains("What answers it: Capture, code and route every invoice on arrival.", body, StringComparison.Ordinal);
     }
 
     [Fact]

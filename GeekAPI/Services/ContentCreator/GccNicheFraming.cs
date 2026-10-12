@@ -43,16 +43,63 @@ public sealed record GccNicheFraming(
     /// One retrieval question per failure (Geek-Crawler-Rag plans/retrieval-from-the-brief.md,
     /// 2026-10-08): the reader's problem, the vendor's solution in the vendor's own vocabulary, and
     /// a few of the vendor's terms. Retrieval input, never evidence and never quoted: the solution
-    /// goes to the index's meaning half and the terms to its keyword half. Per tool, rows are added
-    /// to the category's, like pain points. Empty when the brief carries none.
+    /// goes to the index's meaning half and the terms to its keyword half. Empty when the brief
+    /// carries none.
     /// <para>
-    /// One use besides retrieval, since 2026-10-11: a partner's own rows are told to the pillar and
-    /// the blog as the operator's note of which partner answers which failure
-    /// (<see cref="GccPartnerAnswers"/>). The category's rows and a tool page's own are still shown
-    /// to no writer.
+    /// One use besides retrieval: a row's failure and its remedy are told to the writers as the
+    /// operator's note of what answers which failure (<see cref="GccPartnerAnswers"/>). A partner's
+    /// own rows reached the pillar and the blog from 2026-10-11; since 2026-10-12 every row reaches
+    /// every page that is about its partner, the tool's own page included, and a row saved for all
+    /// partners reaches all of them. Its terms are for the search alone.
     /// </para>
     /// </summary>
     public IReadOnlyList<GccEvidenceRow> Evidence { get; init; } = [];
+
+    /// <summary>
+    /// Where it goes wrong as this set holds it, each failure once and in the operator's order, with
+    /// the remedy noted for it where a row carries one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A failure is entered as a row since 2026-10-08, and the form fills <see cref="PainPoints"/>
+    /// from the rows' failures on every change, so a brief saved since then holds each failure twice:
+    /// once as a paragraph and once on its row. An older brief may hold paragraphs with no row, and a
+    /// brief written by hand may hold rows with no paragraph. This is the one reading of both: the
+    /// paragraphs in order, each with its row's remedy when a row states it, then the rows no
+    /// paragraph states.
+    /// </para>
+    /// <para>
+    /// A row's failure that runs to more than one paragraph is several entries of
+    /// <see cref="PainPoints"/> and one failure here
+    /// (<see cref="GccNicheFramingReader.IsRowsFailure"/>).
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<GccFailure> Failures()
+    {
+        var rows = Evidence.Where(row => row.Problem.Length > 0 || row.Solution.Length > 0).ToList();
+        var listed = new bool[rows.Count];
+        var failures = new List<GccFailure>();
+        foreach (var pain in PainPoints)
+        {
+            var at = rows.FindIndex(row => GccNicheFramingReader.IsRowsFailure(pain, row));
+            if (at < 0)
+            {
+                failures.Add(new GccFailure(pain, string.Empty));
+                continue;
+            }
+
+            if (listed[at]) continue;
+            listed[at] = true;
+            failures.Add(new GccFailure(rows[at].Problem, rows[at].Solution));
+        }
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            if (!listed[i]) failures.Add(new GccFailure(rows[i].Problem, rows[i].Solution));
+        }
+
+        return failures;
+    }
 
     /// <summary>
     /// True when the failures this page argues are the ones the operator entered under the partners:
@@ -111,9 +158,23 @@ public sealed record GccNicheFraming(
     /// cover them is no longer a hook. The pillar's opening is an introduction as well as a hook, and
     /// carries the whole framing (<see cref="ToGuidance"/>).
     /// </remarks>
-    public string? HookGuidance()
+    public string? HookGuidance() => HookFor(CoreProblem, product: null, ownPainPoint: null);
+
+    /// <summary>
+    /// The hook's guidance for the problem as the operator stated it: for the whole category, for one
+    /// tool, or both. Null when neither is stated.
+    /// </summary>
+    /// <remarks>
+    /// One wording for the pages opened on the category's problem (<see cref="HookGuidance"/>) and
+    /// for a tool page, which is told the category's and its tool's own
+    /// (<see cref="GccToolFraming.HookGuidance"/>).
+    /// </remarks>
+    internal static string? HookFor(string? problem, string? product, string? ownPainPoint)
     {
-        if (string.IsNullOrWhiteSpace(CoreProblem)) return null;
+        var stated = (problem ?? string.Empty).Trim();
+        var own = (ownPainPoint ?? string.Empty).Trim();
+        if (string.Equals(stated, own, StringComparison.OrdinalIgnoreCase)) own = string.Empty;
+        if (stated.Length == 0 && own.Length == 0) return null;
 
         var sb = new StringBuilder();
         sb.Append("THE OPERATOR'S OWN STATEMENT OF THE PROBLEM THIS PAGE IS ABOUT -- the hook is about this ");
@@ -121,8 +182,22 @@ public sealed record GccNicheFraming(
         sb.Append("position, not retrieved evidence: do not attribute it to a source, and do not present it ");
         sb.Append("as something a vendor said. Where it goes wrong and what answers it belong to the ");
         sb.Append("sections that follow; the hook does not list them.");
+        if (own.Length == 0 || stated.Length == 0)
+        {
+            sb.AppendLine();
+            sb.Append("The problem: ").Append(stated.Length > 0 ? stated : own);
+            return sb.ToString();
+        }
+
+        // Both, since 2026-10-12: the operator states one problem for every partner and a pain point
+        // for each tool, and until then a tool page's hook was told the tool's own in the category's place.
+        var name = string.IsNullOrWhiteSpace(product) ? "This product" : product.Trim();
         sb.AppendLine();
-        sb.Append("The problem: ").Append(CoreProblem.Trim());
+        sb.Append("The problem: ").Append(stated);
+        sb.AppendLine();
+        sb.Append(name).Append("'s own pain point: ").Append(own);
+        sb.AppendLine();
+        sb.Append("The hook opens on ").Append(name).Append("'s own pain point and stays inside the problem.");
         return sb.ToString();
     }
 
@@ -247,6 +322,94 @@ public sealed record GccNicheFraming(
 }
 
 /// <summary>
+/// One failure the operator named, with the remedy noted for it. Either may be empty, never both: a
+/// failure entered with no remedy, or a remedy entered on a row that names no failure.
+/// </summary>
+public sealed record GccFailure(string Problem, string Remedy);
+
+/// <summary>
+/// What the operator entered for one tool: the framing for the whole category, and that tool's own
+/// section of the brief. Both are kept, and neither stands in for the other.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Why two sets and not one merged.</b> Until 2026-10-12 a tool's own problem and its own pitch
+/// replaced the category's, on the reasoning that two core problems on one page are incoherent. So
+/// a partner's site was searched with one of the two problems the operator entered, and its page was
+/// told one of the two problems and one of the two pitches. Jeff, 2026-10-12: "it is not an OR it is
+/// both PAIN POINTS". He researches one problem for every partner and a pain point for each tool,
+/// enters both, and both are searched for and told.
+/// </para>
+/// <para>
+/// <b>A separate type on purpose.</b> <see cref="GccNicheFraming"/>'s own guidance prints one set.
+/// Handing it a tool's merged set is how a box came to be entered and not used; a caller holding
+/// this cannot print the category's and forget the tool's, because there is no method here that does.
+/// </para>
+/// </remarks>
+/// <param name="Category">What was entered for the whole category, or null when nothing was.</param>
+/// <param name="Own">What was entered in this tool's own section, merged with nothing, or null when
+/// nothing was or the tool is no partner of the project.</param>
+public sealed record GccToolFraming(GccNicheFraming? Category, GccNicheFraming? Own)
+{
+    /// <summary>
+    /// Every statement of the problem, each once: the tool's own "Core pain point", then the
+    /// category's "The core problem". What a partner's site is searched with.
+    /// </summary>
+    /// <remarks>
+    /// The tool's own first because it was this tool's first search before the category's was added
+    /// beside it: the pages it finds keep their place in the tool's research.
+    /// </remarks>
+    public IReadOnlyList<string> Problems
+    {
+        get
+        {
+            var problems = new List<string>(2);
+            foreach (var problem in new[] { Own?.CoreProblem, Category?.CoreProblem })
+            {
+                var stated = (problem ?? string.Empty).Trim();
+                if (stated.Length > 0 && !problems.Contains(stated, StringComparer.OrdinalIgnoreCase)) problems.Add(stated);
+            }
+
+            return problems;
+        }
+    }
+
+    /// <summary>
+    /// The rows a partner's site is searched with: the category's, then the tool's own. A tool's row
+    /// that restates a category row's failure is searched in that row's place, because the tool's
+    /// remedy for that failure is the one its own site is asked about.
+    /// </summary>
+    /// <remarks>
+    /// A row that names no failure restates none. It used to take the place of the category's first
+    /// row with no failure, which the form's own list of a tool's searches never did.
+    /// </remarks>
+    public IReadOnlyList<GccEvidenceRow> RowsToSearch
+    {
+        get
+        {
+            var rows = new List<GccEvidenceRow>(Category?.Evidence ?? []);
+            foreach (var row in Own?.Evidence ?? [])
+            {
+                var at = row.Problem.Length == 0
+                    ? -1
+                    : rows.FindIndex(r => string.Equals(r.Problem, row.Problem, StringComparison.OrdinalIgnoreCase));
+                if (at >= 0) rows[at] = row;
+                else rows.Add(row);
+            }
+
+            return rows;
+        }
+    }
+
+    /// <summary>
+    /// The problem for the call that writes this tool's hook: the category's and the tool's own. Null
+    /// when the operator stated neither.
+    /// </summary>
+    public string? HookGuidance(string? product) =>
+        GccNicheFraming.HookFor(Category?.CoreProblem, product, Own?.CoreProblem);
+}
+
+/// <summary>
 /// Reads <see cref="GccNicheFraming"/> out of a create's <c>BriefJson</c>.
 /// </summary>
 /// <remarks>
@@ -265,10 +428,10 @@ public sealed record GccNicheFraming(
 /// </code>
 /// </para>
 /// <para>
-/// <b>One category set, with optional per-tool overrides.</b> Jeff's own research states the framing
-/// once for the category as often as it states it per tool (Perplexity repeated all three per tool;
-/// Claude desktop stated them once and listed five tools beneath). Requiring five sets would force
-/// invented per-tool distinctions, so a tool with no entry inherits the category's.
+/// <b>One category set, and a section for each tool.</b> Jeff's research states one problem for
+/// every partner and then, per tool, a pain point, the failures with the tool's remedy for each, and
+/// a pitch. A tool's section adds to the category's and replaces none of it
+/// (<see cref="GccToolFraming"/>); a tool with nothing entered has the category's alone.
 /// </para>
 /// <para>
 /// <b>Keyed by host, never by a typed name.</b> <c>GccPartnerToolSlices</c> buckets evidence by
@@ -317,21 +480,18 @@ public static class GccNicheFramingReader
     }
 
     /// <summary>
-    /// The framing for one product: its own override when the operator wrote one, otherwise the
-    /// category's. Null when neither exists.
+    /// The framing for one product: the category's, and what the operator entered in that product's
+    /// own section. Null when neither exists.
     /// </summary>
     /// <param name="partnerUrls">
-    /// The project's declared partner URLs, which is what resolves a product name back to the host the
-    /// override is keyed by. Without them only the category framing can be found.
+    /// The project's declared partner URLs, which is what resolves a product name back to the host its
+    /// section is keyed by. Without them only the category framing can be found.
     /// </param>
-    public static GccNicheFraming? ForProduct(
+    public static GccToolFraming? ForProduct(
         string? briefJson,
         IReadOnlyList<string>? partnerUrls,
-        string? productName)
-    {
-        var host = HostForProduct(briefJson, partnerUrls, productName);
-        return host.Length == 0 ? ForCategory(briefJson) : ForHost(briefJson, host);
-    }
+        string? productName) =>
+        ForHost(briefJson, HostForProduct(briefJson, partnerUrls, productName));
 
     /// <summary>
     /// The operator's FAQ questions for one tool: <c>perTool[host].faqQuestions</c>, one per line or
@@ -359,154 +519,81 @@ public static class GccNicheFramingReader
     /// </remarks>
     public static IReadOnlyList<string> FaqQuestionsForHost(string? briefJson, string? host)
     {
-        host = (host ?? string.Empty).Trim();
-        if (host.Length == 0) return [];
-        var root = ReadRoot(briefJson);
-        if (root is null) return [];
-        if (!TryGetPropertyIgnoreCase(root.Value, "perTool", out var perTool)
-            || perTool.ValueKind != JsonValueKind.Object)
+        foreach (var section in OwnSections(briefJson, host))
         {
-            return [];
-        }
-
-        foreach (var entry in perTool.EnumerateObject())
-        {
-            if (!string.Equals(GccRequiredToolMentions.HostKeyOf(Absolute(entry.Name)), host, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(entry.Name.Trim(), host, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            if (entry.Value.ValueKind != JsonValueKind.Object) return [];
             // Each once: a question is what its search is filed under, so a repeated line is one question.
-            return [.. ReadQuestionLines(entry.Value, "faqQuestions").Distinct(StringComparer.Ordinal)];
-        }
-        return [];
-    }
-
-    /// <summary>
-    /// The framing for one partner host (the <c>perTool</c> key, e.g. <c>tipalti.com</c>): its own
-    /// override merged over the category's when the operator wrote one, otherwise the category's.
-    /// Null when neither exists. Retrieval resolves partners by host, not by product name, so this
-    /// is the entry it uses (plans/retrieval-from-the-brief.md P5).
-    /// </summary>
-    public static GccNicheFraming? ForHost(string? briefJson, string host)
-    {
-        var category = ForCategory(briefJson);
-        host = (host ?? string.Empty).Trim();
-        if (host.Length == 0) return category;
-
-        var root = ReadRoot(briefJson);
-        if (root is null) return category;
-
-        if (!TryGetPropertyIgnoreCase(root.Value, "perTool", out var perTool)
-            || perTool.ValueKind != JsonValueKind.Object)
-        {
-            return category;
-        }
-
-        foreach (var entry in perTool.EnumerateObject())
-        {
-            if (!string.Equals(GccRequiredToolMentions.HostKeyOf(Absolute(entry.Name)), host, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(entry.Name.Trim(), host, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
-
-            var own = ReadFraming(entry.Value);
-            // An override that was opened and left blank is not an override. Inheriting the category
-            // beats handing the writer an empty frame it would have to invent around anyway.
-            if (own is not null && own.HasAny) return Merge(own, category);
-        }
-
-        return category;
-    }
-
-    /// <summary>
-    /// The rows the operator entered under one partner host: that partner's own failures and what it
-    /// does about each, not merged with the category's. Empty when the brief holds none for the host.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="ForHost"/> answers what a partner's crawl is searched with, the category's rows
-    /// included. This answers what the operator said of this partner and of no other, which is what
-    /// a page about every partner needs to say which one answers which failure
-    /// (<see cref="GccPartnerAnswers"/>).
-    /// </remarks>
-    public static IReadOnlyList<GccEvidenceRow> OwnRowsForHost(string? briefJson, string? host)
-    {
-        host = (host ?? string.Empty).Trim();
-        if (host.Length == 0) return [];
-
-        var root = ReadRoot(briefJson);
-        if (root is null) return [];
-
-        if (!TryGetPropertyIgnoreCase(root.Value, "perTool", out var perTool)
-            || perTool.ValueKind != JsonValueKind.Object)
-        {
-            return [];
-        }
-
-        foreach (var entry in perTool.EnumerateObject())
-        {
-            if (!string.Equals(GccRequiredToolMentions.HostKeyOf(Absolute(entry.Name)), host, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(entry.Name.Trim(), host, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
-
-            var rows = ReadEvidence(entry.Value);
-            if (rows.Count > 0) return rows;
+            return [.. ReadQuestionLines(section, "faqQuestions").Distinct(StringComparer.Ordinal)];
         }
 
         return [];
     }
 
     /// <summary>
-    /// What the operator entered under one partner host and nowhere else: that partner's own problem
-    /// and what to pitch it on, not merged with the category's. Null when the brief holds neither
-    /// for the host.
+    /// The framing for one partner host (the <c>perTool</c> key, e.g. <c>tipalti.com</c>): the
+    /// category's, and that host's own section. Null when neither exists. Retrieval resolves partners
+    /// by host, not by product name, so this is the entry it uses.
+    /// </summary>
+    public static GccToolFraming? ForHost(string? briefJson, string? host)
+    {
+        var framing = new GccToolFraming(ForCategory(briefJson), OwnForHost(briefJson, host));
+        return framing.Category is null && framing.Own is null ? null : framing;
+    }
+
+    /// <summary>
+    /// What the operator entered in one partner host's own section and nowhere else: its "Core pain
+    /// point", its failures and rows, and its pitch, merged with nothing. Null when the brief holds
+    /// none of them for the host.
     /// </summary>
     /// <remarks>
-    /// <see cref="ForHost"/> fills a partner's empty box from the category's, which is right for that
-    /// partner's own page and wrong for a page about every partner: the category's problem printed
-    /// under each of five partners is one statement five times. This answers only what is the
-    /// partner's own (<see cref="GccPartnerAnswers"/>). Its rows are <see cref="OwnRowsForHost"/>.
+    /// The one reader of a tool's own section. A partner's search and its own page read it beside the
+    /// category's (<see cref="ForHost"/>); a page about every partner reads it alone, to say which
+    /// partner answers which failure (<see cref="GccPartnerAnswers"/>). Until 2026-10-12 there were
+    /// three readers of that section, one for its rows, one for its two statements and one that
+    /// merged it over the category's, and what one of them left out was a box entered and not used.
+    /// <para>
+    /// A section opened and left blank is not a section: the tool has the category's alone.
+    /// </para>
     /// </remarks>
-    public static (string CoreProblem, string AutomationToPitch)? OwnStatementsForHost(string? briefJson, string? host)
+    public static GccNicheFraming? OwnForHost(string? briefJson, string? host)
     {
-        host = (host ?? string.Empty).Trim();
-        if (host.Length == 0) return null;
-
-        var root = ReadRoot(briefJson);
-        if (root is null) return null;
-
-        if (!TryGetPropertyIgnoreCase(root.Value, "perTool", out var perTool)
-            || perTool.ValueKind != JsonValueKind.Object)
+        foreach (var section in OwnSections(briefJson, host))
         {
-            return null;
-        }
-
-        foreach (var entry in perTool.EnumerateObject())
-        {
-            if (!string.Equals(GccRequiredToolMentions.HostKeyOf(Absolute(entry.Name)), host, StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(entry.Name.Trim(), host, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
-
-            var own = ReadFraming(entry.Value);
-            if (own is null) continue;
-            var problem = own.CoreProblem.Trim();
-            var pitch = own.AutomationToPitch.Trim();
-            if (problem.Length > 0 || pitch.Length > 0) return (problem, pitch);
+            var own = ReadFraming(section);
+            if (own is not null && own.HasAny) return own;
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Each <c>perTool</c> entry filed under <paramref name="host"/>: by the host itself, or by an
+    /// address on it. One, as the form saves a brief; in the order written when a brief written by
+    /// hand holds more.
+    /// </summary>
+    private static IEnumerable<JsonElement> OwnSections(string? briefJson, string? host)
+    {
+        var wanted = (host ?? string.Empty).Trim();
+        if (wanted.Length == 0) yield break;
+
+        var root = ReadRoot(briefJson);
+        if (root is null) yield break;
+
+        if (!TryGetPropertyIgnoreCase(root.Value, "perTool", out var perTool)
+            || perTool.ValueKind != JsonValueKind.Object)
+        {
+            yield break;
+        }
+
+        foreach (var entry in perTool.EnumerateObject())
+        {
+            if (!string.Equals(GccRequiredToolMentions.HostKeyOf(Absolute(entry.Name)), wanted, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(entry.Name.Trim(), wanted, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (entry.Value.ValueKind == JsonValueKind.Object) yield return entry.Value;
+        }
     }
 
     /// <summary>
@@ -577,63 +664,7 @@ public static class GccNicheFramingReader
     }
 
     /// <summary>
-    /// A per-tool override laid over the category set, <b>field by field</b>.
-    /// </summary>
-    /// <remarks>
-    /// Per field, not per set. The override used to replace the category wholesale, so filling only a
-    /// tool's Core Problem silently discarded the category's Pain Points and Automation — the operator
-    /// states one thing differently for one tool and loses the two they meant to keep. Jeff asked
-    /// whether the backend combines these (2026-10-03); it did not, and it should.
-    ///
-    /// <para>
-    /// <b>The two single-statement fields replace; the list field appends.</b> Two core problems on one
-    /// page is incoherent, so the tool's wins. Pain points are different in kind: the category's are by
-    /// definition true of every tool in the niche, so a tool-specific failure is <i>additional</i> rather
-    /// than a correction.
-    /// </para>
-    /// <para>
-    /// The research is what settled it. One category query returned fourteen pain points — nine in a
-    /// table, five as consequence paragraphs — every one of them true of all five AP tools. Replacing
-    /// that set with a single tool-specific line would discard almost everything the operator gathered.
-    /// </para>
-    /// <para>
-    /// Category first, then the tool's: the shared problem is established before the slice that is
-    /// particular to this product. Duplicates are dropped, since an operator restating a shared failure
-    /// inside an override means to emphasise it, not to have it argued twice.
-    /// </para>
-    /// </remarks>
-    private static GccNicheFraming Merge(GccNicheFraming own, GccNicheFraming? category)
-    {
-        var pains = new List<string>(category?.PainPoints ?? []);
-        foreach (var pain in own.PainPoints)
-        {
-            if (!pains.Contains(pain, StringComparer.OrdinalIgnoreCase)) pains.Add(pain);
-        }
-
-        // Rows add, like pain points: the category's failures are true of every tool in the niche,
-        // and the tool's rows are the slice it owns. A row restating a category problem replaces it,
-        // because the tool's solution to that problem is the one its page should search for.
-        var rows = new List<GccEvidenceRow>(category?.Evidence ?? []);
-        foreach (var row in own.Evidence)
-        {
-            var at = rows.FindIndex(r => string.Equals(r.Problem, row.Problem, StringComparison.OrdinalIgnoreCase));
-            if (at >= 0) rows[at] = row;
-            else rows.Add(row);
-        }
-
-        return new GccNicheFraming(
-            own.CoreProblem.Length > 0 ? own.CoreProblem : category?.CoreProblem ?? string.Empty,
-            pains,
-            own.AutomationToPitch.Length > 0
-                ? own.AutomationToPitch
-                : category?.AutomationToPitch ?? string.Empty)
-        {
-            Evidence = rows,
-        };
-    }
-
-    /// <summary>
-    /// The host whose override applies to <paramref name="productName"/>, or empty when the name
+    /// The host whose section of the brief is <paramref name="productName"/>'s, or empty when the name
     /// matches no declared partner.
     /// </summary>
     internal static string HostForProduct(
@@ -700,11 +731,17 @@ public static class GccNicheFramingReader
 
         // Since 2026-10-08 the form enters each failure once, as a row, and derives painPoints from
         // the rows' Problem column on every change. A brief written by hand or by an older client
-        // may carry rows and no paragraphs; the rows' problems are the failures then.
-        if (pains.Count == 0 && evidence.Count > 0)
+        // may carry a row whose failure no paragraph states; it is a failure the operator named all
+        // the same, and is added after the paragraphs. Until 2026-10-12 that was done only when there
+        // were no paragraphs at all, so beside even one paragraph a row's failure reached no writer.
+        var stated = new List<string>(pains);
+        foreach (var row in evidence)
         {
-            pains = [.. evidence.Select(r => r.Problem).Where(p => p.Length > 0)];
+            if (row.Problem.Length == 0 || stated.Any(pain => IsRowsFailure(pain, row))) continue;
+            stated.Add(row.Problem);
         }
+
+        pains = stated;
 
         if (core.Length == 0 && automation.Length == 0 && pains.Count == 0 && evidence.Count == 0) return null;
         return new GccNicheFraming(core, pains, automation) { Evidence = evidence };
@@ -817,17 +854,7 @@ public static class GccNicheFramingReader
         var lines = new List<string>();
         if (prop.ValueKind == JsonValueKind.String)
         {
-            var raw = (prop.GetString() ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
-            foreach (var block in Regex.Split(raw, @"\n\s*\n"))
-            {
-                // Soft-wrapped lines inside one paragraph join into one sentence rather than staying
-                // broken: the writer is given prose to argue from, not a column of fragments.
-                var joined = string.Join(
-                    " ",
-                    block.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-                var trimmed = joined.Trim();
-                if (trimmed.Length > 0) lines.Add(trimmed);
-            }
+            lines.AddRange(ParagraphsOf(prop.GetString()));
         }
         else if (prop.ValueKind == JsonValueKind.Array)
         {
@@ -840,6 +867,50 @@ public static class GccNicheFramingReader
         }
 
         return lines;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="pain"/>, a saved failure, is the failure <paramref name="row"/> states:
+    /// the row's failure as typed, or one of its paragraphs, or all of them as one. Without regard to case.
+    /// </summary>
+    /// <remarks>
+    /// The form saves a row's failure twice, on the row and as a paragraph of the set's failures, and
+    /// a failure typed with a blank line in it is one row and two paragraphs. Read by
+    /// <see cref="GccNicheFraming.Failures"/>, so a failure is listed once with its row's remedy.
+    /// </remarks>
+    internal static bool IsRowsFailure(string pain, GccEvidenceRow row)
+    {
+        if (row.Problem.Length == 0) return false;
+        if (string.Equals(pain, row.Problem, StringComparison.OrdinalIgnoreCase)) return true;
+        var paragraphs = ParagraphsOf(row.Problem);
+        return paragraphs.Contains(pain, StringComparer.OrdinalIgnoreCase)
+            || string.Equals(pain, string.Join(" ", paragraphs), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A text's paragraphs: blank-line separated, the lines wrapped inside one joined into a sentence.
+    /// </summary>
+    /// <remarks>
+    /// The one splitter. The saved failures are read with it (<see cref="ReadParagraphs"/>), and a
+    /// row's failure is read with it to tell which saved paragraph is that row's
+    /// (<see cref="IsRowsFailure"/>): two splitters would call one failure two.
+    /// </remarks>
+    internal static IReadOnlyList<string> ParagraphsOf(string? text)
+    {
+        var paragraphs = new List<string>();
+        var raw = (text ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+        foreach (var block in Regex.Split(raw, @"\n\s*\n"))
+        {
+            // Soft-wrapped lines inside one paragraph join into one sentence rather than staying
+            // broken: the writer is given prose to argue from, not a column of fragments.
+            var joined = string.Join(
+                " ",
+                block.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+            var trimmed = joined.Trim();
+            if (trimmed.Length > 0) paragraphs.Add(trimmed);
+        }
+
+        return paragraphs;
     }
 
     /// <summary>
@@ -869,9 +940,10 @@ public static class GccNicheFramingReader
 /// the reader's failure, the vendor's solution in the vendor's own vocabulary, and a few of the
 /// vendor's terms. <paramref name="Solution"/> is sent to the index as <c>need</c> (the meaning
 /// half); <paramref name="Terms"/>, joined, as <c>keyword</c> (the keyword half). Never quoted and
-/// never shown to the writer as evidence: what retrieval returns for it is the evidence. A row entered
-/// under one partner is also shown to the pillar's and the blog's writer as the operator's own note of
-/// what that partner answers (<see cref="GccPartnerAnswers"/>).
+/// never shown to the writer as evidence: what retrieval returns for it is the evidence. Its failure
+/// and its remedy are also shown to the writers as the operator's own note of what answers which
+/// failure (<see cref="GccPartnerAnswers"/>): a partner's row to that partner's page, the pillar and
+/// the blog, and a row saved for all partners to every one of them.
 /// </summary>
 public sealed record GccEvidenceRow(string Problem, string Solution, IReadOnlyList<string> Terms)
 {

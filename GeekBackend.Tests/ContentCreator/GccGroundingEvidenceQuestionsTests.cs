@@ -198,8 +198,13 @@ public class GccGroundingEvidenceQuestionsTests
     private static IReadOnlyList<GeekCrawlerRagQuery> PartnerQueries(RecordingRag rag) =>
         [.. rag.Asked.Where(q => string.Equals(q.CrawlType, CrawlTypes.Partner, StringComparison.OrdinalIgnoreCase))];
 
+    /// <summary>
+    /// Both statements of the problem are searched for (Jeff, 2026-10-12: "it is not an OR it is both
+    /// PAIN POINTS"). Until then a tool with a pain point of its own was searched with that and never
+    /// with the category's problem, which the operator also entered.
+    /// </summary>
     [Fact]
-    public async Task A_partner_run_is_asked_its_core_problem_then_one_question_per_evidence_row()
+    public async Task A_partner_run_is_asked_both_problems_then_one_question_per_evidence_row()
     {
         var project = Project("https://tipalti.com/");
         var rag = new RecordingRag();
@@ -207,20 +212,49 @@ public class GccGroundingEvidenceQuestionsTests
         await Build(project, rag).ResolveAsync(Create(project.Id, Brief), "tool");
 
         var asked = PartnerQueries(rag);
-        Assert.Equal(3, asked.Count);
+        Assert.Equal(4, asked.Count);
 
-        // The tool's own core problem, no keyword, eight passages.
+        // The tool's own pain point, no keyword, eight passages: its first search, as it was.
         Assert.StartsWith("International vendors", asked[0].Need, StringComparison.Ordinal);
         Assert.Null(asked[0].Keyword);
         Assert.Equal(8, asked[0].TopK);
 
+        // Then the category's problem, the same way.
+        Assert.StartsWith("The uncontrolled handoff", asked[1].Need, StringComparison.Ordinal);
+        Assert.Null(asked[1].Keyword);
+        Assert.Equal(8, asked[1].TopK);
+
         // The category's row comes first (rows add), then Tipalti's own: the vendor's solution as
         // the need and the row's terms, joined, as the keyword.
-        Assert.StartsWith("Approval workflows route", asked[1].Need, StringComparison.Ordinal);
-        Assert.Equal("approval workflow audit trail", asked[1].Keyword);
-        Assert.StartsWith("Automated payment reconciliation", asked[2].Need, StringComparison.Ordinal);
-        Assert.Equal("payment reconciliation multi-entity", asked[2].Keyword);
+        Assert.StartsWith("Approval workflows route", asked[2].Need, StringComparison.Ordinal);
+        Assert.Equal("approval workflow audit trail", asked[2].Keyword);
+        Assert.StartsWith("Automated payment reconciliation", asked[3].Need, StringComparison.Ordinal);
+        Assert.Equal("payment reconciliation multi-entity", asked[3].Keyword);
         Assert.All(asked, q => Assert.Equal(TipaltiRun, q.RunId));
+    }
+
+    [Fact]
+    public void A_partner_with_no_pain_point_of_its_own_is_asked_the_categorys_problem_once()
+    {
+        var create = Create(Guid.NewGuid(), Brief);
+
+        // Bill has no section in this brief: the category's problem and the category's row.
+        var bill = GccGroundingResolver.PartnerQuestions(create, "bill.com");
+        Assert.Equal(
+            [
+                "The uncontrolled handoff between an approved invoice and the moment cash leaves the bank.",
+                "Approval workflows route each bill with an audit trail.",
+            ],
+            bill.Select(q => q.Need));
+
+        // One statement entered in both boxes is one search.
+        var same = Brief.Replace(
+            "International vendors, multiple entities and contractors need controlled global payment execution.",
+            "the uncontrolled handoff between an approved invoice and the moment cash leaves the bank.",
+            StringComparison.Ordinal);
+        var tipalti = GccGroundingResolver.PartnerQuestions(Create(Guid.NewGuid(), same), "tipalti.com");
+        Assert.Single(tipalti, q => q.Kind == GccPassageSearch.KindProblem);
+        Assert.Equal(3, tipalti.Count);
     }
 
     [Fact]
@@ -315,8 +349,8 @@ public class GccGroundingEvidenceQuestionsTests
     }
 
     /// <summary>
-    /// The brief asks this partner three questions. Until 2026-10-10 a page the first had returned was
-    /// dropped whole from the second's and the third's answers, with the passages they had found on it.
+    /// The brief asks this partner four questions. Until 2026-10-10 a page the first had returned was
+    /// dropped whole from the later ones' answers, with the passages they had found on it.
     /// </summary>
     [Fact]
     public async Task A_later_question_adds_its_passages_to_a_page_an_earlier_question_returned()
@@ -337,11 +371,11 @@ public class GccGroundingEvidenceQuestionsTests
 
         var page = Assert.Single(outcome.Pages, p => p.Url == "https://tipalti.com/product-updates/");
         Assert.Equal(
-            ["On every answer.", "Found by question 1.", "Found by question 2.", "Found by question 3."],
+            ["On every answer.", "Found by question 1.", "Found by question 2.", "Found by question 3.", "Found by question 4."],
             page.Paragraphs);
 
         // The scores stay in step with the passages they score.
-        Assert.Equal([0.5, 1, 2, 3], page.Scores!.Select(s => s.Score));
+        Assert.Equal([0.5, 1, 2, 3, 4], page.Scores!.Select(s => s.Score));
     }
 
     [Fact]
@@ -386,12 +420,16 @@ public class GccGroundingEvidenceQuestionsTests
             .ResolveAsync(Create(project.Id, Brief), "tool");
 
         var page = Assert.Single(outcome.Pages, p => p.Url == "https://tipalti.com/product-updates/");
-        // The partner's own problem, the row entered for every partner, the row entered for this one.
+        // The partner's own pain point, the problem entered for every partner, the row entered for
+        // every partner, the row entered for this one.
         Assert.Equal(
             [
                 new GccPassageSearch(
                     GccPassageSearch.KindProblem,
                     "International vendors, multiple entities and contractors need controlled global payment execution."),
+                new GccPassageSearch(
+                    GccPassageSearch.KindProblem,
+                    "The uncontrolled handoff between an approved invoice and the moment cash leaves the bank."),
                 new GccPassageSearch(
                     GccPassageSearch.KindRow,
                     "Approval workflows route each bill with an audit trail.",
@@ -405,13 +443,14 @@ public class GccGroundingEvidenceQuestionsTests
             ],
             page.Searches);
 
-        // The passage every search returned names all three; each of the others names its own.
+        // The passage every search returned names all four; each of the others names its own.
         Assert.Equal(page.Paragraphs.Count, page.FoundBy!.Count);
-        Assert.Equal([0, 1, 2], page.FoundBy[0]);
+        Assert.Equal([0, 1, 2, 3], page.FoundBy[0]);
         Assert.Equal([0], page.FoundBy[1]);
         Assert.Equal([1], page.FoundBy[2]);
         Assert.Equal([2], page.FoundBy[3]);
-        Assert.Equal("Cannot reconcile global payments.", Assert.Single(page.SearchesThatFound(3)).Failure);
+        Assert.Equal([3], page.FoundBy[4]);
+        Assert.Equal("Cannot reconcile global payments.", Assert.Single(page.SearchesThatFound(4)).Failure);
     }
 
     [Fact]

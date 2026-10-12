@@ -32,21 +32,22 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
     /// the obligation it sizes, not in a second list somewhere else that has to agree with this one.
     /// </summary>
     public IReadOnlyList<SectionSlot> OutlineFor(ContentTypePromptContext ctx) =>
-        Outline(ctx.Context, ctx.App?.Name, ctx.NicheFraming);
+        Outline(ctx.Context, ctx.App?.Name, ctx.ToolFraming);
 
     /// <summary>
     /// The same definition, reachable without a prompt-set instance -- the orchestrator's own tool
     /// path (<c>ToolPageGenerator</c>) writes the identical page and must not carry a copy of this
     /// list or, worse, hand the tool body prompt the pillar's planned outline instead.
     /// </summary>
-    /// <param name="niche">
-    /// The operator's framing of the problem, when the brief carries one. Optional so the
-    /// orchestrator's tool path — which has no brief — keeps calling this unchanged.
+    /// <param name="framing">
+    /// The operator's framing for this tool, when the brief carries one: the category's and the
+    /// tool's own. Optional so the orchestrator's tool path — which has no brief — keeps calling this
+    /// unchanged.
     /// </param>
     public static IReadOnlyList<SectionSlot> Outline(
         ProjectGenerationContext context,
         string? productName,
-        GccNicheFraming? niche = null)
+        GccToolFraming? framing = null)
     {
         var product = productName is { Length: > 0 } n ? n : "this product";
         var publisher = context.PublisherName;
@@ -60,7 +61,7 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
         var (pageFloor, _, _) = GccLongFormTypes.GetSeoLengthRules(GccLongFormTypes.Tool);
         return SectionSlot.WithOwedWords(
         [
-            Opening(context.ContentAngle, product, keyword, niche),
+            Opening(context.ContentAngle, product, keyword, OpeningGuidance(framing, productName)),
             // The page's keyword heading belongs here: this is the first section about the work once the product
             // does it. The one before it opens on the problem as the reader has it today, by hand, and a
             // heading there cannot carry "Automated ..." without contradicting what the section covers.
@@ -118,7 +119,7 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
     /// opening is already written by the shared 12-type lede below.
     /// </summary>
     /// <remarks>
-    /// <paramref name="niche"/> fills this slot's <c>Guidance</c>, which was null until 2026-10-02 —
+    /// <paramref name="guidance"/> fills this slot's <c>Guidance</c>, which was null until 2026-10-02 —
     /// so the writer invented the problem, its cost and its failure modes on every page. The slot's
     /// three clauses and the operator's three fields are the same three things; this is the operator
     /// answering the question the slot already asked.
@@ -127,9 +128,8 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
     /// evidence-led page opens differently but is still about the same problem, and the framing says
     /// what that problem is.
     /// </remarks>
-    private static SectionSlot Opening(string? angle, string product, string keyword, GccNicheFraming? niche)
+    private static SectionSlot Opening(string? angle, string product, string keyword, string? guidance)
     {
-        var guidance = niche?.ToGuidance();
         return (angle ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "problem_solution" => SectionSlot.Cover(
@@ -152,6 +152,21 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
     }
 
     /// <summary>
+    /// What the opening section is told of the operator's framing: where it is, when the page carries
+    /// it. Null when the brief holds nothing for this tool or for the category.
+    /// </summary>
+    /// <remarks>
+    /// The framing itself is in the block every body request carries (<see cref="Body"/>,
+    /// <see cref="GccPartnerAnswers.ForToolPage"/>); the opening section is sent to it. Until
+    /// 2026-10-12 the framing was printed here, in the opening section's own guidance, which only the
+    /// first of the page's five body requests prints: the other eight sections were written with none
+    /// of what the operator entered for the tool. The same question decides both, so a section is
+    /// never sent to a block its request does not carry.
+    /// </remarks>
+    private static string? OpeningGuidance(GccToolFraming? framing, string? productName) =>
+        GccPartnerAnswers.ForToolPage(framing, productName) is null ? null : GccPartnerAnswers.ToolOpeningGuidance;
+
+    /// <summary>
     /// The shared 12-type hook, chosen against this brief's audience, angle, intent and tone --
     /// the same path every other long-form type uses, not a Tool-specific copy. Tool had no lede
     /// call at all until 2026-09-23: its first body section was promoted into the lede slot, so
@@ -166,13 +181,22 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
     public ChatCompletionRequest Lede(ContentTypePromptContext ctx) =>
         prompts.BuildArticleLedePrompt(
             ctx.Context, Meta(ctx), evidenceBlock: ctx.EvidenceBlock,
-            operatorsProblem: ctx.NicheFraming?.HookGuidance());
+            operatorsProblem: ctx.ToolFraming?.HookGuidance(ctx.App?.Name));
 
-    public ChatCompletionRequest Body(ContentTypePromptContext ctx) =>
-        prompts.BuildToolBodyPrompt(
+    public ChatCompletionRequest Body(ContentTypePromptContext ctx)
+    {
+        var app = ctx.App ?? throw new InvalidOperationException("A tool page needs the product it is about.");
+        // What the operator entered for every partner and for this tool, after the evidence, in every
+        // body request: each of the page's sections is written within it. Added here and not by the
+        // caller, so the request that sends the opening section to it is a request that carries it.
+        var evidence = string.Join(
+            Environment.NewLine,
+            new[] { ctx.EvidenceBlock, GccPartnerAnswers.ForToolPage(ctx.ToolFraming, app.Name) }
+                .Where(block => !string.IsNullOrWhiteSpace(block)));
+        return prompts.BuildToolBodyPrompt(
             ctx.Context,
             Meta(ctx),
-            ctx.App ?? throw new InvalidOperationException("A tool page needs the product it is about."),
+            app,
             ctx.ToolSlug ?? string.Empty,
             outline: ctx.SectionBatch ?? OutlineFor(ctx),
             revisionNotes: null,
@@ -180,7 +204,8 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
             lede: ctx.Lede,
             fullOutline: OutlineFor(ctx),
             batchIndex: ctx.SectionBatchIndex,
-            evidenceBlock: ctx.EvidenceBlock,
+            evidenceBlock: evidence.Length == 0 ? null : evidence,
             quoteCandidates: ctx.QuoteCandidates,
             writtenSoFar: ctx.WrittenSoFar);
+    }
 }

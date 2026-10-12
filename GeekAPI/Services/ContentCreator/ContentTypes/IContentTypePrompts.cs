@@ -96,15 +96,24 @@ public sealed record ContentTypePromptContext(
     /// </summary>
     int SectionBatchIndex = 0,
     /// <summary>
-    /// The operator's own framing of this niche's problem, resolved for this page's product —
-    /// <see cref="GeekAPI.Services.ContentCreator.GccNicheFramingReader.ForProduct"/>.
+    /// The operator's own framing of this niche's problem for a page about every partner, the pillar
+    /// and the blog — <see cref="GeekAPI.Services.ContentCreator.GccNicheFramingReader.ForEveryPartner"/>.
+    /// A tool page's is <see cref="ToolFraming"/>.
     ///
     /// Carried here rather than on <c>ProjectGenerationContext</c> because it is a Content Creator
-    /// concern: the brief holds it, the Create path resolves it, and the orchestrator's own tool path
-    /// has no brief to read it from. Null means the operator wrote none, and the opening slot then
-    /// carries no guidance — exactly as it did before this existed.
+    /// concern: the brief holds it, the Create path resolves it, and the orchestrator's own paths
+    /// have no brief to read it from. Null means the operator wrote none, and the slots then carry no
+    /// guidance — exactly as they did before this existed.
     /// </summary>
     GeekAPI.Services.ContentCreator.GccNicheFraming? NicheFraming = null,
+    /// <summary>
+    /// The operator's framing for one tool's page: the category's and that tool's own section of the
+    /// brief, both — <see cref="GeekAPI.Services.ContentCreator.GccNicheFramingReader.ForProduct"/>.
+    /// The tool's prompts print it into the hook and into every body request
+    /// (<see cref="GeekAPI.Services.ContentCreator.GccPartnerAnswers.ForToolPage"/>). Null on the
+    /// orchestrator's tool path, which has no brief.
+    /// </summary>
+    GeekAPI.Services.ContentCreator.GccToolFraming? ToolFraming = null,
     /// <summary>
     /// The body sections earlier calls wrote for this page, in order. A later call is shown each one's
     /// heading, how it opens and the figures it cited, so it does not make the same points again. Null on

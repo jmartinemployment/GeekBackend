@@ -15,7 +15,8 @@ namespace GeekBackend.Tests.ContentCreator;
 /// <para>
 /// Two shapes have to work from one set of fields, because Jeff's own research arrives both ways:
 /// Perplexity repeated the three sections per tool, Claude desktop stated them once for the category
-/// and listed five tools beneath. Hence category-level with optional per-tool overrides.
+/// and listed five tools beneath. Hence one set for the category and a section for each tool, which
+/// adds to the category's and replaces none of it (2026-10-12).
 /// </para>
 /// </remarks>
 public class GccNicheFramingTests
@@ -66,36 +67,72 @@ public class GccNicheFramingTests
             var framing = GccNicheFramingReader.ForProduct(CategoryOnlyBrief, PartnerUrls, product);
 
             Assert.NotNull(framing);
-            Assert.Contains("Revenue is booked", framing!.CoreProblem, StringComparison.Ordinal);
-            Assert.Equal(3, framing.PainPoints.Count);
+            Assert.Null(framing!.Own);
+            Assert.Contains("Revenue is booked", framing.Category!.CoreProblem, StringComparison.Ordinal);
+            Assert.Equal(3, framing.Category.PainPoints.Count);
+            Assert.Equal([framing.Category.CoreProblem], framing.Problems);
         }
     }
 
+    /// <summary>
+    /// Jeff, 2026-10-12: "it is not an OR it is both PAIN POINTS". Until then a tool's own problem and
+    /// pitch were read in the category's place, so one of the two he entered reached that tool's search
+    /// and page.
+    /// </summary>
     [Fact]
-    public void A_per_tool_override_wins_for_that_product_only()
+    public void A_tools_own_section_is_kept_beside_the_categorys_and_replaces_none_of_it()
     {
         var bill = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Bill");
         var dext = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Dext");
 
-        // The Core Problem is replaced -- two core problems on one page is incoherent.
-        Assert.Equal("The SMB needs AR now and AP next.", bill!.CoreProblem);
-        // The pain points are ADDED to the category's, not substituted. Changed deliberately on
-        // 2026-10-03: this asserted 2 (the override's alone) when the override replaced the whole set.
-        // PerToolBrief carries one category pain point and two for Bill.
-        Assert.Equal(3, bill.PainPoints.Count);
-        Assert.Equal("Category pain.", bill.PainPoints[0]);
+        // Both statements of the problem, the tool's own first: what its site is searched with.
+        Assert.Equal(["The SMB needs AR now and AP next.", "Category level problem."], bill!.Problems);
+        Assert.Equal("Category level problem.", bill.Category!.CoreProblem);
+        Assert.Equal("Category automation.", bill.Category.AutomationToPitch);
+        Assert.Equal(["Category pain."], bill.Category.PainPoints);
+        Assert.Equal("The SMB needs AR now and AP next.", bill.Own!.CoreProblem);
+        Assert.Equal("One connected finance workflow from invoice through reconciliation.", bill.Own.AutomationToPitch);
+        Assert.Equal(2, bill.Own.PainPoints.Count);
 
-        // Dext has no entry, so it inherits rather than coming back empty.
-        Assert.Equal("Category level problem.", dext!.CoreProblem);
-        Assert.Equal(["Category pain."], dext.PainPoints);
+        // Dext has no entry, so it has the category's alone rather than coming back empty.
+        Assert.Null(dext!.Own);
+        Assert.Equal(["Category level problem."], dext.Problems);
     }
 
     [Fact]
-    public void A_partial_override_keeps_the_category_fields_it_did_not_touch()
+    public void One_statement_entered_in_both_boxes_is_one_statement()
     {
-        // The question that found this: does the backend combine these? It has to, per field. Bill.com
-        // owns a distinct problem -- approval treated as an email reply -- while the category's pain
-        // points and automation still apply to it. Replacing the whole set discarded both.
+        const string brief = """
+            {
+              "nicheFraming": {
+                "coreProblem": "Cash arrives whenever the customer gets round to paying.",
+                "automationToPitch": "Invoice-to-cash on a schedule.",
+                "perTool": {
+                  "bill.com": {
+                    "coreProblem": "cash arrives whenever the customer gets round to paying.",
+                    "automationToPitch": "Invoice-to-cash on a schedule."
+                  }
+                }
+              }
+            }
+            """;
+
+        var bill = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill")!;
+
+        Assert.Single(bill.Problems);
+        var block = GccPartnerAnswers.ForToolPage(bill, "Bill")!;
+        Assert.Contains("The problem: Cash arrives whenever", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("Bill's own pain point", block, StringComparison.Ordinal);
+        Assert.Contains("What answers it: Invoice-to-cash on a schedule.", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("pitch Bill on", block, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_tool_with_one_box_filled_still_has_everything_the_category_holds()
+    {
+        // The question that found this: does the backend combine these? It has to. Bill.com owns a
+        // distinct problem -- approval treated as an email reply -- while the category's pain points
+        // and automation still apply to it.
         const string brief = """
             {
               "nicheFraming": {
@@ -115,14 +152,16 @@ public class GccNicheFramingTests
 
         var bill = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill");
 
-        Assert.StartsWith("Approval is an email reply", bill!.CoreProblem, StringComparison.Ordinal);
-        // The two it said nothing about are inherited, not blanked.
-        Assert.Equal(2, bill.PainPoints.Count);
-        Assert.Equal("Invoice-to-cash on a schedule.", bill.AutomationToPitch);
+        var block = GccPartnerAnswers.ForToolPage(bill, "Bill")!;
+        Assert.Contains("The problem: Cash arrives whenever the customer gets round to paying.", block, StringComparison.Ordinal);
+        Assert.Contains("Bill's own pain point: Approval is an email reply", block, StringComparison.Ordinal);
+        Assert.Contains("1. Where it goes wrong: Nobody owns collections.", block, StringComparison.Ordinal);
+        Assert.Contains("2. Where it goes wrong: They make it hard to pay.", block, StringComparison.Ordinal);
+        Assert.Contains("What answers it: Invoice-to-cash on a schedule.", block, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void A_tools_pain_points_are_added_to_the_categorys_not_substituted_for_them()
+    public void A_tools_failures_are_added_to_the_categorys_not_substituted_for_them()
     {
         // Settled by the research, 2026-10-03. One category query for "Accounts Payable: Automated
         // Approval Workflows" returned fourteen pain points -- nine tabular failures plus five
@@ -142,18 +181,19 @@ public class GccNicheFramingTests
             }
             """;
 
-        var bill = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill");
+        var block = GccPartnerAnswers.ForToolPage(GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill"), "Bill")!;
 
-        Assert.Equal(4, bill!.PainPoints.Count);
         // Category first, then the tool's: the shared problem is established before the slice.
-        Assert.Equal("Approvals stuck with one person.", bill.PainPoints[0]);
-        Assert.Equal("Approval thresholds are unclear above $5,000.", bill.PainPoints[3]);
-        // The single-statement fields still come from the category, which said something and the tool did not.
-        Assert.StartsWith("Approval lives across", bill.CoreProblem, StringComparison.Ordinal);
+        Assert.Contains("1. Where it goes wrong: Approvals stuck with one person.", block, StringComparison.Ordinal);
+        Assert.Contains("3. Where it goes wrong: No single invoice-status view.", block, StringComparison.Ordinal);
+        Assert.Contains("4. Where it goes wrong: Approval thresholds are unclear above $5,000.", block, StringComparison.Ordinal);
+        // The category said what the problem is and the tool did not: one statement, not two.
+        Assert.Contains("The problem: Approval lives across", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("Bill's own pain point", block, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void A_shared_failure_restated_in_an_override_is_not_argued_twice()
+    public void A_shared_failure_restated_under_a_tool_is_not_argued_twice()
     {
         const string brief = """
             {
@@ -167,11 +207,19 @@ public class GccNicheFramingTests
             }
             """;
 
-        var bill = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill");
+        var block = GccPartnerAnswers.ForToolPage(GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill"), "Bill")!;
 
+        var failures = block.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.Contains($"{GccPartnerAnswers.FailureLabel}: ", StringComparison.Ordinal))
+            .ToList();
         Assert.Equal(
-            ["Approvals stuck with one person.", "Constant chasing.", "No mobile approval."],
-            bill!.PainPoints);
+            [
+                "1. Where it goes wrong: Approvals stuck with one person.",
+                "2. Where it goes wrong: Constant chasing.",
+                "3. Where it goes wrong: No mobile approval.",
+            ],
+            failures);
     }
 
     [Fact]
@@ -192,29 +240,36 @@ public class GccNicheFramingTests
     }
 
     [Fact]
-    public void The_override_is_keyed_by_host_not_by_a_typed_name()
+    public void A_tools_section_is_keyed_by_host_not_by_a_typed_name()
     {
         // The catch this exists to prevent. The fan-out buckets by host via
         // GccRequiredToolMentions.HostKeyOf and names products via AnchorLookup, so a brief keyed off a
         // free-typed product name must still resolve to the right slice -- "Bill" is the product name
-        // AnchorLookup derives for bill.com, and the override is keyed "bill.com".
+        // AnchorLookup derives for bill.com, and the tool's section is keyed "bill.com".
         var framing = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Bill");
 
-        Assert.Equal("The SMB needs AR now and AP next.", framing!.CoreProblem);
+        Assert.Equal("The SMB needs AR now and AP next.", framing!.Own!.CoreProblem);
+        // By the host, whatever its case or a www. in front of it, and for no other host.
+        Assert.NotNull(GccNicheFramingReader.OwnForHost(PerToolBrief, "BILL.com"));
+        Assert.NotNull(GccNicheFramingReader.OwnForHost(PerToolBrief, GccRequiredToolMentions.HostKeyOf("https://www.bill.com/pricing")));
+        Assert.Null(GccNicheFramingReader.OwnForHost(PerToolBrief, "dext.com"));
+        Assert.Null(GccNicheFramingReader.OwnForHost(PerToolBrief, ""));
+        Assert.Null(GccNicheFramingReader.OwnForHost(null, "bill.com"));
     }
 
     [Fact]
-    public void A_product_this_project_declares_no_partner_for_falls_back_to_the_category()
+    public void A_product_this_project_declares_no_partner_for_has_the_categorys_alone()
     {
         var framing = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Notion");
 
-        // Not null and not the override: an unknown product still gets the category's problem, because
-        // the problem is the category's regardless of which tool is being written about.
-        Assert.Equal("Category level problem.", framing!.CoreProblem);
+        // Not null and not another tool's section: an unknown product still gets the category's problem,
+        // because the problem is the category's regardless of which tool is being written about.
+        Assert.Null(framing!.Own);
+        Assert.Equal("Category level problem.", framing.Category!.CoreProblem);
     }
 
     [Fact]
-    public void An_override_opened_and_left_blank_inherits_rather_than_blanking_the_frame()
+    public void A_section_opened_and_left_blank_is_not_a_section()
     {
         const string brief = """
             {
@@ -231,7 +286,50 @@ public class GccNicheFramingTests
 
         // Handing the writer an empty frame is worse than handing it the category's -- it would have to
         // invent around the hole, which is the behaviour this whole field exists to remove.
-        Assert.Equal("Category level problem.", framing!.CoreProblem);
+        Assert.Null(framing!.Own);
+        Assert.Equal(["Category level problem."], framing.Problems);
+    }
+
+    [Fact]
+    public void A_brief_with_nothing_for_the_category_or_the_tool_gives_a_tool_no_framing()
+    {
+        Assert.Null(GccNicheFramingReader.ForProduct("""{"angle":"problem_solution"}""", PartnerUrls, "Bill"));
+        Assert.Null(GccNicheFramingReader.ForHost(null, "bill.com"));
+        Assert.Null(GccPartnerAnswers.ForToolPage(null, "Bill"));
+    }
+
+    [Fact]
+    public void A_tool_pages_hook_is_told_the_problem_and_the_tools_own_pain_point()
+    {
+        var bill = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Bill")!;
+        var dext = GccNicheFramingReader.ForProduct(PerToolBrief, PartnerUrls, "Dext")!;
+
+        var hook = bill.HookGuidance("Bill")!;
+
+        Assert.Contains("The problem: Category level problem.", hook, StringComparison.Ordinal);
+        Assert.Contains("Bill's own pain point: The SMB needs AR now and AP next.", hook, StringComparison.Ordinal);
+        Assert.Contains("The hook opens on Bill's own pain point and stays inside the problem.", hook, StringComparison.Ordinal);
+        // Neither the failures nor either pitch: a hook told to cover them is no longer a hook.
+        Assert.DoesNotContain("Category pain.", hook, StringComparison.Ordinal);
+        Assert.DoesNotContain("Category automation.", hook, StringComparison.Ordinal);
+        Assert.DoesNotContain("One connected finance workflow", hook, StringComparison.Ordinal);
+
+        // A tool with nothing of its own is told the category's, worded as every other page's hook is.
+        Assert.Equal(GccNicheFramingReader.ForCategory(PerToolBrief)!.HookGuidance(), dext.HookGuidance("Dext"));
+    }
+
+    [Fact]
+    public void A_tool_with_a_pain_point_and_no_category_problem_has_it_as_the_problem()
+    {
+        const string brief = """
+            { "nicheFraming": { "perTool": { "bill.com": { "coreProblem": "Approval is an email reply." } } } }
+            """;
+
+        var bill = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Bill")!;
+
+        Assert.Null(bill.Category);
+        Assert.Equal(["Approval is an email reply."], bill.Problems);
+        Assert.EndsWith("The problem: Approval is an email reply.", bill.HookGuidance("Bill")!, StringComparison.Ordinal);
     }
 
     [Fact]

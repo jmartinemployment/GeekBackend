@@ -5,6 +5,7 @@ using GeekAPI.Services.ContentCreator.Generation;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
+using GeekApplication.Models.ContentCreator;
 using GeekApplication.Models.GeekCrawler;
 
 namespace GeekAPI.Services.ContentCreator;
@@ -23,8 +24,8 @@ namespace GeekAPI.Services.ContentCreator;
 /// <para>
 /// <b>Advisory: this is not the generate path, and a pass here does not guarantee one there.</b>
 /// It shares the candidate cutter (<see cref="GccQuoteCandidates"/> over typed blocks) and nothing
-/// else. The probe queries one host at <see cref="TopK"/> 8 and has a model select a candidate
-/// against the angle; Generate queries the partner run unfiltered at <c>PartnerTopK</c> 32 through
+/// else. The probe queries one host at <see cref="TopK"/> 8 for each statement of the problem the
+/// brief holds and has a model select a candidate against the angle; Generate queries the partner run unfiltered at <c>PartnerTopK</c> 32 through
 /// <c>GccGroundingResolver.BuildNeed</c>, the writer picks the quotation, and
 /// <c>GccToolQuoteGuard</c> checks that it is a candidate, not that it fits the angle. So a partner
 /// can pass here and be refused at generation, or the reverse. This said "the probe that validates is
@@ -97,10 +98,13 @@ public sealed class GccAngleQuoteProbe(
     /// <param name="providerType">The provider the operator chose, when the caller sent one. Null is
     /// <c>LlmProviders:DefaultProvider</c> -- the configured setting, resolved by <c>GetDefault()</c>,
     /// which refuses a misconfigured value rather than substituting one.</param>
-    /// <param name="need">
-    /// The brief's question for this partner (its core problem), when the brief has one; the
-    /// angle's generic sentence otherwise. Measured 2026-10-08 on Tipalti: the angle sentence
+    /// <param name="needs">
+    /// The brief's questions for this partner, one search each: every statement of the problem the
+    /// operator entered, the tool's own "Core pain point" and the category's "The core problem". None
+    /// means the angle's generic sentence is asked. Measured 2026-10-08 on Tipalti: the angle sentence
     /// returned stubs and definitions, the brief's core problem returned the partner's own slice.
+    /// Until 2026-10-12 one of the two was asked, the tool's own when it had one; Generate searches
+    /// with both, so the check does.
     /// </param>
     /// <param name="keyword">The keyword half's text (the brief's first evidence row's terms), or null.</param>
     public async Task<GccAngleQuoteFinding> ProbeAsync(
@@ -109,7 +113,7 @@ public sealed class GccAngleQuoteProbe(
         Guid runId,
         LlmProviderType? providerType,
         CancellationToken ct,
-        string? need = null,
+        IReadOnlyList<string>? needs = null,
         string? keyword = null)
     {
         if (runId == Guid.Empty)
@@ -131,45 +135,65 @@ public sealed class GccAngleQuoteProbe(
         }
 
         var host = HostOf(partnerUrl);
-        var retrieved = await rag.QueryAsync(
-                new GeekCrawlerRagQuery(
-                    string.IsNullOrWhiteSpace(need) ? spec.Need : need,
-                    runId,
-                    CrawlType: CrawlTypes.Partner,
-                    Host: host,
-                    TopK: TopK,
-                    Keyword: keyword),
-                ct)
-            .ConfigureAwait(false);
+        var asked = (needs ?? [])
+            .Select(need => (need ?? string.Empty).Trim())
+            .Where(need => need.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (asked.Count == 0) asked.Add(spec.Need);
 
-        // Null or Failed is the index not answering. Empty pages on a successful call is the index
-        // answering "nothing matches", which is a verdict about this partner and reads differently.
-        if (retrieved is null || retrieved.Failed)
+        // One search for each question, and the pages of all of them, each page once in the order it
+        // first came back. A search that could not be made leaves the question unasked, whichever of
+        // them it was: the partner is not judged on part of what Generate will search for.
+        var pages = new List<GccQuoteablePage>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var need in asked)
         {
-            logger.LogWarning(
-                "Angle quote probe could not retrieve for {Host} run {RunId}: {Error}",
-                host, runId, retrieved?.Error ?? "no result");
-            return GccAngleQuoteFinding.Unavailable(
-                partnerUrl, "the index could not be reached, so this partner was not checked");
+            var retrieved = await rag.QueryAsync(
+                    new GeekCrawlerRagQuery(
+                        need,
+                        runId,
+                        CrawlType: CrawlTypes.Partner,
+                        Host: host,
+                        TopK: TopK,
+                        Keyword: keyword),
+                    ct)
+                .ConfigureAwait(false);
+
+            // Null or Failed is the index not answering. Empty pages on a successful call is the index
+            // answering "nothing matches", which is a verdict about this partner and reads differently.
+            if (retrieved is null || retrieved.Failed)
+            {
+                logger.LogWarning(
+                    "Angle quote probe could not retrieve for {Host} run {RunId}: {Error}",
+                    host, runId, retrieved?.Error ?? "no result");
+                return GccAngleQuoteFinding.Unavailable(
+                    partnerUrl, "the index could not be reached, so this partner was not checked");
+            }
+
+            foreach (var page in retrieved.Pages)
+            {
+                if (seen.Add(page.Url)) pages.Add(page);
+            }
         }
 
-        // Cut from the typed blocks, not from retrieved.Pages, because that is what the tool page
+        // Cut from the typed blocks, not from the retrieved pages, because that is what the tool page
         // does -- see this class's remarks. Retrieval's page text is the prompt projection, labels
         // and all; the generate stopped reading it when the quote source became the blocks, so a
         // probe still reading it would be answering a different question than the one it reports on.
         var passages = await typedPassages
-            .ReadAsync(runId, retrieved.Pages, ct)
+            .ReadAsync(runId, pages, ct)
             .ConfigureAwait(false);
 
         // Pages retrieved but none readable back is the crawl store not answering, not this partner
         // having nothing to say -- the Unavailable/NoAnswer distinction this class exists to keep.
         // Sending an operator to re-crawl a partner whose evidence is fine is the failure mode.
-        if (retrieved.Pages.Count > 0 && passages.Count == 0)
+        if (pages.Count > 0 && passages.Count == 0)
         {
             logger.LogWarning(
                 "Angle quote probe read no typed blocks for {Host} run {RunId} behind "
                 + "{PageCount} retrieved page(s).",
-                host, runId, retrieved.Pages.Count);
+                host, runId, pages.Count);
             return GccAngleQuoteFinding.Unavailable(
                 partnerUrl,
                 "this partner's crawled pages could not be read back, so the question could not "

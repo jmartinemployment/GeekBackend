@@ -223,6 +223,147 @@ public class GccAngleQuoteProbeTests
         Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
     }
 
+    // ---- what the partner's site is searched with (2026-10-12) --------------------------------------
+    //
+    // The brief holds a problem for every partner and a pain point for each tool. Generate searches a
+    // partner's site with both; until then this check searched with one of them, the tool's own when
+    // it had one, so it judged a partner on half of what the run would find.
+
+    private const string SecondUrl = "https://www.stampli.com/customers/second/";
+
+    /// <summary>Answers each search by what it asks for, and keeps what it was asked.</summary>
+    private sealed class AnswersByNeed(IReadOnlyDictionary<string, GeekCrawlerRagQueryResult?> answers) : IGeekCrawlerRagClient
+    {
+        private readonly FakeRag inner = new(null);
+
+        public List<GeekCrawlerRagQuery> Asked { get; } = [];
+
+        public bool IsEnabled => true;
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(GeekCrawlerRagQuery query, CancellationToken ct = default)
+        {
+            Asked.Add(query);
+            return Task.FromResult(answers.GetValueOrDefault(query.Need));
+        }
+
+        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
+            string need, Guid runId, string? crawlType = null, string? host = null, int topK = 8,
+            bool? preferParent = null, bool? preferChild = null,
+            IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
+            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
+            CancellationToken ct = default) =>
+            throw new InvalidOperationException("the probe asks through the record overload, which carries the keyword");
+
+        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
+            inner.EnqueueIndexAsync(runId, ct);
+
+        public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default) =>
+            inner.GetIndexStatusAsync(runId, ct);
+
+        public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
+            IReadOnlyList<GeekCrawlerRagTemplateDto> templates, CancellationToken ct = default) =>
+            inner.IndexTemplatesAsync(templates, ct);
+
+        public Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
+            string need, int topK = 5, string? channel = null,
+            IReadOnlyList<string>? entityTags = null, CancellationToken ct = default) =>
+            inner.QueryTemplatesAsync(need, topK, channel, entityTags, ct);
+
+        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
+            string pageId, CancellationToken ct = default, string? runId = null) =>
+            inner.GetPageTextAsync(pageId, ct, runId);
+    }
+
+    /// <summary>The crawl store, keeping which pages it was asked to read back.</summary>
+    private sealed class RecordingPages(IReadOnlyList<GeekCrawlerPageDto> pages) : IGccCrawlPageReader
+    {
+        public List<IReadOnlyList<string>> Reads { get; } = [];
+
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+            Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default)
+        {
+            Reads.Add(seedUrls);
+            return Task.FromResult(pages);
+        }
+
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
+            Guid runId, int limit = 100, int offset = 0, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
+    }
+
+    private static GccAngleQuoteProbe Build(IGeekCrawlerRagClient rag, IGccCrawlPageReader pages) =>
+        new(rag,
+            new GccTypedPassageReader(pages),
+            new FakeGenerator(new GccAngleQuoteSelection(true, 1, "fits"), null),
+            new FakeProviders(true),
+            NullLogger<GccAngleQuoteProbe>.Instance);
+
+    [Fact]
+    public async Task Each_problem_the_brief_holds_is_searched_for_and_a_page_both_return_is_read_once()
+    {
+        const string own = "Approvals wait on one person's inbox.";
+        const string categorys = "Invoices are approved by email and paid from memory.";
+        var second = new GccQuoteablePage(SecondUrl, "A second customer", [], ["Invoices now route themselves."], PageId: "p2");
+        var rag = new AnswersByNeed(new Dictionary<string, GeekCrawlerRagQueryResult?>
+        {
+            [own] = Retrieved(Page(Published)),
+            [categorys] = Retrieved(Page(Published), second),
+        });
+        var pages = new RecordingPages(
+        [
+            Crawled(Published),
+            Crawled("Invoices now route themselves.") with { Url = SecondUrl, FinalUrl = SecondUrl, Origin = SecondUrl },
+        ]);
+
+        var finding = await Build(rag, pages).ProbeAsync(
+            Spec, PartnerUrl, Run, LlmProviderType.OpenAi, CancellationToken.None,
+            // One statement entered twice is one search, and a blank is none.
+            needs: [own, categorys, " ", own.ToUpperInvariant()],
+            keyword: "approval workflow");
+
+        Assert.True(finding.CanAnswer);
+        Assert.Equal([own, categorys], rag.Asked.Select(q => q.Need));
+        Assert.All(rag.Asked, q =>
+        {
+            Assert.Equal(Run, q.RunId);
+            Assert.Equal(8, q.TopK);
+            Assert.Equal("approval workflow", q.Keyword);
+            Assert.Equal(CrawlTypes.Partner, q.CrawlType);
+        });
+        // The pages of both searches, each once, in the order they first came back.
+        Assert.Equal([PartnerUrl, SecondUrl], Assert.Single(pages.Reads));
+    }
+
+    [Fact]
+    public async Task With_no_problem_in_the_brief_the_angles_own_question_is_asked_once()
+    {
+        var rag = new AnswersByNeed(new Dictionary<string, GeekCrawlerRagQueryResult?> { [Spec.Need] = Retrieved(Page(Published)) });
+
+        var finding = await Build(rag, new RecordingPages([Crawled(Published)])).ProbeAsync(
+            Spec, PartnerUrl, Run, LlmProviderType.OpenAi, CancellationToken.None, needs: []);
+
+        Assert.True(finding.CanAnswer);
+        Assert.Equal(Spec.Need, Assert.Single(rag.Asked).Need);
+    }
+
+    [Fact]
+    public async Task A_search_that_could_not_be_made_leaves_the_partner_unchecked_whichever_search_it_was()
+    {
+        // The first search answers and the second does not: the partner is not judged on part of what
+        // Generate will search for.
+        const string own = "Approvals wait on one person's inbox.";
+        const string categorys = "Invoices are approved by email and paid from memory.";
+        var rag = new AnswersByNeed(new Dictionary<string, GeekCrawlerRagQueryResult?> { [own] = Retrieved(Page(Published)) });
+        var pages = new RecordingPages([Crawled(Published)]);
+
+        var finding = await Build(rag, pages).ProbeAsync(
+            Spec, PartnerUrl, Run, LlmProviderType.OpenAi, CancellationToken.None, needs: [own, categorys]);
+
+        Assert.Equal(GccAngleQuoteOutcome.Unavailable, finding.Outcome);
+        Assert.Equal(2, rag.Asked.Count);
+        Assert.Empty(pages.Reads);
+    }
+
     [Fact]
     public async Task No_run_id_is_unavailable_and_nothing_is_retrieved()
     {

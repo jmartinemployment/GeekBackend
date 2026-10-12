@@ -167,7 +167,8 @@ service, local, whitepaper, LinkedIn document, three email variants. Only pillar
 **The brief, as a writer is given it.** Each pillar, blog and tool page call prints the brief once. A choice the form stores
 as a code (`in_market`, `commercial_investigation`) is put into words by `BriefChoiceWords`, the one place every prompt reads.
 The pillar's opening carries the operator's whole framing; a blog's and a tool page's opening carries the problem alone
-(`GccNicheFraming.HookGuidance`). The brief's gate (`GccGenerateService.ValidateBriefRequired`, read by both Generate routes)
+(`GccNicheFraming.HookGuidance`), a tool page's both statements of it, the category's and the tool's own
+(`GccToolFraming.HookGuidance`). The brief's gate (`GccGenerateService.ValidateBriefRequired`, read by both Generate routes)
 refuses a missing required field and a taxonomy path whose first level is not one of `Departments.Slugs`: that level is the
 department directory of every address the run builds. `BriefFieldReachTests` records which field reaches which call.
 
@@ -177,21 +178,54 @@ cover. A row for one partner is searched for on that partner's site, and since 2
 the blog is told it under that partner's name, beside the list of partners the page must name (`GccPartnerAnswers`): the
 failure, and what the operator noted the partner does about it. It is the operator's note, not evidence: the writer is told
 to say what a partner does only as that partner's passages show it and to take no figure from the note. No code checks a
-sentence about a partner against a passage. The partner's own tool page is told its failures and not its remedies, as
-before. On the accounts receivable project the block is about 6,400 characters, 1,260 tokens a body call, worked out from
-the brief's field lengths and not yet seen in a real run.
+sentence about a partner against a passage. On the accounts receivable project the block is about 6,400 characters, 1,260
+tokens a body call, worked out from the brief's field lengths and not yet seen in a real run.
 
 **A partner's own problem and pitch, on the pillar and the blog.** Besides its rows a partner has two boxes of its own in
 the brief, `perTool[host].coreProblem` and `perTool[host].automationToPitch`. Until 2026-10-12 they reached that partner's
 tool page and no other page. Since then the same block prints each under the partner's name, the problem before its rows
-and what the operator would pitch it on after them, in every pillar and blog body call (`GccNicheFramingReader.OwnStatementsForHost`).
+and what the operator would pitch it on after them, in every pillar and blog body call (`GccNicheFramingReader.OwnForHost`).
 Only what the operator entered for that partner is printed: the category's is not put in an empty box's place, because the
 page already carries the category's as its own framing. A partner with a problem or a pitch and no row is listed with what
 it has. A pitch is a selling line and may name a capability or a figure; the writer is told to make its case in its own
-words, never verbatim, to take no figure from it, and to state a capability only as that partner's passages show it. A
-partner's `painPoints` still reach its own tool page alone. It adds about 2,800 characters, 555 tokens a body call, on the
-accounts receivable project (about 117,050 becomes about 117,600 of 128,000) and about 475 on the spreadsheet data project,
-worked out from the briefs' field lengths. Not yet seen in a real run.
+words, never verbatim, to take no figure from it, and to state a capability only as that partner's passages show it. It
+adds about 2,800 characters, 555 tokens a body call, on the accounts receivable project (about 117,050 becomes about
+117,600 of 128,000) and about 475 on the spreadsheet data project, worked out from the briefs' field lengths. Not yet seen
+in a real run.
+
+**Nothing entered in the niche framing is left out** (2026-10-12; Jeff: "WHY am I spending so much time entering and you
+not using", and of a tool's pain point beside the category's problem, "it is not an OR it is both PAIN POINTS"). Until
+then a tool's own problem and pitch were read in the category's place, and a box wired to one use was recorded as reaching
+"nothing" elsewhere as if the record were the fix.
+- **A tool's framing is two sets, both kept** (`GccToolFraming`): what was entered for the whole category and what was
+  entered in that tool's own section (`GccNicheFramingReader.OwnForHost`, the one reader of a tool's section). The method
+  that merged one over the other is deleted, and a tool's framing is its own type so that no caller can print the
+  category's and forget the tool's.
+- **A partner's site is searched with both statements of the problem**, the tool's own and then the category's, eight
+  passages each (`GccToolFraming.Problems`, `GccGroundingResolver.PartnerQuestions`). One statement in both boxes is one
+  search. The check on the Brief screen that asks whether a partner can be quoted searches with both
+  (`GccAngleQuoteProbe`), and reports the partner as not checked when either search cannot be made.
+- **A tool's own page is told all of it in every body request**: both problems, every failure with the remedy noted for
+  it, and both pitches (`GccPartnerAnswers.ForToolPage`, added to each request's evidence by `ToolPrompts.Body`). A
+  failure entered for every partner and again under the tool is listed once with both remedies. The opening section is
+  sent to that block by its heading (`GccPartnerAnswers.ToolOpeningGuidance`). Until then the framing was the opening
+  section's own guidance, which the first of the page's five body requests alone prints, and it held no remedy. The block
+  is 707 tokens for a section filled in as the operator's research fills it, counted as OpenAI counts.
+- **A row saved for all partners is listed with its remedy** on the pillar, the blog and every tool page, under no
+  partner's name. Its failure was already what the pages' sections cover; its remedy reached no writer.
+- **A partner's failures saved without a row** (a brief saved before 2026-10-08) are listed under that partner on the
+  pillar and the blog, where they reached its own page alone. A set's failures are read once each with their remedy by
+  `GccNicheFraming.Failures`, whether a failure is saved as a paragraph, on a row, or both as the form saves it.
+- **A row's failure that no saved paragraph states is a failure the operator named.** It was argued only when the brief
+  held no failure paragraphs at all.
+- **A row that names no failure restates none.** It took the place of the category's first row with no failure in a
+  partner's searches, which the form's own list of a tool's searches never showed.
+- **Still the operator's note, never evidence.** The writer is told to argue from it, quote none of it, take no figure
+  from it, and say what a tool does only as its own pages show. No code checks a sentence against a passage. The check
+  that a figure is in the evidence reads the whole brief as the operator's own statements, as it always has; the
+  quotation and link checks do not read the note. A row's search terms are for the search alone.
+- `BriefFieldReachTests` fails if a box of the category's framing or of a tool's section reaches no call of the pillar,
+  the blog or the tool page, whatever its table records. Not yet seen in a real run.
 
 **A brief with no row for all partners.** The operator's research is per partner, so a brief can hold every failure under
 a partner and none for the category. The pillar's two sections on what is going wrong and the blog's section on what the
@@ -211,7 +245,7 @@ the product's own pages name them, and the blog's names data, mapping and who ow
 per-section writer still lists "approval chains, routing" (`BuildImplementationSectionGuidance`) and is not changed.
 
 **Each passage keeps what found it** (2026-10-11). A partner's crawl is
-searched with the brief's problem and then one search per row. Which search found which passage was dropped where the
+searched with each statement of the brief's problem and then one search per row. Which search found which passage was dropped where the
 results came back, and the kind of page the index marks each page as (pricing, docs, blog, product, about, careers,
 legal, compare, page) was sent on every result and not read. Both are now kept on the page (`GccQuoteablePage.Category`,
 `Searches`, `FoundBy`) and listed on the run log's `grounding` event (`poolSearches`, `pageKinds`). No writer is shown

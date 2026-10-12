@@ -122,7 +122,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         new("perTool.faqQuestions", b => Tool(b)["faqQuestions"] = ToolFaqB),
     ];
 
-    /// <summary>The brief with the tool's own framing taken out, so the tool inherits the category's.</summary>
+    /// <summary>The brief with the tool's own section taken out, so the tool has the category's alone.</summary>
     private static string WithoutToolFraming(string briefJson)
     {
         var brief = (JsonObject)JsonNode.Parse(briefJson)!;
@@ -891,6 +891,15 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// voice, and the email and the social post carry the framing. And the blog's and the tool page's
     /// opening carry the operator's problem: their framing was on the first body section alone.
     /// </para>
+    /// <para>
+    /// <b>2026-10-12, the boxes of the niche framing</b> (Jeff: "WHY am I spending so much time
+    /// entering and you not using"). "Nothing" was recorded here for boxes the operator fills in, as
+    /// if a record of the gap were the fix. After that day no box of the category's framing or of a
+    /// tool's own section reads "nothing" on the pillar, the blog or the tool page, but a row's
+    /// search terms, whose use is the search, and a tool's own questions, which are its own page's.
+    /// <see cref="No_box_of_the_niche_framing_is_entered_and_shown_to_no_long_page"/> holds that
+    /// whatever the table says.
+    /// </para>
     /// </remarks>
     [Theory]
     [MemberData(nameof(Recorded))]
@@ -903,6 +912,107 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
 
         output.WriteLine(string.Join(Environment.NewLine, reach));
         Assert.Equal(Lines(recorded), reach);
+    }
+
+    /// <summary>The boxes of the niche framing a writer argues from: the category's, and one tool's own.</summary>
+    private static readonly string[] FramingBoxes =
+    [
+        "nicheFraming.coreProblem", "nicheFraming.painPoints", "nicheFraming.automationToPitch",
+        "nicheFraming.evidence.problem", "nicheFraming.evidence.solution",
+        "perTool.coreProblem", "perTool.painPoints", "perTool.automationToPitch",
+        "perTool.evidence.problem", "perTool.evidence.solution",
+    ];
+
+    /// <summary>
+    /// What the operator enters for the category and for a tool is shown to the writer of every long
+    /// page, whatever the record below says: a line there reading "nothing" for one of these boxes
+    /// fails here. On the tool's own page each is in every body request, so in all ten sections.
+    /// </summary>
+    /// <remarks>
+    /// Jeff, 2026-10-12: "WHY am I spending so much time entering and you not using". Until that day
+    /// the record held "nothing" for a tool's remedies on its own page, for the category's problem and
+    /// pitch on a page of a tool with its own, for a remedy saved for all partners on every page, and
+    /// for a tool's failures saved without a row on the pillar and the blog; and what a tool page was
+    /// told reached its first body request alone. Recording a gap was treated as closing it.
+    /// </remarks>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task No_box_of_the_niche_framing_is_entered_and_shown_to_no_long_page(string page)
+    {
+        var reach = await ReachAsync(page, CompleteBrief, Fields.Where(f => FramingBoxes.Contains(f.Name)));
+
+        Assert.Equal(FramingBoxes, reach.Select(line => line[..line.IndexOf(" => ", StringComparison.Ordinal)]));
+        Assert.All(reach, line => Assert.False(line.EndsWith("=> nothing", StringComparison.Ordinal), $"{page}: {line}"));
+        if (page == "tool")
+        {
+            Assert.All(reach, line => Assert.True(line.Contains("every body call", StringComparison.Ordinal), $"{page}: {line}"));
+        }
+    }
+
+    /// <summary>
+    /// A tool page's five body requests each carry what the operator entered for every partner and for
+    /// that tool, once: both problems, every failure with the remedy noted for it, both pitches. The
+    /// section that opens on the problem is sent to that block, and the hook is told both problems.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-10-12 all a tool page was told of the framing was its first section's guidance: one
+    /// of the two problems and one of the two pitches, the failures with no remedy, in the first of
+    /// five body requests.
+    /// </remarks>
+    [Fact]
+    public async Task A_tool_pages_every_body_request_carries_what_the_operator_entered_for_it_once()
+    {
+        var name = GccRequiredToolMentions.AnchorLookup(CompleteBrief, PartnerUrls).Values.Single();
+
+        var calls = await WriteAsync("tool", CompleteBrief);
+
+        var body = calls.Where(c => IsBodyCall(c.Label)).ToList();
+        Assert.Equal(5, body.Count);
+        Assert.All(body, call =>
+        {
+            Assert.Equal(1, Count(call.Text, $"{GccPartnerAnswers.ToolPageHeading} -- THE OPERATOR'S OWN RESEARCH"));
+            // "The core problem" and this tool's "Core pain point", both.
+            Assert.Equal(1, Count(call.Text, "The problem: The close runs on spreadsheets nobody else can read."));
+            Assert.Equal(1, Count(call.Text, $"{name}'s own pain point: Setup takes a consultant a fortnight."));
+            // The failures for every partner, the first with the remedy saved for all partners; then
+            // the tool's own, with what the tool does about it.
+            Assert.Contains("1. Where it goes wrong: Reconciliations start after the period ends.", call.Text, StringComparison.Ordinal);
+            Assert.Contains("The remedy noted for every partner: Continuous matching of bank lines to ledger entries.", call.Text, StringComparison.Ordinal);
+            Assert.Contains("2. Where it goes wrong: Nobody knows which version of the workbook is current.", call.Text, StringComparison.Ordinal);
+            Assert.Contains("3. Where it goes wrong: The vendor master has to be mapped by hand.", call.Text, StringComparison.Ordinal);
+            Assert.Contains($"What {name} does about it: Automated setup wizard maps the vendor master.", call.Text, StringComparison.Ordinal);
+            // "The automation to pitch" and this tool's own pitch, both.
+            Assert.Equal(1, Count(call.Text, "What answers it: A close calendar that assigns, chases and signs off each reconciliation."));
+            Assert.Equal(1, Count(call.Text, $"What the operator would pitch {name} on: A setup wizard that maps the vendor master on import."));
+        });
+
+        // The opening section is the first request's, and is sent to the block that request carries.
+        Assert.Contains(GccPartnerAnswers.ToolOpeningGuidance, body[0].Text, StringComparison.Ordinal);
+        Assert.All(body.Skip(1), call => Assert.DoesNotContain(GccPartnerAnswers.ToolOpeningGuidance, call.Text, StringComparison.Ordinal));
+
+        // The hook is told the problem, both statements of it, and none of the rest.
+        var hook = Assert.Single(calls, c => c.Label == "opening").Text;
+        Assert.Contains("The problem: The close runs on spreadsheets nobody else can read.", hook, StringComparison.Ordinal);
+        Assert.Contains($"{name}'s own pain point: Setup takes a consultant a fortnight.", hook, StringComparison.Ordinal);
+        Assert.DoesNotContain(GccPartnerAnswers.ToolPageHeading, hook, StringComparison.Ordinal);
+        Assert.DoesNotContain("A setup wizard that maps the vendor master on import.", hook, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A partner's site is searched with every statement of the problem the operator entered: the
+    /// tool's own "Core pain point" and the category's "The core problem", both.
+    /// </summary>
+    [Fact]
+    public async Task Both_statements_of_the_problem_are_searched_for_on_a_partners_site()
+    {
+        var reach = await ReachAsync(
+            "searches", CompleteBrief, Fields.Where(f => f.Name is "nicheFraming.coreProblem" or "perTool.coreProblem"));
+
+        Assert.Equal(
+            ["nicheFraming.coreProblem => searches for evidence", "perTool.coreProblem => searches for evidence"],
+            reach);
     }
 
     public static TheoryData<string, bool, string> Recorded() => new()
@@ -930,21 +1040,28 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.coreProblem => opening
             nicheFraming.painPoints => opening | body call
             nicheFraming.automationToPitch => opening | body call #2
-            nicheFraming.evidence.problem => nothing
-            nicheFraming.evidence.solution => nothing
+            # A row saved for all partners (2026-10-12): its failure is one the page argues even when
+            # no saved paragraph states it, and its remedy is listed under no partner's name in every
+            # body call (GccPartnerAnswers). Until then the remedy reached no writer. A row's search
+            # terms are the search's alone, here and on every page.
+            nicheFraming.evidence.problem => opening | every body call
+            nicheFraming.evidence.solution => every body call
             nicheFraming.evidence.terms => nothing
+            # No box of the form: the category has no FAQ of its own.
             nicheFraming.faqQuestions => nothing
             # A partner's own problem and what the operator would pitch it on, under that partner's name
             # beside its rows (GccPartnerAnswers, 2026-10-12; Jeff: "pillars & blog should have the
-            # research data"). Its pain points still reach only its own tool page.
+            # research data"). Its failures saved without a row are listed there too since 2026-10-12;
+            # until then they reached only its own tool page.
             perTool.coreProblem => every body call
-            perTool.painPoints => nothing
+            perTool.painPoints => every body call
             perTool.automationToPitch => every body call
             # A partner's own rows: which partner answers which failure, and what it does about it
             # (GccPartnerAnswers, 2026-10-11). Beside the partners the page must name, in every body call.
             perTool.evidence.problem => every body call
             perTool.evidence.solution => every body call
             perTool.evidence.terms => nothing
+            # A tool's questions are its own page's.
             perTool.faqQuestions => nothing
             """
         },
@@ -969,15 +1086,17 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.coreProblem => opening | body call
             nicheFraming.painPoints => body call
             nicheFraming.automationToPitch => body call | body call #2
-            nicheFraming.evidence.problem => nothing
-            nicheFraming.evidence.solution => nothing
+            # A row saved for all partners, as on the pillar: its failure argued, its remedy listed
+            # under no partner's name in every body call (2026-10-12).
+            nicheFraming.evidence.problem => every body call
+            nicheFraming.evidence.solution => every body call
             nicheFraming.evidence.terms => nothing
             nicheFraming.faqQuestions => nothing
             # A partner's own problem and what the operator would pitch it on, under that partner's name
             # beside its rows (GccPartnerAnswers, 2026-10-12; Jeff: "pillars & blog should have the
-            # research data"). Its pain points still reach only its own tool page.
+            # research data"). Its failures saved without a row are listed there too since 2026-10-12.
             perTool.coreProblem => every body call
-            perTool.painPoints => nothing
+            perTool.painPoints => every body call
             perTool.automationToPitch => every body call
             # A partner's own rows: which partner answers which failure, and what it does about it
             # (GccPartnerAnswers, 2026-10-11). Beside the partners the page must name, in every body call.
@@ -1005,18 +1124,26 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => summaries | the saved page
-            nicheFraming.coreProblem => nothing
-            nicheFraming.painPoints => body call
-            nicheFraming.automationToPitch => nothing
-            nicheFraming.evidence.problem => nothing
-            nicheFraming.evidence.solution => nothing
+            # Both, never one for the other (Jeff, 2026-10-12: "it is not an OR it is both PAIN
+            # POINTS"). Until then this tool's own problem and pitch were told in the category's place,
+            # so the category's two boxes read "nothing" here; and everything the page was told of
+            # either set was in its first section's guidance, which the first of five body calls
+            # alone prints. Now the problem is in the hook, and all of it is in a block every body
+            # call carries (GccPartnerAnswers.ForToolPage), each failure with the remedy noted for it.
+            nicheFraming.coreProblem => opening | every body call
+            nicheFraming.painPoints => every body call
+            nicheFraming.automationToPitch => every body call
+            nicheFraming.evidence.problem => every body call
+            nicheFraming.evidence.solution => every body call
             nicheFraming.evidence.terms => nothing
             nicheFraming.faqQuestions => nothing
-            perTool.coreProblem => opening | body call
-            perTool.painPoints => body call
-            perTool.automationToPitch => body call
-            perTool.evidence.problem => nothing
-            perTool.evidence.solution => nothing
+            perTool.coreProblem => opening | every body call
+            perTool.painPoints => every body call
+            perTool.automationToPitch => every body call
+            # The tool's own rows: until 2026-10-12 the remedy was used to search and never shown to
+            # the tool's own page.
+            perTool.evidence.problem => every body call
+            perTool.evidence.solution => every body call
             perTool.evidence.terms => nothing
             perTool.faqQuestions => FAQ from the operator's questions | summaries | the saved page
             """
@@ -1027,11 +1154,11 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => summaries | the saved page
-            nicheFraming.coreProblem => opening | body call
-            nicheFraming.painPoints => body call
-            nicheFraming.automationToPitch => body call
-            nicheFraming.evidence.problem => nothing
-            nicheFraming.evidence.solution => nothing
+            nicheFraming.coreProblem => opening | every body call
+            nicheFraming.painPoints => every body call
+            nicheFraming.automationToPitch => every body call
+            nicheFraming.evidence.problem => every body call
+            nicheFraming.evidence.solution => every body call
             nicheFraming.evidence.terms => nothing
             nicheFraming.faqQuestions => nothing
             """
@@ -1057,7 +1184,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.coreProblem => email
             nicheFraming.painPoints => email
             nicheFraming.automationToPitch => email
-            nicheFraming.evidence.problem => nothing
+            # A row's failure that no saved paragraph states is a failure the operator named (2026-10-12).
+            nicheFraming.evidence.problem => email
             nicheFraming.evidence.solution => nothing
             nicheFraming.evidence.terms => nothing
             nicheFraming.faqQuestions => nothing
@@ -1091,7 +1219,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.coreProblem => social post
             nicheFraming.painPoints => social post
             nicheFraming.automationToPitch => social post
-            nicheFraming.evidence.problem => nothing
+            # A row's failure that no saved paragraph states is a failure the operator named (2026-10-12).
+            nicheFraming.evidence.problem => social post
             nicheFraming.evidence.solution => nothing
             nicheFraming.evidence.terms => nothing
             nicheFraming.faqQuestions => nothing
@@ -1156,7 +1285,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
             nicheFraming.diagnosisQuestions => nothing
-            nicheFraming.coreProblem => nothing
+            # A partner with a pain point of its own is searched with that and with the category's
+            # problem, both (2026-10-12). Until then the category's was not searched for on its site.
+            nicheFraming.coreProblem => searches for evidence
             nicheFraming.painPoints => nothing
             nicheFraming.automationToPitch => nothing
             nicheFraming.evidence.problem => nothing

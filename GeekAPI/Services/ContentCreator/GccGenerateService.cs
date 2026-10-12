@@ -1369,11 +1369,12 @@ public partial class GccGenerateService
         // the body as PARTNER DATA.
         //
         // Empty research renders an empty string and the append is skipped.
-        // The operator's framing of this niche, narrowed to this product: its own override when one was
-        // written, otherwise the category's. Resolved here because this is the only point that has both
-        // the create's brief and the product's name -- which is what keys the override to a host.
+        // The operator's framing for this product: the category's and what was entered in the tool's
+        // own section, both. Resolved here because this is the only point that has both the create's
+        // brief and the product's name -- which is what keys the tool's section to a host. The tool's
+        // prompts print it: the problem into the hook, and all of it into every body request.
         var toolPartnerUrls = create is null ? null : await PartnerUrlsForAsync(create, ct);
-        var nicheFraming = create is null
+        var toolFraming = create is null
             ? null
             : GccNicheFramingReader.ForProduct(create.BriefJson, toolPartnerUrls, name);
         // The operator's FAQ questions for this tool alone -- its own perTool entry, never the
@@ -1390,7 +1391,7 @@ public partial class GccGenerateService
         var toolOutlineCtx = new ContentTypes.ContentTypePromptContext(
             context, App: app, ToolSlug: slug, ExtractedResearchJson: extractedToolResearchJson,
             EvidenceBlock: create is null ? null : BuildResearchBlock(create),
-            NicheFraming: nicheFraming);
+            ToolFraming: toolFraming);
         var pillarMeta = new ArticleMetadataDraft(
             Title: name,
             MetaDescription: Truncate((brief ?? name).Trim(), 160),

@@ -8,8 +8,9 @@ namespace GeekBackend.Tests.ContentCreator;
 /// plans/retrieval-from-the-brief.md, 2026-10-08). Measured on Tipalti that day: the pain points
 /// found the vendor describing three of six failures and the fix for none of those three; solution
 /// descriptions in the vendor's own vocabulary found the product page for all six. The rows carry
-/// that vocabulary into retrieval. They are read like every other framing field and merged per
-/// tool the way pain points are: added, with a restated problem replaced by the tool's own row.
+/// that vocabulary into retrieval. They are read like every other framing field. A partner's site
+/// is searched with the category's rows and the tool's own, a restated failure searched with the
+/// tool's own row.
 /// </summary>
 public class GccNicheFramingEvidenceTests
 {
@@ -55,18 +56,40 @@ public class GccNicheFramingEvidenceTests
     }
 
     [Fact]
-    public void A_tools_rows_are_added_to_the_categorys_and_a_restated_problem_is_replaced_by_the_tools_own()
+    public void A_tools_site_is_searched_with_the_categorys_rows_and_its_own_and_a_restated_failure_with_its_own()
     {
         var tipalti = GccNicheFramingReader.ForProduct(Brief, PartnerUrls, "Tipalti");
 
         Assert.NotNull(tipalti);
-        Assert.Equal(2, tipalti!.Evidence.Count);
-        // The category's "Approval is informal." row is replaced in place by Tipalti's own, which
-        // names the solution Tipalti's page should search for.
-        Assert.Equal("Approval is informal.", tipalti.Evidence[0].Problem);
-        Assert.StartsWith("Entity-specific approval workflows", tipalti.Evidence[0].Solution, StringComparison.Ordinal);
+        Assert.Equal(2, tipalti!.RowsToSearch.Count);
+        // The category's "Approval is informal." row is searched as Tipalti's own, in its place: that
+        // row names the solution Tipalti's own site is asked about.
+        Assert.Equal("Approval is informal.", tipalti.RowsToSearch[0].Problem);
+        Assert.StartsWith("Entity-specific approval workflows", tipalti.RowsToSearch[0].Solution, StringComparison.Ordinal);
         // Tipalti's reconciliation row is added after the category's rows.
-        Assert.StartsWith("The company cannot reliably reconcile", tipalti.Evidence[1].Problem, StringComparison.Ordinal);
+        Assert.StartsWith("The company cannot reliably reconcile", tipalti.RowsToSearch[1].Problem, StringComparison.Ordinal);
+
+        // Neither set is changed by the other: the category keeps its row and Tipalti its two.
+        Assert.StartsWith("Approval workflows route", Assert.Single(tipalti.Category!.Evidence).Solution, StringComparison.Ordinal);
+        Assert.Equal(2, tipalti.Own!.Evidence.Count);
+    }
+
+    [Fact]
+    public void A_row_that_names_no_failure_restates_none_and_is_searched_beside_the_categorys()
+    {
+        // It used to take the place of the category's first row with no failure, which the form's own
+        // list of a tool's searches never did: the two disagreed about what a partner is searched with.
+        const string brief = """
+            { "nicheFraming": {
+                "evidence": [ { "problem": "", "solution": "Scheduled payment runs.", "terms": [] } ],
+                "perTool": { "tipalti.com": { "evidence": [ { "problem": "", "solution": "Mass payouts in 196 countries.", "terms": [] } ] } } } }
+            """;
+
+        var tipalti = GccNicheFramingReader.ForProduct(brief, PartnerUrls, "Tipalti");
+
+        Assert.Equal(
+            ["Scheduled payment runs.", "Mass payouts in 196 countries."],
+            tipalti!.RowsToSearch.Select(row => row.Need));
     }
 
     [Fact]
@@ -74,18 +97,19 @@ public class GccNicheFramingEvidenceTests
     {
         var tipalti = GccNicheFramingReader.ForProduct(Brief, PartnerUrls, "Tipalti");
 
-        var reconciliation = tipalti!.Evidence.Single(r => r.Problem.StartsWith("The company cannot", StringComparison.Ordinal));
+        var reconciliation = tipalti!.RowsToSearch.Single(r => r.Problem.StartsWith("The company cannot", StringComparison.Ordinal));
         Assert.Equal(["payment reconciliation", "multi-entity", "sub-ledger"], reconciliation.Terms);
         Assert.Equal("payment reconciliation multi-entity sub-ledger", reconciliation.Keyword);
     }
 
     [Fact]
-    public void A_tool_without_rows_inherits_the_categorys()
+    public void A_tool_without_rows_is_searched_with_the_categorys()
     {
         var melio = GccNicheFramingReader.ForProduct(Brief, PartnerUrls, "Melio");
 
         Assert.NotNull(melio);
-        var row = Assert.Single(melio!.Evidence);
+        Assert.Null(melio!.Own);
+        var row = Assert.Single(melio.RowsToSearch);
         Assert.Equal("Approval is informal.", row.Problem);
     }
 

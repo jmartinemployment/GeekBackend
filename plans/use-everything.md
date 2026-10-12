@@ -1,18 +1,18 @@
 # Use everything: the Brief, the research, and Repurpose for the short types
 
-**Status:** approved 2026-10-12 ("execute your plan"). Step 1 of six is built and committed on
-`main`. Nothing is pushed, and nothing is fixed until a run of yours says so.
+**Status:** approved 2026-10-12 ("execute your plan"). Steps 1 and 2 of six are built and committed
+on `main`. Nothing is pushed, and nothing is fixed until a run of yours says so.
 
 ## Where the work stands
 
 | Step | | |
 |---|---|---|
 | 1 | Research Organization's fixed numbers go, requests are counted against what the model accepts, OpenAI's limit figures on the run log | Built, committed, not pushed |
-| 2 | The Brief boxes (Part 1) and the hint on the form | Not started |
+| 2 | The Brief boxes (Part 1) and the hints on the form | Built, committed in both repositories, not pushed |
 | 3 | Nothing is cut by a count (Part 2) | Not started |
 | 4 | Repurpose, GeekBackend | Not started |
 | 5 | Repurpose, the form | Not started |
-| 6 | The record | Not started. `AGENTS.md` and the specification already say what step 1 changed |
+| 6 | The record | Not started. `AGENTS.md` and the specification already say what steps 1 and 2 changed |
 
 **Step 1, as built. What differs from what this plan said is marked.**
 - Research is no longer cut at 350,000 characters or to 40,000 for each partner. Every opening and
@@ -44,6 +44,46 @@
 - Tests: 2,039 unit and 44 integration pass. A pillar, a blog and a tool page are written through
   their real writers with more research than `gpt-4o` accepts and with the same research on
   `gpt-4.1`.
+
+**Step 2, as built. What differs from what this plan said is marked.**
+- **Both problems are searched for.** A partner's site is searched with that tool's "Core pain
+  point" and then with "The core problem", eight passages each. The tool's own is first, as it was,
+  so the pages it finds keep their place. One statement typed in both boxes is one search.
+- **A tool's page is told both problems and both pitches**, each failure with the remedy noted for
+  it, in a block every one of its five body requests carries. Its opening section is sent to that
+  block, **where this plan said the opening section's own text would print both**: printed there as
+  well, the first request would have held the same thing twice. Its hook is told both problems.
+- **A failure you entered for every partner and again under a tool is one failure there, with both
+  remedies under it.** This plan did not say; nothing is dropped.
+- **Rows saved for all partners**: the remedy is listed on the pillar, the blog and every tool
+  page, under no tool's name. Only rows with a remedy are listed on the pillar and the blog; a
+  failure with none is already what their sections are told to cover.
+- **A tool's failures saved without a row** are listed under that tool on the pillar and the blog.
+- **A row's failure that no saved paragraph states is argued as a failure.** **Not in this plan:**
+  it was argued only when the Brief held no failure paragraphs at all. A Brief saved from the form
+  is not affected, because the form saves each row's failure both ways.
+- **A row with no failure typed is searched beside the others.** **Not in this plan:** it took the
+  place of the first row saved for all partners that had no failure, which the form's own list
+  "Searched on ..., in this order" never showed.
+- **The check on the Brief screen** searches a partner's site with both problems. If either search
+  cannot be made, the partner is reported as not checked.
+- **The form.** "Searched on ..., in this order" in a tool's section lists both, each by its box:
+  "Core pain point (own)" and "The core problem (category)". The hints under "Core pain point", "The
+  automation to pitch — the marketing/sales hook", the rows, and the line under "Per tool" no longer
+  say the category's is used only where a tool's box is empty.
+- **I was wrong that a page's checks do not read these.** The check that a figure is in the
+  evidence has always read the whole Brief as your own statements. That is unchanged. The block is
+  not added to what the quotation and link checks read.
+- **Size, measured:** the block is 707 tokens for a tool's section filled in as your research fills
+  it, in each of a tool page's five body requests: about 17,700 tokens a run of five tool pages.
+  The second problem search adds up to eight passages for each partner that has its own pain point.
+- Tests: 2,064 unit and 44 integration pass; the form's 55. `BriefFieldReachTests` now fails if a
+  box of the category's framing or of a tool's section reads "nothing" on the pillar, the blog or
+  the tool page, whatever its table says. I have not looked at the live screen: the form's change
+  is not deployed until it is pushed.
+- **What the next run lists because of this step:** nothing I can name before it runs. A tool
+  page's five body requests each carry your failures and remedies where one did, and each partner
+  with its own pain point brings up to eight more passages, so a line may appear or go.
 
 It replaces the earlier plan of the same day (one research block per content type), deleted on
 your word: this plan drops its 40,000 for each partner and does not include its rewrite.
@@ -129,7 +169,9 @@ and Changing Laws", read from its run log. That run was on GPT-4o.
 | The check on the Brief screen that asks whether a partner can be quoted | Asks with one of the two problems | Asks with both |
 
 A tool page is told these as your note, as the pillar and blog are today: it argues from them,
-quotes none of them and takes no figure from them. A page's checks do not read them.
+quotes none of them and takes no figure from them. The check that a figure is in the evidence
+already reads the whole Brief as your own statements, and still does; the quotation and link checks
+do not read the note.
 
 Not printed, and why: the later levels of "Taxonomy path". They are the project's topic in other
 words, and every request already carries the topic.
@@ -284,19 +326,24 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
   question request (`GccPageFaqEvidence.cs:46`, which splits questions across requests and leaves
   nothing out). Their comments gave 128,000 as the model's limit and are corrected.
 
-**Part 1**
-- `GccNicheFraming.cs`: `Merge` (`:605`) keeps the category's statement and the tool's own, for the
-  problem and for the pitch; `Render` and `HookGuidance` print both; one unmerged reader for a
-  tool's own section in place of the three copies of that loop.
-- `GccGroundingResolver.PartnerQuestions` (`:953`): one problem search for each statement.
-- `GccPartnerAnswers.cs`: a block for one tool's page (both problems, every failure with its remedy,
-  both pitches); `Instruction` gains the rows saved for all partners with their remedy, and a
+**Part 1** (step 2, built)
+- `GccNicheFraming.cs`: the method that merged a tool's section over the category's is deleted. A
+  tool's framing is `GccToolFraming`, the category's set and the tool's own, both kept:
+  `Problems` (what a site is searched with), `RowsToSearch`, `HookGuidance`. `OwnForHost` is the one
+  reader of a tool's own section, in place of three. `GccNicheFraming.Failures` reads a set's
+  failures once each with the remedy noted for it.
+- `GccGroundingResolver.PartnerQuestions`: one problem search for each statement.
+- `GccPartnerAnswers.cs`: `ForToolPage`, the block for one tool's page (both problems, every
+  failure with its remedy, both pitches), and `ToolOpeningGuidance`, which sends the opening
+  section to it; `Instruction` gains the rows saved for all partners with their remedy, and a
   partner's failures saved without a row.
-- `GccGenerateService.cs` `GenerateToolPageAsync` (`:1375`, `:1642`): the block joins every body
-  request. Not `toolGuardInputs` (`:1620`).
-- `GeekAPI/Controllers/ContentCreator/GccController.cs:978`: the Brief screen's check.
-- content-creator-v2 `NicheFramingPanel.tsx`: the hint that says the category's is used when a
-  tool's is empty.
+- `ContentTypes/ToolPrompts.cs`: `Body` adds the block to every body request's evidence, so the
+  request that sends the opening section to it is a request that carries it. `GenerateToolPageAsync`
+  hands the framing on (`ContentTypePromptContext.ToolFraming`) and builds no block itself.
+- `GccAngleQuoteProbe.ProbeAsync` and `GeekAPI/Controllers/ContentCreator/GccController.cs`: the
+  Brief screen's check, one search for each problem.
+- content-creator-v2 `brief-catalog.ts` (`partnerQuestions`) and `NicheFramingPanel.tsx`: the list
+  of a tool's searches and the hints.
 
 **Part 2**
 - `GccGenerateService.cs`: the `Take(...)` at `:421-446` (research block), `:2858-2863` (your site)
@@ -343,8 +390,9 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
 
 ## Verification
 
-- After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,039 after step 1),
-  `dotnet test GeekBackend.IntegrationTests` (44); the form's tests (52) for its commits.
+- After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,064 after step 2),
+  `dotnet test GeekBackend.IntegrationTests` (44); the form's tests (55 after step 2) for its
+  commits.
 - The counter was checked against the 40 requests of the 08:17 UTC run of 2026-10-07 whose sizes
   OpenAI reported, and one of them is kept as a test. GPT-4o and GPT-4.1 count tokens the same way.
   Your next run checks it again: each request's `call` line carries both counts.
