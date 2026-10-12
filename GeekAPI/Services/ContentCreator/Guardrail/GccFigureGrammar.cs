@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace GeekAPI.Services.ContentCreator.Guardrail;
@@ -39,6 +40,16 @@ public sealed record GccFigure(string Written, int Index, string Value);
 /// Comparison is by value: thousands separators dropped and a trailing decimal zero ignored, so
 /// "3,000" matches "3000" and "$19.00" matches "19". A figure is licensed when its value appears as a
 /// number anywhere in the evidence.
+/// </para>
+/// <para>
+/// <b>A number the evidence writes with a scale is also the number it stands for</b> (2026-10-12):
+/// "200K+" is 200,000, "$300M" is 300,000,000, "1.5 million" is 1,500,000. A vendor's page states its
+/// own totals this way ("100K+ filings on-time, 200K+ hours saved"), and a writer who writes one out
+/// in full is stating the figure it was shown. Read as digits alone "200K+" licensed 200 and nothing
+/// else, so the 15:29 UTC run of 2026-10-12 refused a whole blog for "200,000 hours saved", taken
+/// from exactly that line of a partner's page. The digits as written stay licensed too, so
+/// "$300 million" still matches "$300M". This reads the evidence; what counts as a figure in a draft
+/// is unchanged, and a draft's own "200K+" is still not checked.
 /// </para>
 /// </remarks>
 public static partial class GccFigureGrammar
@@ -91,9 +102,51 @@ public static partial class GccFigureGrammar
         return [.. found.OrderBy(f => f.Index)];
     }
 
-    /// <summary>Every number in <paramref name="evidence"/>, normalized for comparison.</summary>
-    public static IReadOnlySet<string> NumbersIn(string? evidence) =>
-        AnyNumber().Matches(evidence ?? string.Empty).Select(m => Normalize(m.Value)).ToHashSet(StringComparer.Ordinal);
+    /// <summary>
+    /// Every number in <paramref name="evidence"/>, normalized for comparison: each as it is written,
+    /// and each one written with a scale ("200K+", "$300M", "1.5 million") as the number it stands for.
+    /// </summary>
+    public static IReadOnlySet<string> NumbersIn(string? evidence)
+    {
+        var text = evidence ?? string.Empty;
+        var known = AnyNumber().Matches(text).Select(m => Normalize(m.Value)).ToHashSet(StringComparer.Ordinal);
+        foreach (Match m in ScaledBySuffix().Matches(text)) AddScaled(known, m);
+        foreach (Match m in MoneyScaledBySuffix().Matches(text)) AddScaled(known, m);
+        foreach (Match m in ScaledByWord().Matches(text)) AddScaled(known, m);
+        return known;
+    }
+
+    /// <summary>
+    /// The number a scaled figure stands for, added to <paramref name="known"/>. A figure too large to
+    /// hold, or one that is not a number after all, adds nothing: its digits are already licensed as
+    /// written.
+    /// </summary>
+    private static void AddScaled(HashSet<string> known, Match m)
+    {
+        var factor = FactorOf(m.Groups["scale"].Value);
+        if (factor == 0m) return;
+        if (!decimal.TryParse(
+                m.Groups["n"].Value.Replace(",", string.Empty),
+                NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture,
+                out var number))
+        {
+            return;
+        }
+
+        if (number > decimal.MaxValue / factor) return;
+        known.Add(Normalize((number * factor).ToString("0.############", CultureInfo.InvariantCulture)));
+    }
+
+    /// <summary>What a scale multiplies by: K a thousand, M a million, B or bn a billion, and the words.</summary>
+    private static decimal FactorOf(string scale) => scale.ToLowerInvariant() switch
+    {
+        "k" or "thousand" => 1_000m,
+        "m" or "million" => 1_000_000m,
+        "b" or "bn" or "billion" => 1_000_000_000m,
+        "trillion" => 1_000_000_000_000m,
+        _ => 0m,
+    };
 
     /// <summary>Thousands separators dropped; a trailing decimal zero is not a different figure.</summary>
     public static string Normalize(string number)
@@ -163,4 +216,18 @@ public static partial class GccFigureGrammar
 
     [GeneratedRegex(@"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?")]
     private static partial Regex AnyNumber();
+
+    // "200K+", "200k", "$300M", "4B": the letter straight after the number, and nothing after it that
+    // would make the pair part of a longer word or an identifier ("3K9F"). A small m or b is a scale
+    // only on money, below: "5m" is five metres or minutes and "802.11b" is a standard.
+    [GeneratedRegex(@"(?<![\w.])(?<n>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?<scale>[kK]|M|B)(?![A-Za-z0-9])")]
+    private static partial Regex ScaledBySuffix();
+
+    // "$10m", "$2bn", "€1.5M": on an amount of money the letter is a scale in either case.
+    [GeneratedRegex(@"[$€£]\s?(?<n>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?<scale>bn|[kmb])(?![A-Za-z0-9])", RegexOptions.IgnoreCase)]
+    private static partial Regex MoneyScaledBySuffix();
+
+    // "3 million", "1.2 billion", "200 thousand", "5-million".
+    [GeneratedRegex(@"(?<![\w.])(?<n>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)[\s-]?(?<scale>thousand|million|billion|trillion)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ScaledByWord();
 }

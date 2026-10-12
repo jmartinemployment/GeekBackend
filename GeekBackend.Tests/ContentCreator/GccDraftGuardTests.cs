@@ -440,6 +440,38 @@ public class GccDraftGuardTests
         Assert.DoesNotContain("numbers", Failed(GccDraftGuard.Pillar(doc, Inputs(numberEvidence: evidence))));
     }
 
+    /// <summary>
+    /// The 15:29 UTC run of 2026-10-12, its sentence and the line of Zamp's page it came from. The
+    /// page states its totals as "100K+" and "200K+"; the writer wrote them out, and the blog was
+    /// refused for "200,000 hours" as a figure in none of its evidence. "100,000" was let through only
+    /// because the same evidence holds "$100,000" elsewhere, the sales tax threshold.
+    /// </summary>
+    [Fact]
+    public void A_figure_the_evidence_writes_with_a_scale_passes_when_the_draft_writes_it_out()
+    {
+        const string evidence =
+            "$300M+ sales tax remitted 100K+ filings on-time 75K+ notices handled 200K+ hours saved";
+        var doc = Doc(Body(
+            "Outcomes",
+            Text("For instance, data from Zamp highlights over 100,000 on-time filings and 200,000 hours saved."),
+            Text("It has remitted more than $300,000,000 in sales tax and handled 75,000 notices.")));
+
+        Assert.DoesNotContain("numbers", Failed(GccDraftGuard.Blog(doc, Inputs(numberEvidence: evidence))));
+    }
+
+    [Fact]
+    public void A_figure_no_scaled_number_in_the_evidence_stands_for_is_still_refused()
+    {
+        const string evidence = "100K+ filings on-time 200K+ hours saved";
+        var doc = Doc(Body("Outcomes", Text("Zamp has saved its customers 500,000 hours.")));
+
+        var verdict = GccDraftGuard.Blog(doc, Inputs(numberEvidence: evidence));
+
+        var finding = Assert.Single(verdict.Findings, f => f.Check == "numbers");
+        Assert.True(finding.Refuses);
+        Assert.Contains("500,000 hours", finding.Detail, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_number_in_a_heading_is_a_list_title_not_a_claim()
     {

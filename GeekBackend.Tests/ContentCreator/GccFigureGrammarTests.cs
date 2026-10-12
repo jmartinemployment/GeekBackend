@@ -68,4 +68,45 @@ public class GccFigureGrammarTests
         Assert.Contains("3000", known);
         Assert.Contains("19", known);
     }
+
+    [Theory]
+    [InlineData("100K+ filings on-time 75K+ notices handled 200K+ hours saved", "200000")]
+    [InlineData("100K+ filings on-time 75K+ notices handled 200K+ hours saved", "75000")]
+    [InlineData("$300M+ sales tax remitted", "300000000")]
+    [InlineData("Over 1.5M users", "1500000")]
+    [InlineData("Plans from 2.75k seats", "2750")]
+    [InlineData("It moved $2bn in payments, then $4B more", "2000000000")]
+    [InlineData("It moved $2bn in payments, then $4B more", "4000000000")]
+    [InlineData("It processed 3 million invoices", "3000000")]
+    [InlineData("A market of 1.2 billion", "1200000000")]
+    [InlineData("About 200 thousand filings", "200000")]
+    [InlineData("A 5-million-row ledger", "5000000")]
+    [InlineData("Trusted with 1,200K records", "1200000")]
+    [InlineData("It raised $10m last year", "10000000")]
+    [InlineData("Revenue of €1.5m", "1500000")]
+    public void A_number_the_evidence_writes_with_a_scale_licenses_the_number_it_stands_for(
+        string evidence, string value) =>
+        Assert.Contains(value, GccFigureGrammar.NumbersIn(evidence));
+
+    [Theory]
+    [InlineData("200K+ hours saved", "200")]
+    [InlineData("$300M+ sales tax remitted", "300")]
+    [InlineData("It processed 3 million invoices", "3")]
+    public void A_scaled_number_still_licenses_its_digits_as_written(string evidence, string value) =>
+        Assert.Contains(value, GccFigureGrammar.NumbersIn(evidence));
+
+    /// <summary>
+    /// Each line's numbers are licensed as written and nothing more: the letter after the number is a
+    /// unit, a label or part of an identifier, not a scale.
+    /// </summary>
+    [Theory]
+    [InlineData("Commit 3K9F fixed it", new[] { "3", "9" })]
+    [InlineData("A 5mm margin", new[] { "5" })]
+    [InlineData("A desk 5m wide", new[] { "5" })]
+    [InlineData("It runs over 802.11b", new[] { "802.11" })]
+    [InlineData("Read rule 12b-1 first", new[] { "12", "1" })]
+    [InlineData("It took 40 minutes", new[] { "40" })]
+    [InlineData("Open from 8am to 5pm", new[] { "8", "5" })]
+    public void A_letter_that_is_not_a_scale_adds_nothing(string evidence, string[] asWritten) =>
+        Assert.Equal(asWritten.Order(StringComparer.Ordinal), GccFigureGrammar.NumbersIn(evidence).Order(StringComparer.Ordinal));
 }

@@ -276,6 +276,14 @@ keyword-heading-by-hand (a heading puts the phrase straight after "manual") and 
 word floor, with the calls under their own floor listed after it; a page at its floor lists no call). Nothing is reported
 for a single call on a page that passes.
 
+**numbers reads a scaled figure in the evidence as the number it stands for** (2026-10-12, `GccFigureGrammar.NumbersIn`).
+A figure in a draft must be a number in its evidence, compared by value. "200K+", "$300M", "$10m", "2bn" and "1.5 million"
+in the evidence license 200,000, 300,000,000, 10,000,000, 2,000,000,000 and 1,500,000 as well as their digits as written;
+a small m or b is a scale only on an amount of money. Until then "200K+" licensed 200 alone: the 15:29 UTC run of
+2026-10-12 (project "Tax Compliance & Regulations: Complex and Changing Laws") refused its blog for "200,000 hours saved",
+written out from Zamp's own "200K+ hours saved". What counts as a figure in a draft is unchanged, so a draft's own "200K+"
+is still not checked against anything. Not yet seen in a real run.
+
 **Realtime.** SignalR hub `/hubs/workflow-realtime` (also `/hubs/gcc-v2-realtime` and `/hubs/geek-crawler-realtime`); a
 client calls `JoinGccGenerate(jobId)` and receives `GccGenerateEvent`, `GccGenerateTypeEvent`, `GccGeneratePreflightEvent`.
 Push failures are logged as errors and recorded in the run log; they never fail a job.
