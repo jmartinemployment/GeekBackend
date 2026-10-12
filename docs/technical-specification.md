@@ -206,14 +206,14 @@ legal, compare, page) was sent on every result and not read. Both are now kept o
 `Searches`, `FoundBy`) and listed on the run log's `grounding` event (`poolSearches`, `pageKinds`). No writer is shown
 either and no passage is chosen by them yet: this is the record stage 2 will choose from.
 
-**What each request would carry is recorded, and each still carries everything** (2026-10-11, the same plan's stage 2:
-"watch" mode). Each pillar and blog section names one of seven labels for the part of the research it is written from
+**What each request would carry was first only recorded** (2026-10-11, the same plan's stage 2; sent since 2026-10-12,
+below). Each pillar and blog section names one of seven labels for the part of the research it is written from
 (`SectionSlot.ResearchLabel`; `GccResearchLabel`). Code gives each passage its labels from the kind of page, the searches
 that found it and its own words (`GccPassageClassifier`), and works out what a request writing two sections would carry
 (`GccResearchSelector`): research of 350,000 characters or less whole; otherwise each partner up to 40,000, its passages
 labelled for the request's sections first, then general ones, then its others, a passage an earlier request carried
-counted at half. The run log gets `evidence-labels` once a page and `evidence` once a body request (`GccResearchWatch`).
-No prompt is built from it: stages 4 and 5 of the plan do that, on Jeff's word.
+counted at half. The run log gets `evidence-labels` once a page and `evidence` once a request
+(`GccResearchPerRequest`).
 
 **Changed from the first real run** (14:20 UTC, 2026-10-11, the plan's stage 3; still nothing a writer is sent). That
 project's research was 250,717 characters in 213 passages, none without a label and only 8 for "getting it running",
@@ -223,6 +223,32 @@ loses. So a partner is now carried up to its limit whatever its passages are lab
 350,000 characters (about 97,000 of 128,000 a request) where it was 240,000. In the classifier a word and its other
 forms count once ("client" and "clients" gave a label between them), and "plan", "timeline", "results", "review",
 "faster" and "increased" are out of the lists: the first two are a forecasting tool's own words.
+
+**A pillar's and a blog's requests are sent what is chosen for them** (2026-10-12, the plan's stages 4 and 5, on Jeff's
+word: "Research classification: finish this off"). When a page's partner research is over 350,000 characters, its
+opening and each of its body requests carry the passages chosen for the sections that request writes and no others
+(`GccResearchPerRequest.For`, printed by `BuildResearchBlock(create, carried)`): up to 40,000 characters for each
+partner, the opening counted as the page's first request. Research of 350,000 characters or less is sent whole to every
+request, as before, and a test writes both pages through the real writers under the ceiling and fails if a request
+loses a passage.
+- **Only the partner research differs between requests.** The publisher's positions, the competitor blocks, the site's
+  own coverage, the partners to name, what each partner answers, the heading sources and the note on amounts not in
+  dollars are whole in every request.
+- **The page's checks read all of the research.** Figures, money, quotations and headings are judged against what the
+  search returned, not against what a request carried, so a page is not refused because a request was shown less.
+- **A request sent a part is told so in one line** (`GccGenerateService.ResearchIsAPartNote`): the passages are the ones
+  chosen for its sections, and a passage that is not there is not evidence that a product lacks something.
+- **A partner is the project's partner whose site the page is on or under.** A partner's help or documentation
+  subdomain was a partner of its own with a limit of its own (`GccResearchSelector.PartnerOf`).
+- **The record of a request** lists what the research holds, what the request carried, the same partner by partner,
+  and each passage chosen and left out. A test fails if a request is sent anything other than what its record lists.
+- **Size, worked out and not measured.** From the 18:26 run of 2026-10-10: the accounts receivable project's pillar and
+  blog body requests go from about 117,600 of 128,000 to about 61,000 (about 488,000 characters of research becoming
+  200,000), and their openings from about 100,000 to about 45,000. They no longer repeat one block of research, so the
+  half-price billing for repeated text is lost; at this size the page still costs about a fifth less to send.
+- **Not seen on real research.** Both projects that have run since 2026-10-11 are under the ceiling. The first run of a
+  project over it is the first sight of which passages each request is sent; its run log's `evidence` events list them.
+- **The tool pages are not changed.** Each carries one partner's research and fits.
 
 **The 13:14 UTC run of 2026-10-11** (project "Cash Flow Forecasting: Automated Spreadsheet Data", five partners, 30 body
 searches and 123 question searches) is the first run since 2026-10-10 to write a pillar and a blog. All seven pages were

@@ -1,10 +1,11 @@
 # Research classification: plan
 
-Written 2026-10-11. **Status: approved by Jeff on 2026-10-11 ("execute"). Stages 1 and 2 are built.
-Stage 3 is part done: the first real run was read on 2026-10-11 and the rules were changed from it;
-a run of a project large enough to be chosen from is still needed. Stages 4 and 5, which change what
-a writer is sent, are not built and wait for Jeff's word.** What was built, and how it differs from
-what is written below, is under "Progress" at the end.
+Written 2026-10-11. **Status: every stage is built and pushed. Approved by Jeff on 2026-10-11
+("execute"); stages 4 and 5, which change what a writer is sent, were built on 2026-10-12 on his word
+("Research classification: finish this off"). What is left is not code: no project large enough to
+be chosen from has run, so the first one that does is the first sight of the choice on real
+research.** What was built, and how it differs from what is written below, is under "Progress" at
+the end.
 
 ## What it is
 
@@ -74,7 +75,8 @@ Changed on 2026-10-11 from the first real run; what it was and why it changed is
 stage 3.
 
 - **Every partner, always, up to the same limit:** 40,000 characters for each partner, and 240,000 in
-  all. The page has to name every partner and needs something to say about each.
+  all (five partners are 200,000; with seven or more each has an equal part of the 240,000). The page
+  has to name every partner and needs something to say about each.
 - **Within a partner, the passages labelled for the request's sections come first,** best matches
   first, then passages with no label, then the partner's other passages until its limit is reached.
   Labels decide the order, not whether a section is shown enough.
@@ -99,8 +101,9 @@ live between your runs while you keep working.
    right ones, does every partner have enough, are the sizes as predicted? Adjust the word lists
    and the limit from what the logs show.
 4. **Switch it on for the blog,** on your word. It is the smaller page, three requests. Your run
-   judges it.
-5. **Switch it on for the pillar,** on your word.
+   judges it. *Built 2026-10-12.*
+5. **Switch it on for the pillar,** on your word. *Built 2026-10-12, on the same word as stage 4, so
+   one run judges both.*
 
 ## What can go wrong
 
@@ -289,5 +292,55 @@ characters. The accounts receivable project is the one known: about 488,000, who
 requests are about 117,000 of 128,000 and have not run since they went over on 2026-10-10. Its
 `evidence` events are what say whether the passages chosen for each section are the right ones.
 
-**Not built:** stages 4 and 5. Nothing reads a selection into a prompt. The four sentences listed under
-"For the code" that assume the whole research is present are unchanged, and are reworded in stage 4.
+**Stages 4 and 5, switched on for the blog and then the pillar: built 2026-10-12**, on Jeff's word
+("Research classification: finish this off"). One commit each, and one before them for the partner
+fix the progress above said had to come first.
+
+- **A partner is the project's partner whose site a page is on or under**
+  (`GccResearchSelector.PartnerOf`). Told apart by host alone, "help.partner.com" was a partner of
+  its own with its own limit. Of two partners a host is under, the longer one.
+- **What is sent.** When a page's partner research is over 350,000 characters, its opening and each
+  of its body requests carry the passages chosen for the sections that request writes and no others
+  (`GccResearchPerRequest`, printed by `BuildResearchBlock(create, carried)`). Under the ceiling
+  every request is sent all of it, built exactly as before.
+- **The opening is the page's first request.** This plan spoke of body requests. The opening
+  carries the research too and is as near the model's limit as a body request, so leaving it whole
+  would have left the page's largest request where it was. It is chosen for the problem, and what it
+  carried counts at half for the body's first request.
+- **What stays whole in every request,** as "For the code" listed: the publisher's positions, the
+  competitor blocks, the site's own coverage, the heading sources and the note on amounts not in
+  dollars; and the partners to name and what each partner answers.
+- **The four sentences that assume the whole research is present are not reworded.** Read again,
+  each already says what to do when a partner has no passage ("named plainly with no claims
+  attached", "claim nothing more"), and every partner is carried in every request. One line is
+  added to a block that is a part (`GccGenerateService.ResearchIsAPartNote`): the passages are the
+  ones chosen for the request's sections, and a passage that is not there is not evidence that a
+  product lacks something.
+- **The checks on the finished page read all of the research,** as this plan said: the guard's
+  inputs are built from the whole evidence, not from what a request carried.
+- **The record.** `evidence`, once for the opening (request 0) and once for each body request: what
+  the research holds, what the request carried, the same partner by partner, each passage chosen
+  and left out. Nothing records a choice without sending it any more, so "watch" mode and its field
+  are gone.
+- **Checked by test,** through the real pillar and blog writers: over the ceiling every request
+  carries each passage its record lists as chosen, none it lists as left out, and the line saying it
+  is a part; between them a page's requests reach more of the research than any one carries; under
+  the ceiling every request carries every passage and nothing says it is a part; no label is
+  printed.
+
+**Size, worked out and not measured.** From the 18:26 run of 2026-10-10 with the fixes since: the
+accounts receivable project's research is about 488,000 characters and a body request about
+117,600 of 128,000 with its reply's reservation. With 200,000 characters carried (five partners at
+40,000) a body request is about 61,000 of 128,000, and an opening about 45,000 where it was about
+100,000. The requests no longer repeat one block of research, so the half-price billing for repeated
+text is lost; at this size the page still costs about a fifth less to send.
+
+**What is left, and it is a run, not code.** The choice has never been made on real research over
+the ceiling: both projects run since 2026-10-11 are under it and are sent everything, as before.
+The accounts receivable project is the one known to be over. On its next run, read from the run log:
+the size of each `call`, each `evidence` event's passages chosen and left out against the sections
+that request wrote, the page's words by section, and the gap list against the run before. The main
+risk is the one this plan named first: a section shown too little.
+
+**Still not in this plan:** the research holds almost nothing for the sections on getting it
+running and on results. Choosing cannot find what was never searched for.
