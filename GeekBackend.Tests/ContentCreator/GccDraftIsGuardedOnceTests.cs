@@ -50,6 +50,8 @@ public class GccDraftIsGuardedOnceTests
 
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
 
+        public string ModelFor(ChatCompletionRequest request) => "gpt-4.1";
+
         public int BodyCalls => _bodyCalls;
 
         private readonly List<string> _prompts = [];
@@ -359,6 +361,8 @@ public class GccDraftIsGuardedOnceTests
     private sealed class FailingImagePromptsProvider(IContentGenerationProvider inner) : IContentGenerationProvider
     {
         public LlmProviderType ProviderType => inner.ProviderType;
+
+        public string ModelFor(ChatCompletionRequest request) => inner.ModelFor(request);
 
         public Task<ChatCompletionResult> CompleteAsync(
             ChatCompletionRequest request, CancellationToken cancellationToken = default)

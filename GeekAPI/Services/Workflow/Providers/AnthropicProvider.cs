@@ -29,6 +29,8 @@ public class AnthropicProvider : IContentGenerationProvider
         _logger = logger;
     }
 
+    public string ModelFor(ChatCompletionRequest request) => request.Model ?? _options.Model;
+
     public async Task<ChatCompletionResult> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken = default)
     {
         var apiKey = string.IsNullOrWhiteSpace(_options.ApiKey)
@@ -53,8 +55,7 @@ public class AnthropicProvider : IContentGenerationProvider
 
         // Resolved once. ModelUsed below reports what was SENT, and deriving it a second time is how
         // the two come to disagree when a request carries its own Model.
-        var model = ProviderModelGuard.Require(
-            request.Model ?? _options.Model, "LlmProviders__Anthropic__Model");
+        var model = ProviderModelGuard.Require(ModelFor(request), "LlmProviders__Anthropic__Model");
 
         var payload = new AnthropicRequest
         {

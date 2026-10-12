@@ -278,10 +278,11 @@ public class OutlinePromptRulesTests
     public void A_call_that_writes_two_sections_of_a_longer_page_reserves_for_two_sections(
         string which, int mostWordsASectionIsAskedFor)
     {
-        // The reservation counts against the model's limit whether or not it is used, and every
-        // body call carries the page's whole evidence. On 2026-10-10 a pillar call of 125,253 prompt
-        // tokens reserved the 16,384 sized for a whole body and was refused as 141,637 against
-        // 128,000; the largest reply any two-section call gave that run was 1,146 tokens.
+        // The reservation counts against what the model accepts in one request whether or not it is
+        // used, and every body call carries the page's whole evidence. On 2026-10-10 a pillar call of
+        // 125,253 prompt tokens reserved the 16,384 sized for a whole body and was refused as 141,637
+        // against the 128,000 that day's model accepted; the largest reply any two-section call gave
+        // that run was 1,146 tokens.
         var request = BodyCall(which, sectionsInThisCall: 2);
 
         Assert.Equal(8192, request.MaxOutputTokens);

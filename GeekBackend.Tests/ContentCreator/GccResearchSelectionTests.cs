@@ -9,10 +9,10 @@ using Xunit;
 namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
-/// Which passages of research a request of a pillar or a blog carries.
-/// Research that fits is carried whole. Above the ceiling a choice
-/// is made for each request's sections, recorded, and sent: on for the blog and the pillar since
-/// 2026-10-12, on Jeff's word.
+/// Which passages of partner research a request carries. Research that fits the room a request has is
+/// carried whole. When it is more than that room, the room is shared between the partners and a
+/// choice is made for the request's sections, recorded, and sent. The room is worked out from what
+/// the request's model accepts (<c>GccRequestThatFitsTests</c>); here it is given.
 /// </summary>
 public class GccResearchSelectionTests
 {
@@ -259,8 +259,8 @@ public class GccResearchSelectionTests
             ],
             blog.Select(slot => slot.ResearchLabel));
 
-        // A tool page carries one partner's research, fits, and is not chosen for: its sections name none,
-        // and a slot names none unless it is told to.
+        // A tool page's sections name none, and a slot names none unless it is told to: when a tool page's
+        // research is chosen from, it is in the search's own order.
         Assert.Null(SectionSlot.Cover("what the product does").ResearchLabel);
         Assert.Null(SectionSlot.Assigned("A heading").ResearchLabel);
     }
@@ -295,7 +295,13 @@ public class GccResearchSelectionTests
     private static readonly IReadOnlyDictionary<(string Url, int Position), int> NothingShown =
         new Dictionary<(string Url, int Position), int>();
 
-    /// <summary>Five partners, each with far more than its limit: 30 passages of 4,900 for each of two labels.</summary>
+    /// <summary>The room the tests below give a request for five partners: 40,000 characters each.</summary>
+    private const int RoomForFive = 200_000;
+
+    /// <summary>The room the tests below give a request for two partners: 40,000 characters each.</summary>
+    private const int RoomForTwo = 80_000;
+
+    /// <summary>Five partners, each with far more than its part of the room: 30 passages of 4,900 for each of two labels.</summary>
     private static IReadOnlyList<GccResearchPassage> FivePartnersOverTheLimit()
     {
         var passages = new List<GccResearchPassage>();
@@ -311,37 +317,80 @@ public class GccResearchSelectionTests
     }
 
     [Fact]
-    public void Research_that_fits_under_the_ceiling_is_carried_whole()
+    public void Research_that_fits_the_room_is_carried_whole_whatever_its_size()
     {
-        // 300,300 characters: more than a chosen request would carry, and still left alone. The 14:20 UTC
-        // run of 2026-10-11 was 250,717, and choosing from it would have cost more to send less.
+        // 300,300 characters, none of it for the request's own sections, and still all carried: the room
+        // is the only limit. Until 2026-10-12 research over 350,000 was cut to 40,000 for each partner
+        // whatever the request's model accepted.
         var passages = new List<GccResearchPassage>
         {
             Passage("a.test", 1, 0, 100_000, GccResearchLabel.Problem),
             Passage("a.test", 2, 0, 100_000, GccResearchLabel.FitPriceAndLimits),
             Passage("b.test", 1, 0, 100_000, null),
         };
-        Assert.InRange(GccResearchSelector.CharsOf(passages), GccResearchSelector.MaxCharsInAll + 1, GccResearchSelector.WholeUpToChars);
+        Assert.Equal(300_300, GccResearchSelector.CharsOf(passages));
 
-        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.HowItWorks], NothingShown);
+        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.HowItWorks], NothingShown, room: 300_300);
 
         Assert.True(selection.Whole);
         Assert.Equal(passages, selection.Chosen.Select(chosen => chosen.Passage));
         Assert.All(selection.Chosen, chosen => Assert.Equal(GccResearchSelector.WhyWhole, chosen.Why));
         Assert.Empty(selection.LeftOut);
+        Assert.Empty(selection.Shares);
 
-        // One character over the ceiling and it is chosen from.
-        var over = new List<GccResearchPassage>(passages) { Passage("b.test", 2, 0, 49_601, null) };
-        Assert.Equal(GccResearchSelector.WholeUpToChars + 1, GccResearchSelector.CharsOf(over));
-        Assert.False(GccResearchSelector.Select(over, [GccResearchLabel.HowItWorks], NothingShown).Whole);
+        // One character less room and it is chosen from.
+        var over = GccResearchSelector.Select(passages, [GccResearchLabel.HowItWorks], NothingShown, room: 300_299);
+        Assert.False(over.Whole);
+        Assert.NotEmpty(over.LeftOut);
+
+        // Asked for with no room named, it is everything.
+        var everything = GccResearchSelector.Everything(passages, [GccResearchLabel.HowItWorks]);
+        Assert.True(everything.Whole);
+        Assert.Null(everything.Room);
+        Assert.Equal(passages, everything.Chosen.Select(chosen => chosen.Passage));
     }
 
     [Fact]
-    public void Over_the_limit_every_partner_is_kept_and_none_passes_its_limit()
+    public void A_partner_with_less_than_its_part_is_carried_whole_and_what_it_leaves_goes_to_the_others()
+    {
+        // One partner has 10,000 characters of research and four have 150,000 each. An equal part of
+        // 200,000 is 40,000: the small partner takes its 10,000, and the 30,000 it leaves is shared, so
+        // each of the others has 47,500 and not 40,000.
+        var passages = new List<GccResearchPassage>(FivePartnersOverTheLimit().Where(passage => passage.Host != "c.test"))
+        {
+            Passage("c.test", 1, 0, 4_900, GccResearchLabel.Problem),
+            Passage("c.test", 2, 0, 4_900, GccResearchLabel.FitPriceAndLimits),
+        };
+
+        var shares = GccResearchSelector.SharesOf(passages, RoomForFive);
+
+        Assert.Equal(10_000, shares["c.test"]);
+        Assert.All(new[] { "a.test", "b.test", "d.test", "e.test" }, host => Assert.Equal(47_500, shares[host]));
+        Assert.Equal(RoomForFive, shares.Values.Sum());
+
+        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown, RoomForFive);
+
+        Assert.Equal(shares, selection.Shares);
+        Assert.Equal(RoomForFive, selection.Room);
+        // Both of the small partner's passages, the one for other sections included.
+        Assert.Equal(2, selection.Chosen.Count(chosen => chosen.Passage.Host == "c.test"));
+        Assert.DoesNotContain(selection.LeftOut, passage => passage.Host == "c.test");
+        // Nine passages of 5,000 with their page's lines fit 47,500, where eight fitted 40,000.
+        Assert.All(
+            new[] { "a.test", "b.test", "d.test", "e.test" },
+            host => Assert.Equal(9, selection.Chosen.Count(chosen => chosen.Passage.Host == host)));
+        // The partners stay in the order the research has them in.
+        Assert.Equal(
+            ["a.test", "b.test", "d.test", "e.test", "c.test"],
+            selection.Chosen.Select(chosen => chosen.Passage.Host).Distinct());
+    }
+
+    [Fact]
+    public void With_more_than_the_room_every_partner_is_kept_and_none_passes_its_part()
     {
         var passages = FivePartnersOverTheLimit();
 
-        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
+        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown, RoomForFive);
 
         Assert.False(selection.Whole);
         var carried = selection.Chosen.Select(chosen => chosen.Passage).ToList();
@@ -349,16 +398,16 @@ public class GccResearchSelectionTests
         {
             var mine = carried.Where(passage => passage.Host == host).ToList();
             Assert.NotEmpty(mine);
-            Assert.InRange(GccResearchSelector.CharsOf(mine), 1, GccResearchSelector.MaxCharsPerPartner);
+            Assert.InRange(GccResearchSelector.CharsOf(mine), 1, RoomForFive / 5);
             // Every one is labelled for the request: a partner with enough of those has no room for others.
             Assert.All(mine, passage => Assert.True(passage.Labels.ContainsKey(GccResearchLabel.Problem)));
-            // 4,900 and its page's 100 lines, eight times, is the limit exactly.
+            // 4,900 and its page's 100 lines, eight times, is its part of the room exactly.
             Assert.Equal(8, mine.Count);
             // The search's best first.
             Assert.Equal(mine.OrderByDescending(passage => passage.Score), mine);
         }
 
-        Assert.InRange(GccResearchSelector.CharsOf(carried), 1, GccResearchSelector.MaxCharsInAll);
+        Assert.InRange(GccResearchSelector.CharsOf(carried), 1, RoomForFive);
         Assert.Equal(passages.Count, selection.Chosen.Count + selection.LeftOut.Count);
         Assert.All(selection.Chosen, chosen => Assert.Equal(GccResearchSelector.WhyLabelled, chosen.Why));
     }
@@ -366,8 +415,8 @@ public class GccResearchSelectionTests
     [Fact]
     public void The_same_passages_give_the_same_choice()
     {
-        var first = GccResearchSelector.Select(FivePartnersOverTheLimit(), [GccResearchLabel.Problem], NothingShown);
-        var second = GccResearchSelector.Select(FivePartnersOverTheLimit(), [GccResearchLabel.Problem], NothingShown);
+        var first = GccResearchSelector.Select(FivePartnersOverTheLimit(), [GccResearchLabel.Problem], NothingShown, RoomForFive);
+        var second = GccResearchSelector.Select(FivePartnersOverTheLimit(), [GccResearchLabel.Problem], NothingShown, RoomForFive);
 
         Assert.Equal(
             first.Chosen.Select(chosen => (chosen.Passage.Url, chosen.Passage.Position, chosen.Why)),
@@ -375,7 +424,7 @@ public class GccResearchSelectionTests
     }
 
     [Fact]
-    public void A_partner_with_nothing_for_the_request_is_carried_up_to_its_limit_all_the_same()
+    public void A_partner_with_nothing_for_the_request_is_carried_up_to_its_part_all_the_same()
     {
         // One partner's research is all about price; the request writes the problem. On the 14:20 UTC run
         // of 2026-10-11 the research held 8 passages of 213 for getting it running, and the request that
@@ -386,12 +435,12 @@ public class GccResearchSelectionTests
             passages.Add(Passage("e.test", i, 0, 4_900, GccResearchLabel.FitPriceAndLimits, score: 1.0 - i / 100.0));
         }
 
-        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
+        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown, RoomForFive);
 
         var others = selection.Chosen.Where(chosen => chosen.Passage.Host == "e.test").ToList();
         Assert.All(others, chosen => Assert.Equal(GccResearchSelector.WhyOther, chosen.Why));
-        // As much as any partner: eight passages reach the limit, the search's best first.
-        Assert.Equal(GccResearchSelector.MaxCharsPerPartner, GccResearchSelector.CharsOf(others.Select(chosen => chosen.Passage)));
+        // As much as any partner: eight passages fill its part of the room, the search's best first.
+        Assert.Equal(RoomForFive / 5, GccResearchSelector.CharsOf(others.Select(chosen => chosen.Passage)));
         Assert.Equal(
             Enumerable.Range(0, 8),
             others.Select(chosen => int.Parse(new Uri(chosen.Passage.Url).AbsolutePath.Trim('/'))));
@@ -406,9 +455,9 @@ public class GccResearchSelectionTests
             passages.Add(Passage("e.test", i, 0, 4_900, GccResearchLabel.FitPriceAndLimits, score: 1.0 - i / 100.0));
         }
 
-        var first = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
+        var first = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown, RoomForFive);
         var shown = first.Chosen.ToDictionary(chosen => (chosen.Passage.Url, chosen.Passage.Position), _ => 1);
-        var second = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], shown);
+        var second = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], shown, RoomForFive);
 
         // The next request for the same sections is given the eight after the first eight.
         Assert.Equal(
@@ -431,7 +480,7 @@ public class GccResearchSelectionTests
                 Passage("a.test", 4, 0, chars, GccResearchLabel.Problem, score: 0.30, strength: 4),
             };
 
-            return [.. GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown).Chosen
+            return [.. GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown, RoomForFive).Chosen
                 .Where(chosen => chosen.Passage.Host == "a.test")];
         }
 
@@ -455,10 +504,10 @@ public class GccResearchSelectionTests
     public void A_passage_an_earlier_request_carried_counts_half_so_the_next_request_reaches_further()
     {
         var passages = FivePartnersOverTheLimit();
-        var first = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
+        var first = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown, RoomForFive);
         var shown = first.Chosen.ToDictionary(chosen => (chosen.Passage.Url, chosen.Passage.Position), _ => 1);
 
-        var second = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], shown);
+        var second = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], shown, RoomForFive);
 
         // Fifteen passages of each partner are about the problem and eight fit. The second request for
         // the same label is given the seven the first was not, and then the best of the eight it was.
@@ -474,7 +523,7 @@ public class GccResearchSelectionTests
     }
 
     [Fact]
-    public void With_many_partners_each_has_an_equal_part_of_the_limit_in_all()
+    public void With_many_partners_each_has_an_equal_part_of_the_room()
     {
         var passages = new List<GccResearchPassage>();
         for (var partner = 0; partner < 8; partner++)
@@ -482,14 +531,15 @@ public class GccResearchSelectionTests
             for (var i = 0; i < 20; i++) passages.Add(Passage($"p{partner}.test", i, 0, 4_900, GccResearchLabel.Problem));
         }
 
-        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
+        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown, room: 240_000);
 
         // 240,000 over eight partners is 30,000 each: six passages of 5,000 with their page's lines.
         Assert.All(
             selection.Chosen.GroupBy(chosen => chosen.Passage.Host),
             partner => Assert.Equal(6, partner.Count()));
+        Assert.All(selection.Shares.Values, share => Assert.Equal(30_000, share));
         Assert.InRange(
-            GccResearchSelector.CharsOf(selection.Chosen.Select(chosen => chosen.Passage)), 1, GccResearchSelector.MaxCharsInAll);
+            GccResearchSelector.CharsOf(selection.Chosen.Select(chosen => chosen.Passage)), 1, 240_000);
     }
 
     [Fact]
@@ -502,7 +552,7 @@ public class GccResearchSelectionTests
             Passage("a.test", 3, 0, 5_000, GccResearchLabel.Problem, score: 0.7),
         };
 
-        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown);
+        var selection = GccResearchSelector.Select(passages, [GccResearchLabel.Problem], NothingShown, RoomForFive);
 
         Assert.Equal(
             ["https://a.test/1", "https://a.test/3"],
@@ -590,7 +640,7 @@ public class GccResearchSelectionTests
     public void Research_read_back_with_parts_missing_is_counted_as_it_is_and_stops_nothing()
     {
         // Stored research is JSON, and a field the record calls required can be absent from it. This
-        // runs on every pillar and blog while it only watches, and must never be what refuses a page.
+        // runs on every pillar, blog and tool page, and must never be what refuses one.
         var stored = GccResearchFetchService.Deserialize(
             """
             {"serpIndex":null,"quoteables":[
@@ -607,7 +657,7 @@ public class GccResearchSelectionTests
         Assert.Equal(3, passages.Count);
         Assert.Equal(["", "", "partner.test"], passages.Select(passage => passage.Host));
         Assert.All(passages, passage => Assert.Empty(passage.Labels));
-        var forRequest = For(Sending(stored.Quoteables), ProblemSections, "Pillar body sections 1-2", 1, 5)!;
+        var forRequest = For(Sending(stored.Quoteables), ProblemSections, "Pillar body sections 1-2", 1, 5);
         var record = JsonSerializer.SerializeToElement(forRequest.Record);
         Assert.Equal(3, record.GetProperty("research").GetProperty("passages").GetInt32());
         // It fits, so the request is sent the research as it is and nothing is chosen from it.
@@ -620,13 +670,17 @@ public class GccResearchSelectionTests
     /// <summary>One page being written, with <paramref name="pages"/> as its partner research.</summary>
     private static GccResearchPerRequest Sending(IReadOnlyList<GccQuoteablePage>? pages) => new(pages, null);
 
-    private static GccRequestResearch? For(
-        GccResearchPerRequest research, IReadOnlyList<SectionSlot> sections, string request, int call, int of) =>
-        research.For(GccResearchPerRequest.LabelsOf(sections), request, call, of);
+    /// <summary>
+    /// What a request writing <paramref name="sections"/> is sent when it has <paramref name="room"/> for
+    /// partner research, or all of the research when no room is named, as the writers send it.
+    /// </summary>
+    private static GccRequestResearch For(
+        GccResearchPerRequest research, IReadOnlyList<SectionSlot> sections, string request, int call, int of, int? room = null) =>
+        research.Send(research.Choose(GccResearchPerRequest.LabelsOf(sections), room), request, call, of);
 
     private static JsonElement RecordOf(
-        GccResearchPerRequest research, IReadOnlyList<SectionSlot> sections, string request, int call, int of) =>
-        JsonSerializer.SerializeToElement(For(research, sections, request, call, of)!.Record);
+        GccResearchPerRequest research, IReadOnlyList<SectionSlot> sections, string request, int call, int of, int? room = null) =>
+        JsonSerializer.SerializeToElement(For(research, sections, request, call, of, room).Record);
 
     private static GccCreateDto CreateWith(IReadOnlyList<GccQuoteablePage> pages) => new(
         Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
@@ -634,7 +688,7 @@ public class GccResearchSelectionTests
         BriefJson: null, ResearchJson: GccResearchFetchService.Serialize(new GccResearchDocument(null, pages)),
         Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow);
 
-    /// <summary>Two partners with more than the ceiling between them, on pages the classifier labels.</summary>
+    /// <summary>Two partners with far more than <see cref="RoomForTwo"/> between them, on pages the classifier labels.</summary>
     private static IReadOnlyList<GccQuoteablePage> TwoPartnersOverTheLimit()
     {
         var filler = new string('x', 2_900);
@@ -656,23 +710,65 @@ public class GccResearchSelectionTests
     private static readonly IReadOnlyList<SectionSlot> ProblemSections =
         [.. PillarPrompts.Outline(null).Skip(1).Take(2)];
 
+    /// <summary>
+    /// A tool page's sections name no label. Until 2026-10-12 a request like that had no choice made for
+    /// it and was sent everything whatever its size; it is chosen for like any other, with nothing
+    /// ranked first for its sections.
+    /// </summary>
     [Fact]
-    public void A_request_whose_sections_name_no_label_has_no_choice_made_for_it()
+    public void A_request_whose_sections_name_no_label_is_chosen_for_in_the_searchs_own_order()
     {
         var research = Sending(TwoPartnersOverTheLimit());
 
-        Assert.Null(For(research, [SectionSlot.Cover("what the product does"), SectionSlot.Assigned("A heading")], "Tool body sections 1-2", 1, 5));
-        Assert.Null(For(research, [], "Nothing", 1, 1));
+        var sent = For(
+            research, [SectionSlot.Cover("what the product does"), SectionSlot.Assigned("A heading")],
+            "Tool page 'Partner' sections 1-2", 1, 5, RoomForTwo);
+        var record = JsonSerializer.SerializeToElement(sent.Record);
+
+        Assert.NotNull(sent.Carried);
+        Assert.False(record.GetProperty("whole").GetBoolean());
+        Assert.Empty(record.GetProperty("labels").EnumerateArray());
+        // Every passage here carries a label and the request names none, so none is ranked for it.
+        Assert.All(record.GetProperty("chosen").EnumerateArray(), c => Assert.Equal("other", c.GetProperty("why").GetString()));
+        Assert.All(new[] { "a.test", "b.test" }, host => Assert.Contains(sent.Carried, key => key.Url.Contains(host, StringComparison.Ordinal)));
+        Assert.All(
+            record.GetProperty("partners").EnumerateArray(),
+            partner => Assert.InRange(partner.GetProperty("carried").GetProperty("chars").GetInt32(), 1, RoomForTwo / 2));
+
+        // With no room named it is sent everything, like any request.
+        Assert.Null(For(Sending(TwoPartnersOverTheLimit()), [], "Nothing", 1, 1).Carried);
     }
 
     /// <summary>
-    /// The switch itself: over the ceiling a request is handed exactly the passages its record lists as
+    /// Choosing counts nothing as carried: only a request that is sent does. The writers may choose
+    /// more than once for one request before it fits, and only what was sent may weigh on the next.
+    /// </summary>
+    [Fact]
+    public void Only_what_a_request_is_sent_counts_as_carried_for_the_requests_after_it()
+    {
+        var research = Sending(TwoPartnersOverTheLimit());
+        var labels = GccResearchPerRequest.LabelsOf(ProblemSections);
+        static IReadOnlyList<(string, int)> Keys(GccResearchSelection selection) =>
+            [.. selection.Chosen.Select(chosen => (chosen.Passage.Url, chosen.Passage.Position))];
+
+        var first = research.Choose(labels, RoomForTwo);
+        // Chosen again, and again with less room, before anything is sent: the first choice is unchanged.
+        research.Choose(labels, RoomForTwo / 2);
+        Assert.Equal(Keys(first), Keys(research.Choose(labels, RoomForTwo)));
+
+        research.Send(first, "Blog opening", 0, 3);
+
+        Assert.NotEqual(Keys(first), Keys(research.Choose(labels, RoomForTwo)));
+    }
+
+    /// <summary>
+    /// With more research than the room, a request is handed exactly the passages its record lists as
     /// chosen, and research that fits is handed whole, because nothing was chosen from it.
     /// </summary>
     [Fact]
     public void A_request_is_sent_exactly_what_its_record_lists_as_chosen_and_research_that_fits_is_sent_whole()
     {
-        var sent = For(Sending(TwoPartnersOverTheLimit()), ProblemSections, "Blog body sections 1-2", 1, 3)!;
+        var sent = For(Sending(TwoPartnersOverTheLimit()), ProblemSections, "Blog body sections 1-2", 1, 3, RoomForTwo);
         var sentRecord = JsonSerializer.SerializeToElement(sent.Record);
 
         Assert.NotNull(sent.Carried);
@@ -688,7 +784,7 @@ public class GccResearchSelectionTests
             sentRecord.GetProperty("leftOut").EnumerateArray(),
             l => sent.Carried.Contains((l.GetProperty("url").GetString()!, l.GetProperty("passage").GetInt32() - 1)));
 
-        var fits = For(Sending([.. TwoPartnersOverTheLimit().Take(10)]), ProblemSections, "Blog body sections 1-2", 1, 3)!;
+        var fits = For(Sending([.. TwoPartnersOverTheLimit().Take(10)]), ProblemSections, "Blog body sections 1-2", 1, 3, RoomForTwo);
         Assert.Null(fits.Carried);
         Assert.True(JsonSerializer.SerializeToElement(fits.Record).GetProperty("whole").GetBoolean());
     }
@@ -702,7 +798,7 @@ public class GccResearchSelectionTests
     {
         var pages = TwoPartnersOverTheLimit();
         var create = CreateWith(pages);
-        var carried = For(Sending(pages), ProblemSections, "Blog body sections 1-2", 1, 3)!.Carried!;
+        var carried = For(Sending(pages), ProblemSections, "Blog body sections 1-2", 1, 3, RoomForTwo).Carried!;
         var all = GccResearchSelector.PassagesOf(pages);
 
         var whole = GccGenerateService.BuildResearchBlock(create);
@@ -717,7 +813,7 @@ public class GccResearchSelectionTests
             Assert.Equal(isCarried, part.Contains($"({page.Url})", StringComparison.Ordinal));
         }
 
-        // Both partners are in it, and neither past its limit.
+        // Both partners are in it.
         Assert.All(new[] { "a.test", "b.test" }, host => Assert.Contains(carried, key => key.Url.Contains(host, StringComparison.Ordinal)));
         var noteLines = GccGenerateService.ResearchIsAPartNote.Length + (2 * Environment.NewLine.Length);
         Assert.Equal(
@@ -731,29 +827,32 @@ public class GccResearchSelectionTests
     [Fact]
     public void The_record_says_what_the_research_holds_what_is_carried_partner_by_partner_and_what_is_left_out()
     {
-        var record = RecordOf(Sending(TwoPartnersOverTheLimit()), ProblemSections, "Pillar body sections 1-2", 1, 5);
+        var record = RecordOf(Sending(TwoPartnersOverTheLimit()), ProblemSections, "Pillar body sections 1-2", 1, 5, RoomForTwo);
 
         Assert.Equal("Pillar body sections 1-2", record.GetProperty("batch").GetString());
         Assert.Equal(1, record.GetProperty("call").GetInt32());
         Assert.Equal(5, record.GetProperty("of").GetInt32());
         Assert.False(record.GetProperty("whole").GetBoolean());
         Assert.Equal([GccResearchLabel.Problem], record.GetProperty("labels").EnumerateArray().Select(l => l.GetString()));
-        Assert.Equal(40_000, record.GetProperty("limits").GetProperty("perPartner").GetInt32());
-        Assert.Equal(240_000, record.GetProperty("limits").GetProperty("inAll").GetInt32());
-        Assert.Equal(350_000, record.GetProperty("limits").GetProperty("wholeUpTo").GetInt32());
+        // The room it was chosen for. No number of this class's own: there is none any more.
+        Assert.Equal(RoomForTwo, record.GetProperty("room").GetInt32());
+        Assert.False(record.TryGetProperty("limits", out _));
+        // Its size is on the record when it was counted, which is the writers' doing and not this test's.
+        Assert.Equal(JsonValueKind.Null, record.GetProperty("request").ValueKind);
 
         var held = record.GetProperty("research");
         var carriedSize = record.GetProperty("carried");
         Assert.Equal(140, held.GetProperty("passages").GetInt32());
-        Assert.InRange(held.GetProperty("chars").GetInt32(), 350_001, int.MaxValue);
-        Assert.InRange(carriedSize.GetProperty("chars").GetInt32(), 1, 80_000);
+        Assert.InRange(held.GetProperty("chars").GetInt32(), RoomForTwo + 1, int.MaxValue);
+        Assert.InRange(carriedSize.GetProperty("chars").GetInt32(), 1, RoomForTwo);
 
         var partners = record.GetProperty("partners").EnumerateArray().ToList();
         Assert.Equal(["a.test", "b.test"], partners.Select(p => p.GetProperty("host").GetString()));
         foreach (var partner in partners)
         {
             Assert.Equal(70, partner.GetProperty("research").GetProperty("passages").GetInt32());
-            Assert.InRange(partner.GetProperty("carried").GetProperty("chars").GetInt32(), 1, 40_000);
+            Assert.Equal(RoomForTwo / 2, partner.GetProperty("share").GetInt32());
+            Assert.InRange(partner.GetProperty("carried").GetProperty("chars").GetInt32(), 1, RoomForTwo / 2);
             var carried = partner.GetProperty("carried").GetProperty("passages").GetInt32();
             // The problem's passages fill it: nothing general, and no room for the partner's others.
             Assert.Equal(carried, partner.GetProperty("labelled").GetInt32());
@@ -781,13 +880,13 @@ public class GccResearchSelectionTests
             [.. record.GetProperty("chosen").EnumerateArray().Select(c => c.GetProperty("url").GetString()!)];
 
         // The opening, then the body's first request: both state the problem.
-        var first = Chosen(RecordOf(research, ProblemSections, "Blog opening", 0, 3));
-        var again = Chosen(RecordOf(research, ProblemSections, "Blog body sections 1-2", 1, 3));
+        var first = Chosen(RecordOf(research, ProblemSections, "Blog opening", 0, 3, RoomForTwo));
+        var again = Chosen(RecordOf(research, ProblemSections, "Blog body sections 1-2", 1, 3, RoomForTwo));
 
         // The same sections asked for again reach passages the first request did not carry.
         Assert.NotEmpty(again.Except(first));
         // A page not yet written has carried nothing, and chooses as the first did.
-        Assert.Equal(first, Chosen(RecordOf(Sending(TwoPartnersOverTheLimit()), ProblemSections, "Blog opening", 0, 3)));
+        Assert.Equal(first, Chosen(RecordOf(Sending(TwoPartnersOverTheLimit()), ProblemSections, "Blog opening", 0, 3, RoomForTwo)));
     }
 
     [Fact]
@@ -801,6 +900,30 @@ public class GccResearchSelectionTests
             record.GetProperty("carried").GetProperty("chars").GetInt32());
         Assert.Equal(JsonValueKind.Null, record.GetProperty("chosen").ValueKind);
         Assert.Equal(JsonValueKind.Null, record.GetProperty("leftOut").ValueKind);
+        // No room was asked of it and no partner has a part of one.
+        Assert.Equal(JsonValueKind.Null, record.GetProperty("room").ValueKind);
+        Assert.All(
+            record.GetProperty("partners").EnumerateArray(),
+            partner => Assert.Equal(JsonValueKind.Null, partner.GetProperty("share").ValueKind));
+    }
+
+    [Fact]
+    public void A_request_that_was_counted_has_its_size_on_its_record()
+    {
+        var research = Sending([.. TwoPartnersOverTheLimit().Take(10)]);
+
+        var sent = research.Send(
+            research.Choose(GccResearchPerRequest.LabelsOf(ProblemSections), room: null), "Pillar body sections 1-2", 1, 5,
+            new GccRequestCount("gpt-4.1", Accepts: 1_047_576, Reply: 8_192, Tokens: 153_000, WithEverything: 153_000));
+        var size = JsonSerializer.SerializeToElement(sent.Record).GetProperty("request");
+
+        Assert.Equal("gpt-4.1", size.GetProperty("model").GetString());
+        Assert.Equal(1_047_576, size.GetProperty("accepts").GetInt32());
+        Assert.Equal(8_192, size.GetProperty("reply").GetInt32());
+        Assert.Equal(153_000, size.GetProperty("tokens").GetInt32());
+        // What is held to the limit: the request and the room reserved for its reply.
+        Assert.Equal(161_192, size.GetProperty("withReply").GetInt32());
+        Assert.Equal(153_000, size.GetProperty("withEverything").GetInt32());
     }
 
     [Fact]
@@ -826,7 +949,7 @@ public class GccResearchSelectionTests
     {
         var research = Sending(null);
 
-        var forRequest = For(research, ProblemSections, "Pillar body sections 1-2", 1, 5)!;
+        var forRequest = For(research, ProblemSections, "Pillar body sections 1-2", 1, 5);
         var record = JsonSerializer.SerializeToElement(forRequest.Record);
 
         Assert.Null(forRequest.Carried);

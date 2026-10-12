@@ -102,22 +102,13 @@ public partial class GccGenerateService
         // outline's first section is the opening, written by the request below; the body writes the rest.
         var pillarOutline = pillarType.OutlineFor(outlineCtx);
 
-        // What each request of this page carries of the partner research: all of it when it fits, and
-        // otherwise what is chosen for the sections the request writes, the opening first
-        // (on since 2026-10-12, on Jeff's word). How the research
-        // divides by label goes on the run's record once, before any request's choice.
+        // What each request of this page carries of the partner research: all of it while the request
+        // is within what its model accepts, and otherwise what is chosen for the room it has, the
+        // opening first (RequestThatFitsAsync). How the research divides by label goes on the run's
+        // record once, before any request's count.
         var pillarResearch = new GccResearchPerRequest(
             GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls);
         await GccRunLog.RecordIfAnyAsync("evidence-labels", pillarResearch.LabelsRecord());
-        var pillarOpeningEvidence = await ChosenEvidenceAsync(
-            pillarResearch,
-            GccResearchPerRequest.LabelsOf([.. pillarOutline.Take(1)]),
-            "Pillar opening",
-            call: 0,
-            of: (pillarOutline.Count - 1 + SectionsPerBatch - 1) / SectionsPerBatch,
-            carried => WithForeignAmountsNamed(
-                WithPublisherPositions(BuildResearchBlock(create, carried), create, partnerTools.Unlisted),
-                pillarForeignAmounts));
         // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
         // "introduction": {...}} -- so it must be read with ParseLedeAndIntroduction, the way
         // ContentGenerationOrchestrator reads the same prompt. Reading it as a sections array threw
@@ -125,8 +116,21 @@ public partial class GccGenerateService
         // generation, while the model was in fact complying exactly (Jeff, 2026-09-23, whose error
         // carried a perfectly good directAddress hook that this then discarded).
         var ledeResult = await llm.CompleteAsync(
-            pillarType.Lede(
-                pillarOpeningEvidence is null ? pillarPromptCtx : pillarPromptCtx with { EvidenceBlock = pillarOpeningEvidence }),
+            await RequestThatFitsAsync(
+                llm,
+                pillarResearch,
+                GccResearchPerRequest.LabelsOf([.. pillarOutline.Take(1)]),
+                "Pillar opening",
+                call: 0,
+                of: (pillarOutline.Count - 1 + SectionsPerBatch - 1) / SectionsPerBatch,
+                carried => pillarType.Lede(carried is null
+                    ? pillarPromptCtx
+                    : pillarPromptCtx with
+                    {
+                        EvidenceBlock = WithForeignAmountsNamed(
+                            WithPublisherPositions(BuildResearchBlock(create, carried), create, partnerTools.Unlisted),
+                            pillarForeignAmounts),
+                    })),
             ct);
         var (pillarLede, _, pillarIntroduction) =
             LlmResponseJsonParser.ParseLedeAndIntroduction(ledeResult.Content, "pillar lede");
@@ -229,14 +233,10 @@ public partial class GccGenerateService
                 "Pillar body",
                 ct,
                 callsUnderFloor,
-                // Each request carries what is chosen for its sections when the research does not fit whole.
-                (batch, request, call, of) => ChosenEvidenceAsync(
-                    pillarResearch,
-                    GccResearchPerRequest.LabelsOf(batch),
-                    request,
-                    call,
-                    of,
-                    carried => WithForeignAmountsNamed(PillarEvidenceWith(carried), pillarForeignAmounts)));
+                // Each request is counted before it is sent, and carries what is chosen for it only
+                // when all of the research is more than its model accepts.
+                pillarResearch,
+                carried => WithForeignAmountsNamed(PillarEvidenceWith(carried), pillarForeignAmounts));
             // The keyword's shortenings put back on the opening and the body as written, then partner
             // tool pages on the body alone, then the page's own closing, then the section written
             // outside the outline: neither of the last two can carry a tool link, and neither is remapped.

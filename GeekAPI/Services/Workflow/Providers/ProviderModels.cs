@@ -70,7 +70,25 @@ public record ChatCompletionResult(
     /// <summary>Why the model stopped: "stop", "length", "content_filter" ... Null when the provider
     /// did not say. Kept on the result so the run log records it; a result that is a failure never
     /// reaches a caller, see <see cref="OpenAiCompatibleOutcome"/>.</summary>
-    string? FinishReason = null);
+    string? FinishReason = null,
+    /// <summary>What the provider said of the account's allowance when it answered. Null when it said
+    /// nothing. Kept on the result so the run log records it; nothing acts on it.</summary>
+    LlmRateLimit? RateLimit = null);
+
+/// <summary>
+/// The account's allowance for a model as the provider stated it on a reply: how many tokens a minute
+/// it may send, how many of those were left after this request, and how long until the count starts
+/// again.
+/// </summary>
+/// <remarks>
+/// Recorded, never acted on (Jeff, 2026-10-12: "are we fix something that won't break?"). No request
+/// has been refused for rate, and nothing holds a request or sends one again. These are on the run's
+/// record so that the allowance is a number read from OpenAI and not one worked out.
+/// </remarks>
+/// <param name="LimitTokens">Tokens a minute the account may send to this model.</param>
+/// <param name="RemainingTokens">How many were left after this request.</param>
+/// <param name="ResetTokens">How long until the count is full again, as the provider wrote it ("6m0s").</param>
+public sealed record LlmRateLimit(long? LimitTokens, long? RemainingTokens, string? ResetTokens);
 
 public class ContentGenerationException : Exception
 {

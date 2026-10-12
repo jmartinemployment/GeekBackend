@@ -32,36 +32,43 @@ public sealed record GccResearchPassage(
 public sealed record GccChosenPassage(GccResearchPassage Passage, string Why);
 
 /// <summary>What one request would carry of a page's partner research.</summary>
-/// <param name="Whole">True when the research is small enough to be carried whole, as it is today.</param>
+/// <param name="Whole">True when all of the research is carried: it fits the room the request has.</param>
 /// <param name="Labels">The labels of the sections the request writes.</param>
 /// <param name="Chosen">What it would carry, partner by partner, best first within each.</param>
 /// <param name="LeftOut">What it would not.</param>
+/// <param name="Room">The room it was chosen for, in characters as printed; null when the research is
+/// carried whole without one being asked of it.</param>
+/// <param name="Shares">Each partner's part of that room; empty when the research is carried whole.</param>
 public sealed record GccResearchSelection(
     bool Whole,
     IReadOnlyList<string> Labels,
     IReadOnlyList<GccChosenPassage> Chosen,
-    IReadOnlyList<GccResearchPassage> LeftOut);
+    IReadOnlyList<GccResearchPassage> LeftOut,
+    int? Room,
+    IReadOnlyDictionary<string, int> Shares);
 
 /// <summary>
-/// Chooses, for one request of a pillar or a blog, the passages of partner research that request
-/// carries.
+/// Chooses, for one request of a page, the passages of partner research that request carries when not
+/// all of them fit what its model accepts.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why.</b> Until 2026-10-12 every request that wrote part of a pillar or a blog carried all of the
-/// research, every passage found on every partner's site. On 2026-10-10 that put both pages over the
-/// model's limit, and the room made after it was about 9% on the project it happened to. A request
-/// that writes two sections needs the passages for those two.
+/// <b>The one limit is the model's.</b> Research that fits the room a request has is carried whole,
+/// and nothing here is asked. Until 2026-10-12 this class held three numbers of its own: research was
+/// whole up to 350,000 characters and otherwise 40,000 for each partner, 240,000 in all. They were
+/// sized for a model that accepted 128,000 tokens and they cut research that fitted (Jeff, 2026-10-12:
+/// "STOP NOT USING DATA, EVEN IF THAT MEANS IT COSTS MORE"). The room is now what the request's model
+/// accepts, less everything else the request carries and the reply's reservation, worked out for each
+/// request by <c>GccGenerateService.RequestThatFitsAsync</c> from a count of the request itself
+/// (<see cref="GccRequestSize"/>).
 /// </para>
 /// <para>
-/// <b>The rules, in the order they apply.</b>
+/// <b>When the research is more than the room, in the order the rules apply.</b>
 /// <list type="number">
-/// <item>Research of <see cref="WholeUpToChars"/> or less is carried whole. A project that fits is not
-/// changed.</item>
-/// <item>Every partner has the same limit, <see cref="MaxCharsPerPartner"/> or its equal part of
-/// <see cref="MaxCharsInAll"/> when there are many partners, so no partner is crowded out: the page
-/// names every one and needs something to say about each.</item>
-/// <item>A partner is carried up to that limit. Passages labelled for the request's sections come
+/// <item>The room is shared between the partners equally, so no partner is crowded out: the page names
+/// every one and needs something to say about each. A partner with less research than its share is
+/// carried whole, and what it does not use is shared between the others.</item>
+/// <item>A partner is carried up to its share. Passages labelled for the request's sections come
 /// first, the strongest first, then general ones, then the partner's other passages. A passage an
 /// earlier request of the same page carried counts half as much each time, and of the partner's
 /// other passages the ones carried least come first, so the page as a whole sees more of the
@@ -69,45 +76,29 @@ public sealed record GccResearchSelection(
 /// </list>
 /// </para>
 /// <para>
-/// <b>Why a partner is filled to its limit, and why research is whole up to
-/// <see cref="WholeUpToChars"/>.</b> Both are from the 14:20 UTC run of 2026-10-11, the first whose
-/// choice was recorded (project "Automated Spreadsheet Data", 213 passages, 250,717 characters).
-/// <list type="bullet">
-/// <item>No passage was general: every one was found by the brief's problem or by one of its rows, and
-/// each gives a label. And the research held almost nothing for some sections: 8 passages of 213 for
+/// <b>Why a partner is filled to its share.</b> From the 14:20 UTC run of 2026-10-11, the first whose
+/// choice was recorded (project "Automated Spreadsheet Data", 213 passages, 250,717 characters). No
+/// passage was general: every one was found by the brief's problem or by one of its rows, and each
+/// gives a label. And the research held almost nothing for some sections: 8 passages of 213 for
 /// getting it running, 7 for results and proof. The first version left a passage labelled only for
 /// other sections out, so the request that writes two sections on getting it running would have
-/// carried 54,630 characters, a fifth of the research, most of it make-weight. Labels now decide the
-/// order a partner's passages are taken in, never whether a section is shown enough.</item>
-/// <item>The same run measured what repeating the research is worth. A pillar's five body requests
-/// each sent about 68,300 tokens, and on the second to the fifth 66,432 of them were billed at half
-/// price as text OpenAI had just been sent. A request that carries a choice of its own carries
-/// different text from the one before it and loses that. Chosen down to three quarters, as a ceiling
-/// of 240,000 would have made it, that project's pillar would have cost about 30% more to send less.
-/// It was also nowhere near the model's limit: 76,520 of 128,000 with the reply's reservation. At
-/// the ceiling a request is about 97,000 of 128,000.</item>
-/// </list>
+/// carried a fifth of the research. Labels decide the order a partner's passages are taken in, never
+/// whether a section is shown enough.
 /// </para>
 /// <para>
-/// <b>Plain code.</b> No network and no model, and the same passages in the same order give the same
-/// choice. It runs on every pillar and blog. <see cref="GccResearchPerRequest"/> puts each choice on the
-/// run's record and says which requests are sent it.
+/// <b>What choosing costs.</b> The same run measured what repeating the research is worth: a pillar's
+/// five body requests each sent about 68,300 tokens, and on the second to the fifth 66,432 of them
+/// were billed at the lower price for text OpenAI had just been sent. A request that carries a choice
+/// of its own carries different text from the one before it and loses that. It is one more reason
+/// nothing is chosen while everything fits.
+/// </para>
+/// <para>
+/// <b>Plain code.</b> No network and no model, and the same passages in the same order with the same
+/// room give the same choice. <see cref="GccResearchPerRequest"/> puts each choice on the run's record.
 /// </para>
 /// </remarks>
 public static class GccResearchSelector
 {
-    /// <summary>The most of one partner's research a request carries, in characters as printed.</summary>
-    public const int MaxCharsPerPartner = 40_000;
-
-    /// <summary>The most partner research a request carries in all when it is chosen, in characters as printed.</summary>
-    public const int MaxCharsInAll = 240_000;
-
-    /// <summary>
-    /// Research of this size or less is carried whole, in characters as printed. Above it a request is
-    /// too near the model's limit to leave alone; under it, choosing sends less and costs more.
-    /// </summary>
-    public const int WholeUpToChars = 350_000;
-
     public const string WhyWhole = "whole";
     public const string WhyLabelled = "labelled";
     public const string WhyGeneral = "general";
@@ -146,8 +137,8 @@ public static class GccResearchSelector
     }
 
     /// <summary>
-    /// The passages a writer is sent today, each with its labels: every page's first
-    /// <see cref="GccResearchCaps.MaxParagraphsPerPage"/>, which is what the research block prints.
+    /// The passages the research block prints, each with its labels: every page's first
+    /// <see cref="GccResearchCaps.MaxParagraphsPerPage"/>.
     /// </summary>
     /// <param name="partnerUrls">The project's declared partners. A page on a partner's subdomain is
     /// that partner's (<see cref="PartnerOf"/>); with none given, a page's partner is its own host.</param>
@@ -212,36 +203,68 @@ public static class GccResearchSelector
         return chars;
     }
 
+    /// <summary>All of <paramref name="passages"/>, carried whole: nothing chosen and nothing left out.</summary>
+    public static GccResearchSelection Everything(
+        IReadOnlyList<GccResearchPassage> passages, IReadOnlyList<string> labels, int? room = null) =>
+        new(
+            Whole: true,
+            labels,
+            [.. passages.Select(passage => new GccChosenPassage(passage, WhyWhole))],
+            [],
+            room,
+            new Dictionary<string, int>(StringComparer.Ordinal));
+
+    /// <summary>
+    /// Each partner's part of <paramref name="room"/>: an equal part, except that a partner with less
+    /// research than that is given what it has and the rest is shared between the others.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, int> SharesOf(IReadOnlyList<GccResearchPassage> passages, int room)
+    {
+        var held = new List<(string Host, int Chars)>();
+        foreach (var passage in passages)
+        {
+            if (held.Any(partner => partner.Host == passage.Host)) continue;
+            held.Add((passage.Host, CharsOf(passages.Where(other => other.Host == passage.Host))));
+        }
+
+        // The partners with the least research first: each takes what it has when that is under an
+        // equal part of what is left, and leaves the remainder to the ones after it.
+        var shares = new Dictionary<string, int>(StringComparer.Ordinal);
+        var left = Math.Max(0, room);
+        var waiting = held.Count;
+        foreach (var (host, chars) in held.OrderBy(partner => partner.Chars))
+        {
+            var share = Math.Min(chars, left / waiting);
+            shares[host] = share;
+            left -= share;
+            waiting--;
+        }
+
+        return shares;
+    }
+
     /// <summary>
     /// What a request writing sections labelled <paramref name="labels"/> would carry of
-    /// <paramref name="passages"/>.
+    /// <paramref name="passages"/> when it has <paramref name="room"/> for them.
     /// </summary>
     /// <param name="shownBefore">How many earlier requests of the same page carried each passage, by
     /// its page and its place on it. A passage not listed was carried by none.</param>
+    /// <param name="room">The most partner research the request can carry, in characters as printed
+    /// (<see cref="CharsOf"/>). Research of that size or less is carried whole.</param>
     public static GccResearchSelection Select(
         IReadOnlyList<GccResearchPassage> passages,
         IReadOnlyList<string> labels,
-        IReadOnlyDictionary<(string Url, int Position), int> shownBefore)
+        IReadOnlyDictionary<(string Url, int Position), int> shownBefore,
+        int room)
     {
-        if (CharsOf(passages) <= WholeUpToChars)
-        {
-            return new GccResearchSelection(
-                Whole: true, labels, [.. passages.Select(passage => new GccChosenPassage(passage, WhyWhole))], []);
-        }
+        if (CharsOf(passages) <= room) return Everything(passages, labels, room);
 
-        var hosts = new List<string>();
-        foreach (var passage in passages)
-        {
-            if (!hosts.Contains(passage.Host, StringComparer.Ordinal)) hosts.Add(passage.Host);
-        }
-
-        // Over the ceiling there is at least one passage, so at least one host.
-        var limit = Math.Min(MaxCharsPerPartner, MaxCharsInAll / hosts.Count);
-
+        var shares = SharesOf(passages, room);
         var chosen = new List<GccChosenPassage>();
         var leftOut = new List<GccResearchPassage>();
-        foreach (var host in hosts)
+        foreach (var host in shares.Keys.OrderBy(host => IndexOfFirst(passages, host)))
         {
+            var limit = shares[host];
             var mine = passages.Where(passage => passage.Host == host).ToList();
             var taken = new HashSet<GccResearchPassage>(ReferenceEqualityComparer.Instance);
             var pagesIn = new HashSet<string>(StringComparer.Ordinal);
@@ -289,7 +312,18 @@ public static class GccResearchSelector
             leftOut.AddRange(mine.Where(passage => !taken.Contains(passage)));
         }
 
-        return new GccResearchSelection(Whole: false, labels, chosen, leftOut);
+        return new GccResearchSelection(Whole: false, labels, chosen, leftOut, room, shares);
+    }
+
+    /// <summary>Where <paramref name="host"/>'s first passage is, so partners keep the order the research has them in.</summary>
+    private static int IndexOfFirst(IReadOnlyList<GccResearchPassage> passages, string host)
+    {
+        for (var i = 0; i < passages.Count; i++)
+        {
+            if (passages[i].Host == host) return i;
+        }
+
+        return passages.Count;
     }
 
     /// <summary>
@@ -322,28 +356,40 @@ public static class GccResearchSelector
 }
 
 /// <summary>What one request carries of its page's partner research.</summary>
-/// <param name="Record">The run's record of it: what the research holds, what the request carries,
-/// partner by partner, and each passage chosen and left out.</param>
+/// <param name="Record">The run's record of it: the request's size, what the research holds, what the
+/// request carries, partner by partner, and each passage chosen and left out.</param>
 /// <param name="Carried">The passages the request is sent, by page and place on it, when they were
 /// chosen for it; null when the request is sent all of the research.</param>
 public sealed record GccRequestResearch(object Record, IReadOnlySet<(string Url, int Position)>? Carried);
 
+/// <summary>One request's size, counted before it is sent (<see cref="GccRequestSize"/>).</summary>
+/// <param name="Model">The model the request is sent to.</param>
+/// <param name="Accepts">What that model accepts in one request: what is sent and the reply's reservation together.</param>
+/// <param name="Reply">The tokens reserved for the reply.</param>
+/// <param name="Tokens">The request as it is sent.</param>
+/// <param name="WithEverything">What it would be with all of the page's partner research; the same as
+/// <paramref name="Tokens"/> when nothing was left out.</param>
+public sealed record GccRequestCount(string Model, int Accepts, int Reply, int Tokens, int WithEverything);
+
 /// <summary>
-/// What each request of one pillar or one blog carries of the page's partner research: the opening,
-/// then each body request, in the order they are written.
+/// What each request of one page carries of the page's partner research: the opening, then each body
+/// request, in the order they are written.
 /// </summary>
 /// <remarks>
 /// <para>
 /// One per page being written, because what a request carries depends on what the requests before it
-/// carried. It reads the page's partner research and the labels of the sections a request writes, and
-/// answers with the passages chosen (<see cref="GccResearchSelector.Select"/>) and the run's record of
-/// the choice. Research that fits is carried whole and nothing is chosen.
+/// carried. It holds the page's partner research as its research block prints it, answers what a
+/// request would carry in a given room (<see cref="Choose"/>), and writes the run's record of what a
+/// request was sent (<see cref="Send"/>). Whether a request is over what its model accepts, and what
+/// room it has, is worked out from a count of the request itself by
+/// <c>GccGenerateService.RequestThatFitsAsync</c>; research that fits is carried whole and nothing is
+/// chosen.
 /// </para>
 /// <para>
-/// <b>On for the blog and the pillar since 2026-10-12, on Jeff's word ("Research classification:
-/// finish this off").</b> A request is sent what is chosen for it. Until then the choice was recorded
-/// and every request was sent everything. No project over the ceiling had run when it was switched
-/// on, so the first that does is the first sight of the choice on real research.
+/// <b>Every page that carries partner research goes through it</b>: the pillar and the blog since
+/// 2026-10-12 (Jeff: "Research classification: finish this off"), the tool page since the same day's
+/// second change. A request whose sections name no label, which is every request of a tool page, is
+/// chosen for by the search's own order.
 /// </para>
 /// <para>
 /// <b>What a page's checks read is not this.</b> The figure, money, quotation and heading checks on a
@@ -360,6 +406,9 @@ public sealed class GccResearchPerRequest
     /// <param name="partnerUrls">The project's declared partners, by which a page is one partner's.</param>
     public GccResearchPerRequest(IReadOnlyList<GccQuoteablePage>? partnerPages, IReadOnlyList<string>? partnerUrls) =>
         _passages = GccResearchSelector.PassagesOf(partnerPages, partnerUrls);
+
+    /// <summary>What printing all of the research adds to a request, in characters.</summary>
+    public int Chars => GccResearchSelector.CharsOf(_passages);
 
     /// <summary>
     /// How the page's partner research divides by label, for the run's record: every passage counted
@@ -399,18 +448,34 @@ public sealed class GccResearchPerRequest
     }
 
     /// <summary>
-    /// What a request writing sections labelled <paramref name="labels"/> carries, or null when it names
-    /// no label and so has no choice made for it. Counts what was chosen as carried, for the requests
-    /// after it.
+    /// What a request writing sections labelled <paramref name="labels"/> would carry: all of the
+    /// research when no room is given or the research fits it, and otherwise the passages chosen for
+    /// that room. Nothing is counted as carried until the request is sent (<see cref="Send"/>).
+    /// </summary>
+    /// <param name="room">The most partner research the request can carry, in characters as printed;
+    /// null when the request with all of it is within what its model accepts.</param>
+    public GccResearchSelection Choose(IReadOnlyList<string> labels, int? room) =>
+        room is { } chars
+            ? GccResearchSelector.Select(_passages, labels, _shown, chars)
+            : GccResearchSelector.Everything(_passages, labels);
+
+    /// <summary>The passages a request is sent, by page and place on it, or null when it is sent all of the research.</summary>
+    public static IReadOnlySet<(string Url, int Position)>? CarriedOf(GccResearchSelection selection) =>
+        selection.Whole
+            ? null
+            : selection.Chosen.Select(chosen => (chosen.Passage.Url, chosen.Passage.Position)).ToHashSet();
+
+    /// <summary>
+    /// The record of a request sent <paramref name="selection"/>, which is counted as carried for the
+    /// requests after it.
     /// </summary>
     /// <param name="request">The request's name on the run's record.</param>
     /// <param name="call">Which body request it is, from one; zero for the page's opening.</param>
     /// <param name="of">How many body requests the page has.</param>
-    public GccRequestResearch? For(IReadOnlyList<string> labels, string request, int call, int of)
+    /// <param name="count">The request's size as counted before it is sent, when it was counted.</param>
+    public GccRequestResearch Send(
+        GccResearchSelection selection, string request, int call, int of, GccRequestCount? count = null)
     {
-        if (labels.Count == 0) return null;
-
-        var selection = GccResearchSelector.Select(_passages, labels, _shown);
         foreach (var chosen in selection.Chosen)
         {
             var key = (chosen.Passage.Url, chosen.Passage.Position);
@@ -423,16 +488,25 @@ public sealed class GccResearchPerRequest
             batch = request,
             call,
             of,
-            labels,
-            // The research fits and is carried whole: nothing was chosen between. Otherwise the
-            // request is sent what is listed under "chosen" and nothing listed under "leftOut".
+            labels = selection.Labels,
+            // All of the research is carried: nothing was chosen between. Otherwise the request is
+            // sent what is listed under "chosen" and nothing listed under "leftOut".
             whole = selection.Whole,
-            limits = new
-            {
-                perPartner = GccResearchSelector.MaxCharsPerPartner,
-                inAll = GccResearchSelector.MaxCharsInAll,
-                wholeUpTo = GccResearchSelector.WholeUpToChars,
-            },
+            // The request as counted before it is sent, against what its model accepts. withReply is
+            // what is held to that limit; withEverything is the request with all of the research.
+            request = count is null
+                ? null
+                : new
+                {
+                    model = count.Model,
+                    accepts = count.Accepts,
+                    reply = count.Reply,
+                    tokens = count.Tokens,
+                    withReply = count.Tokens + count.Reply,
+                    withEverything = count.WithEverything,
+                },
+            // The room the choice was made for, in characters as printed; null when everything fits.
+            room = selection.Room,
             research = Size(_passages),
             carried = Size(carried),
             partners = HostsOf(_passages)
@@ -441,6 +515,8 @@ public sealed class GccResearchPerRequest
                     host,
                     research = Size([.. _passages.Where(passage => passage.Host == host)]),
                     carried = Size([.. carried.Where(passage => passage.Host == host)]),
+                    // Its part of the room, when the research was chosen from.
+                    share = selection.Shares.TryGetValue(host, out var share) ? share : (int?)null,
                     labelled = CountWhy(selection, host, GccResearchSelector.WhyLabelled),
                     general = CountWhy(selection, host, GccResearchSelector.WhyGeneral),
                     other = CountWhy(selection, host, GccResearchSelector.WhyOther),
@@ -471,9 +547,7 @@ public sealed class GccResearchPerRequest
                     .ToList(),
         };
 
-        return new GccRequestResearch(
-            record,
-            selection.Whole ? null : carried.Select(passage => (passage.Url, passage.Position)).ToHashSet());
+        return new GccRequestResearch(record, CarriedOf(selection));
     }
 
     private static object Size(IReadOnlyList<GccResearchPassage> passages) => new

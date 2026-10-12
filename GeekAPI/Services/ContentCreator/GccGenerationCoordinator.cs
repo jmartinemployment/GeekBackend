@@ -233,6 +233,10 @@ public sealed class GccGenerationCoordinator
         // Decided here, where it costs nothing, rather than at the save, where it would cost the run.
         if (create.ProjectId is null) throw new InvalidOperationException(NoProjectRefusal);
 
+        // A model whose limit is not known is refused before the old pages go and before anything is
+        // searched or paid for: no request to it could be counted against what it accepts.
+        if (gen.ModelRefusal(provider) is { } unknownModel) throw new InvalidOperationException(unknownModel);
+
         // The old pages of every requested type go now, before a word is written (Jeff, 2026-10-06:
         // "delete should happen first"). A run that is then refused leaves the project with no page of
         // that type and a failed job that says why -- not the previous run's page, read as this one's.

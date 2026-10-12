@@ -1,7 +1,49 @@
 # Use everything: the Brief, the research, and Repurpose for the short types
 
-**Status:** written 2026-10-12. Last updated the same day, for GPT-4.1 and for the outside review
-you pasted. Not approved. Nothing is built.
+**Status:** approved 2026-10-12 ("execute your plan"). Step 1 of six is built and committed on
+`main`. Nothing is pushed, and nothing is fixed until a run of yours says so.
+
+## Where the work stands
+
+| Step | | |
+|---|---|---|
+| 1 | Research Organization's fixed numbers go, requests are counted against what the model accepts, OpenAI's limit figures on the run log | Built, committed, not pushed |
+| 2 | The Brief boxes (Part 1) and the hint on the form | Not started |
+| 3 | Nothing is cut by a count (Part 2) | Not started |
+| 4 | Repurpose, GeekBackend | Not started |
+| 5 | Repurpose, the form | Not started |
+| 6 | The record | Not started. `AGENTS.md` and the specification already say what step 1 changed |
+
+**Step 1, as built. What differs from what this plan said is marked.**
+- Research is no longer cut at 350,000 characters or to 40,000 for each partner. Every opening and
+  body request of a pillar, a blog and a tool page is built with all of its partner research,
+  counted, and sent whole when it is within what its model accepts with the reply's reservation.
+- **The count is OpenAI's own.** Checked against the 40 requests in your saved log of the 08:17 UTC
+  run of 2026-10-07, not the 15:29 run as this plan said: I cannot read that run's requests from
+  here. The 16 requests with no reply format came to OpenAI's figure exactly, from 245 to 46,078
+  tokens. The 24 with a reply format came to it less a fixed 383 or 368, which is the format, and
+  OpenAI counts a format its own way. So a count is exact but for a few hundred tokens of format.
+  Counting a 370,000-character request takes about 14 thousandths of a second.
+- **Over the limit** the room is shared between the partners equally, **and what a partner with
+  less research does not use goes to the others**, which this plan did not say. Everything left out
+  is on the run log. A request that is over with no partner research in it is refused before it is
+  sent, saying its size.
+- **A model that is not `gpt-4.1` or `gpt-4o`, or named after one of them, is refused** at the start
+  of a run, before its old pages are deleted, and again where a request is sent. **So if GeekAPI's
+  `LlmProviders__OpenAi__ExtractionModel` or `LlmProviders__OpenAi__UtilityModel` names any other
+  model, every run is refused once this is pushed, with a message naming it.** A run with the
+  Anthropic provider is refused for the same reason.
+- **The run log.** Each of those requests has an `evidence` line before it is sent with its size
+  (`request.tokens`, `withReply`, `accepts`). Every request's `call` line has the size as counted
+  (`countedTokens`) beside OpenAI's own (`promptTokens`), and OpenAI's stated allowance
+  (`rateLimit`). Nothing acts on the allowance.
+- **Moved to step 3:** counting every passage of a page. The count and the block that prints the
+  passages have to change together, and the block is step 3's.
+- **Not in step 1:** competitor pages giving way first when a request is over. Only five are shown
+  until step 3 shows all forty, and the rule is built with them.
+- Tests: 2,039 unit and 44 integration pass. A pillar, a blog and a tool page are written through
+  their real writers with more research than `gpt-4o` accepts and with the same research on
+  `gpt-4.1`.
 
 It replaces the earlier plan of the same day (one research block per content type), deleted on
 your word: this plan drops its 40,000 for each partner and does not include its rewrite.
@@ -35,7 +77,7 @@ copy of this plan it was given, which still said 128,000.
 | The review says | What the code and the run show | What this plan does |
 |---|---|---|
 | Matching the 40 returned pages to their outlines by address can miss without a word | True that a miss would be silent. Not for relative addresses: both are full page addresses from the same crawl. But a passage carries the page's address after a redirect when it has one (`HttpGeekCrawlerRagClient.cs:863`), and I have not yet read which the outline carries | One comparison that ignores `http`/`https`, `www.`, a trailing slash, `#...` and case. Every returned page with no outline is on the run log, by its address |
-| Counting tokens for 65 large requests will lag | A Generate is a background job, and each request is counted on the task that builds it, beside an OpenAI call that takes seconds. GeekAPI runs on Railway, not Hostinger | No new machinery. The counter's test times a 370,000-character request and the commit records it. If it is over a tenth of a second, a page's research, the same text in each of its body requests, is counted once |
+| Counting tokens for 65 large requests will lag | A Generate is a background job, and each request is counted on the task that builds it, beside an OpenAI call that takes seconds. GeekAPI runs on Railway, not Hostinger | No new machinery. Measured in step 1: a 370,000-character request takes about 14 thousandths of a second to count, and a test holds it under a tenth of a second |
 | Writing a page again silently deletes the pieces under it | True, and Generate says nothing today when it replaces a page. Its premise is not: a piece cannot be edited by hand in the app, so there is no hand-tuned piece to lose | One line under Generate's list when a ticked page has pieces under it: how many are deleted with it. Text, not a panel and not an extra click |
 
 **Not in the plan, and why**
@@ -153,9 +195,10 @@ Two things still change, because the code as it stands would cut research that f
    knows a model's limit; that is how the pillar and blog were refused on 2026-10-10.
    - Everything fits: everything is sent, in the same order in every request of a page. On GPT-4.1
      that is every project run so far.
-   - It does not fit: competitor pages beyond the first five give way first, each with its outline.
-     Then each partner gets an equal share of the room, the passages for the request's sections
-     first. Every passage or page left out is listed on the run log.
+   - It does not fit: competitor pages beyond the first five give way first, each with its outline
+     (step 3, when they are first shown). Then each partner gets an equal share of the room, what a
+     partner with less research does not use going to the others, the passages for the request's
+     sections first. Every passage or page left out is listed on the run log.
    - Tool pages go through it as the pillar and blog do.
    - Each request's size is on the run log before it is sent.
 
@@ -219,24 +262,27 @@ is checked first for a running Generate or crawl.
 
 Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
 
-**The limit**
-- `Workflow/Providers/ProviderOptions.cs`: what each model accepts, beside `OpenAiOptions.Model`:
-  `gpt-4.1` 1,047,576 and `gpt-4o` 128,000, matched from the start of the name. A model in neither
-  refuses the run before any paid request and names the model.
-- New `GccRequestSize.cs`: the exact token count of a request (system, user and reply format), with
-  `Microsoft.ML.Tokenizers` added to `GeekAPI.csproj`.
-- `GccResearchSelector.cs`: `Select` (`:221`) takes the room; `WholeUpToChars`, `MaxCharsPerPartner`
-  and `MaxCharsInAll` (`:100-109`) are deleted; `PassagesOf` (`:154`) counts every passage of a page.
-- `GccGenerateService.cs` `ChosenEvidenceAsync` (`:3425`) and `GccResearchPerRequest`: build the
-  request with everything, count it, choose only when it is over. The tool page's opening and body
-  call the same thing.
+**The limit** (step 1, built)
+- `Workflow/Providers/OpenAiModelLimits.cs`: what each model accepts: `gpt-4.1` 1,047,576 and
+  `gpt-4o` 128,000, matched from the start of the name. In a file of its own, because a test holds
+  `ProviderOptions.cs` to naming no model. A model in neither refuses the run before any paid
+  request and names the model (`GccGenerateService.ModelRefusal`, `OpenAiProvider`).
+- `IContentGenerationProvider.ModelFor`: the model a request would be sent to, so it can be counted
+  against that model before it is sent.
+- `GccRequestSize.cs`: the token count of a request (system, user and reply format), with
+  `Microsoft.ML.Tokenizers` in `GeekAPI.csproj`.
+- `GccResearchSelector.cs`: `Select` takes the room and `SharesOf` divides it; the three fixed
+  numbers are deleted. Counting every passage of a page (`PassagesOf`) is step 3.
+- `GccGenerateService.RequestThatFitsAsync`, in place of the method that chose evidence: builds the
+  request with everything, counts it, chooses only when it is over. The pillar's, the blog's and
+  the tool page's opening and body requests all go through it.
 - Rate: `Workflow/Providers/OpenAiProvider.cs` reads OpenAI's `x-ratelimit-limit-tokens`,
-  `x-ratelimit-remaining-tokens` and `x-ratelimit-reset-tokens` from each reply, and `GccRunLog`
-  puts them on the `call` event. Nothing else changes: no holding and no second send.
+  `x-ratelimit-remaining-tokens` and `x-ratelimit-reset-tokens` from each reply, and
+  `GccRecordingProvider` puts them on the `call` event. Nothing else changes: no holding and no
+  second send.
 - Left as they are: the reply reservations (`ContentPromptBuilder.cs:270-299`) and the size of a
   question request (`GccPageFaqEvidence.cs:46`, which splits questions across requests and leaves
-  nothing out). Their comments, and `GccResearchSelector.cs:87-88`, give 128,000 as the model's
-  limit and are corrected.
+  nothing out). Their comments gave 128,000 as the model's limit and are corrected.
 
 **Part 1**
 - `GccNicheFraming.cs`: `Merge` (`:605`) keeps the category's statement and the tool's own, for the
@@ -297,10 +343,11 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
 
 ## Verification
 
-- After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,003 today),
+- After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,039 after step 1),
   `dotnet test GeekBackend.IntegrationTests` (44); the form's tests (52) for its commits.
-- The counter is checked against requests of the 15:29 run whose sizes OpenAI reported. GPT-4o and
-  GPT-4.1 count tokens the same way.
+- The counter was checked against the 40 requests of the 08:17 UTC run of 2026-10-07 whose sizes
+  OpenAI reported, and one of them is kept as a test. GPT-4o and GPT-4.1 count tokens the same way.
+  Your next run checks it again: each request's `call` line carries both counts.
 - A test gives Research Organization more than fits and fails if a request passes the limit, or if
   something left out is not on the record. A second gives it a model the table does not hold and
   fails if any request is sent.

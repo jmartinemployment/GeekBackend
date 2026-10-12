@@ -331,10 +331,11 @@ public partial class GccGenerateService
     /// pillar/blog never read back out.
     /// </summary>
     /// <param name="carried">
-    /// The passages this request carries, by page and place on it, when its research was chosen for the
-    /// sections it writes (<see cref="GccResearchPerRequest"/>); null for all of the research, which is
-    /// what every caller but a pillar's or a blog's request over the ceiling prints. A page with no
-    /// passage carried is not printed, and the block says it is a part.
+    /// The passages this request carries, by page and place on it, when its research was chosen for it
+    /// (<see cref="GccResearchPerRequest"/>); null for all of the research, which is what every request
+    /// prints unless all of it is more than the request's model accepts
+    /// (<see cref="RequestThatFitsAsync"/>). A page with no passage carried is not printed, and the
+    /// block says it is a part.
     /// </param>
     internal static string BuildResearchBlock(
         GccCreateDto create, IReadOnlySet<(string Url, int Position)>? carried = null)
@@ -1433,12 +1434,41 @@ public partial class GccGenerateService
             Guardrail.GccJsonEvidence.TextOf(extractedToolResearchJson),
             create is null ? string.Empty : BuildCompetitorResearchBlock(create),
             create is null ? string.Empty : BuildOwnSiteCoverageBlock(create, toolUnlisted)));
+        // What each request of this page carries of its partner's research: all of it while the request
+        // is within what its model accepts, and otherwise what is chosen for the room it has, the
+        // opening first (RequestThatFitsAsync), as for the pillar and the blog. A tool page's sections
+        // name no label, so its passages are taken in the search's own order. Null on the
+        // orchestrator's create-less path, which has no research to count.
+        var toolPageResearch = create is null
+            ? null
+            : new GccResearchPerRequest(toolResearch?.Quoteables, toolPartnerUrls);
+        if (toolPageResearch is not null)
+        {
+            await GccRunLog.RecordIfAnyAsync("evidence-labels", toolPageResearch.LabelsRecord());
+        }
+
+        var toolOutline = toolType.OutlineFor(toolOutlineCtx);
+        var toolLedeCtx = toolOutlineCtx with
+        {
+            Metadata = pillarMeta,
+            EvidenceBlock = WithForeignAmountsNamed(toolOutlineCtx.EvidenceBlock, toolForeignAmounts),
+        };
         var ledeResult = await llm.CompleteAsync(
-            toolType.Lede(toolOutlineCtx with
-            {
-                Metadata = pillarMeta,
-                EvidenceBlock = WithForeignAmountsNamed(toolOutlineCtx.EvidenceBlock, toolForeignAmounts),
-            }),
+            toolPageResearch is null || create is null
+                ? toolType.Lede(toolLedeCtx)
+                : await RequestThatFitsAsync(
+                    llm,
+                    toolPageResearch,
+                    labels: [],
+                    $"Tool page '{name}' opening",
+                    call: 0,
+                    of: (toolOutline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
+                    carried => toolType.Lede(carried is null
+                        ? toolLedeCtx
+                        : toolLedeCtx with
+                        {
+                            EvidenceBlock = WithForeignAmountsNamed(BuildResearchBlock(create, carried), toolForeignAmounts),
+                        })),
             ct);
         var (toolLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, $"tool page '{name}' lede");
 
@@ -1649,10 +1679,20 @@ public partial class GccGenerateService
                             .Where(b => !string.IsNullOrWhiteSpace(b))),
                     QuoteCandidates = quoteCandidates,
                 },
-                toolType.OutlineFor(toolOutlineCtx),
+                toolOutline,
                 $"Tool page '{name}'",
                 ct,
-                callsUnderFloor);
+                callsUnderFloor,
+                // Each request is counted before it is sent, and carries what is chosen for it only
+                // when all of the partner's research is more than its model accepts. Only the research
+                // differs: the competitor and own-site blocks are whole in every request.
+                toolPageResearch,
+                create is null
+                    ? null
+                    : carried => string.Join(
+                        Environment.NewLine,
+                        new[] { BuildResearchBlock(create, carried), toolCompetitorBlock, toolForeignAmounts }
+                            .Where(b => !string.IsNullOrWhiteSpace(b))));
 
             // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a
             // live run lost AvidXchange's page to a shortened span with an ellipsis added. Snapping
@@ -1873,6 +1913,28 @@ public partial class GccGenerateService
     {
         var real = _cwProviders.Get(ToLlm(provider));
         return GccRunLog.Current is null ? real : new GccRecordingProvider(real);
+    }
+
+    /// <summary>
+    /// The refusal for a run whose provider would send to a model GeekAPI holds no limit for, naming
+    /// the model, or null when every model the run would use is known.
+    /// </summary>
+    /// <remarks>
+    /// Asked before a run deletes or writes anything (<c>GccGenerationCoordinator.RunGenerateAsync</c>),
+    /// for each kind of work, since each may be given its own model. A request cannot be counted
+    /// against a limit nobody wrote down (<see cref="OpenAiModelLimits"/>), and finding that out at the
+    /// first request would be after the run's old pages had gone.
+    /// </remarks>
+    public string? ModelRefusal(ContentGeneratorProvider provider)
+    {
+        var llm = _cwProviders.Get(ToLlm(provider));
+        foreach (var taskClass in Enum.GetValues<LlmTaskClass>())
+        {
+            var model = llm.ModelFor(new ChatCompletionRequest([], TaskClass: taskClass));
+            if (OpenAiModelLimits.RequestTokensFor(model) is null) return OpenAiModelLimits.Refusal(model);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -2585,25 +2647,30 @@ public partial class GccGenerateService
         // words and a 0.2% keyword density were the symptom (Jeff, 2026-09-28).
         var blogOutline = blogType.OutlineFor(blogPromptCtx);
 
-        // What each request of this page carries of the partner research: all of it when it fits, and
-        // otherwise what is chosen for the sections the request writes, the opening first
-        // (on since 2026-10-12, on Jeff's word). How the research
-        // divides by label goes on the run's record once, before any request's choice.
+        // What each request of this page carries of the partner research: all of it while the request
+        // is within what its model accepts, and otherwise what is chosen for the room it has, the
+        // opening first (RequestThatFitsAsync). How the research divides by label goes on the run's
+        // record once, before any request's count.
         var blogResearch = new GccResearchPerRequest(
             GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls);
         await GccRunLog.RecordIfAnyAsync("evidence-labels", blogResearch.LabelsRecord());
-        var blogOpeningEvidence = await ChosenEvidenceAsync(
-            blogResearch,
-            // The opening states the problem, as the body's first section does.
-            [GccResearchLabel.Problem],
-            "Blog opening",
-            call: 0,
-            of: (blogOutline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
-            carried => WithForeignAmountsNamed(
-                WithPublisherPositions(BuildResearchBlock(create, carried), create, partnerTools.Unlisted),
-                blogForeignAmounts));
         var ledeResult = await llm.CompleteAsync(
-            blogType.Lede(blogOpeningEvidence is null ? blogPromptCtx : blogPromptCtx with { EvidenceBlock = blogOpeningEvidence }),
+            await RequestThatFitsAsync(
+                llm,
+                blogResearch,
+                // The opening states the problem, as the body's first section does.
+                [GccResearchLabel.Problem],
+                "Blog opening",
+                call: 0,
+                of: (blogOutline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
+                carried => blogType.Lede(carried is null
+                    ? blogPromptCtx
+                    : blogPromptCtx with
+                    {
+                        EvidenceBlock = WithForeignAmountsNamed(
+                            WithPublisherPositions(BuildResearchBlock(create, carried), create, partnerTools.Unlisted),
+                            blogForeignAmounts),
+                    })),
             ct);
         // Same mismatch as pillar above: this prompt asks for LedeJsonContract, so it is read with
         // ParseLede. Reading it as a sections array failed every blog generation.
@@ -2685,14 +2752,10 @@ public partial class GccGenerateService
                 "Blog body",
                 ct,
                 callsUnderFloor,
-                // Each request carries what is chosen for its sections when the research does not fit whole.
-                (batch, request, call, of) => ChosenEvidenceAsync(
-                    blogResearch,
-                    GccResearchPerRequest.LabelsOf(batch),
-                    request,
-                    call,
-                    of,
-                    carried => WithForeignAmountsNamed(BlogEvidenceWith(carried), blogForeignAmounts)));
+                // Each request is counted before it is sent, and carries what is chosen for it only
+                // when all of the research is more than its model accepts.
+                blogResearch,
+                carried => WithForeignAmountsNamed(BlogEvidenceWith(carried), blogForeignAmounts));
             // The keyword's shortenings put back on the opening and the body as written, then the links,
             // the closing and the FAQ, none of which is remapped.
             var (blogOpening, blogBody) = await RemapKeywordAsync(
@@ -3414,25 +3477,105 @@ public partial class GccGenerateService
         return research.Length == 0 ? positions : $"{research}{Environment.NewLine}{positions}";
     }
 
+    /// <summary>A request built with none of the page's partner research: what choosing cannot make smaller.</summary>
+    private static readonly IReadOnlySet<(string Url, int Position)> NoPassages = new HashSet<(string Url, int Position)>();
+
     /// <summary>
-    /// The evidence a request carries when its partner research was chosen for it, or null when it
-    /// carries the page's evidence as built, with all of the research. The choice goes on the run's
-    /// record either way.
+    /// How many times a choice is made smaller before the request is refused. Passages differ in how
+    /// many tokens their characters are, so a choice sized from the research's average can come out a
+    /// little over; each further choice is given a twentieth less room. No model is called.
     /// </summary>
-    /// <param name="labels">The labels of the sections the request writes. With none, no choice is made.</param>
-    /// <param name="evidenceWith">The request's evidence with only the passages given: everything else in
-    /// it is what every request of the page carries.</param>
-    private static async Task<string?> ChosenEvidenceAsync(
+    private const int MaxFittings = 20;
+
+    /// <summary>
+    /// The request to send for one opening or one body request of a page: built with all of the page's
+    /// partner research when that is within what the request's model accepts, and otherwise with the
+    /// passages chosen for the room it has. Its size and what it carries go on the run's record before
+    /// it is sent.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one limit on what a request carries (Jeff, 2026-10-12: nothing is left out for a count).
+    /// The request is counted as it will be sent (<see cref="GccRequestSize"/>) against what its model
+    /// accepts in one request, the reply's reservation included (<see cref="OpenAiModelLimits"/>).
+    /// Within it, everything is sent and nothing is chosen.
+    /// </para>
+    /// <para>
+    /// Over it, the room for partner research is what the model accepts less the reply's reservation
+    /// and less the request built with no partner research at all, turned into characters at the rate
+    /// this page's own research counts at. <see cref="GccResearchSelector"/> shares that room between
+    /// the partners. A request that is over with no partner research in it has nothing here that can
+    /// give way, and is refused before it is paid for.
+    /// </para>
+    /// <para>
+    /// A model with no known limit refuses here too, as it does where the request would be sent
+    /// (<c>OpenAiProvider</c>) and before a run starts (<see cref="ModelRefusal"/>).
+    /// </para>
+    /// </remarks>
+    /// <param name="labels">The labels of the sections the request writes; they decide the order a
+    /// partner's passages are taken in when not all of them fit.</param>
+    /// <param name="build">The request with only the passages given, or with all of the research for
+    /// null: everything else in it is what every request of the page carries.</param>
+    internal static async Task<ChatCompletionRequest> RequestThatFitsAsync(
+        IContentGenerationProvider llm,
         GccResearchPerRequest research,
         IReadOnlyList<string> labels,
         string request,
         int call,
         int of,
-        Func<IReadOnlySet<(string Url, int Position)>, string?> evidenceWith)
+        Func<IReadOnlySet<(string Url, int Position)>?, ChatCompletionRequest> build)
     {
-        if (research.For(labels, request, call, of) is not { } forRequest) return null;
-        await GccRunLog.RecordIfAnyAsync("evidence", forRequest.Record);
-        return forRequest.Carried is null ? null : evidenceWith(forRequest.Carried);
+        var everything = build(null);
+        var model = llm.ModelFor(everything);
+        if (OpenAiModelLimits.RequestTokensFor(model) is not { } accepts)
+        {
+            throw new InvalidOperationException(OpenAiModelLimits.Refusal(model));
+        }
+
+        var withEverything = GccRequestSize.TokensOf(everything);
+        if (withEverything + everything.MaxOutputTokens <= accepts)
+        {
+            var whole = research.Send(
+                research.Choose(labels, room: null), request, call, of,
+                new GccRequestCount(model, accepts, everything.MaxOutputTokens, withEverything, withEverything));
+            await GccRunLog.RecordIfAnyAsync("evidence", whole.Record);
+            return everything;
+        }
+
+        var withNone = GccRequestSize.TokensOf(build(NoPassages));
+        var roomTokens = accepts - everything.MaxOutputTokens - withNone;
+        var researchTokens = withEverything - withNone;
+        if (roomTokens <= 0 || researchTokens <= 0)
+        {
+            throw new InvalidOperationException(
+                $"Refused: {request} is {withNone:N0} tokens with none of the partner research in it and "
+                + $"reserves {everything.MaxOutputTokens:N0} for its reply; {model} accepts {accepts:N0} in one "
+                + "request. Nothing in it can be left out, so it was not sent and nothing was billed for it.");
+        }
+
+        var room = (int)Math.Min(int.MaxValue, (long)roomTokens * research.Chars / researchTokens);
+        for (var fitting = 0; fitting < MaxFittings && room > 0; fitting++)
+        {
+            var selection = research.Choose(labels, room);
+            var chosen = build(GccResearchPerRequest.CarriedOf(selection));
+            var tokens = GccRequestSize.TokensOf(chosen);
+            if (tokens + chosen.MaxOutputTokens <= accepts)
+            {
+                var part = research.Send(
+                    selection, request, call, of,
+                    new GccRequestCount(model, accepts, chosen.MaxOutputTokens, tokens, withEverything));
+                await GccRunLog.RecordIfAnyAsync("evidence", part.Record);
+                return chosen;
+            }
+
+            room -= Math.Max(1, room / 20);
+        }
+
+        throw new InvalidOperationException(
+            $"Refused: {request} is {withEverything:N0} tokens with all of the partner research and "
+            + $"{withNone:N0} with none, and reserves {everything.MaxOutputTokens:N0} for its reply; {model} "
+            + $"accepts {accepts:N0} in one request, and no choice of the research brought it within that. "
+            + "It was not sent and nothing was billed for it.");
     }
 
     private static string? WithForeignAmountsNamed(string? evidence, string? foreignAmountsNote) =>
@@ -3604,7 +3747,13 @@ public partial class GccGenerateService
         string label,
         CancellationToken ct,
         List<string>? callsUnderFloor = null,
-        Func<IReadOnlyList<SectionSlot>, string, int, int, Task<string?>>? evidenceFor = null)
+        // The page's partner research, and a request's evidence with only the passages given. With
+        // both, each request is counted before it is sent and carries all of the research unless that
+        // is more than its model accepts (RequestThatFitsAsync). Without them the request carries
+        // promptCtx's evidence as it is and is not counted here: the orchestrator's tool page, which
+        // has no research.
+        GccResearchPerRequest? research = null,
+        Func<IReadOnlySet<(string Url, int Position)>, string?>? evidenceWith = null)
     {
         var written = new List<Section>();
         // The keyword the page is scored against: the one its prompts name and the SEO report counts.
@@ -3615,15 +3764,6 @@ public partial class GccGenerateService
             var batch = outline.Skip(i).Take(SectionsPerBatch).ToList();
             var batchLabel = $"{label} sections {i + 1}-{i + batch.Count}";
 
-            // The evidence this request carries when its research was chosen for its sections
-            // (a pillar's and a blog's requests). Null is the page's
-            // evidence as promptCtx holds it, all of the research, which is what every request of a page
-            // with no such choice carries.
-            var chosenEvidence = evidenceFor is null
-                ? null
-                : await evidenceFor(
-                    batch, batchLabel, i / SectionsPerBatch + 1, (outline.Count + SectionsPerBatch - 1) / SectionsPerBatch);
-
             // What the calls before this one wrote, so this one does not make their points again. Each
             // call sees the outline and the opening; until 2026-10-10 none saw another call's text.
             var batchCtx = promptCtx with
@@ -3632,8 +3772,20 @@ public partial class GccGenerateService
                 SectionBatchIndex = i / SectionsPerBatch,
                 WrittenSoFar = written.Count == 0 ? null : [.. written],
             };
-            if (chosenEvidence is not null) batchCtx = batchCtx with { EvidenceBlock = chosenEvidence };
-            var sections = await WriteBatchAsync(llm, type, batchCtx, batchLabel, outline.Count, ct);
+            // The page's evidence as promptCtx holds it, all of the research, unless that is more than
+            // the request's model accepts: then the passages chosen for the room this request has.
+            var request = research is null || evidenceWith is null
+                ? type.Body(batchCtx)
+                : await RequestThatFitsAsync(
+                    llm,
+                    research,
+                    GccResearchPerRequest.LabelsOf(batch),
+                    batchLabel,
+                    i / SectionsPerBatch + 1,
+                    (outline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
+                    carried => type.Body(
+                        carried is null ? batchCtx : batchCtx with { EvidenceBlock = evidenceWith(carried) }));
+            var sections = await WriteBatchAsync(llm, request, batchLabel, outline.Count, ct);
 
             // What the batch owes of its page, measured the moment it comes back: its words.
             //
@@ -3683,13 +3835,12 @@ public partial class GccGenerateService
 
     private static async Task<List<Section>> WriteBatchAsync(
         IContentGenerationProvider llm,
-        ContentTypes.IContentTypePrompts type,
-        ContentTypes.ContentTypePromptContext batchCtx,
+        ChatCompletionRequest request,
         string batchLabel,
         int outlineCount,
         CancellationToken ct)
     {
-        var result = await llm.CompleteAsync(type.Body(batchCtx), ct);
+        var result = await llm.CompleteAsync(request, ct);
         var sections = LlmResponseJsonParser.ParseSections(result.Content, batchLabel).ToList();
 
         if (sections.Count == 0)

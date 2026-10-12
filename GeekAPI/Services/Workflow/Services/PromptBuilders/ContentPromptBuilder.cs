@@ -274,10 +274,11 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The reservation counts against the model's limit whether or not it is used. A body is written
-    /// two sections a call, and every call carries the page's whole evidence, so each one reserved
-    /// the 16,384 sized for a whole body: on 2026-10-10 a pillar call of 125,253 prompt tokens was
-    /// refused as 141,637 against 128,000, and the largest reply any such call gave that run was 1,146.
+    /// The reservation counts against what the model accepts in one request whether or not it is
+    /// used (<c>OpenAiModelLimits</c>). A body is written two sections a call, and every call carries
+    /// the page's whole evidence, so each one reserved the 16,384 sized for a whole body: on
+    /// 2026-10-10 a pillar call of 125,253 prompt tokens was refused as 141,637 against the 128,000
+    /// that day's model accepted, and the largest reply any such call gave that run was 1,146.
     /// </para>
     /// <para>
     /// 8,192 holds two sections at the most they are asked for (700 words each) at the 5.4 tokens a

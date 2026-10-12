@@ -20,7 +20,7 @@ public sealed class OpenAiProviderOutcomeTests
     {
         var options = Options.Create(new LlmProvidersOptions
         {
-            OpenAi = { ApiKey = "k", Model = "gpt-x", BaseUrl = "http://localhost/v1/chat/completions", TimeoutSeconds = timeoutSeconds },
+            OpenAi = { ApiKey = "k", Model = "gpt-4.1", BaseUrl = "http://localhost/v1/chat/completions", TimeoutSeconds = timeoutSeconds },
         });
         return new OpenAiProvider(new HttpClient(handler), options, NullLogger<OpenAiProvider>.Instance);
     }
@@ -32,7 +32,7 @@ public sealed class OpenAiProviderOutcomeTests
         new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(
-                "{\"model\":\"gpt-x\",\"choices\":[{" + choiceJson.Trim() + "}],"
+                "{\"model\":\"gpt-4.1\",\"choices\":[{" + choiceJson.Trim() + "}],"
                 + "\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"prompt_tokens_details\":{\"cached_tokens\":8}}}",
                 Encoding.UTF8, "application/json"),
         };

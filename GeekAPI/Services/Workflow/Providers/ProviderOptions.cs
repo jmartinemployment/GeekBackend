@@ -69,6 +69,13 @@ public class OpenAiOptions
         LlmTaskClass.Utility when !string.IsNullOrWhiteSpace(UtilityModel) => UtilityModel.Trim(),
         _ => Model,
     };
+
+    /// <summary>
+    /// The model a request is sent to: its own when it names one, otherwise the one for its kind of
+    /// work. The one place this is decided, so what a request is counted against before it is sent is
+    /// what it is then sent to.
+    /// </summary>
+    public string ModelFor(ChatCompletionRequest request) => request.Model ?? ResolveModel(request.TaskClass);
 }
 
 public class AnthropicOptions

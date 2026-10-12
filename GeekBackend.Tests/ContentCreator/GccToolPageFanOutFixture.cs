@@ -267,6 +267,8 @@ internal sealed record GccToolPageFanOutFixture(
 
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
 
+        public string ModelFor(ChatCompletionRequest request) => "gpt-4.1";
+
         public Task<ChatCompletionResult> CompleteAsync(
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
         {

@@ -45,6 +45,8 @@ public sealed class ConcurrencyLimitingContentGenerationProvider : IContentGener
 
     public GeekAPI.Services.Workflow.Domain.Enums.LlmProviderType ProviderType => _inner.ProviderType;
 
+    public string ModelFor(ChatCompletionRequest request) => _inner.ModelFor(request);
+
     public Task<ChatCompletionResult> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken = default) =>
         _gate.RunAsync(() => _inner.CompleteAsync(request, cancellationToken), cancellationToken);
 }

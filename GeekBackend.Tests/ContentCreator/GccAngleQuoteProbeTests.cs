@@ -359,6 +359,8 @@ public class GccAngleQuoteProbeTests
     {
         public LlmProviderType ProviderType => default;
 
+        public string ModelFor(ChatCompletionRequest request) => "gpt-4.1";
+
         public Task<ChatCompletionResult> CompleteAsync(
             ChatCompletionRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();

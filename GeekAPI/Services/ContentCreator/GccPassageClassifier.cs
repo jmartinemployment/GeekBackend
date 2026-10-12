@@ -40,7 +40,7 @@ namespace GeekAPI.Services.ContentCreator;
 /// <b>Crude, and known to be.</b> Word matching failed twice on 2026-10-10 at a harder job, finding
 /// the one passage that answers a question. This asks less of it: a label decides the order a
 /// partner's passages are taken in, never whether a partner is carried. The lists were adjusted from
-/// the first real run, which was under the ceiling; no run has yet chosen by them.
+/// the first real run, whose research fitted whole; no run has yet chosen by them.
 /// </para>
 /// </remarks>
 public static class GccPassageClassifier

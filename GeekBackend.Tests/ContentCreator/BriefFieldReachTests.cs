@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreator.Partner;
 using GeekAPI.Services.Workflow.Domain.Entities;
@@ -178,12 +179,14 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// Records every call under the name of what it writes, and answers by what was asked. The answer
     /// never depends on the brief, so two runs differ only in what the brief put into the prompts.
     /// </summary>
-    private sealed class Recorder(string page) : IContentGenerationProvider
+    private sealed class Recorder(string page, string model = "gpt-4.1") : IContentGenerationProvider
     {
         private readonly List<(string Label, string Text)> calls = [];
         private int bodyCalls;
 
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
+
+        public string ModelFor(ChatCompletionRequest request) => model;
 
         public IReadOnlyList<(string Label, string Text)> Calls
         {
@@ -356,10 +359,11 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// Writes one page through the path the project's Generate takes for it, and returns every call it
     /// made with the page it saved as the last entry.
     /// </summary>
+    /// <param name="model">The model the page's requests are sent to, which decides what one may carry.</param>
     private static async Task<IReadOnlyList<(string Label, string Text)>> WriteAsync(
-        string page, string briefJson, string? pageResearch = null)
+        string page, string briefJson, string? pageResearch = null, string model = "gpt-4.1")
     {
-        var provider = new Recorder(page);
+        var provider = new Recorder(page, model);
         var plain = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), null);
         // The project the pages belong to, declaring the partner the brief's per-tool fields are entered
         // under. The pillar and the blog were written for no project until 2026-10-11, so nothing a
@@ -407,7 +411,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                 var toolName = GccRequiredToolMentions.AnchorLookup(briefJson, PartnerUrls).Values.Single();
                 // What the fan-out does for each partner: the tool branch of the one dispatcher, told the product.
                 saved = await service.GenerateStartingContentAsync(
-                    Create("tool", "Partner Widget", briefJson, ToolResearch(), ProjectId) with { Notes = "Operator notes." },
+                    Create("tool", "Partner Widget", briefJson, pageResearch ?? ToolResearch(), ProjectId) with { Notes = "Operator notes." },
                     null, ContentGeneratorProvider.OpenAi, CancellationToken.None,
                     passages: PartnerPassages(), toolName: toolName);
                 break;
@@ -587,29 +591,35 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         text.Split('\n').Count(line => line.TrimStart().StartsWith(label, StringComparison.Ordinal));
 
     /// <summary>
-    /// With more partner research than is carried whole, a pillar's and a blog's opening and each of
-    /// their body requests are sent the passages chosen for them and no others, and the run's record of
-    /// each request lists the same passages (on for the blog and the pillar since 2026-10-12).
+    /// With more partner research than its model accepts in one request, a page's opening and each of
+    /// its body requests are sent the passages chosen for them and no others, never more than the model
+    /// accepts, and the run's record of each request lists the same passages. The pillar, the blog and
+    /// the tool page alike.
     /// </summary>
     /// <remarks>
     /// Read off the requests the real writers make, so a request that was recorded as carrying a choice
-    /// and sent something else fails here.
+    /// and sent something else fails here, and so does one sent over its model's limit. The model is the
+    /// smaller of the two GeekAPI knows, 128,000 tokens a request, so that research a test can hold is
+    /// more than it accepts. Until 2026-10-12 the tool page was sent everything whatever its size, and
+    /// the pillar and the blog were cut at 350,000 characters whatever their model accepted.
     /// </remarks>
     [Theory]
     [InlineData("pillar", 5)]
     [InlineData("blog", 3)]
-    public async Task Over_the_ceiling_a_request_is_sent_what_its_record_says_was_chosen_for_it(string page, int bodyRequests)
+    [InlineData("tool", 5)]
+    public async Task With_more_research_than_its_model_accepts_a_request_is_sent_what_its_record_says_was_chosen_for_it(string page, int bodyRequests)
     {
-        var filler = new string('x', 2_900);
+        // About 1,500 tokens a passage and 130 of them: more than 128,000 with nothing else in the request.
+        var filler = string.Join(' ', Enumerable.Range(0, 480).Select(n => $"item{(n * 7919) % 10007}"));
         var passages = Enumerable.Range(0, 130).Select(i => $"Passage {i:000} of the partner's research. {filler}").ToList();
-        var (calls, recorded) = await WriteWithResearchAsync(page, passages);
+        var (calls, recorded) = await WriteWithResearchAsync(page, passages, model: "gpt-4o");
 
         // Once for the page: how its research divides by label.
         var labels = JsonDocument.Parse(Assert.Single(recorded, e => e.Kind == "evidence-labels").PayloadJson).RootElement;
         Assert.Equal(130, labels.GetProperty("passages").GetInt32());
         Assert.Equal(65, labels.GetProperty("byLabel").GetProperty(GccResearchLabel.FitPriceAndLimits).GetInt32());
 
-        // Once for each request a choice is made for: the opening, which is request 0, then the body's.
+        // Once for each request that carries the research: the opening, which is request 0, then the body's.
         var evidence = recorded.Where(e => e.Kind == "evidence").Select(e => JsonDocument.Parse(e.PayloadJson).RootElement).ToList();
         Assert.Equal(Enumerable.Range(0, bodyRequests + 1), evidence.Select(e => e.GetProperty("call").GetInt32()));
         var body = calls.Where(c => c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal)).ToList();
@@ -625,8 +635,16 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             Assert.False(record.GetProperty("whole").GetBoolean());
             Assert.Equal(bodyRequests, record.GetProperty("of").GetInt32());
             Assert.Equal(130, record.GetProperty("research").GetProperty("passages").GetInt32());
-            Assert.InRange(record.GetProperty("research").GetProperty("chars").GetInt32(), GccResearchSelector.WholeUpToChars + 1, int.MaxValue);
-            Assert.InRange(record.GetProperty("carried").GetProperty("chars").GetInt32(), 1, GccResearchSelector.MaxCharsPerPartner);
+
+            // Counted before it was sent: with everything it is over what the model accepts, and as sent
+            // it is not, the room reserved for its reply included.
+            var size = record.GetProperty("request");
+            Assert.Equal("gpt-4o", size.GetProperty("model").GetString());
+            Assert.Equal(128_000, size.GetProperty("accepts").GetInt32());
+            Assert.InRange(size.GetProperty("withEverything").GetInt32() + size.GetProperty("reply").GetInt32(), 128_001, int.MaxValue);
+            Assert.InRange(size.GetProperty("withReply").GetInt32(), 1, 128_000);
+            Assert.InRange(record.GetProperty("carried").GetProperty("chars").GetInt32(), 1, record.GetProperty("room").GetInt32());
+
             var chosen = record.GetProperty("chosen").EnumerateArray().Select(PassageOf).ToList();
             var leftOut = record.GetProperty("leftOut").EnumerateArray().Select(PassageOf).ToList();
             Assert.NotEmpty(chosen);
@@ -654,6 +672,44 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                 GccResearchLabel.All.Where(label => label.Contains('-')),
                 label => Assert.DoesNotContain(label, call.Text, StringComparison.Ordinal));
         }
+    }
+
+    /// <summary>
+    /// The same research that the smaller model cannot take in one request is sent whole to the larger
+    /// one, to every request, and nothing is chosen from it: no number but the model's own decides.
+    /// </summary>
+    /// <remarks>
+    /// About 550,000 characters of partner research. Until 2026-10-12 anything over 350,000 was cut to
+    /// 40,000 for each partner before any model was asked what it accepts.
+    /// </remarks>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task Research_a_larger_model_accepts_is_sent_whole_however_large_it_is(string page)
+    {
+        var filler = string.Join(' ', Enumerable.Range(0, 480).Select(n => $"item{(n * 7919) % 10007}"));
+        var passages = Enumerable.Range(0, 130).Select(i => $"Passage {i:000} of the partner's research. {filler}").ToList();
+        Assert.InRange(passages.Sum(passage => passage.Length), 500_000, int.MaxValue);
+
+        var (calls, recorded) = await WriteWithResearchAsync(page, passages, model: "gpt-4.1");
+
+        var evidence = recorded.Where(e => e.Kind == "evidence").Select(e => JsonDocument.Parse(e.PayloadJson).RootElement).ToList();
+        Assert.NotEmpty(evidence);
+        Assert.All(evidence, record =>
+        {
+            Assert.True(record.GetProperty("whole").GetBoolean());
+            var size = record.GetProperty("request");
+            Assert.Equal(1_047_576, size.GetProperty("accepts").GetInt32());
+            Assert.Equal(size.GetProperty("tokens").GetInt32(), size.GetProperty("withEverything").GetInt32());
+            Assert.InRange(size.GetProperty("withReply").GetInt32(), 128_001, 1_047_576);
+        });
+        var withResearch = calls
+            .Where(c => c.Label == "opening" || c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(evidence.Count, withResearch.Count);
+        Assert.All(withResearch, call => Assert.All(passages, passage => Assert.Contains(passage, call.Text, StringComparison.Ordinal)));
+        Assert.All(calls, call => Assert.DoesNotContain(GccGenerateService.ResearchIsAPartNote, call.Text, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -685,14 +741,65 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// A pillar or a blog written through its real writer for the partner, with <paramref name="passages"/>
-    /// as its partner research, a passage a page: the requests it made, and what went on the run's record.
+    /// A run whose model GeekAPI holds no limit for is refused at its start: before its old pages are
+    /// deleted, before anything is searched for, and before any request is sent. Its requests could not
+    /// be counted against what the model accepts, and finding that out at the first request would be
+    /// after the old pages had gone.
+    /// </summary>
+    [Fact]
+    public async Task A_run_for_a_model_whose_limit_is_not_known_is_refused_before_anything_is_deleted_or_sent()
+    {
+        var provider = new Recorder("pillar", model: "gpt-5");
+        var service = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), null);
+        var repository = new CountingRepository();
+        // The refusal comes before the searches, so the run never reaches what does them.
+        var coordinator = new GccGenerationCoordinator(grounding: null!, NullLogger<GccGenerationCoordinator>.Instance);
+
+        Assert.Equal(OpenAiModelLimits.Refusal("gpt-5"), service.ModelRefusal(ContentGeneratorProvider.OpenAi));
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.RunGenerateAsync(
+            new HttpGccRepository(
+                new HttpClient(repository) { BaseAddress = new Uri("http://repo.test/") }, NullLogger<HttpGccRepository>.Instance),
+            service,
+            Create("pillar", "AI implementation", CompleteBrief, null, ProjectId),
+            section: null,
+            ContentGeneratorProvider.OpenAi,
+            outputTypes: ["pillar"],
+            mustMentionBlock: null,
+            CancellationToken.None));
+
+        Assert.Equal(OpenAiModelLimits.Refusal("gpt-5"), refused.Message);
+        Assert.Equal(0, repository.Requests);
+        Assert.Empty(provider.Calls);
+
+        // A model that is listed is not refused here.
+        var listed = new Recorder("pillar");
+        Assert.Null(
+            Build(listed, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(listed)), null)
+                .ModelRefusal(ContentGeneratorProvider.OpenAi));
+    }
+
+    /// <summary>The repository, counting what it is asked: a refused run must ask it for nothing.</summary>
+    private sealed class CountingRepository : HttpMessageHandler
+    {
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError));
+        }
+    }
+
+    /// <summary>
+    /// A pillar, a blog or a tool page written through its real writer for the partner, with
+    /// <paramref name="passages"/> as its partner research, a passage a page: the requests it made, and
+    /// what went on the run's record.
     /// </summary>
     private static async Task<(IReadOnlyList<(string Label, string Text)> Calls, List<GccGenerateJobEventWrite> Recorded)> WriteWithResearchAsync(
-        string page, IReadOnlyList<string> passages)
+        string page, IReadOnlyList<string> passages, string model = "gpt-4.1")
     {
         var research = GccResearchFetchService.Serialize(
-            GccResearchFetchService.Deserialize(PageFaqResearch.For(CompleteBrief))! with
+            GccResearchFetchService.Deserialize(page == "tool" ? ToolResearch() : PageFaqResearch.For(CompleteBrief))! with
             {
                 Quoteables =
                 [
@@ -712,7 +819,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             },
             NullLogger.Instance);
 
-        return (await WriteAsync(page, CompleteBrief, research), recorded);
+        return (await WriteAsync(page, CompleteBrief, research, model), recorded);
     }
 
     /// <summary>

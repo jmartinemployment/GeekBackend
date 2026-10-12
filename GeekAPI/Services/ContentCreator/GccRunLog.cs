@@ -130,13 +130,24 @@ public sealed class GccRunLog
 /// A provider that records every call it makes into the current run's log: what was sent, what came
 /// back, which model answered, how many tokens, how long -- and a failure as a failure.
 /// </summary>
+/// <remarks>
+/// Every request is counted before it is sent (<see cref="GccRequestSize"/>) and the count is on its
+/// record beside what the model accepts and, when the request came back, beside OpenAI's own count of
+/// it (<c>promptTokens</c>). So whether the counter is right is read from a run, request by request,
+/// and a request that was refused still shows how large it was. The account's allowance as OpenAI
+/// stated it on the reply is recorded with it and acted on by nothing.
+/// </remarks>
 public sealed class GccRecordingProvider(IContentGenerationProvider inner) : IContentGenerationProvider
 {
     public LlmProviderType ProviderType => inner.ProviderType;
 
+    public string ModelFor(ChatCompletionRequest request) => inner.ModelFor(request);
+
     public async Task<ChatCompletionResult> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken = default)
     {
         var started = Stopwatch.StartNew();
+        var countedTokens = GccRequestSize.TokensOf(request);
+        var accepts = OpenAiModelLimits.RequestTokensFor(inner.ModelFor(request));
         try
         {
             var result = await inner.CompleteAsync(request, cancellationToken);
@@ -147,10 +158,23 @@ public sealed class GccRecordingProvider(IContentGenerationProvider inner) : ICo
                 schema = request.JsonSchemaName,
                 taskClass = request.TaskClass.ToString(),
                 maxOutputTokens = request.MaxOutputTokens,
+                // The request as counted before it was sent, and what its model accepts in one request
+                // with the reply's reservation. promptTokens below is OpenAI's count of the same request.
+                countedTokens,
+                accepts,
                 promptTokens = result.PromptTokens,
                 completionTokens = result.CompletionTokens,
                 cachedTokens = result.CachedTokens,
                 finishReason = result.FinishReason,
+                // The account's allowance as the provider stated it on this reply; null when it stated none.
+                rateLimit = result.RateLimit is null
+                    ? null
+                    : new
+                    {
+                        limitTokens = result.RateLimit.LimitTokens,
+                        remainingTokens = result.RateLimit.RemainingTokens,
+                        resetTokens = result.RateLimit.ResetTokens,
+                    },
                 durationMs = started.ElapsedMilliseconds,
                 system = Join(request, ChatRole.System),
                 user = Join(request, ChatRole.User),
@@ -166,6 +190,9 @@ public sealed class GccRecordingProvider(IContentGenerationProvider inner) : ICo
                 model = request.Model,
                 schema = request.JsonSchemaName,
                 taskClass = request.TaskClass.ToString(),
+                maxOutputTokens = request.MaxOutputTokens,
+                countedTokens,
+                accepts,
                 durationMs = started.ElapsedMilliseconds,
                 system = Join(request, ChatRole.System),
                 user = Join(request, ChatRole.User),

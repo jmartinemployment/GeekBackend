@@ -107,6 +107,8 @@ public sealed class GccRunLogTests
     {
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
 
+        public string ModelFor(ChatCompletionRequest request) => "gpt-4.1";
+
         public Task<ChatCompletionResult> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken = default) =>
             result is null
                 ? throw new ContentGenerationException("provider said no")

@@ -143,8 +143,19 @@ service, local, whitepaper, LinkedIn document, three email variants. Only pillar
    - **A call reserves room for its reply, and the reservation counts against the model's limit whether or not it is used.**
      A call that writes a part of the page, two sections at most, reserves 8,192 tokens; a call that writes a whole outline,
      or more than two sections, reserves 16,384 (`ContentPromptBuilder.BodyMaxOutputTokens`).
-   - **No code knows the model's limit.** OpenAI's is 128,000 tokens, prompt and reservation together; a call over it is
-     refused with 400 and its page is not written. On 2026-10-10 a pillar body call was 125,253 prompt tokens.
+   - **What a model accepts in one request is in code, and a request is counted against it before it is sent**
+     (2026-10-12). `OpenAiModelLimits` holds it for each model family: `gpt-4.1` 1,047,576 tokens, `gpt-4o` 128,000,
+     what is sent and the reply's reservation together, matched from the start of the model's name. A model that is not
+     listed is refused, naming it: at the start of a run before its old pages are deleted
+     (`GccGenerateService.ModelRefusal`), and again where any request to OpenAI is sent (`OpenAiProvider`). Until then no
+     code knew the limit: on 2026-10-10 a pillar body call of 125,253 prompt tokens was sent, refused with 400 and its
+     page not written. Naming a new model in `LlmProviders__OpenAi__Model` now needs its line in that table first.
+   - **The count** (`GccRequestSize`) is OpenAI's own encoding (o200k_base). Checked against the 40 requests of the
+     08:17 UTC run of 2026-10-07: the 16 with no reply format came to OpenAI's figure exactly; the 24 with one came to
+     it less a fixed 383 or 368 for the format, which OpenAI counts its own way. The format is counted as its own text
+     (389 tokens for "sections" today), so that part is near and not exact. A request of 370,000 characters takes about
+     14 ms to count. Every request's count is on its `call` event (`countedTokens`, with `accepts`) beside OpenAI's
+     `promptTokens`, so the counter is checked by every run.
    - **Every question section is answered from searched passages.** A tool page's FAQ questions are each searched for in
      that partner's crawl; the pillar's People Also Ask and the blog's FAQ questions are each searched for in every
      partner's crawl (`GccGroundingResolver.PageFaqSearches`), three passages a search. Only a question with passages is
@@ -206,30 +217,36 @@ legal, compare, page) was sent on every result and not read. Both are now kept o
 `Searches`, `FoundBy`) and listed on the run log's `grounding` event (`poolSearches`, `pageKinds`). No writer is shown
 either. They are two of the three things a request's passages are chosen by, below.
 
-**What each request would carry was first only recorded** (2026-10-11; sent since 2026-10-12, below). Each pillar and blog section names one of seven labels for the part of the research it is written from
-(`SectionSlot.ResearchLabel`; `GccResearchLabel`). Code gives each passage its labels from the kind of page, the searches
-that found it and its own words (`GccPassageClassifier`), and works out what a request writing two sections would carry
-(`GccResearchSelector`): research of 350,000 characters or less whole; otherwise each partner up to 40,000, its passages
-labelled for the request's sections first, then general ones, then its others, a passage an earlier request carried
-counted at half. The run log gets `evidence-labels` once a page and `evidence` once a request
-(`GccResearchPerRequest`).
+**How a request's passages are chosen when not all of them fit.** Each pillar and blog section names one of seven
+labels for the part of the research it is written from (`SectionSlot.ResearchLabel`; `GccResearchLabel`). Code gives each
+passage its labels from the kind of page, the searches that found it and its own words (`GccPassageClassifier`). The run
+log gets `evidence-labels` once a page and `evidence` once a request (`GccResearchPerRequest`).
 
-**Changed from the first real run** (14:20 UTC, 2026-10-11, while the choice was still only recorded). That
-project's research was 250,717 characters in 213 passages, none without a label and only 8 for "getting it running",
-so a request for those sections would have carried a fifth of the research; and its pillar's body requests were billed
-at half price for 66,432 of about 68,300 tokens from the second on, which a request with its own choice of research
-loses. So a partner is now carried up to its limit whatever its passages are labelled, and research is whole up to
-350,000 characters (about 97,000 of 128,000 a request) where it was 240,000. In the classifier a word and its other
-forms count once ("client" and "clients" gave a label between them), and "plan", "timeline", "results", "review",
-"faster" and "increased" are out of the lists: the first two are a forecasting tool's own words.
-
-**A pillar's and a blog's requests are sent what is chosen for them** (2026-10-12, on Jeff's word: "Research
-classification: finish this off"). When a page's partner research is over 350,000 characters, its
-opening and each of its body requests carry the passages chosen for the sections that request writes and no others
-(`GccResearchPerRequest.For`, printed by `BuildResearchBlock(create, carried)`): up to 40,000 characters for each
-partner, the opening counted as the page's first request. Research of 350,000 characters or less is sent whole to every
-request, as before, and a test writes both pages through the real writers under the ceiling and fails if a request
-loses a passage.
+**The one limit is what the request's model accepts** (2026-10-12; Jeff: "STOP NOT USING DATA, EVEN IF THAT MEANS IT
+COSTS MORE"). Every opening and body request of a pillar, a blog and a tool page is built with all of its page's partner
+research, counted, and sent as it is when it is within what its model accepts with the reply's reservation
+(`GccGenerateService.RequestThatFitsAsync`). Nothing is chosen while everything fits. Until that day the code held
+three numbers of its own (research whole up to 350,000 characters, otherwise 40,000 for each partner, 240,000 in all),
+sized for a model of 128,000 tokens, and they cut research that fitted; a tool page was never counted at all.
+- **Over the limit**, the room for partner research is what the model accepts, less the reply's reservation, less the
+  request built with none of the partner research, turned into characters at the rate that page's own research counts
+  at. The room is shared between the partners equally, and what a partner with less research does not use goes to the
+  others (`GccResearchSelector.SharesOf`). A partner is carried up to its part: passages labelled for the request's
+  sections first, then general ones, then its others, a passage an earlier request of the page carried counted at half.
+  A tool page's sections name no label, so its passages are taken in the search's own order.
+- **A request that is over with none of the partner research in it is refused before it is sent**, saying its size.
+- **The record** (`evidence`) carries the request's size before it is sent: `request.model`, `accepts`, `reply`,
+  `tokens`, `withReply` (what is held to the limit) and `withEverything`; `room` and each partner's `share` when the
+  research was chosen from; and each passage chosen and left out.
+- **Why a partner is filled to its part, and what choosing costs.** From the 14:20 UTC run of 2026-10-11 (250,717
+  characters in 213 passages): none was without a label and only 8 were for "getting it running", so a request for
+  those sections would have carried a fifth of the research if labels decided what was carried and not the order. And
+  its pillar's body requests were billed at the lower price for 66,432 of about 68,300 tokens from the second on, which
+  a request with its own choice of research loses. In the classifier a word and its other forms count once, and "plan",
+  "timeline", "results", "review", "faster" and "increased" are out of the lists.
+- **Still a page's first six passages and first eight headings.** `GccResearchSelector.PassagesOf` and
+  `BuildResearchBlock` both stop there (`GccResearchCaps`); that count, and the other counts that cut research, are the
+  next step of `plans/use-everything.md`.
 - **Only the partner research differs between requests.** The publisher's positions, the competitor blocks, the site's
   own coverage, the partners to name, what each partner answers, the heading sources and the note on amounts not in
   dollars are whole in every request.
@@ -241,16 +258,11 @@ loses a passage.
   subdomain was a partner of its own with a limit of its own (`GccResearchSelector.PartnerOf`).
 - **The record of a request** lists what the research holds, what the request carried, the same partner by partner,
   and each passage chosen and left out. A test fails if a request is sent anything other than what its record lists.
-- **Size, worked out and not measured.** From the 18:26 run of 2026-10-10: the accounts receivable project's pillar and
-  blog body requests go from about 117,600 of 128,000 to about 61,000 (about 488,000 characters of research becoming
-  200,000), and their openings from about 100,000 to about 45,000. They no longer repeat one block of research, so the
-  half-price billing for repeated text is lost; at this size the page still costs about a fifth less to send.
-- **Not seen on real research.** Both projects that have run since 2026-10-11 are under the ceiling, and the accounts
-  receivable project, the one measured over it, is published (Jeff, 2026-10-12), so no run of it is asked for. Its last
-  run is still the 18:26 UTC one of 2026-10-10, which refused its pillar and blog; the project holds its five tool pages
-  and neither of those. The first new project over the ceiling is the first sight of which passages each request is sent; its run log's `evidence` events list them. Under the ceiling every `evidence` event says `whole`.
-- **Do not lower the ceiling, raise a partner's limit, or add a size check that drops passages** without a run that
-  shows why, and do not put a word back in the classifier's lists without a run that shows it labels the right passages.
+- **Not seen on real research.** No run has yet chosen: every project run so far is far under what GPT-4.1 accepts
+  (the largest request of the 15:29 UTC run of 2026-10-12 was about 75,000 tokens of 1,047,576), so every `evidence`
+  event of the next run should say `whole`. The choice is tested through the real writers against the smaller model.
+- **Do not add a number of the code's own that leaves research out**, and do not put a word back in the classifier's
+  lists without a run that shows it labels the right passages.
 - **The research holds almost nothing for some sections.** On the 14:20 UTC run, 8 of 213 passages were labelled for
   getting it running and 7 for results and proof; of the ones read, about half of the first and none of the second were
   really that. Those sections are written with next to no evidence of their own, chosen or whole. Choosing cannot find
@@ -306,8 +318,11 @@ definition paragraphs); the model returns content and never markup.
 Providers `OpenAi`, `Anthropic`, `Groq`, each behind a concurrency gate (`LlmProviders:MaxConcurrentCalls`, default 4);
 Generate accepts OpenAi and Anthropic. Config: `LlmProviders:{provider}:{BaseUrl, ApiKey, Model, TimeoutSeconds}` (default
 timeout 120 s), OpenAi also `ExtractionModel` and `UtilityModel`, plus `DefaultProvider` and an `Enabled` kill switch. Model
-names are not defaulted in code (an empty one is refused); the 2026-10-07 run log shows `gpt-4o-2024-08-06` (38 calls) and
-`gpt-4o-mini-2024-07-18` (2). OpenAI and Groq use `response_format: json_schema`; Anthropic uses forced tool use. Body
+names are not defaulted in code (an empty one is refused, and so is an OpenAI model `OpenAiModelLimits` does not list);
+the 2026-10-07 run log shows `gpt-4o-2024-08-06` (38 calls) and `gpt-4o-mini-2024-07-18` (2), and the writing model has
+been `gpt-4.1` since Jeff changed `LlmProviders__OpenAi__Model` on 2026-10-12. OpenAI's reply states the account's
+allowance (`x-ratelimit-limit-tokens`, `-remaining-tokens`, `-reset-tokens`); it is on each request's `call` event as
+`rateLimit` and nothing acts on it. OpenAI and Groq use `response_format: json_schema`; Anthropic uses forced tool use. Body
 batches carry a provider-enforced schema; ledes do not. There is no retry or Polly in GeekAPI. OpenAI is the live provider.
 Per run, OpenAI's automatic prompt cache served 54% of input tokens (2026-10-07 log).
 

@@ -51,6 +51,8 @@ public class GccGenerateServicePillarFaqTests
         private int bodyCalls;
 
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
+
+        public string ModelFor(ChatCompletionRequest request) => "gpt-4.1";
         public List<string> SystemPromptsSeen { get; } = [];
         /// <summary>The questions each FAQ call was handed, in the order the calls were made.</summary>
         public List<IReadOnlyList<string>> FaqCallQuestions { get; } = [];

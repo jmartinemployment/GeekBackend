@@ -29,6 +29,8 @@ public class OpenAiProvider : IContentGenerationProvider
         _logger = logger;
     }
 
+    public string ModelFor(ChatCompletionRequest request) => _options.ModelFor(request);
+
     public async Task<ChatCompletionResult> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken = default)
     {
         var apiKey = string.IsNullOrWhiteSpace(_options.ApiKey)
@@ -42,8 +44,15 @@ public class OpenAiProvider : IContentGenerationProvider
         }
 
         var model = ProviderModelGuard.Require(
-            request.Model ?? _options.ResolveModel(request.TaskClass),
+            ModelFor(request),
             $"LlmProviders__OpenAi__Model (or the {request.TaskClass} override)");
+
+        // A model whose limit is not known is not sent to. Checked here, where every request to OpenAI
+        // passes, so it is enforced and not only asked of the callers that count their requests.
+        if (OpenAiModelLimits.RequestTokensFor(model) is null)
+        {
+            throw new ContentGenerationException(OpenAiModelLimits.Refusal(model));
+        }
 
         // What was actually sent, when asked for. There has been no way to see the assembled prompt,
         // so every question about grounding -- did the site content arrive, did the partner evidence,
@@ -128,8 +137,29 @@ public class OpenAiProvider : IContentGenerationProvider
             PromptTokens: parsed.Usage?.PromptTokens,
             CompletionTokens: parsed.Usage?.CompletionTokens,
             CachedTokens: cachedTokens,
-            FinishReason: choice.FinishReason);
+            FinishReason: choice.FinishReason,
+            RateLimit: RateLimitOf(response));
     }
+
+    /// <summary>
+    /// The account's allowance as OpenAI stated it on this reply, or null when the reply carried none
+    /// of the three headers.
+    /// </summary>
+    internal static LlmRateLimit? RateLimitOf(HttpResponseMessage response)
+    {
+        var limit = Header(response, "x-ratelimit-limit-tokens");
+        var remaining = Header(response, "x-ratelimit-remaining-tokens");
+        var reset = Header(response, "x-ratelimit-reset-tokens");
+        if (limit is null && remaining is null && reset is null) return null;
+
+        return new LlmRateLimit(
+            long.TryParse(limit, out var limitTokens) ? limitTokens : null,
+            long.TryParse(remaining, out var remainingTokens) ? remainingTokens : null,
+            reset);
+    }
+
+    private static string? Header(HttpResponseMessage response, string name) =>
+        response.Headers.TryGetValues(name, out var values) ? values.FirstOrDefault() : null;
 
     /// <summary>o1/o3/o4-family models reject custom temperature and want max_completion_tokens.</summary>
     internal static bool IsReasoningModel(string? model)

@@ -45,6 +45,8 @@ public class GccGenerateServiceProvenanceTests
         private int bodyCalls;
 
         public LlmProviderType ProviderType => LlmProviderType.OpenAi;
+
+        public string ModelFor(ChatCompletionRequest request) => "gpt-4.1";
         public List<ChatCompletionRequest> Requests { get; } = [];
 
         public Task<ChatCompletionResult> CompleteAsync(

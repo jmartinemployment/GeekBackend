@@ -10,5 +10,17 @@ public interface IContentGenerationProvider
 {
     LlmProviderType ProviderType { get; }
 
+    /// <summary>
+    /// The model <paramref name="request"/> would be sent to, as configured: the request's own when it
+    /// names one, otherwise this provider's for the request's kind of work. Empty when none is
+    /// configured. Sends nothing.
+    /// </summary>
+    /// <remarks>
+    /// So a request can be counted against what its model accepts before it is paid for
+    /// (<see cref="OpenAiModelLimits"/>). The same answer <see cref="CompleteAsync"/> acts on: each
+    /// provider resolves its model in one place and both read it.
+    /// </remarks>
+    string ModelFor(ChatCompletionRequest request);
+
     Task<ChatCompletionResult> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken = default);
 }
