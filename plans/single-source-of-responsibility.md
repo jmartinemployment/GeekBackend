@@ -9,8 +9,9 @@ something was not determined it says so.
 
 Weeks of Content Creator failures share one cause: one concept lives in many copies, so a change to one breaks the
 others. Jeff's primary goal is **Single Source of Responsibility**: every unit of the application has one job and one
-reason to change. The 2026-10-07 run's four refusals each traced to our own rule or prompt, not to the model (see
-`fix-the-2026-10-07-generate-run.md`). A rewrite alone did not fix it earlier; the fix has to be enforced by structure.
+reason to change. The 2026-10-07 run's four refusals each traced to our own rule or prompt, not to the model (the fix
+plan for that run, removed as finished on 2026-10-12, is in git: `git show dce00d2:plans/fix-the-2026-10-07-generate-run.md`).
+A rewrite alone did not fix it earlier; the fix has to be enforced by structure.
 
 ## 2. The division (Jeff's list, agreed)
 

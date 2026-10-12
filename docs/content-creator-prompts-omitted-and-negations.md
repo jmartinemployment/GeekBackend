@@ -1,6 +1,6 @@
 # Content Creator prompts: the omitted prompts, the injected instructions, and every negative rule
 
-Written 2026-10-07 to complete `plans/content-creator-prompts-by-type.md`. It has three parts:
+Written 2026-10-07 to complete `docs/content-creator-prompts-by-type.md`. It has three parts:
 
 - **A. The prompts left out of the first two files**: the metadata and FAQ prompts for the three content types,
   the image-prompt call, and the short-form prompts. Parts A1-A5 are generated from the real builders;
@@ -301,7 +301,7 @@ for ONLY these channel slots (one variant object per slot, same order): {channel
 
 ## B. The instruction blocks the service injects
 
-These make up the `{evidence block}` in the prompts of `plans/content-creator-prompts-by-type.md`. They are
+These make up the `{evidence block}` in the prompts of `docs/content-creator-prompts-by-type.md`. They are
 built in `GccGenerateService` (`BuildEvidenceBlock`) and the classes named below, and joined in this order:
 research, publisher's positions, competitor headings, competitor research, own-site coverage, then (pillar
 and blog) the partner-tools block, the unlisted-tools line and the valid-provenance-values list; for the tool

@@ -2,8 +2,8 @@
 
 **Status:** written 2026-10-07 from the code (`GeekAPI/Services/ContentCreator`) and the run log of 2026-10-07. Every
 statement below is either checked against one of those or marked **not verified**. Where the operator's own definition
-has not been recorded it says so rather than inferring one. This file replaces the claims in
-`plans/competitor-partner-data-purpose.md`, which describes the dormant V2 pipeline and the 2026-10-01 state.
+has not been recorded it says so rather than inferring one. This file replaces an earlier plan document that described
+the dormant V2 pipeline and the 2026-10-01 state; that document was deleted on 2026-10-12.
 
 **Keep it true:** change this file in the same commit that changes what a source feeds into a prompt.
 
@@ -104,6 +104,4 @@ amounts note, the opening already written) are not data.
 | File | State |
 |---|---|
 | `CONTENT_CREATOR_PLAN.md` (top of `development/`) | The original product plan. Section 6's gap finder and the site-context gate no longer match the code. |
-| `plans/competitor-partner-data-purpose.md` | Stale. Describes the dormant V2 pipeline and the 2026-10-01 state. |
-| `plans/fix-the-2026-10-07-generate-run.md` | The 2026-10-07 run: what failed, what changed, what was held. |
-| `plans/content-type-agents.md` | The agreed direction: content types as isolated single-responsibility agents. Nothing built yet. |
+| `plans/single-source-of-responsibility.md` | The agreed direction: content types as isolated single-responsibility agents. Nothing built yet. |

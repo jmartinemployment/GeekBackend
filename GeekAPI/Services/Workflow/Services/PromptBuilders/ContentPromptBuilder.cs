@@ -718,7 +718,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <remarks>
     /// Everything that varies is in the user message: what this type of page is, the brief, the
     /// publisher's site, the evidence, the continuity of the opening, the revision notes, and the
-    /// assignment itself. See plans/content-creator-prompt-restructure.md.
+    /// assignment itself.
     /// </remarks>
     internal static string SystemPrompt(string outputContract) =>
         new StringBuilder()

@@ -775,8 +775,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// <remarks>
     /// The record is what the code does on 2026-10-10, not what it should do. A line under "# GAP" is a
     /// field the operator enters that a call ignores; it is recorded so that closing it is a change to
-    /// this table made with the fix, and so that it cannot reopen unseen. None is left. The whole list,
-    /// with the fields kept from a call on a decision, is plans/brief-field-audit.md.
+    /// this table made with the fix, and so that it cannot reopen unseen. None is left. The audit that
+    /// listed them was removed as finished on 2026-10-12 and is in git
+    /// (<c>git show dce00d2:plans/brief-field-audit.md</c>).
     /// <para>
     /// Closed the same day, each a changed line below: the pillar's opening now carries the operator's
     /// whole framing, the tool page's two FAQ calls and its summaries call carry the reader and the

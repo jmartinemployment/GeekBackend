@@ -6,7 +6,7 @@ removed). Every `{braces}` is run data. Shared blocks that appear in more than o
 once in section 2 and referenced by name in sections 3-5.
 
 The same prompts with every block repeated in place, generated from the real builders, are in
-`plans/content-creator-prompts.md`. This file is the readable form. Where they differ, the code wins.
+`docs/content-creator-prompts.md`. This file is the readable form. Where they differ, the code wins.
 
 Not covered: the FAQ and metadata prompts (not changed), the research brief's data (`ResearchBriefBuilder`
 fills SERP, People Also Ask, competitor and partner passages per run), and the V2 prompts.
@@ -85,7 +85,7 @@ OUTPUT: respond with ONLY the JSON this contract describes -- no code fences, no
 hook, open with a story"; three sets of worked examples (two unrelated subjects, then a back-office set
 with a warning never to reuse its names or figures); then the brief's own lines (intent, stage,
 audience, angle, tone, CTA, notes); the angle's preferred types; and "never return an angle or intent
-name as the ledeType". The full text is in `plans/content-creator-prompts.md`, under any lede.
+name as the ledeType". The full text is in `docs/content-creator-prompts.md`, under any lede.
 
 **[PUBLISHER SITE BLOCK]**, when the publisher's site has been crawled.
 

@@ -6,7 +6,7 @@ This replaces the earlier version of this file, which described the prompts befo
 
 Each call is `[system][user]`. The system message is one static text for every pillar, blog and tool
 call; only its last line, the output contract, differs by call. Everything that varies is in the user
-message. See `plans/content-creator-prompt-restructure.md`.
+message.
 
 Not covered: the FAQ prompts, the metadata prompts, the image-prompt builders, the research brief's data (SERP, People Also Ask, competitor and partner passages, which
 `ResearchBriefBuilder` fills from the run and which are empty in the examples below) and the V2 prompts. They were not changed.

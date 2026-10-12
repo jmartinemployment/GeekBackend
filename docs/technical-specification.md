@@ -314,7 +314,9 @@ Per run, OpenAI's automatic prompt cache served 54% of input tokens (2026-10-07 
 ## 9. The RAG library
 
 FastAPI. `POST /v1/index {runId}` (409 without `ContentReadyAt`), `POST /v1/query` (hybrid dense plus BM25 with reciprocal
-rank fusion; optional Cohere rerank), `POST /v1/verify` (whitespace-normalized quote-in-text against the block projection),
+rank fusion; optional Cohere rerank, which has no key, so no search is reranked: five local reranking models were tried on
+2026-10-10 against that day's run and none ranked the answering passage first, so none was built in and no score cut-off
+was either; the trial is in git, `git show dce00d2:plans/fix-the-2026-10-10-generate-run.md`), `POST /v1/verify` (whitespace-normalized quote-in-text against the block projection),
 `/v1/pages`, `/v1/templates`, `/v1/capabilities`, `/health`. Embeddings are local (BAAI/bge-small-en-v1.5, 384-d; BM25 sparse).
 Chunking is parent/child cut at headings (child 200/40 tokens, parent 500/80). The index queue is in-process with Mongo leases
 at concurrency 1; there is no automatic recovery after a restart. Auth: `X-Api-Key` equals `API_KEY`. GeekAPI reaches it
@@ -370,8 +372,7 @@ SMTP_*.
 the hub `/hubs/gcc-v2-realtime` and the key `NEXT_PUBLIC_GCC_V2_HUB_URL`; the code reads `/hubs/workflow-realtime` and
 `NEXT_PUBLIC_WORKFLOW_HUB_URL`, and `architecture.md` names the API prefix `api/geek-content-creator-v2` (the code uses
 `api/geek-content-creator`). The Geek-Crawler-v2 README says "no browser" while its link harvest uses headless Chromium and
-says seven block kinds while the code has eight (`row`). `plans/competitor-partner-data-purpose.md` describes the dormant V2
-pipeline. `GeekOAuth`'s `.env.example` names Supabase for a database `AGENTS.md` places on Railway. Integration tests
+says seven block kinds while the code has eight (`row`). `GeekOAuth`'s `.env.example` names Supabase for a database `AGENTS.md` places on Railway. Integration tests
 `GccV2AgentApiContractTests`, `GccV2TaskAgentApiContractTests` and `GccV2SkillApiContractTests` call routes that no
 controller has served since 2026-10-03.
 
@@ -380,3 +381,18 @@ controller has served since 2026-10-03.
 See `plans/real-run-findings-2026-10-07.md` (writer output under its word floors, the lede with no enforced schema, the
 JSON-LD name and `@graph` form, the FAQ without evidence) and `plans/single-source-of-responsibility.md` (the plan to divide
 the application by single responsibility). The `content_creator_v2` schema and its workers are dormant.
+
+**A rate refusal from OpenAI (a 429) is not handled, on a decision** (Jeff, 2026-10-12: "File suggestion, in case the
+problem occurs, but take it out"). A 429 is OpenAI's reply when the account has sent more tokens or requests in a minute than
+its allowance; the request is not processed and not billed. Today such a request fails its page like any failed request:
+`OpenAiProvider` logs OpenAI's status and reply and throws, and the run log's `outcome` for that page carries the message.
+None has occurred (GeekAPI's Railway log back to 2026-10-05 holds none). GPT-4.1's allowance is 450,000, 2,000,000 or
+30,000,000 tokens a minute by account level, the same as GPT-4o's, with a separate one for requests over 128,000 tokens
+(500,000, 5,000,000 or 10,000,000), read from OpenAI's model pages on 2026-10-12; the 15:29 UTC run of that day sent about
+700,000 in one minute and was not refused. Up to four requests are in flight at once (`LlmProviders:MaxConcurrentCalls`).
+**The suggestion on file, from an outside review of 2026-10-12, in case one does occur:** (1) hold a request at
+`LlmConcurrencyGate` while the tokens sent in the last minute plus its own would pass the limit, with the limit read from
+OpenAI's `x-ratelimit-limit-tokens`, `x-ratelimit-remaining-tokens` and `x-ratelimit-reset-tokens` reply headers and the
+request's size counted before it is sent (that count is not built; `plans/use-everything.md`); or (2) on a 429 only, wait the
+time OpenAI's reply names and send the same request again, doubling the wait on each further refusal. The second is a retry,
+and the standing rule is no retries (Jeff, 2026-10-06), so it needs his word.
