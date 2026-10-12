@@ -90,8 +90,8 @@ public sealed record GccResearchSelection(
 /// </para>
 /// <para>
 /// <b>Plain code.</b> No network and no model, and the same passages in the same order give the same
-/// choice. It runs on every pillar and blog and chooses nothing a writer is sent:
-/// <see cref="GccResearchWatch"/> writes what it would have chosen to the run's record.
+/// choice. It runs on every pillar and blog. <see cref="GccResearchPerRequest"/> puts each choice on the
+/// run's record and says which requests are sent it.
 /// </para>
 /// </remarks>
 public static class GccResearchSelector
@@ -321,25 +321,51 @@ public static class GccResearchSelector
     }
 }
 
+/// <summary>What one request carries of its page's partner research.</summary>
+/// <param name="Record">The run's record of it: what the research holds, what the request carries,
+/// partner by partner, and each passage chosen and left out.</param>
+/// <param name="Carried">The passages the request is sent, by page and place on it, when they were
+/// chosen for it; null when the request is sent all of the research.</param>
+public sealed record GccRequestResearch(object Record, IReadOnlySet<(string Url, int Position)>? Carried);
+
 /// <summary>
-/// What each body request of one pillar or one blog would carry if its research were chosen for it,
-/// worked out as the page is written and put on the run's record. The writer is sent everything, as
-/// before (plans/research-classification.md, "watch" mode).
+/// What each request of one pillar or one blog carries of the page's partner research: the opening,
+/// then each body request, in the order they are written (plans/research-classification.md).
 /// </summary>
 /// <remarks>
-/// One per page being written, because what a request would carry depends on what the requests before
-/// it carried. It is told nothing by the writer and tells the writer nothing: it reads the page's
-/// partner research and the labels of the sections each request writes, and returns a record.
+/// <para>
+/// One per page being written, because what a request carries depends on what the requests before it
+/// carried. It reads the page's partner research and the labels of the sections a request writes, and
+/// answers with the passages chosen (<see cref="GccResearchSelector.Select"/>) and the run's record of
+/// the choice. Research that fits is carried whole and nothing is chosen.
+/// </para>
+/// <para>
+/// <b>On for the blog since 2026-10-12, on Jeff's word ("Research classification: finish this off").</b>
+/// A blog's requests are sent what is chosen for them. A pillar's are still sent everything, and what
+/// each would have carried is recorded with <c>watch</c> true.
+/// </para>
+/// <para>
+/// <b>What a page's checks read is not this.</b> The figure, money, quotation and heading checks on a
+/// finished page read all of the research, so a page is never refused because a request was shown
+/// less.
+/// </para>
 /// </remarks>
-public sealed class GccResearchWatch
+public sealed class GccResearchPerRequest
 {
     private readonly IReadOnlyList<GccResearchPassage> _passages;
     private readonly Dictionary<(string Url, int Position), int> _shown = [];
+    private readonly bool _sendsWhatIsChosen;
 
     /// <param name="partnerPages">The page's partner research, as its research block prints it.</param>
     /// <param name="partnerUrls">The project's declared partners, by which a page is one partner's.</param>
-    public GccResearchWatch(IReadOnlyList<GccQuoteablePage>? partnerPages, IReadOnlyList<string>? partnerUrls = null) =>
+    /// <param name="sendsWhatIsChosen">Whether a request is sent what is chosen for it. False records
+    /// the choice and sends everything.</param>
+    public GccResearchPerRequest(
+        IReadOnlyList<GccQuoteablePage>? partnerPages, IReadOnlyList<string>? partnerUrls, bool sendsWhatIsChosen)
+    {
         _passages = GccResearchSelector.PassagesOf(partnerPages, partnerUrls);
+        _sendsWhatIsChosen = sendsWhatIsChosen;
+    }
 
     /// <summary>
     /// How the page's partner research divides by label, for the run's record: every passage counted
@@ -363,12 +389,8 @@ public sealed class GccResearchWatch
             .ToList(),
     };
 
-    /// <summary>
-    /// What a request writing <paramref name="batch"/> would carry, as the run's record of it, or null
-    /// when none of its sections names a label. Counts what it chose as carried, for the requests
-    /// after it.
-    /// </summary>
-    public object? WouldCarry(IReadOnlyList<SectionSlot> batch, string batchLabel, int call, int of)
+    /// <summary>The labels the sections of <paramref name="batch"/> name, each once, in their order.</summary>
+    public static IReadOnlyList<string> LabelsOf(IReadOnlyList<SectionSlot> batch)
     {
         var labels = new List<string>();
         foreach (var slot in batch)
@@ -379,6 +401,19 @@ public sealed class GccResearchWatch
             }
         }
 
+        return labels;
+    }
+
+    /// <summary>
+    /// What a request writing sections labelled <paramref name="labels"/> carries, or null when it names
+    /// no label and so has no choice made for it. Counts what was chosen as carried, for the requests
+    /// after it.
+    /// </summary>
+    /// <param name="request">The request's name on the run's record.</param>
+    /// <param name="call">Which body request it is, from one; zero for the page's opening.</param>
+    /// <param name="of">How many body requests the page has.</param>
+    public GccRequestResearch? For(IReadOnlyList<string> labels, string request, int call, int of)
+    {
         if (labels.Count == 0) return null;
 
         var selection = GccResearchSelector.Select(_passages, labels, _shown);
@@ -389,29 +424,31 @@ public sealed class GccResearchWatch
         }
 
         var carried = selection.Chosen.Select(chosen => chosen.Passage).ToList();
-        return new
+        var sendsIt = _sendsWhatIsChosen && !selection.Whole;
+        var record = new
         {
-            batch = batchLabel,
+            batch = request,
             call,
             of,
-            // The writer was sent everything. This is what the request would have carried.
-            watch = true,
             labels,
+            // The research fits and is carried whole: nothing was chosen between.
             whole = selection.Whole,
+            // A choice was made and recorded, and the request was sent everything all the same.
+            watch = !selection.Whole && !sendsIt,
             limits = new
             {
                 perPartner = GccResearchSelector.MaxCharsPerPartner,
                 inAll = GccResearchSelector.MaxCharsInAll,
                 wholeUpTo = GccResearchSelector.WholeUpToChars,
             },
-            sent = Size(_passages),
-            wouldCarry = Size(carried),
+            research = Size(_passages),
+            carried = Size(carried),
             partners = HostsOf(_passages)
                 .Select(host => new
                 {
                     host,
-                    sent = Size([.. _passages.Where(passage => passage.Host == host)]),
-                    wouldCarry = Size([.. carried.Where(passage => passage.Host == host)]),
+                    research = Size([.. _passages.Where(passage => passage.Host == host)]),
+                    carried = Size([.. carried.Where(passage => passage.Host == host)]),
                     labelled = CountWhy(selection, host, GccResearchSelector.WhyLabelled),
                     general = CountWhy(selection, host, GccResearchSelector.WhyGeneral),
                     other = CountWhy(selection, host, GccResearchSelector.WhyOther),
@@ -441,6 +478,10 @@ public sealed class GccResearchWatch
                     })
                     .ToList(),
         };
+
+        return new GccRequestResearch(
+            record,
+            sendsIt ? carried.Select(passage => (passage.Url, passage.Position)).ToHashSet() : null);
     }
 
     private static object Size(IReadOnlyList<GccResearchPassage> passages) => new

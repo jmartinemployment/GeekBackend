@@ -301,6 +301,16 @@ public partial class GccGenerateService
         return keyword.Length == 0 ? productName : $"{productName}: {keyword}";
     }
 
+    /// <summary>
+    /// What a request is told when the research it carries was chosen for its sections and is not all
+    /// of it (plans/research-classification.md).
+    /// </summary>
+    internal const string ResearchIsAPartNote =
+        "THIS REQUEST CARRIES PART OF THE RESEARCH: the passages chosen for the sections it writes, and "
+        + "as much for one partner as for another. The page's other requests carry other passages. The "
+        + "rules above apply to the passages here. That no passage here states something is not "
+        + "evidence that a product lacks it: say only what these passages state.";
+
     public static string BuildBriefAndResearchBlock(GccCreateDto create)
     {
         var sb = new StringBuilder();
@@ -320,7 +330,14 @@ public partial class GccGenerateService
     /// evidence <c>GccGroundingResolver</c> resolves and merges into <c>ResearchJson</c> that
     /// pillar/blog never read back out.
     /// </summary>
-    internal static string BuildResearchBlock(GccCreateDto create)
+    /// <param name="carried">
+    /// The passages this request carries, by page and place on it, when its research was chosen for the
+    /// sections it writes (<see cref="GccResearchPerRequest"/>); null for all of the research, which is
+    /// what every caller but a pillar's or a blog's request over the ceiling prints. A page with no
+    /// passage carried is not printed, and the block says it is a part.
+    /// </param>
+    internal static string BuildResearchBlock(
+        GccCreateDto create, IReadOnlySet<(string Url, int Position)>? carried = null)
     {
         var sb = new StringBuilder();
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
@@ -380,11 +397,40 @@ public partial class GccGenerateService
             sb.AppendLine("   governed by rules 1 and 4, and is named plainly with no claims attached");
             sb.AppendLine("   rather than given capabilities nothing here states.");
             sb.AppendLine();
+            if (carried is not null)
+            {
+                // The five rules above were written for a request that holds all of the research. They
+                // hold for a part of it as they stand, with one thing a writer could get wrong: reading
+                // what is not here as something the product does not do.
+                sb.AppendLine(ResearchIsAPartNote);
+                sb.AppendLine();
+            }
+
             // Every quoteable is read (per-page heading/paragraph trimming below still bounds
             // prompt size).
             for (var i = 0; i < research.Quoteables.Count; i++)
             {
                 var q = research.Quoteables[i];
+                if (carried is not null)
+                {
+                    // A request's own choice: the page's lines as they are printed whole, with only the
+                    // passages chosen for it, which is what GccResearchSelector.CharsOf counts. A page
+                    // read back with no passages has none to choose and is keyed as the selector keys it.
+                    if (q?.Paragraphs is null) continue;
+                    var chosen = q.Paragraphs
+                        .Take(GccResearchCaps.MaxParagraphsPerPage)
+                        .Where((_, position) => carried.Contains((q.Url ?? string.Empty, position)))
+                        .ToList();
+                    if (chosen.Count == 0) continue;
+                    sb.AppendLine($"{q.Title} ({q.Url})");
+                    foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+                        sb.AppendLine($"- H{h.Level}: {h.Text}");
+                    foreach (var p in chosen)
+                        sb.AppendLine($"- {p}");
+                    sb.AppendLine();
+                    continue;
+                }
+
                 // No origin condition. There used to be one, testing RetrievalMode == "rag_chunk"
                 // and labelling everything else "operator-supplied" -- but the only producer of an
                 // operator-supplied quoteable was the Wiki/.edu/.gov upload path, removed
@@ -2533,7 +2579,32 @@ public partial class GccGenerateService
             BlogMetadata: metadata,
             EvidenceBlock: WithForeignAmountsNamed(ledeEvidence, blogForeignAmounts),
             NicheFraming: GccNicheFramingReader.ForEveryPartner(create.BriefJson, partnerTools.FailuresAreUnderThePartners));
-        var ledeResult = await llm.CompleteAsync(blogType.Lede(blogPromptCtx), ct);
+
+        // In batches, same reason as pillar and tool: one response cannot hold the 1,800-word floor
+        // in this JSON, so asking for the whole post in one call capped it by arithmetic -- 1,199
+        // words and a 0.2% keyword density were the symptom (Jeff, 2026-09-28).
+        var blogOutline = blogType.OutlineFor(blogPromptCtx);
+
+        // What each request of this page carries of the partner research: all of it when it fits, and
+        // otherwise what is chosen for the sections the request writes, the opening first
+        // (plans/research-classification.md; on for the blog since 2026-10-12, on Jeff's word). How the
+        // research divides by label goes on the run's record once, before any request's choice.
+        var blogResearch = new GccResearchPerRequest(
+            GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls, sendsWhatIsChosen: true);
+        await GccRunLog.RecordIfAnyAsync("evidence-labels", blogResearch.LabelsRecord());
+        var blogOpeningEvidence = await ChosenEvidenceAsync(
+            blogResearch,
+            // The opening states the problem, as the body's first section does.
+            [GccResearchLabel.Problem],
+            "Blog opening",
+            call: 0,
+            of: (blogOutline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
+            carried => WithForeignAmountsNamed(
+                WithPublisherPositions(BuildResearchBlock(create, carried), create, partnerTools.Unlisted),
+                blogForeignAmounts));
+        var ledeResult = await llm.CompleteAsync(
+            blogType.Lede(blogOpeningEvidence is null ? blogPromptCtx : blogPromptCtx with { EvidenceBlock = blogOpeningEvidence }),
+            ct);
         // Same mismatch as pillar above: this prompt asks for LedeJsonContract, so it is read with
         // ParseLede. Reading it as a sections array failed every blog generation.
         var (blogLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, "blog lede");
@@ -2542,15 +2613,24 @@ public partial class GccGenerateService
         var blogToolInstruction = partnerTools.Instruction;
         // The valid tags are stated up front: with no retry to name them after a refusal, the first
         // attempt has to be told what resolves.
-        var blogEvidence = string.Join(
+        //
+        // A body request's evidence, with all of the research or with the passages chosen for it. Only
+        // the research differs: the publisher's positions, the competitor blocks, the site's own
+        // coverage, the partners to name and the heading sources are whole in every request.
+        string BlogEvidenceWith(IReadOnlySet<(string Url, int Position)>? carried) => string.Join(
             Environment.NewLine,
-            new[] { evidenceBlock, blogToolInstruction, GccHeadingProvenanceGuard.LicensedValues(evidence) }
+            new[]
+                {
+                    carried is null
+                        ? evidenceBlock
+                        : BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted, carried),
+                    blogToolInstruction,
+                    GccHeadingProvenanceGuard.LicensedValues(evidence),
+                }
                 .Where(b => !string.IsNullOrWhiteSpace(b)));
-
-        // In batches, same reason as pillar and tool: one response cannot hold the 1,800-word floor
-        // in this JSON, so asking for the whole post in one call capped it by arithmetic -- 1,199
-        // words and a 0.2% keyword density were the symptom (Jeff, 2026-09-28).
-        var blogOutline = blogType.OutlineFor(blogPromptCtx);
+        // All of the research: what a request carries when nothing is chosen for it, and what the
+        // page's checks read whatever a request carried.
+        var blogEvidence = BlogEvidenceWith(null);
 
         // The blog's FAQ, from the brief's own questions (2026-10-08: the pillar had its People Also
         // Ask and the blog had nothing). Written before the body like the pillar's, in calls of eight
@@ -2605,8 +2685,14 @@ public partial class GccGenerateService
                 "Blog body",
                 ct,
                 callsUnderFloor,
-                // Watching only: what each request would carry is recorded, and each carries everything.
-                new GccResearchWatch(GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls));
+                // Each request carries what is chosen for its sections when the research does not fit whole.
+                (batch, request, call, of) => ChosenEvidenceAsync(
+                    blogResearch,
+                    GccResearchPerRequest.LabelsOf(batch),
+                    request,
+                    call,
+                    of,
+                    carried => WithForeignAmountsNamed(BlogEvidenceWith(carried), blogForeignAmounts)));
             // The keyword's shortenings put back on the opening and the body as written, then the links,
             // the closing and the FAQ, none of which is remapped.
             var (blogOpening, blogBody) = await RemapKeywordAsync(
@@ -2675,13 +2761,16 @@ public partial class GccGenerateService
     /// Tools the publisher's site lists that are not this project's partners. An own-site page about
     /// one of them is left out of the block, and the names are redacted from the rest of it.
     /// </param>
+    /// <param name="carried">The passages of partner research this request carries, or null for all of
+    /// it (<see cref="BuildResearchBlock"/>). Everything else in the block is whole in every request.</param>
     private static string BuildEvidenceBlock(
         GccCreateDto create,
         IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses,
-        IReadOnlyList<string> unlistedTools)
+        IReadOnlyList<string> unlistedTools,
+        IReadOnlySet<(string Url, int Position)>? carried = null)
     {
         var sb = new StringBuilder();
-        var researchBlock = BuildResearchBlock(create);
+        var researchBlock = BuildResearchBlock(create, carried);
         if (researchBlock.Length > 0)
             sb.AppendLine(researchBlock);
 
@@ -3325,6 +3414,27 @@ public partial class GccGenerateService
         return research.Length == 0 ? positions : $"{research}{Environment.NewLine}{positions}";
     }
 
+    /// <summary>
+    /// The evidence a request carries when its partner research was chosen for it, or null when it
+    /// carries the page's evidence as built, with all of the research. The choice goes on the run's
+    /// record either way.
+    /// </summary>
+    /// <param name="labels">The labels of the sections the request writes. With none, no choice is made.</param>
+    /// <param name="evidenceWith">The request's evidence with only the passages given: everything else in
+    /// it is what every request of the page carries.</param>
+    private static async Task<string?> ChosenEvidenceAsync(
+        GccResearchPerRequest research,
+        IReadOnlyList<string> labels,
+        string request,
+        int call,
+        int of,
+        Func<IReadOnlySet<(string Url, int Position)>, string?> evidenceWith)
+    {
+        if (research.For(labels, request, call, of) is not { } forRequest) return null;
+        await GccRunLog.RecordIfAnyAsync("evidence", forRequest.Record);
+        return forRequest.Carried is null ? null : evidenceWith(forRequest.Carried);
+    }
+
     private static string? WithForeignAmountsNamed(string? evidence, string? foreignAmountsNote) =>
         foreignAmountsNote is null ? evidence
         : string.IsNullOrWhiteSpace(evidence) ? foreignAmountsNote
@@ -3494,32 +3604,25 @@ public partial class GccGenerateService
         string label,
         CancellationToken ct,
         List<string>? callsUnderFloor = null,
-        GccResearchWatch? researchWatch = null)
+        Func<IReadOnlyList<SectionSlot>, string, int, int, Task<string?>>? evidenceFor = null)
     {
         var written = new List<Section>();
         // The keyword the page is scored against: the one its prompts name and the SEO report counts.
         var keyword = promptCtx.Context.TargetKeyword;
-
-        // How the page's partner research divides by label, once, before its requests are recorded.
-        if (researchWatch is not null)
-        {
-            await GccRunLog.RecordIfAnyAsync("evidence-labels", researchWatch.LabelsRecord());
-        }
 
         for (var i = 0; i < outline.Count; i += SectionsPerBatch)
         {
             var batch = outline.Skip(i).Take(SectionsPerBatch).ToList();
             var batchLabel = $"{label} sections {i + 1}-{i + batch.Count}";
 
-            // What this request would carry if its research were chosen for its sections, on the run's
-            // record (plans/research-classification.md, stage 2). Recorded and nothing more: the request
-            // below is built from promptCtx, which this does not touch, and carries all of the research.
-            if (researchWatch?.WouldCarry(
-                    batch, batchLabel, i / SectionsPerBatch + 1, (outline.Count + SectionsPerBatch - 1) / SectionsPerBatch)
-                is { } wouldCarry)
-            {
-                await GccRunLog.RecordIfAnyAsync("evidence", wouldCarry);
-            }
+            // The evidence this request carries when its research was chosen for its sections
+            // (plans/research-classification.md, a pillar's and a blog's requests). Null is the page's
+            // evidence as promptCtx holds it, all of the research, which is what every request of a page
+            // with no such choice carries.
+            var chosenEvidence = evidenceFor is null
+                ? null
+                : await evidenceFor(
+                    batch, batchLabel, i / SectionsPerBatch + 1, (outline.Count + SectionsPerBatch - 1) / SectionsPerBatch);
 
             // What the calls before this one wrote, so this one does not make their points again. Each
             // call sees the outline and the opening; until 2026-10-10 none saw another call's text.
@@ -3529,6 +3632,7 @@ public partial class GccGenerateService
                 SectionBatchIndex = i / SectionsPerBatch,
                 WrittenSoFar = written.Count == 0 ? null : [.. written],
             };
+            if (chosenEvidence is not null) batchCtx = batchCtx with { EvidenceBlock = chosenEvidence };
             var sections = await WriteBatchAsync(llm, type, batchCtx, batchLabel, outline.Count, ct);
 
             // What the batch owes of its page, measured the moment it comes back: its words.

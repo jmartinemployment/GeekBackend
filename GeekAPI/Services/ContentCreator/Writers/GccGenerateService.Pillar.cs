@@ -113,10 +113,31 @@ public partial class GccGenerateService
         var toolInstruction = partnerTools.Instruction;
         // The valid tags are stated up front: with no retry to name them after a refusal, the first
         // attempt has to be told what resolves.
-        var pillarEvidence = string.Join(
+        //
+        // A body request's evidence, with all of the research or with the passages chosen for it. Only
+        // the research differs: the publisher's positions, the competitor blocks, the site's own
+        // coverage, the partners to name and the heading sources are whole in every request.
+        string PillarEvidenceWith(IReadOnlySet<(string Url, int Position)>? carried) => string.Join(
             Environment.NewLine,
-            new[] { evidenceBlock, toolInstruction, GccHeadingProvenanceGuard.LicensedValues(evidence) }
+            new[]
+                {
+                    carried is null
+                        ? evidenceBlock
+                        : BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted, carried),
+                    toolInstruction,
+                    GccHeadingProvenanceGuard.LicensedValues(evidence),
+                }
                 .Where(b => !string.IsNullOrWhiteSpace(b)));
+        // All of the research: what a request carries when nothing is chosen for it, and what the
+        // page's checks read whatever a request carried.
+        var pillarEvidence = PillarEvidenceWith(null);
+
+        // What each body request of this page would carry of the partner research if it were chosen for
+        // its sections, on the run's record (plans/research-classification.md). How the research
+        // divides by label is recorded once, before any request's choice.
+        var pillarResearch = new GccResearchPerRequest(
+            GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls, sendsWhatIsChosen: false);
+        await GccRunLog.RecordIfAnyAsync("evidence-labels", pillarResearch.LabelsRecord());
 
         // In batches. One response cannot hold a 3,000-word floor in this JSON -- see
         // SectionsPerBatch -- so asking for the whole page in one call capped it by arithmetic.
@@ -194,8 +215,15 @@ public partial class GccGenerateService
                 "Pillar body",
                 ct,
                 callsUnderFloor,
-                // Watching only: what each request would carry is recorded, and each carries everything.
-                new GccResearchWatch(GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls));
+                // Recorded only: what each request would carry goes on the run's record, and each is
+                // sent everything. On for the blog; the pillar is next.
+                (batch, request, call, of) => ChosenEvidenceAsync(
+                    pillarResearch,
+                    GccResearchPerRequest.LabelsOf(batch),
+                    request,
+                    call,
+                    of,
+                    carried => WithForeignAmountsNamed(PillarEvidenceWith(carried), pillarForeignAmounts)));
             // The keyword's shortenings put back on the opening and the body as written, then partner
             // tool pages on the body alone, then the page's own closing, then the section written
             // outside the outline: neither of the last two can carry a tool link, and neither is remapped.
