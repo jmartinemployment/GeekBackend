@@ -269,8 +269,8 @@ public class GccGenerationCoordinatorTests
     [Fact]
     public void The_grounding_record_says_what_each_of_the_briefs_searches_found_and_the_kinds_of_page()
     {
-        // plans/research-classification.md, stage 1: which search found which passage, and the kind of
-        // page it is on, are kept, and a run's record shows them before anything is chosen by them.
+        // Which search found which passage, and the kind of page it is on, are kept, and a run's
+        // record shows them: they are what a request's passages are chosen by.
         var problem = new GccPassageSearch(GccPassageSearch.KindProblem, "Cash arrives late.");
         var row = new GccPassageSearch(GccPassageSearch.KindRow, "Automated reminders.", Failure: "Reminders are sent by hand.");
         var pricing = new GccQuoteablePage(

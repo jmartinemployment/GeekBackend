@@ -4,8 +4,7 @@ using GeekApplication.Models.ContentCreator;
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
-/// Gives a passage of research its labels: which parts of a pillar or a blog it is for
-/// (plans/research-classification.md, "How a passage gets its label").
+/// Gives a passage of research its labels: which parts of a pillar or a blog it is for.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -39,9 +38,9 @@ namespace GeekAPI.Services.ContentCreator;
 /// </para>
 /// <para>
 /// <b>Crude, and known to be.</b> Word matching failed twice on 2026-10-10 at a harder job, finding
-/// the one passage that answers a question. This asks less of it, and the plan's "watch" mode only
-/// records what it would choose. The lists are adjusted from real runs before anything is chosen
-/// by them.
+/// the one passage that answers a question. This asks less of it: a label decides the order a
+/// partner's passages are taken in, never whether a partner is carried. The lists were adjusted from
+/// the first real run, which was under the ceiling; no run has yet chosen by them.
 /// </para>
 /// </remarks>
 public static class GccPassageClassifier

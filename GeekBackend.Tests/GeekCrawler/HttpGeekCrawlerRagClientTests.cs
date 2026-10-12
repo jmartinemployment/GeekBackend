@@ -73,7 +73,7 @@ public sealed class HttpGeekCrawlerRagClientTests
     public void MapChunksToQuoteable_keeps_the_kind_of_page_the_index_marked_it()
     {
         // The index marks a page once and stamps every chunk of it. It sent this on every hit and it
-        // was not read until 2026-10-11 (plans/research-classification.md, stage 1).
+        // was not read until 2026-10-11.
         var chunks = new List<HttpGeekCrawlerRagClient.ChunkDto>
         {
             new() { Url = "https://partner.example/pricing", Title = "Pricing", ChunkIndex = 0, Text = "Plans start at a monthly rate.", Score = 0.9, Category = " Pricing " },

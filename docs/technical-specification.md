@@ -199,15 +199,14 @@ every project was accounts payable. On the same run three cash flow forecasting 
 the product's own pages name them, and the blog's names data, mapping and who owns what. The Workflow product's
 per-section writer still lists "approval chains, routing" (`BuildImplementationSectionGuidance`) and is not changed.
 
-**Each passage keeps what found it** (2026-10-11, `plans/research-classification.md` stage 1). A partner's crawl is
+**Each passage keeps what found it** (2026-10-11). A partner's crawl is
 searched with the brief's problem and then one search per row. Which search found which passage was dropped where the
 results came back, and the kind of page the index marks each page as (pricing, docs, blog, product, about, careers,
 legal, compare, page) was sent on every result and not read. Both are now kept on the page (`GccQuoteablePage.Category`,
 `Searches`, `FoundBy`) and listed on the run log's `grounding` event (`poolSearches`, `pageKinds`). No writer is shown
-either and no passage is chosen by them yet: this is the record stage 2 will choose from.
+either. They are two of the three things a request's passages are chosen by, below.
 
-**What each request would carry was first only recorded** (2026-10-11, the same plan's stage 2; sent since 2026-10-12,
-below). Each pillar and blog section names one of seven labels for the part of the research it is written from
+**What each request would carry was first only recorded** (2026-10-11; sent since 2026-10-12, below). Each pillar and blog section names one of seven labels for the part of the research it is written from
 (`SectionSlot.ResearchLabel`; `GccResearchLabel`). Code gives each passage its labels from the kind of page, the searches
 that found it and its own words (`GccPassageClassifier`), and works out what a request writing two sections would carry
 (`GccResearchSelector`): research of 350,000 characters or less whole; otherwise each partner up to 40,000, its passages
@@ -215,7 +214,7 @@ labelled for the request's sections first, then general ones, then its others, a
 counted at half. The run log gets `evidence-labels` once a page and `evidence` once a request
 (`GccResearchPerRequest`).
 
-**Changed from the first real run** (14:20 UTC, 2026-10-11, the plan's stage 3; still nothing a writer is sent). That
+**Changed from the first real run** (14:20 UTC, 2026-10-11, while the choice was still only recorded). That
 project's research was 250,717 characters in 213 passages, none without a label and only 8 for "getting it running",
 so a request for those sections would have carried a fifth of the research; and its pillar's body requests were billed
 at half price for 66,432 of about 68,300 tokens from the second on, which a request with its own choice of research
@@ -224,8 +223,8 @@ loses. So a partner is now carried up to its limit whatever its passages are lab
 forms count once ("client" and "clients" gave a label between them), and "plan", "timeline", "results", "review",
 "faster" and "increased" are out of the lists: the first two are a forecasting tool's own words.
 
-**A pillar's and a blog's requests are sent what is chosen for them** (2026-10-12, the plan's stages 4 and 5, on Jeff's
-word: "Research classification: finish this off"). When a page's partner research is over 350,000 characters, its
+**A pillar's and a blog's requests are sent what is chosen for them** (2026-10-12, on Jeff's word: "Research
+classification: finish this off"). When a page's partner research is over 350,000 characters, its
 opening and each of its body requests carry the passages chosen for the sections that request writes and no others
 (`GccResearchPerRequest.For`, printed by `BuildResearchBlock(create, carried)`): up to 40,000 characters for each
 partner, the opening counted as the page's first request. Research of 350,000 characters or less is sent whole to every
@@ -246,8 +245,18 @@ loses a passage.
   blog body requests go from about 117,600 of 128,000 to about 61,000 (about 488,000 characters of research becoming
   200,000), and their openings from about 100,000 to about 45,000. They no longer repeat one block of research, so the
   half-price billing for repeated text is lost; at this size the page still costs about a fifth less to send.
-- **Not seen on real research.** Both projects that have run since 2026-10-11 are under the ceiling. The first run of a
-  project over it is the first sight of which passages each request is sent; its run log's `evidence` events list them.
+- **Not seen on real research.** Both projects that have run since 2026-10-11 are under the ceiling, and the accounts
+  receivable project, the one measured over it, is published (Jeff, 2026-10-12) and is not written again to see this: a Generate deletes a
+  project's pillar and blog before it writes. The first new project over the ceiling is the first sight of which passages
+  each request is sent; its run log's `evidence` events list them. Under the ceiling every `evidence` event says `whole`.
+- **Do not lower the ceiling, raise a partner's limit, or add a size check that drops passages** without a run that
+  shows why, and do not put a word back in the classifier's lists without a run that shows it labels the right passages.
+- **The research holds almost nothing for some sections.** On the 14:20 UTC run, 8 of 213 passages were labelled for
+  getting it running and 7 for results and proof; of the ones read, about half of the first and none of the second were
+  really that. Those sections are written with next to no evidence of their own, chosen or whole. Choosing cannot find
+  what was never searched for, and nothing searches for those sections.
+- **The plan this was built from is removed** (2026-10-12, the work being finished). It is in git:
+  `git show d4f1f3b:plans/research-classification.md`.
 - **The tool pages are not changed.** Each carries one partner's research and fits.
 
 **The 13:14 UTC run of 2026-10-11** (project "Cash Flow Forecasting: Automated Spreadsheet Data", five partners, 30 body

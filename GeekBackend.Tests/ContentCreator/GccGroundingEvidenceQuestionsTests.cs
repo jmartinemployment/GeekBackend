@@ -365,7 +365,7 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Null(merged.Scores);
     }
 
-    // ---- which search found which passage (plans/research-classification.md, stage 1) --------------
+    // ---- which search found which passage ----------------------------------------------------------
     //
     // A partner is asked the brief's problem and then one question per row. The library's answer does
     // not say which question it answers, and until 2026-10-11 nothing kept it: every passage reached

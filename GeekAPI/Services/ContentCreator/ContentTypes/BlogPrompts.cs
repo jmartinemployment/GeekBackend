@@ -73,7 +73,7 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
         return
         [
             // Each section names the part of the page's research it is written from
-            // (SectionSlot.ResearchLabel, plans/research-classification.md, "The labels"). No prompt prints it.
+            // (SectionSlot.ResearchLabel). No prompt prints it.
             Opening(ctx.Context.ContentAngle, keyword, niche) with { ResearchLabel = GccResearchLabel.Problem },
             SectionSlot.Cover(
                 $"what doing {keyword} by hand actually costs this reader -- the hours, the errors, the "

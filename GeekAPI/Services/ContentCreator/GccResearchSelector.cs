@@ -44,14 +44,14 @@ public sealed record GccResearchSelection(
 
 /// <summary>
 /// Chooses, for one request of a pillar or a blog, the passages of partner research that request
-/// would carry (plans/research-classification.md, "What each request then carries").
+/// carries.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Why.</b> Every request that writes part of a pillar or a blog carries all of the research, every
-/// passage found on every partner's site. On 2026-10-10 that put both pages over the model's limit,
-/// and the room made since is about 9% on the project it happened to. A request that writes two
-/// sections needs the passages for those two.
+/// <b>Why.</b> Until 2026-10-12 every request that wrote part of a pillar or a blog carried all of the
+/// research, every passage found on every partner's site. On 2026-10-10 that put both pages over the
+/// model's limit, and the room made after it was about 9% on the project it happened to. A request
+/// that writes two sections needs the passages for those two.
 /// </para>
 /// <para>
 /// <b>The rules, in the order they apply.</b>
@@ -70,8 +70,8 @@ public sealed record GccResearchSelection(
 /// </para>
 /// <para>
 /// <b>Why a partner is filled to its limit, and why research is whole up to
-/// <see cref="WholeUpToChars"/>.</b> Both are from the 14:20 UTC run of 2026-10-11, the first with
-/// this watching (project "Automated Spreadsheet Data", 213 passages, 250,717 characters).
+/// <see cref="WholeUpToChars"/>.</b> Both are from the 14:20 UTC run of 2026-10-11, the first whose
+/// choice was recorded (project "Automated Spreadsheet Data", 213 passages, 250,717 characters).
 /// <list type="bullet">
 /// <item>No passage was general: every one was found by the brief's problem or by one of its rows, and
 /// each gives a label. And the research held almost nothing for some sections: 8 passages of 213 for
@@ -330,7 +330,7 @@ public sealed record GccRequestResearch(object Record, IReadOnlySet<(string Url,
 
 /// <summary>
 /// What each request of one pillar or one blog carries of the page's partner research: the opening,
-/// then each body request, in the order they are written (plans/research-classification.md).
+/// then each body request, in the order they are written.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -502,7 +502,7 @@ public sealed class GccResearchPerRequest
             ? [GccResearchLabel.General]
             : [.. GccResearchLabel.All.Where(passage.Labels.ContainsKey)];
 
-    /// <summary>How many passages carry each label, in the plan's order, then how many carry none.</summary>
+    /// <summary>How many passages carry each label, in the labels' own order, then how many carry none.</summary>
     private static IReadOnlyDictionary<string, int> CountsByLabel(IReadOnlyList<GccResearchPassage> passages)
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);

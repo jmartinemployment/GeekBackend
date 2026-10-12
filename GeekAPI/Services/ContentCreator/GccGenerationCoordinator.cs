@@ -986,7 +986,7 @@ public sealed class GccGenerationCoordinator
                 })
                 .ToList(),
             // What each of the brief's searches brought into the pages every writer reads, and the kinds
-            // of page those are. Kept since 2026-10-11 (plans/research-classification.md, stage 1); null
+            // of page those are. Kept since 2026-10-11; null
             // on research that kept neither.
             poolSearches = PoolSearches(research.Quoteables),
             pageKinds = PageKinds(research.Quoteables),

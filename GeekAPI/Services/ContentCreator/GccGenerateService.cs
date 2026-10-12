@@ -303,7 +303,7 @@ public partial class GccGenerateService
 
     /// <summary>
     /// What a request is told when the research it carries was chosen for its sections and is not all
-    /// of it (plans/research-classification.md).
+    /// of it.
     /// </summary>
     internal const string ResearchIsAPartNote =
         "THIS REQUEST CARRIES PART OF THE RESEARCH: the passages chosen for the sections it writes, and "
@@ -2587,7 +2587,7 @@ public partial class GccGenerateService
 
         // What each request of this page carries of the partner research: all of it when it fits, and
         // otherwise what is chosen for the sections the request writes, the opening first
-        // (plans/research-classification.md; on since 2026-10-12, on Jeff's word). How the research
+        // (on since 2026-10-12, on Jeff's word). How the research
         // divides by label goes on the run's record once, before any request's choice.
         var blogResearch = new GccResearchPerRequest(
             GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls);
@@ -3616,7 +3616,7 @@ public partial class GccGenerateService
             var batchLabel = $"{label} sections {i + 1}-{i + batch.Count}";
 
             // The evidence this request carries when its research was chosen for its sections
-            // (plans/research-classification.md, a pillar's and a blog's requests). Null is the page's
+            // (a pillar's and a blog's requests). Null is the page's
             // evidence as promptCtx holds it, all of the research, which is what every request of a page
             // with no such choice carries.
             var chosenEvidence = evidenceFor is null

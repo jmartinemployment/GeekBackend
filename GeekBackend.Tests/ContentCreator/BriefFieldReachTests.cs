@@ -589,8 +589,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// <summary>
     /// With more partner research than is carried whole, a pillar's and a blog's opening and each of
     /// their body requests are sent the passages chosen for them and no others, and the run's record of
-    /// each request lists the same passages (plans/research-classification.md: on for the blog and the
-    /// pillar, 2026-10-12).
+    /// each request lists the same passages (on for the blog and the pillar since 2026-10-12).
     /// </summary>
     /// <remarks>
     /// Read off the requests the real writers make, so a request that was recorded as carrying a choice

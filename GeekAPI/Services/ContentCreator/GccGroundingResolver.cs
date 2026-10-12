@@ -772,8 +772,7 @@ public sealed class GccGroundingResolver(
     /// <remarks>
     /// The one place it is known. The library's answer does not say which question it answers, and
     /// until 2026-10-11 nothing wrote it down: a partner is asked the brief's problem and then one
-    /// question per row, and every passage reached the writers as one undivided pool
-    /// (plans/research-classification.md, stage 1).
+    /// question per row, and every passage reached the writers as one undivided pool.
     /// </remarks>
     internal static GccQuoteablePage FoundBy(GccQuoteablePage page, GccPassageSearch search) =>
         page with

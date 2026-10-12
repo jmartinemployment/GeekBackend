@@ -1,8 +1,7 @@
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
-/// The part of a pillar or a blog a passage of research is for
-/// (plans/research-classification.md, "The labels").
+/// The part of a pillar or a blog a passage of research is for.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,7 +43,7 @@ public static class GccResearchLabel
     /// </summary>
     public const string General = "general";
 
-    /// <summary>The seven, in the order the plan lists them.</summary>
+    /// <summary>The seven, in the order every count and record lists them.</summary>
     public static readonly IReadOnlyList<string> All =
     [
         Problem, HowItWorks, GettingItRunning, DataAndIntegrations, PeopleAndRoles, ResultsAndProof, FitPriceAndLimits,

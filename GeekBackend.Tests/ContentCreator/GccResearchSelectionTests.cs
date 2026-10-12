@@ -9,8 +9,8 @@ using Xunit;
 namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
-/// Which passages of research a request of a pillar or a blog carries
-/// (plans/research-classification.md). Research that fits is carried whole. Above the ceiling a choice
+/// Which passages of research a request of a pillar or a blog carries.
+/// Research that fits is carried whole. Above the ceiling a choice
 /// is made for each request's sections, recorded, and sent: on for the blog and the pillar since
 /// 2026-10-12, on Jeff's word.
 /// </summary>

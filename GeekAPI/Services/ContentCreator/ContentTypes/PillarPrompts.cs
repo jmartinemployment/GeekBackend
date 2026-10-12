@@ -35,8 +35,8 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     /// words against a 3,000-word floor. Ten are five calls. Each of the five obligations was split along what
     /// it already said; none is a new topic.
     /// <para>
-    /// Each names the part of the page's research it is written from (<see cref="SectionSlot.ResearchLabel"/>,
-    /// plans/research-classification.md, "The labels"). No prompt prints it.
+    /// Each names the part of the page's research it is written from (<see cref="SectionSlot.ResearchLabel"/>).
+    /// No prompt prints it.
     /// </para>
     /// </summary>
     private static readonly SectionSlot[] Sections =

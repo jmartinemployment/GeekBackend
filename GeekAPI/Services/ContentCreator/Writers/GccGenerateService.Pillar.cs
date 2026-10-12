@@ -104,7 +104,7 @@ public partial class GccGenerateService
 
         // What each request of this page carries of the partner research: all of it when it fits, and
         // otherwise what is chosen for the sections the request writes, the opening first
-        // (plans/research-classification.md; on since 2026-10-12, on Jeff's word). How the research
+        // (on since 2026-10-12, on Jeff's word). How the research
         // divides by label goes on the run's record once, before any request's choice.
         var pillarResearch = new GccResearchPerRequest(
             GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls);
