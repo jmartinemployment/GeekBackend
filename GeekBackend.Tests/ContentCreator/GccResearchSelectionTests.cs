@@ -11,8 +11,8 @@ namespace GeekBackend.Tests.ContentCreator;
 /// <summary>
 /// Which passages of research a request of a pillar or a blog carries
 /// (plans/research-classification.md). Research that fits is carried whole. Above the ceiling a choice
-/// is made for each request's sections and recorded; a blog's requests are sent it (2026-10-12, on
-/// Jeff's word), and a pillar's are still sent everything.
+/// is made for each request's sections, recorded, and sent: on for the blog and the pillar since
+/// 2026-10-12, on Jeff's word.
 /// </summary>
 public class GccResearchSelectionTests
 {
@@ -617,13 +617,8 @@ public class GccResearchSelectionTests
 
     // ---- what a request carries, and the record of it ------------------------------------------------
 
-    /// <summary>A page whose requests are sent what is chosen for them: the blog's, and the pillar's.</summary>
-    private static GccResearchPerRequest Sending(IReadOnlyList<GccQuoteablePage>? pages) =>
-        new(pages, null, sendsWhatIsChosen: true);
-
-    /// <summary>A page whose requests' choices are recorded and which are sent everything.</summary>
-    private static GccResearchPerRequest Recording(IReadOnlyList<GccQuoteablePage>? pages) =>
-        new(pages, null, sendsWhatIsChosen: false);
+    /// <summary>One page being written, with <paramref name="pages"/> as its partner research.</summary>
+    private static GccResearchPerRequest Sending(IReadOnlyList<GccQuoteablePage>? pages) => new(pages, null);
 
     private static GccRequestResearch? For(
         GccResearchPerRequest research, IReadOnlyList<SectionSlot> sections, string request, int call, int of) =>
@@ -671,19 +666,19 @@ public class GccResearchSelectionTests
     }
 
     /// <summary>
-    /// The switch itself: over the ceiling, a page that sends is handed exactly the passages its record
-    /// lists as chosen; a page that only records is handed none and its record says so; and research
-    /// that fits is handed to neither, because nothing was chosen from it.
+    /// The switch itself: over the ceiling a request is handed exactly the passages its record lists as
+    /// chosen, and research that fits is handed whole, because nothing was chosen from it.
     /// </summary>
     [Fact]
-    public void A_request_is_sent_exactly_what_its_record_lists_as_chosen_and_only_on_a_page_that_sends()
+    public void A_request_is_sent_exactly_what_its_record_lists_as_chosen_and_research_that_fits_is_sent_whole()
     {
         var sent = For(Sending(TwoPartnersOverTheLimit()), ProblemSections, "Blog body sections 1-2", 1, 3)!;
         var sentRecord = JsonSerializer.SerializeToElement(sent.Record);
 
         Assert.NotNull(sent.Carried);
-        Assert.False(sentRecord.GetProperty("watch").GetBoolean());
         Assert.False(sentRecord.GetProperty("whole").GetBoolean());
+        // Nothing records a choice without sending it any more.
+        Assert.False(sentRecord.TryGetProperty("watch", out _));
         Assert.Equal(
             sentRecord.GetProperty("chosen").EnumerateArray()
                 .Select(c => (c.GetProperty("url").GetString()!, c.GetProperty("passage").GetInt32() - 1))
@@ -693,19 +688,9 @@ public class GccResearchSelectionTests
             sentRecord.GetProperty("leftOut").EnumerateArray(),
             l => sent.Carried.Contains((l.GetProperty("url").GetString()!, l.GetProperty("passage").GetInt32() - 1)));
 
-        var recorded = For(Recording(TwoPartnersOverTheLimit()), ProblemSections, "Pillar body sections 1-2", 1, 5)!;
-        var recordedRecord = JsonSerializer.SerializeToElement(recorded.Record);
-
-        Assert.Null(recorded.Carried);
-        Assert.True(recordedRecord.GetProperty("watch").GetBoolean());
-        // The same choice either way: only whether it is sent differs.
-        Assert.Equal(
-            sentRecord.GetProperty("chosen").GetRawText(),
-            recordedRecord.GetProperty("chosen").GetRawText());
-
         var fits = For(Sending([.. TwoPartnersOverTheLimit().Take(10)]), ProblemSections, "Blog body sections 1-2", 1, 3)!;
         Assert.Null(fits.Carried);
-        Assert.False(JsonSerializer.SerializeToElement(fits.Record).GetProperty("watch").GetBoolean());
+        Assert.True(JsonSerializer.SerializeToElement(fits.Record).GetProperty("whole").GetBoolean());
     }
 
     /// <summary>
@@ -746,12 +731,11 @@ public class GccResearchSelectionTests
     [Fact]
     public void The_record_says_what_the_research_holds_what_is_carried_partner_by_partner_and_what_is_left_out()
     {
-        var record = RecordOf(Recording(TwoPartnersOverTheLimit()), ProblemSections, "Pillar body sections 1-2", 1, 5);
+        var record = RecordOf(Sending(TwoPartnersOverTheLimit()), ProblemSections, "Pillar body sections 1-2", 1, 5);
 
         Assert.Equal("Pillar body sections 1-2", record.GetProperty("batch").GetString());
         Assert.Equal(1, record.GetProperty("call").GetInt32());
         Assert.Equal(5, record.GetProperty("of").GetInt32());
-        Assert.True(record.GetProperty("watch").GetBoolean());
         Assert.False(record.GetProperty("whole").GetBoolean());
         Assert.Equal([GccResearchLabel.Problem], record.GetProperty("labels").EnumerateArray().Select(l => l.GetString()));
         Assert.Equal(40_000, record.GetProperty("limits").GetProperty("perPartner").GetInt32());
@@ -812,7 +796,6 @@ public class GccResearchSelectionTests
         var record = RecordOf(Sending([.. TwoPartnersOverTheLimit().Take(10)]), ProblemSections, "Pillar body sections 1-2", 1, 5);
 
         Assert.True(record.GetProperty("whole").GetBoolean());
-        Assert.False(record.GetProperty("watch").GetBoolean());
         Assert.Equal(
             record.GetProperty("research").GetProperty("chars").GetInt32(),
             record.GetProperty("carried").GetProperty("chars").GetInt32());

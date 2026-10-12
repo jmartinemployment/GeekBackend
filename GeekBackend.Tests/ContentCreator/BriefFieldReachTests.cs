@@ -587,20 +587,19 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         text.Split('\n').Count(line => line.TrimStart().StartsWith(label, StringComparison.Ordinal));
 
     /// <summary>
-    /// With more partner research than is carried whole, a blog's opening and each of its body requests
-    /// are sent the passages chosen for them and no others, and the run's record of each request lists
-    /// the same passages. A pillar's choice is recorded and its requests are still sent everything
-    /// (plans/research-classification.md: on for the blog, 2026-10-12).
+    /// With more partner research than is carried whole, a pillar's and a blog's opening and each of
+    /// their body requests are sent the passages chosen for them and no others, and the run's record of
+    /// each request lists the same passages (plans/research-classification.md: on for the blog and the
+    /// pillar, 2026-10-12).
     /// </summary>
     /// <remarks>
     /// Read off the requests the real writers make, so a request that was recorded as carrying a choice
     /// and sent something else fails here.
     /// </remarks>
     [Theory]
-    [InlineData("pillar", 5, false)]
-    [InlineData("blog", 3, true)]
-    public async Task Over_the_ceiling_a_request_is_sent_what_its_record_says_was_chosen_for_it(
-        string page, int bodyRequests, bool sendsWhatIsChosen)
+    [InlineData("pillar", 5)]
+    [InlineData("blog", 3)]
+    public async Task Over_the_ceiling_a_request_is_sent_what_its_record_says_was_chosen_for_it(string page, int bodyRequests)
     {
         var filler = new string('x', 2_900);
         var passages = Enumerable.Range(0, 130).Select(i => $"Passage {i:000} of the partner's research. {filler}").ToList();
@@ -611,12 +610,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         Assert.Equal(130, labels.GetProperty("passages").GetInt32());
         Assert.Equal(65, labels.GetProperty("byLabel").GetProperty(GccResearchLabel.FitPriceAndLimits).GetInt32());
 
-        // Once for each request a choice is made for: the body's, and the opening of a page that is sent
-        // its choice. The opening is request 0.
+        // Once for each request a choice is made for: the opening, which is request 0, then the body's.
         var evidence = recorded.Where(e => e.Kind == "evidence").Select(e => JsonDocument.Parse(e.PayloadJson).RootElement).ToList();
-        Assert.Equal(
-            sendsWhatIsChosen ? Enumerable.Range(0, bodyRequests + 1) : Enumerable.Range(1, bodyRequests),
-            evidence.Select(e => e.GetProperty("call").GetInt32()));
+        Assert.Equal(Enumerable.Range(0, bodyRequests + 1), evidence.Select(e => e.GetProperty("call").GetInt32()));
         var body = calls.Where(c => c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal)).ToList();
         Assert.Equal(bodyRequests, body.Count);
         var opening = Assert.Single(calls, c => c.Label == "opening");
@@ -628,7 +624,6 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         foreach (var record in evidence)
         {
             Assert.False(record.GetProperty("whole").GetBoolean());
-            Assert.Equal(!sendsWhatIsChosen, record.GetProperty("watch").GetBoolean());
             Assert.Equal(bodyRequests, record.GetProperty("of").GetInt32());
             Assert.Equal(130, record.GetProperty("research").GetProperty("passages").GetInt32());
             Assert.InRange(record.GetProperty("research").GetProperty("chars").GetInt32(), GccResearchSelector.WholeUpToChars + 1, int.MaxValue);
@@ -639,35 +634,18 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             Assert.NotEmpty(leftOut);
             Assert.Equal(130, chosen.Count + leftOut.Count);
 
+            // The request carries the passages its record lists as chosen, none it lists as left out,
+            // and is told that what it has is a part.
             var call = record.GetProperty("call").GetInt32();
             var text = call == 0 ? opening.Text : body[call - 1].Text;
-            if (sendsWhatIsChosen)
-            {
-                // The request carries the passages its record lists as chosen, none it lists as left
-                // out, and is told that what it has is a part.
-                Assert.All(chosen, i => Assert.Contains(passages[i], text, StringComparison.Ordinal));
-                Assert.All(leftOut, i => Assert.DoesNotContain(passages[i], text, StringComparison.Ordinal));
-                Assert.Contains(GccGenerateService.ResearchIsAPartNote, text, StringComparison.Ordinal);
-                carriedByThePage.UnionWith(chosen);
-            }
-            else
-            {
-                // Recorded only: the request was sent every passage, the ones its record leaves out included.
-                Assert.All(passages, passage => Assert.Contains(passage, text, StringComparison.Ordinal));
-                Assert.DoesNotContain(GccGenerateService.ResearchIsAPartNote, text, StringComparison.Ordinal);
-            }
+            Assert.All(chosen, i => Assert.Contains(passages[i], text, StringComparison.Ordinal));
+            Assert.All(leftOut, i => Assert.DoesNotContain(passages[i], text, StringComparison.Ordinal));
+            Assert.Contains(GccGenerateService.ResearchIsAPartNote, text, StringComparison.Ordinal);
+            carriedByThePage.UnionWith(chosen);
         }
 
-        if (sendsWhatIsChosen)
-        {
-            // Between them the page's requests reach more of the research than any one of them carries.
-            Assert.InRange(carriedByThePage.Count, evidence.Max(e => e.GetProperty("chosen").GetArrayLength()) + 1, 130);
-        }
-        else
-        {
-            // A page whose choice is only recorded has no choice made for its opening, which is sent everything.
-            Assert.All(passages, passage => Assert.Contains(passage, opening.Text, StringComparison.Ordinal));
-        }
+        // Between them the page's requests reach more of the research than any one of them carries.
+        Assert.InRange(carriedByThePage.Count, evidence.Max(e => e.GetProperty("chosen").GetArrayLength()) + 1, 130);
 
         // No request is told a label. "problem" is a word any prompt uses; the other six are spelled as no
         // prose is, so finding one would mean a label had been printed.
@@ -697,7 +675,6 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         Assert.All(evidence, record =>
         {
             Assert.True(record.GetProperty("whole").GetBoolean());
-            Assert.False(record.GetProperty("watch").GetBoolean());
             Assert.Equal(JsonValueKind.Null, record.GetProperty("chosen").ValueKind);
         });
         var withResearch = calls
