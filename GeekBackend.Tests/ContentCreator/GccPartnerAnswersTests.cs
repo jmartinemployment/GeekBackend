@@ -35,6 +35,7 @@ public class GccPartnerAnswersTests
                 ]
               },
               "chaserhq.com": {
+                "automationToPitch": "Get paid without chasing: reminders that send themselves in 5 minutes of setup.",
                 "evidence": [
                   { "problem": "Reminders are sent by hand, when someone remembers.", "solution": "Automated reminder schedules by email and SMS.", "terms": ["payment reminders"] },
                   { "problem": "", "solution": "Late payment prediction from each customer's history.", "terms": [] }
@@ -60,14 +61,43 @@ public class GccPartnerAnswersTests
                 "  1. Where it goes wrong: Reminders are sent by hand, when someone remembers.",
                 "     What Chaserhq does about it: Automated reminder schedules by email and SMS.",
                 "  2. What Chaserhq does: Late payment prediction from each customer's history.",
+                // What to pitch it on comes last, as it does in the operator's research.
+                "  What the operator would pitch Chaserhq on: Get paid without chasing: reminders that send themselves in 5 minutes of setup.",
                 "Upflow:",
+                // Its own problem comes first. The category's is never printed in its place.
+                "  The problem Upflow is for: Collections run on one person's memory.",
                 "  1. Where it goes wrong: Disputes stall a payment for weeks.",
                 "     What Upflow does about it: A customer portal where a dispute is raised against the invoice.",
                 // A failure with no remedy noted is listed alone; a row with neither is not a row.
                 "  2. Where it goes wrong: Nobody knows which invoices to chase first.",
+                // A partner with a problem of its own and no row is listed with what it has.
+                "Bill:",
+                "  The problem Bill is for: Payables and receivables are run in two places.",
                 "",
             ],
             partners);
+    }
+
+    /// <summary>
+    /// A pillar or a blog discussing a tool can use what the operator entered for it (Jeff, 2026-10-12:
+    /// "pillars &amp; blog should have the research data"). A tool with a box left empty is not given the
+    /// category's there: the page already carries the category's as its own framing.
+    /// </summary>
+    [Fact]
+    public void A_partners_own_problem_and_pitch_are_listed_and_the_categorys_are_not_printed_in_their_place()
+    {
+        var block = GccPartnerAnswers.Instruction(Brief, PartnerUrls)!;
+
+        Assert.Contains("The problem Upflow is for: Collections run on one person's memory.", block, StringComparison.Ordinal);
+        Assert.Contains("What the operator would pitch Chaserhq on: Get paid without chasing", block, StringComparison.Ordinal);
+        // Chaserhq has no problem of its own and Upflow no pitch: neither gets the category's.
+        Assert.DoesNotContain("The problem Chaserhq is for", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("pitch Upflow on", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cash arrives whenever the customer gets round to paying.", block, StringComparison.Ordinal);
+        Assert.DoesNotContain("Invoice-to-cash on a schedule.", block, StringComparison.Ordinal);
+        // A pitch may name a capability: it is the operator's claim, stated only as passages show it.
+        Assert.Contains("What a partner is pitched on is the case to make for it", block, StringComparison.Ordinal);
+        Assert.Contains("state it only as that partner's passages show it", block, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -80,15 +110,17 @@ public class GccPartnerAnswersTests
     }
 
     [Fact]
-    public void A_partners_own_problem_and_search_terms_are_not_listed()
+    public void A_partners_search_terms_are_not_listed_and_a_partner_with_nothing_of_its_own_has_no_heading()
     {
         var block = GccPartnerAnswers.Instruction(Brief, PartnerUrls)!;
+        var withoutBill = GccPartnerAnswers.Instruction(
+            Brief.Replace("\"coreProblem\": \"Payables and receivables are run in two places.\", ", string.Empty, StringComparison.Ordinal),
+            PartnerUrls)!;
 
-        Assert.DoesNotContain("Collections run on one person's memory.", block, StringComparison.Ordinal);
         Assert.DoesNotContain("customer portal\n", block, StringComparison.Ordinal);
         Assert.DoesNotContain("prioritisation", block, StringComparison.Ordinal);
-        // A partner with no row of its own is not given an empty heading.
-        Assert.DoesNotContain("Bill:", block, StringComparison.Ordinal);
+        // A partner with no row, no problem and no pitch of its own is not given an empty heading.
+        Assert.DoesNotContain("Bill:", withoutBill, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -132,8 +164,9 @@ public class GccPartnerAnswersTests
     [InlineData("")]
     [InlineData("{}")]
     [InlineData("""{ "nicheFraming": { "coreProblem": "x", "evidence": [ { "problem": "p", "solution": "s", "terms": [] } ] } }""")]
-    [InlineData("""{ "nicheFraming": { "perTool": { "upflow.io": { "coreProblem": "x", "evidence": [] } } } }""")]
-    public void A_brief_with_no_row_under_any_partner_says_nothing(string? briefJson)
+    [InlineData("""{ "nicheFraming": { "perTool": { "upflow.io": { "coreProblem": " ", "automationToPitch": "", "evidence": [] } } } }""")]
+    [InlineData("""{ "nicheFraming": { "perTool": { "gone.example": { "coreProblem": "x", "automationToPitch": "y" } } } }""")]
+    public void A_brief_with_nothing_under_any_partner_of_the_project_says_nothing(string? briefJson)
     {
         Assert.Null(GccPartnerAnswers.Instruction(briefJson, PartnerUrls));
     }

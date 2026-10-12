@@ -170,6 +170,18 @@ sentence about a partner against a passage. The partner's own tool page is told 
 before. On the accounts receivable project the block is about 6,400 characters, 1,260 tokens a body call, worked out from
 the brief's field lengths and not yet seen in a real run.
 
+**A partner's own problem and pitch, on the pillar and the blog.** Besides its rows a partner has two boxes of its own in
+the brief, `perTool[host].coreProblem` and `perTool[host].automationToPitch`. Until 2026-10-12 they reached that partner's
+tool page and no other page. Since then the same block prints each under the partner's name, the problem before its rows
+and what the operator would pitch it on after them, in every pillar and blog body call (`GccNicheFramingReader.OwnStatementsForHost`).
+Only what the operator entered for that partner is printed: the category's is not put in an empty box's place, because the
+page already carries the category's as its own framing. A partner with a problem or a pitch and no row is listed with what
+it has. A pitch is a selling line and may name a capability or a figure; the writer is told to make its case in its own
+words, never verbatim, to take no figure from it, and to state a capability only as that partner's passages show it. A
+partner's `painPoints` still reach its own tool page alone. It adds about 2,800 characters, 555 tokens a body call, on the
+accounts receivable project (about 117,050 becomes about 117,600 of 128,000) and about 475 on the spreadsheet data project,
+worked out from the briefs' field lengths. Not yet seen in a real run.
+
 **A brief with no row for all partners.** The operator's research is per partner, so a brief can hold every failure under
 a partner and none for the category. The pillar's two sections on what is going wrong and the blog's section on what the
 work costs by hand were then told no failure: on the 13:14 UTC run of 2026-10-11, the first brief entered that way, 25

@@ -465,6 +465,51 @@ public static class GccNicheFramingReader
     }
 
     /// <summary>
+    /// What the operator entered under one partner host and nowhere else: that partner's own problem
+    /// and what to pitch it on, not merged with the category's. Null when the brief holds neither
+    /// for the host.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="ForHost"/> fills a partner's empty box from the category's, which is right for that
+    /// partner's own page and wrong for a page about every partner: the category's problem printed
+    /// under each of five partners is one statement five times. This answers only what is the
+    /// partner's own (<see cref="GccPartnerAnswers"/>). Its rows are <see cref="OwnRowsForHost"/>.
+    /// </remarks>
+    public static (string CoreProblem, string AutomationToPitch)? OwnStatementsForHost(string? briefJson, string? host)
+    {
+        host = (host ?? string.Empty).Trim();
+        if (host.Length == 0) return null;
+
+        var root = ReadRoot(briefJson);
+        if (root is null) return null;
+
+        if (!TryGetPropertyIgnoreCase(root.Value, "perTool", out var perTool)
+            || perTool.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var entry in perTool.EnumerateObject())
+        {
+            if (!string.Equals(GccRequiredToolMentions.HostKeyOf(Absolute(entry.Name)), host, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(entry.Name.Trim(), host, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
+
+            var own = ReadFraming(entry.Value);
+            if (own is null) continue;
+            var problem = own.CoreProblem.Trim();
+            var pitch = own.AutomationToPitch.Trim();
+            if (problem.Length > 0 || pitch.Length > 0) return (problem, pitch);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// The taxonomy path the operator researched, e.g.
     /// <c>["Accounting","Cash Flow Forecasting","Accounts Receivable"]</c>. Accepts a string split on
     /// <c>&gt;</c>, <c>-&gt;</c>, <c>›</c> or <c>→</c>, or an array.

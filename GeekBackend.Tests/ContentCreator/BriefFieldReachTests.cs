@@ -773,9 +773,12 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.evidence.solution => nothing
             nicheFraming.evidence.terms => nothing
             nicheFraming.faqQuestions => nothing
-            perTool.coreProblem => nothing
+            # A partner's own problem and what the operator would pitch it on, under that partner's name
+            # beside its rows (GccPartnerAnswers, 2026-10-12; Jeff: "pillars & blog should have the
+            # research data"). Its pain points still reach only its own tool page.
+            perTool.coreProblem => every body call
             perTool.painPoints => nothing
-            perTool.automationToPitch => nothing
+            perTool.automationToPitch => every body call
             # A partner's own rows: which partner answers which failure, and what it does about it
             # (GccPartnerAnswers, 2026-10-11). Beside the partners the page must name, in every body call.
             perTool.evidence.problem => every body call
@@ -809,9 +812,12 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.evidence.solution => nothing
             nicheFraming.evidence.terms => nothing
             nicheFraming.faqQuestions => nothing
-            perTool.coreProblem => nothing
+            # A partner's own problem and what the operator would pitch it on, under that partner's name
+            # beside its rows (GccPartnerAnswers, 2026-10-12; Jeff: "pillars & blog should have the
+            # research data"). Its pain points still reach only its own tool page.
+            perTool.coreProblem => every body call
             perTool.painPoints => nothing
-            perTool.automationToPitch => nothing
+            perTool.automationToPitch => every body call
             # A partner's own rows: which partner answers which failure, and what it does about it
             # (GccPartnerAnswers, 2026-10-11). Beside the partners the page must name, in every body call.
             perTool.evidence.problem => every body call

@@ -79,7 +79,8 @@ blog three.
 | category `coreProblem` | **no** | first body call | first body call, when the tool has none of its own | **no** |
 | category `painPoints` | first body call | first body call | first body call, added to the tool's | **no** |
 | category `automationToPitch` | second body call | first and second body call | first body call, when the tool has none of its own | **no** |
-| tool's own `coreProblem`, `painPoints`, `automationToPitch` | no | no | first body call | no |
+| tool's own `coreProblem`, `automationToPitch` | every body call, under the tool's name, since 2026-10-12 | every body call, under the tool's name, since 2026-10-12 | first body call | no |
+| tool's own `painPoints` | no | no | first body call | no |
 | tool's own `faqQuestions` | no | no | answered in the operator's FAQ | no |
 | a partner's own `evidence` rows: `problem`, `solution` | every body call, since 2026-10-11 | every body call, since 2026-10-11 | `problem` reaches it as the tool's `painPoints`; `solution` no | no |
 | the category's rows' `solution`; any row's `terms` | no | no | no | no |
@@ -91,6 +92,13 @@ the two pages about every partner were told to name each one and nothing of whic
 prints them under each partner's name beside the partners the page must name, as the operator's note and not as evidence.
 `BriefFieldReachTests` did not see this before because it wrote the pillar and the blog for no project, so no partner was
 ever in their prompts; it now writes them for a project that declares the partner. Not yet seen in a real run.
+
+**A partner's own problem and pitch reach the pillar and the blog since 2026-10-12** (Jeff: "pillars & blog should have the
+research data"). The two boxes a tool has besides its rows reached its own tool page and nothing else, so a pillar or a blog
+discussing a tool was told the failures it answers and not what the operator would say to sell it. The same block now prints
+each under the tool's name where the operator entered one. The category's is not printed in an empty box's place. It costs
+about 555 tokens a body call on the accounts receivable project, the one with about 9% of OpenAI's limit to spare: about
+8.6% free becomes about 8.1%. Not yet seen in a real run.
 
 **A brief with every failure under a partner told the pillar and the blog no failure** (found on the 13:14 UTC run of
 2026-10-11, fixed the same day on Jeff's word). The form has put a Partner on each row since 2026-10-11, and the first
