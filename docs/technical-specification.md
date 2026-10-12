@@ -246,9 +246,9 @@ loses a passage.
   200,000), and their openings from about 100,000 to about 45,000. They no longer repeat one block of research, so the
   half-price billing for repeated text is lost; at this size the page still costs about a fifth less to send.
 - **Not seen on real research.** Both projects that have run since 2026-10-11 are under the ceiling, and the accounts
-  receivable project, the one measured over it, is published (Jeff, 2026-10-12) and is not written again to see this: a Generate deletes a
-  project's pillar and blog before it writes. The first new project over the ceiling is the first sight of which passages
-  each request is sent; its run log's `evidence` events list them. Under the ceiling every `evidence` event says `whole`.
+  receivable project, the one measured over it, is published (Jeff, 2026-10-12), so no run of it is asked for. Its last
+  run is still the 18:26 UTC one of 2026-10-10, which refused its pillar and blog; the project holds its five tool pages
+  and neither of those. The first new project over the ceiling is the first sight of which passages each request is sent; its run log's `evidence` events list them. Under the ceiling every `evidence` event says `whole`.
 - **Do not lower the ceiling, raise a partner's limit, or add a size check that drops passages** without a run that
   shows why, and do not put a word back in the classifier's lists without a run that shows it labels the right passages.
 - **The research holds almost nothing for some sections.** On the 14:20 UTC run, 8 of 213 passages were labelled for
