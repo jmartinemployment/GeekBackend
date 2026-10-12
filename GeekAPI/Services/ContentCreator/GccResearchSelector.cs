@@ -4,7 +4,8 @@ using GeekApplication.Models.ContentCreator;
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>One passage of partner research, as a request would carry it.</summary>
-/// <param name="Host">The partner it belongs to, by the one key anything is bucketed by partner with
+/// <param name="Host">The partner it belongs to (<see cref="GccResearchSelector.PartnerOf"/>): the
+/// project's partner whose site its page is on, by the one key anything is bucketed by partner with
 /// (<see cref="GccRequiredToolMentions.HostKeyOf"/>).</param>
 /// <param name="Url">The page it is on.</param>
 /// <param name="Position">Its place among that page's passages.</param>
@@ -113,13 +114,55 @@ public static class GccResearchSelector
     public const string WhyOther = "other";
 
     /// <summary>
+    /// The partner a page belongs to: the project's partner whose host the page is on, or on a
+    /// subdomain of, and otherwise the page's own host.
+    /// </summary>
+    /// <remarks>
+    /// Every partner has the same limit, so what counts as one partner decides how much of it a request
+    /// carries. Told apart by the page's host alone, a partner's help or documentation site
+    /// ("help.partner.com") was a second partner with a limit of its own, and each real partner's limit
+    /// was an equal part of a larger number of hosts. The first real run had none: five partners, five
+    /// hosts. Two partners of which one is a subdomain of the other are told apart by the longer host.
+    /// </remarks>
+    /// <param name="partnerHosts">The project's partners, each by <see cref="GccRequiredToolMentions.HostKeyOf"/>.</param>
+    public static string PartnerOf(string? url, IReadOnlyList<string> partnerHosts)
+    {
+        var host = GccRequiredToolMentions.HostKeyOf(url ?? string.Empty);
+        if (host.Length == 0) return host;
+
+        string? partner = null;
+        foreach (var candidate in partnerHosts)
+        {
+            if (host == candidate) return candidate;
+            if (candidate.Length > 0
+                && host.EndsWith("." + candidate, StringComparison.Ordinal)
+                && (partner is null || candidate.Length > partner.Length))
+            {
+                partner = candidate;
+            }
+        }
+
+        return partner ?? host;
+    }
+
+    /// <summary>
     /// The passages a writer is sent today, each with its labels: every page's first
     /// <see cref="GccResearchCaps.MaxParagraphsPerPage"/>, which is what the research block prints.
     /// </summary>
-    public static IReadOnlyList<GccResearchPassage> PassagesOf(IReadOnlyList<GccQuoteablePage>? pages)
+    /// <param name="partnerUrls">The project's declared partners. A page on a partner's subdomain is
+    /// that partner's (<see cref="PartnerOf"/>); with none given, a page's partner is its own host.</param>
+    public static IReadOnlyList<GccResearchPassage> PassagesOf(
+        IReadOnlyList<GccQuoteablePage>? pages, IReadOnlyList<string>? partnerUrls = null)
     {
         var passages = new List<GccResearchPassage>();
         var line = Environment.NewLine.Length;
+        IReadOnlyList<string> partnerHosts =
+        [
+            .. (partnerUrls ?? [])
+                .Select(partnerUrl => GccRequiredToolMentions.HostKeyOf(partnerUrl ?? string.Empty))
+                .Where(partnerHost => partnerHost.Length > 0)
+                .Distinct(StringComparer.Ordinal),
+        ];
         foreach (var page in pages ?? [])
         {
             // Research is read back from stored JSON, where a field the record calls required can be
@@ -127,7 +170,7 @@ public static class GccResearchSelector
             // every pillar and blog and must not be what stops one.
             if (page?.Paragraphs is null) continue;
             var url = page.Url ?? string.Empty;
-            var host = GccRequiredToolMentions.HostKeyOf(url);
+            var host = PartnerOf(url, partnerHosts);
             // The page's own lines as GccGenerateService.BuildResearchBlock prints them: its title and
             // address, its headings, and the blank line after its passages.
             var pageChars = (page.Title?.Length ?? 0) + url.Length + 3 + line + line;
@@ -294,8 +337,9 @@ public sealed class GccResearchWatch
     private readonly Dictionary<(string Url, int Position), int> _shown = [];
 
     /// <param name="partnerPages">The page's partner research, as its research block prints it.</param>
-    public GccResearchWatch(IReadOnlyList<GccQuoteablePage>? partnerPages) =>
-        _passages = GccResearchSelector.PassagesOf(partnerPages);
+    /// <param name="partnerUrls">The project's declared partners, by which a page is one partner's.</param>
+    public GccResearchWatch(IReadOnlyList<GccQuoteablePage>? partnerPages, IReadOnlyList<string>? partnerUrls = null) =>
+        _passages = GccResearchSelector.PassagesOf(partnerPages, partnerUrls);
 
     /// <summary>
     /// How the page's partner research divides by label, for the run's record: every passage counted

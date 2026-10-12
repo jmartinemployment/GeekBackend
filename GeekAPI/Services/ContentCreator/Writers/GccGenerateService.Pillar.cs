@@ -61,8 +61,8 @@ public partial class GccGenerateService
             await _publisherProfile.ResolveAsync(create.ProjectId, ct),
             partnerTools.Linked,
             create, section, mustMentionBlock, provider);
-        var evidence = BuildProvenanceEvidence(
-            create, competitorAnalyses, mustMentionBlock, await PartnerUrlsForAsync(create, ct));
+        var partnerUrls = await PartnerUrlsForAsync(create, ct);
+        var evidence = BuildProvenanceEvidence(create, competitorAnalyses, mustMentionBlock, partnerUrls);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted);
         // Prompts come from the type's own set, not from a switch over a flat builder -- see
         // content-creator-v2/plans/prompts-per-content-type.md.
@@ -195,7 +195,7 @@ public partial class GccGenerateService
                 ct,
                 callsUnderFloor,
                 // Watching only: what each request would carry is recorded, and each carries everything.
-                new GccResearchWatch(GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables));
+                new GccResearchWatch(GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls));
             // The keyword's shortenings put back on the opening and the body as written, then partner
             // tool pages on the body alone, then the page's own closing, then the section written
             // outside the outline: neither of the last two can carry a tool link, and neither is remapped.

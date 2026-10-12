@@ -2490,8 +2490,8 @@ public partial class GccGenerateService
             await _publisherProfile.ResolveAsync(create.ProjectId, ct),
             partnerTools.Linked,
             create, section, mustMentionBlock, provider);
-        var evidence = BuildProvenanceEvidence(
-            create, competitorAnalyses, mustMentionBlock, await PartnerUrlsForAsync(create, ct));
+        var partnerUrls = await PartnerUrlsForAsync(create, ct);
+        var evidence = BuildProvenanceEvidence(create, competitorAnalyses, mustMentionBlock, partnerUrls);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted);
         // Metadata first, because everything downstream needs what it produces. The title has to
         // exist before the lede is written or the hook just restates it, and the section outline is
@@ -2606,7 +2606,7 @@ public partial class GccGenerateService
                 ct,
                 callsUnderFloor,
                 // Watching only: what each request would carry is recorded, and each carries everything.
-                new GccResearchWatch(GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables));
+                new GccResearchWatch(GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls));
             // The keyword's shortenings put back on the opening and the body as written, then the links,
             // the closing and the FAQ, none of which is remapped.
             var (blogOpening, blogBody) = await RemapKeywordAsync(

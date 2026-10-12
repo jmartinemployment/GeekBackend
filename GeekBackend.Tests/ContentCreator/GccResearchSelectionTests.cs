@@ -554,6 +554,38 @@ public class GccResearchSelectionTests
         Assert.Empty(GccResearchSelector.PassagesOf([Page("https://partner.test/empty")]));
     }
 
+    /// <summary>
+    /// Every partner has the same limit, so what counts as one partner decides how much of it a request
+    /// carries. A partner's help or documentation site is that partner's, not a partner of its own.
+    /// </summary>
+    [Fact]
+    public void A_page_on_a_partners_subdomain_is_that_partners()
+    {
+        GccQuoteablePage[] pages =
+        [
+            Page("https://www.partner.test/product", "One."),
+            Page("https://help.partner.test/setup", "Two."),
+            Page("https://docs.app.other.test/api", "Three."),
+            Page("https://notpartner.test/post", "Four."),
+        ];
+
+        // With no partners given a page's partner is its own host, as before.
+        Assert.Equal(
+            ["partner.test", "help.partner.test", "docs.app.other.test", "notpartner.test"],
+            GccResearchSelector.PassagesOf(pages).Select(passage => passage.Host));
+
+        var passages = GccResearchSelector.PassagesOf(
+            pages, ["https://www.partner.test/us", "https://other.test/", "https://app.other.test/", "not an address"]);
+
+        Assert.Equal(
+            // Of two partners a host is under, the longer one. A host that only ends in a partner's
+            // letters is not under it.
+            ["partner.test", "partner.test", "app.other.test", "notpartner.test"],
+            passages.Select(passage => passage.Host));
+        Assert.Equal("partner.test", GccResearchSelector.PartnerOf("https://HELP.Partner.test/x", ["partner.test"]));
+        Assert.Equal(string.Empty, GccResearchSelector.PartnerOf(null, ["partner.test"]));
+    }
+
     [Fact]
     public void Research_read_back_with_parts_missing_is_counted_as_it_is_and_stops_nothing()
     {
