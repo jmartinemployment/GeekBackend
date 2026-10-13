@@ -517,13 +517,16 @@ public class LinkedInDocumentPromptsTests
     public void The_decks_own_wording_uses_no_em_dash()
     {
         // A writer copies the punctuation it is shown. The shared blocks these requests print are older
-        // and are not this test's; the wording written for a deck is, and it holds none.
+        // and are not this test's; the wording written for a deck is, and it holds none. Nor does what
+        // the operator is told of a deck, or the last slide and the first comment code builds.
         var root = RepositoryRoot();
         foreach (var file in new[]
                  {
                      "GeekAPI/Services/ContentCreator/Writers/ContentPromptBuilder.LinkedInDocument.cs",
                      "GeekAPI/Services/ContentCreator/ContentTypes/LinkedInDocumentPrompts.cs",
                      "GeekAPI/Services/ContentCreator/GccLinkedInDocument.cs",
+                     "GeekAPI/Services/ContentCreator/Writers/GccGenerateService.LinkedInDocument.cs",
+                     "GeekAPI/Services/ContentCreator/Guardrail/GccDraftGuard.LinkedInDocument.cs",
                  })
         {
             var text = File.ReadAllText(Path.Combine(root, file));

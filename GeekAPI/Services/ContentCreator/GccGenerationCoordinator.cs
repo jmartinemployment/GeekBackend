@@ -125,12 +125,17 @@ public sealed class GccGenerationCoordinator
     internal static string? PartnerEvidenceRefusal(string contentType, IReadOnlyList<string> partnersWithoutPassages)
     {
         var type = new string((contentType ?? string.Empty).Where(char.IsLetter).ToArray()).ToLowerInvariant();
-        if (partnersWithoutPassages.Count == 0 || type is not ("pillar" or "blog")) return null;
+        if (partnersWithoutPassages.Count == 0 || type is not ("pillar" or "blog" or LinkedInDocumentType)) return null;
 
+        // A deck has a slide for each partner, written from that partner's own passages.
+        if (type == LinkedInDocumentType) type = GccLinkedInDocument.Label;
         return $"Refused: the {type} must name every declared partner, and "
             + string.Join(", ", partnersWithoutPassages)
             + " returned no passage for this topic. Re-crawl that partner, or remove it from the project, then retry.";
     }
+
+    /// <summary>"PDF / LinkedIn document" as a requested type is read here: its letters, lower case.</summary>
+    internal const string LinkedInDocumentType = "linkedindocument";
 
     /// <summary>The label a retrieval warning travels under. It is about the create's evidence, which
     /// every requested type shares, so it is not attributed to any one of them.</summary>
@@ -231,6 +236,15 @@ public sealed class GccGenerationCoordinator
         // A model whose limit is not known is refused before the old pages go and before anything is
         // searched or paid for: no request to it could be counted against what it accepts.
         if (gen.ModelRefusal(provider) is { } unknownModel) throw new InvalidOperationException(unknownModel);
+
+        // A deck has a slide for each partner tool, so a project with too few or too many partners for
+        // one is refused here, saying how many it has, before a page of the project is deleted. The
+        // deck's writer asks the same rule again before it builds a request.
+        if (requested.Any(type => LettersOf(type) == LinkedInDocumentType)
+            && await gen.LinkedInDocumentRefusalAsync(create, ct) is { } deckRefusal)
+        {
+            throw new InvalidOperationException(deckRefusal);
+        }
 
         // A run asked for a short piece writes its pages first, then each piece from the project's
         // Pillar (RunGenerateWithPiecesAsync). A run asked for none is everything below, unchanged.
@@ -1082,6 +1096,14 @@ public sealed class GccGenerationCoordinator
                     [.. written.Select(o => new GeneratedPiece(contentType, o.BodyJson!, o.ProductName))],
                     [.. refused.Select(o => $"{o.ProductName}: {o.Refusal}")]);
             }
+
+            case LinkedInDocumentType:
+                // A deck of slides and the LinkedIn post that carries it (plans/enable-pdf.md). Written
+                // from the Brief and the research like the Pillar, and returned as a finished envelope.
+                bodyJson = await gen.GenerateLinkedInDocumentAsync(
+                    create with { StartingContentType = ContentTypes.GccChannelTypes.LinkedInDocument },
+                    section, provider, mustMentionBlock, ct);
+                break;
 
             case "imageprompt":
                 bodyJson = await gen.GenerateStartingContentAsync(

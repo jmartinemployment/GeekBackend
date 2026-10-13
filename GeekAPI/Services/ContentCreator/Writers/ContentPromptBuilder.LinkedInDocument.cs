@@ -21,7 +21,9 @@ namespace GeekAPI.Services.Workflow.Services.PromptBuilders;
 // scratch: the "social" skill's carousel reference, which covers LinkedIn document posts (slide 1 is
 // the thumbnail and stands alone; one idea a slide; a count promised on the cover is exactly
 // delivered; claims and numbers are real; the post above the document is a second hook, written as
-// its own post and never "see attached"), and "post-writer" (a post is 150 to 300 words). The deck's
+// its own post and never "see attached"), its platform references (about 210 characters show before
+// "see more"; links in a LinkedIn post's body cost it reach and go in the comments, so the post
+// carries none), and "post-writer" (a post is 150 to 300 words). The deck's
 // own order, a cover, the problem, one slide a partner, the approach and one call to action, is the
 // plan's, and is that reference's numbered-list shape with its last slide's two jobs on two slides.
 public partial class ContentPromptBuilder
@@ -181,16 +183,17 @@ public partial class ContentPromptBuilder
                 "The LinkedIn post the document is attached to, "
                 + $"{ContentLengthTargets.LinkedInDocumentPostMinWords} to {ContentLengthTargets.LinkedInDocumentPostMaxWords} "
                 + "words. It is a second hook, written as a post in its own right: it does not repeat the "
-                + "cover's words, and it is never a note that a document is attached. Its first two lines are "
-                + "what a reader sees before \"see more\", so the hook is there. Then what the failure costs "
+                + "cover's words, and it is never a note that a document is attached. Its first two lines, about "
+                + $"{ContentLengthTargets.LinkedInPostVisibleCharacters} characters, are what a reader sees before "
+                + "\"see more\", so the hook is there. Then what the failure costs "
                 + "this reader, then what the slides walk them through. It ends on its own material, with no "
                 + "sign-off.")
             .AppendLine($"{BrandTones.LinkedInChannelLine}")
             .AppendLine(
                 "Short paragraphs, a blank line between them. It may name a partner tool where it says what "
                 + "that tool answers; it need not name them all, the slides do. It writes no address, no link "
-                + "and no hashtag, and at most one emoji: the booking link and each partner's page are put "
-                + "under the post by code. The grounding rule holds for the post as for the cover: no figure "
+                + "and no hashtag, and at most one emoji: the booking link and each partner's page go in "
+                + "the first comment, put there by code. The grounding rule holds for the post as for the cover: no figure "
                 + "that is not in the evidence, no customer, no case study.")
             .AppendLine()
             .AppendLine("The deck's slides, for context only (write the cover and none of the others):")

@@ -38,7 +38,7 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </remarks>
 public sealed class BriefFieldReachTests(ITestOutputHelper output)
 {
-    private const string Host = "partner.test";
+    internal const string Host = "partner.test";
     private const string ToolFaqA = "Does Partner Widget sync with QuickBooks Online?";
     private const string ToolFaqB = "Does Partner Widget post to Xero?";
 
@@ -185,6 +185,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     private const string ToolMetadataJson =
         """{"departmentListExcerpt":"x","summary":"x \u2014 y","mainSummary":"x","heroSummary":"x","homeSummary":"x","blogSummary":"x","toolPageExcerpt":"x","advertisingSummary":"x","metaDescription":"x"}""";
 
+    internal const string DeckCoverAndPostJson =
+        """{"cover":{"title":"The close that runs on one spreadsheet","line":"What a hand-run close costs \u2014 and what replaces it."},"post":"Most controllers lose the first week of the month to the close \u2014 and nobody budgets for it.\n\nThe slides walk through where the hours go and what takes them back."}""";
+
     private const string FirstBatchJson =
         """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body \u2014 written."}]}],"href":null,"children":[],"provenance":"plan"}]}""";
 
@@ -201,7 +204,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// </summary>
     /// <param name="firstBody">What the writer's first body reply is changed to, for a test of what the
     /// page does with something a writer wrote; null for the reply as scripted.</param>
-    internal sealed class Recorder(string page, string model = "gpt-4.1", Func<string, string>? firstBody = null)
+    /// <param name="deckReply">What a reply to one of the deck's two requests is changed to, by the
+    /// request's name here ("cover and post", "slides"); null for the replies as scripted.</param>
+    internal sealed class Recorder(
+        string page,
+        string model = "gpt-4.1",
+        Func<string, string>? firstBody = null,
+        Func<string, string, string>? deckReply = null)
         : IContentGenerationProvider
     {
         private readonly List<(string Label, string Text)> calls = [];
@@ -232,6 +241,14 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
 
         private (string Label, string Content) Answer(ChatCompletionRequest request, string asked)
         {
+            if (request.JsonSchemaName == GccLinkedInDocument.CoverAndPostSchemaName)
+                return ("cover and post", deckReply?.Invoke("cover and post", DeckCoverAndPostJson) ?? DeckCoverAndPostJson);
+            if (request.JsonSchemaName == GccLinkedInDocument.SlidesSchemaName)
+            {
+                var slides = DeckSlidesJson(asked);
+                return ("slides", deckReply?.Invoke("slides", slides) ?? slides);
+            }
+
             if (request.JsonSchemaName == "sections")
             {
                 var n = bodyCalls++;
@@ -272,6 +289,37 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             return ("opening", page == "pillar" ? LedeAndIntroJson : LedeJson);
         }
 
+        /// <summary>
+        /// One slide for each the request assigned, in its order. A partner's slide names the partner
+        /// in a line, as the request asks; the first slide's first line carries an em dash.
+        /// </summary>
+        internal static string DeckSlidesJson(string asked)
+        {
+            var assigned = asked.Split('\n')
+                .Select(line => System.Text.RegularExpressions.Regex.Match(line.Trim(), @"^\d+\. Cover: (?<what>.+)$"))
+                .Where(match => match.Success)
+                .Select(match => match.Groups["what"].Value)
+                .ToList();
+            return JsonSerializer.Serialize(new
+            {
+                slides = assigned.Select((what, i) =>
+                {
+                    var partner = System.Text.RegularExpressions.Regex.Match(what, "^(?<name>.+): the failure it answers");
+                    return new
+                    {
+                        title = $"What slide {Words[i % Words.Length]} settles",
+                        lines = partner.Success
+                            ? new[] { $"{partner.Groups["name"].Value} takes the manual pass out of the close.", "The controller signs off once." }
+                            : i == 0
+                                ? new[] { "Reconciliations start late \u2014 every month.", "Nobody knows which workbook is current." }
+                                : new[] { "Each reconciliation is assigned, chased and signed off.", "The close stops waiting on one inbox." },
+                    };
+                }),
+            });
+        }
+
+        private static readonly string[] Words = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
         private static IReadOnlyList<string> QuestionsIn(string asked) =>
         [
             .. asked.Split('\n')
@@ -310,6 +358,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     internal static readonly Guid ProjectId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     internal static readonly DateTime At = new(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc);
     private static readonly string[] PartnerUrls = ["https://partner.test/"];
+
+    /// <summary>
+    /// The partners of the project a deck is written for. A deck has a slide for each partner and
+    /// takes two at the least, so its project declares a second beside the one every other page here
+    /// is written for; the Brief's own section is the first's.
+    /// </summary>
+    internal static readonly string[] DeckPartnerUrls = ["https://partner.test/", "https://second.test/"];
 
     internal static GccCreateDto Create(string type, string topic, string briefJson, string? researchJson, Guid? projectId) => new(
         Id: CreateId, ClientId: CreateId, OwnerUserId: CreateId,
@@ -391,9 +446,11 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         string? pageResearch = null,
         string model = "gpt-4.1",
         Func<GccCompetitorAnalysisResolver>? competitors = null,
-        Func<string, string>? firstBody = null)
+        Func<string, string>? firstBody = null,
+        Func<string, string, string>? deckReply = null,
+        IReadOnlyList<string>? deckPartnerUrls = null)
     {
-        var provider = new Recorder(page, model, firstBody);
+        var provider = new Recorder(page, model, firstBody, deckReply);
         var plain = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), null);
         // The project the pages belong to, declaring the partner the brief's per-tool fields are entered
         // under. The pillar and the blog were written for no project until 2026-10-11, so nothing a
@@ -414,6 +471,19 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                 saved = await forProject.GenerateBlogBodyAsync(
                     Create("blog", "AI implementation", briefJson, pageResearch, ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
+            case "deck":
+            {
+                // "PDF / LinkedIn document": the cover with its post, then the slides, through the deck's
+                // own writer, for a project with a partner for each slide.
+                var deckService = Build(
+                    provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)),
+                    project with { PartnerUrls = [.. deckPartnerUrls ?? DeckPartnerUrls] }, competitors?.Invoke());
+                saved = await deckService.GenerateLinkedInDocumentAsync(
+                    Create("linkedin-document", "AI implementation", briefJson, pageResearch, ProjectId),
+                    null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                break;
+            }
+
             case "email":
                 saved = await plain.RepurposeEmailAsync(
                     Create("email", "AI implementation", briefJson, null, null), ApprovedPage, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
@@ -452,6 +522,22 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
 
         return [.. provider.Calls, ("the saved page", WithoutDates(saved))];
     }
+
+    /// <summary>
+    /// A deck written through its real writer with the stand-in model: every request it made, and the
+    /// page it saved as the last entry. For the tests of the deck's own writer.
+    /// </summary>
+    /// <param name="reply">What a reply is changed to, by the request's name here ("cover and post",
+    /// "slides"); null for the replies as scripted.</param>
+    /// <param name="partnerUrls">The project's partners; two when not given.</param>
+    internal static Task<IReadOnlyList<(string Label, string Text)>> WriteDeckAsync(
+        string briefJson,
+        string? research = null,
+        Func<string, string, string>? reply = null,
+        IReadOnlyList<string>? partnerUrls = null,
+        string model = "gpt-4.1",
+        Func<GccCompetitorAnalysisResolver>? competitors = null) =>
+        WriteAsync("deck", briefJson, research, model, competitors, deckReply: reply, deckPartnerUrls: partnerUrls);
 
     /// <summary>
     /// A whole tool page as its Generate saves it, written from the complete brief through the same path
@@ -568,6 +654,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     [InlineData("email")]
     [InlineData("social")]
     [InlineData("image")]
+    [InlineData("deck")]
     public async Task No_call_is_shown_a_choice_as_the_code_the_form_stores(string page)
     {
         var calls = await RunAsync(page, BriefOfCodes);
@@ -594,6 +681,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     [InlineData("email")]
     [InlineData("social")]
     [InlineData("image")]
+    [InlineData("deck")]
     public async Task No_call_is_told_the_brief_twice(string page)
     {
         var calls = await RunAsync(page, CompleteBrief);
@@ -823,25 +911,25 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
 
     // ---- nothing is cut by a count ------------------------------------------------------------------
 
-    private const int PassagesOnThePartnersPage = 9;
-    private const int CompetitorPages = 7;
-    private const int OwnSitePages = 7;
+    internal const int PassagesOnThePartnersPage = 9;
+    internal const int CompetitorPages = 7;
+    internal const int OwnSitePages = 7;
 
-    private static string PartnerPassage(int n) => $"Partner Widget passage {n:00}, on the page with more than six.";
+    internal static string PartnerPassage(int n) => $"Partner Widget passage {n:00}, on the page with more than six.";
 
     // A competitor's name is kept out of what a writer reads, so none of this text carries the host's.
-    private static string CompetitorPassage(int page, int n) => $"The other vendor's page {page:00} states point {n:00} of its own.";
+    internal static string CompetitorPassage(int page, int n) => $"The other vendor's page {page:00} states point {n:00} of its own.";
 
-    private static string OwnSitePassage(int page, int n) => $"Our published page {page:00} covers matter {n:00} already.";
+    internal static string OwnSitePassage(int page, int n) => $"Our published page {page:00} covers matter {n:00} already.";
 
-    private static string CompetitorHeading(int page, int n) => $"Other vendor outline {page:00} heading {n:00}";
+    internal static string CompetitorHeading(int page, int n) => $"Other vendor outline {page:00} heading {n:00}";
 
     /// <summary>
     /// Research that every count the blocks used to cut by would cut: a partner page of nine passages
     /// (six were printed), seven competitor pages of seven passages (five pages of six), seven of the
     /// publisher's own pages of seven passages (five of six).
     /// </summary>
-    private static string ResearchPastEveryOldCount()
+    internal static string ResearchPastEveryOldCount()
     {
         return GccResearchFetchService.Serialize(new GccResearchDocument(SerpIndex: null, Quoteables: []) with
         {
@@ -882,7 +970,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// The competitor's crawl: an outline of thirty headings for each page the search returned (twenty-five
     /// were printed), and one for a page no search returned.
     /// </summary>
-    private static GccCompetitorAnalysisResolver CompetitorCrawl() => GccCompetitorAnalysisResolverTests.Build(
+    internal static GccCompetitorAnalysisResolver CompetitorCrawl() => GccCompetitorAnalysisResolverTests.Build(
         new GccCompetitorAnalysisResolverTests.FakeProjects(GccCompetitorAnalysisResolverTests.Project("https://contender.test")),
         new GccCompetitorAnalysisResolverTests.FakePages(
         [
@@ -1028,6 +1116,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     [InlineData("social")]
     [InlineData("image")]
     [InlineData("searches")]
+    [InlineData("deck")]
     public async Task The_same_brief_gives_the_same_calls(string page)
     {
         var first = await RunAsync(page, CompleteBrief);
@@ -1089,7 +1178,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// <summary>
     /// What the operator enters for the category and for a tool is shown to the writer of every long
     /// page, whatever the record below says: a line there reading "nothing" for one of these boxes
-    /// fails here. On the tool's own page each is in every body request, so in all ten sections.
+    /// fails here. On the tool's own page each is in every body request, so in all ten sections; on a
+    /// deck each is in both of its requests.
     /// </summary>
     /// <remarks>
     /// Jeff, 2026-10-12: "WHY am I spending so much time entering and you not using". Until that day
@@ -1102,6 +1192,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     [InlineData("pillar")]
     [InlineData("blog")]
     [InlineData("tool")]
+    [InlineData("deck")]
     public async Task No_box_of_the_niche_framing_is_entered_and_shown_to_no_long_page(string page)
     {
         var reach = await ReachAsync(page, CompleteBrief, Fields.Where(f => FramingBoxes.Contains(f.Name)));
@@ -1111,6 +1202,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         if (page == "tool")
         {
             Assert.All(reach, line => Assert.True(line.Contains("every body call", StringComparison.Ordinal), $"{page}: {line}"));
+        }
+
+        // A deck is two requests, and each box is in both: the cover and the post open on the
+        // problem the operator named, and the slides are built on the rest.
+        if (page == "deck")
+        {
+            Assert.All(reach, line => Assert.True(line.EndsWith("=> cover and post | slides", StringComparison.Ordinal), $"{page}: {line}"));
         }
     }
 
@@ -1505,6 +1603,54 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             nicheFraming.faqQuestions => nothing
             """
         },
+        {
+            // "PDF / LinkedIn document" (plans/enable-pdf.md), for a project with two partners. Its two
+            // requests are the cover with the post, and the slides.
+            "deck", true,
+            """
+            primaryIntent => cover and post | slides
+            secondaryIntent => cover and post | slides
+            buyingStage => cover and post | slides
+            audienceSegment => cover and post | slides
+            audienceNotes => cover and post | slides
+            angle => cover and post | slides
+            toneOfVoice => cover and post | slides
+            eeatSignals => cover and post | slides
+            # A deck's size is its slides: the Brief's "Length" is a page's until the form gives the
+            # deck a band of its own.
+            lengthBand => nothing
+            # A deck has no FAQ. The questions and their answers are the pillar's, the blog's and the
+            # tool page's.
+            paaQuestions => nothing
+            paaQuestions, an answer alone => nothing
+            blogFaqQuestions => nothing
+            blogFaqQuestions, an answer alone => nothing
+            briefVersion => nothing
+            # The department in the address of each partner's tool page, listed for the first comment.
+            nicheFraming.taxonomyPath, first level => the saved page
+            nicheFraming.taxonomyPath, later levels => nothing
+            # The last slide, built by code. No request is shown the questions.
+            nicheFraming.diagnosisQuestions => the saved page
+            # The operator's framing for every partner, in both requests (GccNicheFraming.DeckGuidance).
+            nicheFraming.coreProblem => cover and post | slides
+            nicheFraming.painPoints => cover and post | slides
+            nicheFraming.automationToPitch => cover and post | slides
+            nicheFraming.evidence.problem => cover and post | slides
+            nicheFraming.evidence.solution => cover and post | slides
+            nicheFraming.evidence.terms => nothing
+            nicheFraming.faqQuestions => nothing
+            # What was entered under a partner, in both requests under its name (GccPartnerAnswers):
+            # what that partner's slide is built on.
+            perTool.coreProblem => cover and post | slides
+            perTool.painPoints => cover and post | slides
+            perTool.automationToPitch => cover and post | slides
+            perTool.evidence.problem => cover and post | slides
+            perTool.evidence.solution => cover and post | slides
+            perTool.evidence.terms => nothing
+            perTool.faqQuestions => nothing
+            perTool.faqQuestions, an answer alone => nothing
+            """
+        },
     };
 
     /// <summary>
@@ -1568,6 +1714,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     [InlineData("tool")]
     [InlineData("email")]
     [InlineData("social")]
+    [InlineData("deck")]
     public async Task Every_request_that_writes_for_a_reader_is_told_not_to_use_the_em_dash(string page)
     {
         var calls = await WriteAsync(page, CompleteBrief);

@@ -2575,12 +2575,16 @@ public partial class GccGenerateService
         GccCreateDto create,
         SiteSectionContextDto? section,
         string? mustMentionBlock,
-        ContentGeneratorProvider provider)
+        ContentGeneratorProvider provider,
+        // False for a deck. The appendix tells a writer to weave four phases of a method through a
+        // narrative, and a deck has no narrative to weave them through: its slides are fixed, and the
+        // slide on how the work is done is told whose method it describes.
+        bool withConsultantAppendix = true)
     {
         var briefBlock = $"Topic: {create.Topic}\nNotes: {create.Notes}";
         // Without the brief: the pillar's prompt builders print it once themselves.
         var sourceContext = $"{briefBlock}\n\n{BuildAudience(create, section, withBrief: false)}";
-        var consultantAppendix = BuildConsultantAppendix(create);
+        var consultantAppendix = withConsultantAppendix ? BuildConsultantAppendix(create) : string.Empty;
         if (consultantAppendix.Length > 0)
             sourceContext = $"{sourceContext}\n\n{consultantAppendix}";
         if (!string.IsNullOrWhiteSpace(mustMentionBlock))
@@ -2864,11 +2868,15 @@ public partial class GccGenerateService
     /// <param name="carries">What of the page's research this request carries
     /// (<see cref="GccRequestCarries"/>): all of it unless that is more than the request's model
     /// accepts. Everything else in the block is whole in every request.</param>
+    /// <param name="tagged">Whether the piece tags its headings with their sources, which decides how
+    /// the competitor outlines are worded: a pillar and a blog do; a deck, whose slides carry no tag,
+    /// does not.</param>
     private static string BuildEvidenceBlock(
         GccCreateDto create,
         IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses,
         IReadOnlyList<string> unlistedTools,
-        GccRequestCarries? carries = null)
+        GccRequestCarries? carries = null,
+        bool tagged = true)
     {
         carries ??= GccRequestCarries.Everything;
         var sb = new StringBuilder();
@@ -2885,7 +2893,8 @@ public partial class GccGenerateService
         var competitorBlock = BuildCompetitorHeadingBlock(
             competitorAnalyses,
             GccResearchFetchService.Deserialize(create.ResearchJson)?.CompetitorQuoteables,
-            carries.EveryCompetitorPage);
+            carries.EveryCompetitorPage,
+            tagged);
         if (competitorBlock.Length > 0)
             sb.AppendLine(competitorBlock);
 

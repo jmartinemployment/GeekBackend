@@ -218,6 +218,194 @@ public static class GccLinkedInDocument
                 return null;
             }).Slides;
 
+    /// <summary>
+    /// The deck's last slide, what to do next, built by code from the publisher's booking words and
+    /// the operator's questions; or null when the publisher has no scheduler or no wording for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same words every page ends on (<see cref="GccClosing"/>), as a slide: the booking words are
+    /// its title, the questions from the Brief's "One question per line" its lines, and the site's
+    /// address is printed under them as text. No request writes it and no writer is shown the
+    /// questions.
+    /// </para>
+    /// <para>
+    /// <b>No link.</b> LinkedIn does not make a link inside a document clickable, so the address is
+    /// words on the slide. The links are in the first comment (<see cref="FirstComment"/>).
+    /// </para>
+    /// </remarks>
+    public static Section? NextSlide(CompanyProfileOptions company, IReadOnlyList<string> questions)
+    {
+        if (string.IsNullOrWhiteSpace(company.ConsultationAnchorHref)) return null;
+
+        var asked = questions.Select(question => question.Trim()).Where(question => question.Length > 0).ToList();
+        string? title;
+        if (asked.Count == 0)
+        {
+            title = company.ConsultationClosingLinkWithoutQuestions?.Trim();
+        }
+        else
+        {
+            var lead = company.ConsultationClosingLead?.Trim();
+            var link = company.ConsultationClosingLink?.Trim();
+            title = string.IsNullOrWhiteSpace(lead) || string.IsNullOrWhiteSpace(link) ? null : $"{lead} {link}";
+        }
+
+        if (string.IsNullOrWhiteSpace(title)) return null;
+
+        var paragraphs = new List<Paragraph>();
+        if (asked.Count > 0)
+        {
+            paragraphs.Add(new ListParagraph(false, [.. asked.Select(question => (IReadOnlyList<Run>)[new Run(question)])]));
+        }
+
+        var address = SiteAddress(company);
+        if (address.Length > 0) paragraphs.Add(new TextParagraph([new Run(address)]));
+
+        return new Section(Tag: "h2", Heading: title, Paragraphs: paragraphs, Href: null, Children: []);
+    }
+
+    /// <summary>The publisher's site as a reader would type it: "geekatyourspot.com". Empty when the site's address is not configured.</summary>
+    public static string SiteAddress(CompanyProfileOptions company)
+    {
+        if (SiteOf(company) is not { } site) return string.Empty;
+        var host = site.Host;
+        return host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? host[4..] : host;
+    }
+
+    /// <summary>
+    /// The publisher's site, from the address its articles are published under, or null when that is
+    /// not a web address. A path alone is not one: on Linux and macOS "/use-cases" parses as an
+    /// absolute address of a file, which would make every link a file's.
+    /// </summary>
+    private static Uri? SiteOf(CompanyProfileOptions company) =>
+        Uri.TryCreate(company.ArticleBaseUrl?.Trim(), UriKind.Absolute, out var site)
+        && (site.Scheme == Uri.UriSchemeHttps || site.Scheme == Uri.UriSchemeHttp)
+            ? site
+            : null;
+
+    /// <summary>One link of the first comment: what it is called, and where it leads.</summary>
+    /// <param name="Label">The booking words, or a partner tool's name.</param>
+    /// <param name="Href">The link as the publisher's own pages carry it: the scheduler's anchor, or a
+    /// tool page's path. What the run compares against the tool pages the project has.</param>
+    /// <param name="Url">The whole address, as it is pasted into LinkedIn.</param>
+    public sealed record CommentLink(string Label, string Href, string Url);
+
+    /// <summary>
+    /// The links that go with a deck, in the order they are listed: the booking link, then each
+    /// partner's tool page on the publisher's site. Empty when the site's address is not configured.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>They go in the first comment, not in the post.</b> Jeff's <c>social</c> skill, on LinkedIn:
+    /// "Links in the main post (kills reach)" and "Put links in comments, not post body". The plan
+    /// had put them under the post; his skill decides.
+    /// </para>
+    /// <para>
+    /// Put there by code. The writer writes no link and no address (Jeff, 2026-10-10), and is shown
+    /// neither of these.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<CommentLink> Links(
+        CompanyProfileOptions company, IReadOnlyList<GccPartnerToolPage> partnerPages)
+    {
+        if (SiteOf(company) is not { } site) return [];
+        var origin = site.GetLeftPart(UriPartial.Authority);
+
+        var links = new List<CommentLink>();
+        var anchor = company.ConsultationAnchorHref?.Trim();
+        var book = company.ConsultationClosingLinkWithoutQuestions?.Trim();
+        if (!string.IsNullOrWhiteSpace(anchor) && !string.IsNullOrWhiteSpace(book))
+        {
+            links.Add(new CommentLink(book, anchor, $"{origin}/{anchor}"));
+        }
+
+        foreach (var page in partnerPages)
+        {
+            if (string.IsNullOrWhiteSpace(page.Path)) continue;
+            var path = page.Path.StartsWith('/') ? page.Path : $"/{page.Path}";
+            links.Add(new CommentLink(page.ProductName, path, $"{origin}{path}"));
+        }
+
+        return links;
+    }
+
+    /// <summary>
+    /// The first comment under the post, as text to paste: the booking link on a line of its own,
+    /// then a line for each partner's page. Empty when there is no link to list.
+    /// </summary>
+    public static string FirstComment(IReadOnlyList<CommentLink> links)
+    {
+        if (links.Count == 0) return string.Empty;
+        var lines = links.Select(link => $"{link.Label}: {link.Url}").ToList();
+        // The booking link stands apart from the partners' pages when both are there.
+        return links.Count > 1 && links[0].Href.StartsWith('#')
+            ? $"{lines[0]}\n\n{string.Join("\n", lines.Skip(1))}"
+            : string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// The heading the post travels under while it is checked with the deck. Never shown: the post is
+    /// taken back out before the deck is saved (<see cref="SplitPost"/>).
+    /// </summary>
+    public const string PostHeading = "The LinkedIn post";
+
+    /// <summary>
+    /// The deck with its post as one more section after the last slide, so one pass cleans and checks
+    /// both: the em dash, a sentence that states a number the research does not hold, money that is
+    /// not in US dollars.
+    /// </summary>
+    /// <param name="deck">The cover and every slide.</param>
+    /// <param name="post">The post as the writer returned it: paragraphs with a blank line between.</param>
+    public static ContentDocument WithPost(ContentDocument deck, string post)
+    {
+        var paragraphs = (post ?? string.Empty)
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split("\n\n", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(paragraph => (Paragraph)new TextParagraph([new Run(paragraph)]))
+            .ToList();
+        return deck with
+        {
+            Sections =
+            [
+                .. deck.Sections,
+                new Section(Tag: "h2", Heading: PostHeading, Paragraphs: paragraphs, Href: null, Children: []),
+            ],
+        };
+    }
+
+    /// <summary>
+    /// The deck and its post, apart again: what <see cref="WithPost"/> put together, after the checks.
+    /// </summary>
+    /// <param name="checkedDocument">The document the checks read.</param>
+    /// <param name="slides">How many slides the deck has, the cover included.</param>
+    /// <returns>The deck as it is saved, and the post as plain text with a blank line between its
+    /// paragraphs. A document that holds no post gives the document as it is and an empty post.</returns>
+    public static (ContentDocument Deck, string Post) SplitPost(ContentDocument checkedDocument, int slides)
+    {
+        var afterTheCover = Math.Max(0, slides - 1);
+        if (PostOf(checkedDocument, slides) is not { } post) return (checkedDocument, string.Empty);
+
+        var text = string.Join(
+            "\n\n",
+            post.Paragraphs
+                .OfType<TextParagraph>()
+                .Select(paragraph => string.Concat(paragraph.Runs.Select(run => run.Text)).Trim())
+                .Where(paragraph => paragraph.Length > 0));
+        return (checkedDocument with { Sections = [.. checkedDocument.Sections.Take(afterTheCover)] }, text);
+    }
+
+    /// <summary>The section a deck's post travels in, or null when the document holds none.</summary>
+    /// <param name="slides">How many slides the deck has, the cover included.</param>
+    public static Section? PostOf(ContentDocument document, int slides)
+    {
+        var afterTheCover = Math.Max(0, slides - 1);
+        return document.Sections.Count == afterTheCover + 1
+            && string.Equals(document.Sections[afterTheCover].Heading, PostHeading, StringComparison.Ordinal)
+                ? document.Sections[afterTheCover]
+                : null;
+    }
+
     /// <summary>Each partner once, in the order given, blanks left out.</summary>
     private static IReadOnlyList<string> Named(IReadOnlyList<string>? partners) =>
         [.. (partners ?? [])

@@ -1,9 +1,10 @@
 # Enable "PDF / LinkedIn document"
 
 **Written 2026-10-13. Status: approved the same day ("execute your plan to turn on PDF, Social and
-Email"). Step 1 of six is built and committed on `main`, not pushed; see "As built" at the end. The
-type stays "(disabled)" on Generate's "Content type" list until step 5 ships, and until step 4 a
-request for it is still refused. The four decisions at the end are settled, as written there.**
+Email"). Steps 1 and 2 of six are built and committed on `main`, not pushed; see "As built" at the
+end, which also lists where the build differs from this plan. The type stays "(disabled)" on
+Generate's "Content type" list until step 5 ships, and until step 4 a request for it is still
+refused. The four decisions at the end are settled, as written there, but for where the links go.**
 
 Jeff, 2026-10-13: *"Create a plan to enable PDF."*
 
@@ -83,6 +84,10 @@ LinkedIn shows a document under a post. The post is written in the cover's reque
 returns both. It is held to the figure and the currency checks. It is saved in the page's envelope as
 `caption`, shown under the slides on the form, and exported beside the PDF as a text file.
 
+**The links are not in the post.** They are saved beside it as `firstComment`, text to paste as the
+first comment under the post (changed in step 2: your `social` skill says of LinkedIn "Links in the
+main post (kills reach)" and "Put links in comments, not post body").
+
 ## How it is written
 
 One new file, `Writers/GccGenerateService.LinkedInDocument.cs`, following the Pillar's sequence and
@@ -110,19 +115,24 @@ In `GenerateOneAsync` it is one new case, `linkedindocument`, beside the Pillar'
 
 ## The checks
 
-One function, `GccDraftGuard.LinkedInDocument`, run once on the finished deck.
+One function, `GccDraftGuard.LinkedInDocument`, run once on the finished deck. As built in step 2;
+the three rows marked *changed* differ from what this plan first said, and "As built" says why.
 
 | Finding | What happens |
 |---|---|
-| A figure that is not in the evidence | Its sentence deleted and named, as on every page since 2026-10-13 (`GccInventedFigures`) |
+| A figure that is not in the evidence, in a slide's line or in the post | Its sentence deleted and named, as on every page since 2026-10-13 (`GccInventedFigures`) |
+| A figure that is not in the evidence, in a slide's title or in the cover's one line | Refused: code cannot take a title out, as it cannot take out a sentence that is all a page's section holds |
 | An amount not in US dollars | Refused, as on every page |
 | A quotation | Refused, as on the Pillar and the Blog |
 | A tool the project does not list is named | Not checked, as on the Pillar and the Blog since 2026-10-13 |
-| A link anywhere in the deck | Refused |
-| A slide's title names a product | Refused (`tools-section`) |
-| "Ask yourself" framing in the writer's own words | Refused (`questions-quiz`) |
-| A partner is not named on its slide | Saved, with the gap named (`partner-mentions`) |
-| A slide over its numbers: too many lines, a line or a title too long, too few or too many slides | Saved, with the slide named. The PDF still holds one slide a page, because the renderer fits a slide's text to its page |
+| A link anywhere in the deck, or an address typed with "http" or "www." on a slide or in the post | Refused |
+| A slide's title names its partner | *Changed.* Not checked. The request asks for the name in the lines |
+| "Ask yourself" framing on a slide the writer wrote | Refused (`questions-quiz`). *Changed:* the post is not held to it |
+| A partner is not named on its slide, in its lines or its title | Saved, with the gap named (`partner-mentions`) |
+| A slide over its numbers: too many lines, a line or a title too long | *Changed.* On the run's record (`deck`), not in your list. The PDF holds one slide a page whatever a slide holds |
+| The post is over 3,000 characters | Saved, with the line saying to shorten it (LinkedIn's limit, from your `social` skill) |
+| No last slide could be built (no scheduler or no closing wording configured) | Saved, with the gap named |
+| A reply with another number of slides than were assigned, or a slide with no title or no line | Refused where the reply is read (step 1) |
 
 The post is checked for figures and currency with the deck.
 
@@ -154,21 +164,24 @@ and "Ads" are not written from a deck: they are written from the Pillar
 
 ## What it costs to run
 
-Not measured yet, and it is measured before the first run (step 2). From the Pillar's measured sizes
-on research of the 15:29 UTC run of 2026-10-12: the cover's request about 127,000 tokens and the
-slides' request about 157,000. A deck is those two requests, some 285,000 tokens sent: about 57 cents
-on GPT-4.1 if nothing is billed as a repeat, less when a Pillar or a Blog is written in the same run
-and the research is billed as repeated. Nearly all of it is the research, sent whole.
+Measured in step 2 through the real writer, counted before either request is sent, on made-up
+research of a real run's shape: five partners, 358,000 characters of partner research, 40 competitor
+pages with outlines of 30 headings, 8 of your own pages. The cover and the post: 118,005 tokens. The
+slides: 212,648. Some 331,000 tokens sent for a nine-slide deck, a third of what GPT-4.1 accepts in
+one request, and about 66 cents at its list price. Nearly all of it is the research, sent whole, and
+none of it is billed as a repeat: the two requests share only their first lines, and a Pillar in the
+same run does not share them either. Made-up words count at more tokens a character than real pages
+do, so a real run should come in under this; its `evidence` events are the real figures.
 
 ## The steps, one commit each
 
 | # | What | Done when |
 |---|---|---|
 | 1 | **Built 2026-10-13.** The prompt set: `ContentTypes/LinkedInDocumentPrompts.cs`, its outline, the cover-and-post reply shape, registered in `Program.cs` and in the tests' registry (`TestContentTypePrompts.cs`) | A five-partner Brief gives nine slides in the order above; a Brief with one partner gives the refusal |
-| 2 | The writer and the checks: `Writers/GccGenerateService.LinkedInDocument.cs`, `GccDraftGuard.LinkedInDocument`, the case in `GenerateOneAsync`, the deck's numbers in `ContentLengthTargets` | A deck is written through the real writer with a stand-in model; one test for each check; `BriefFieldReachTests` gains the deck and fails if a Brief box reaches none of its requests; each request's size is counted and written in this plan |
-| 3 | The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the two files |
+| 2 | **Built 2026-10-13.** The writer and the checks: `Writers/GccGenerateService.LinkedInDocument.cs`, `GccDraftGuard.LinkedInDocument`, the case in `GenerateOneAsync`, the deck's numbers in `ContentLengthTargets` | A deck is written through the real writer with a stand-in model; one test for each check; `BriefFieldReachTests` gains the deck and fails if a Brief box reaches none of its requests; each request's size is counted and written in this plan |
+| 3 | The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the PDF, the post and the first comment |
 | 4 | Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
-| 5 | The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser |
+| 5 | The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides and the first comment under the post; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser |
 | 6 | The proof | Jeff runs one Generate with "PDF / LinkedIn document" alone and reads the PDF: every partner on its slide, no link inside, every figure in the evidence, the booking words on the last page, a post that reads as a LinkedIn post |
 
 The form is pushed after GeekAPI: the other order offers a type the server refuses.
@@ -184,9 +197,10 @@ The form is pushed after GeekAPI: the other order offers a type the server refus
 ## The four decisions, settled 2026-10-13
 
 1. **Links.** None inside the PDF, because LinkedIn does not make a link inside a document clickable.
-   The post carries them, added by code: the booking link and each partner's tool page on the site.
-   The last slide prints the booking words and the site's address as text. *Taken as written: Jeff
-   approved the plan without changing it.*
+   The booking link and each partner's tool page on the site are listed by code. The last slide
+   prints the booking words and the site's address as text. *Taken as written, with one change made
+   in step 2: the links are listed for the first comment, not put under the post. Your `social`
+   skill says links in a LinkedIn post's body cost it reach and go in the comments.*
 2. **Hashtags.** None on the post; you add any when posting. *Taken as written.*
 3. **The look.** The site's own: navy `#0B162A`, the orange `#C83803` used once a deck, on the booking
    line, and the site's Sora for titles. *Taken as written.*
@@ -265,3 +279,63 @@ two jobs, the summing up and the call to action, on two slides.
   so the writer's context for a deck carries none.
 - The two requests without any research are about 3,000 and 3,400 tokens (a five-partner Brief of a
   few lines). The research is the rest, and is measured in step 2 through the real writer.
+
+### Step 2, 2026-10-13: the writer and the checks
+
+Not pushed. Nothing a run does has changed: the type is still on GeekAPI's disabled list, so a
+request for it is refused before it reaches the writer. 2,287 unit and 44 integration tests pass.
+
+**Files.** `Writers/GccGenerateService.LinkedInDocument.cs` (the writer),
+`Guardrail/GccDraftGuard.LinkedInDocument.cs` (the checks), `GccLinkedInDocument.cs` (the last slide,
+the links, the post's trip through the checks), the case in `GccGenerationCoordinator.GenerateOneAsync`.
+Tests: `LinkedInDocumentWriterTests`, 33, and the deck in `BriefFieldReachTests`.
+
+**What a run does for a deck.** Refuses first when the project has fewer than two partners or more
+than eight, before a page of the project is deleted and before anything is searched or sent. Resolves
+the partners, your site and the competitor pages as the Pillar does. Sends two requests, each counted
+against what its model accepts before it is sent, each carrying all of the research: the cover with
+the post, then the slides. Builds the last slide. Runs every check once. Lists the links.
+
+**What is saved.** `{ title, caption, firstComment, links, slides, warnings, body }`. `body` is the
+deck: the cover is the opening, each slide a top-level section. `slides` says what each one is (the
+cover, the problem, a partner and which, the approach, what to do next), so the PDF and the form do
+not work it out from position. `caption` is the post. `firstComment` is the links as text to paste:
+"Book your free consultation: https://geekatyourspot.com/#consultationAppointment2xl", then a line
+for each partner's tool page.
+
+**Where step 2 differs from this plan, and why. Say so if any should go back.**
+
+1. **The links go in the first comment, not under the post.** Your `social` skill, on LinkedIn:
+   "Links in the main post (kills reach)", "Put links in comments, not post body". The post's request
+   now says so, and that about 210 characters show before "see more" (your platform limits).
+2. **A slide's title that names its partner is not refused and not listed.** This plan said refused.
+   A deck would have been lost for naming its own partner, the kind of rule taken off the pages on
+   2026-10-13. The request still asks for the name in the lines. A partner named in neither its
+   lines nor its title is still listed.
+3. **A slide over its numbers is on the run's record, not in your list.** This plan said listed. A
+   line of fifteen words where fourteen were asked is nothing to act on. Step 3 lists a slide only
+   if its text had to be set smaller than your skill's legible size to fit.
+4. **The quiz check reads the slides, not the post.** A post is a post in its own right and its hook
+   may put a question to the reader. Neither of your post skills says otherwise.
+5. **A number the research does not hold, in a title, refuses the deck.** A page's headings are not
+   read for numbers; a slide's title is the largest words on it, so "Close the books 3 days faster"
+   is a claim. A line with such a number is deleted and the slide kept; a title cannot be deleted.
+   The cover's one line is the same. A count of the deck's own slides ("2 tools") is no number to
+   look up.
+6. **A post over 3,000 characters is listed,** with the line saying to shorten it. Not in this plan.
+7. **The note that tells a page's writer to weave a four-phase method through its narrative is not
+   sent to a deck.** Its slides are fixed, and the slide on how the work is done is told whose
+   method it describes.
+8. **A partner whose tool page the project does not have is named when the run is over,** by the
+   line a Pillar already gets ("Links to the Second tool page, and this project has no Second tool
+   page ..."). Nothing checks that a tool page is published on the site, for a deck or for a Pillar.
+
+**Found while building, not this plan's to fix, and yours to decide.** Every page's requests print
+the keyword, the notes and the four-phase note under the heading "{your site}'S OWN SITE", followed
+by "This is what the publisher already says about themselves, published and live". They are not
+your site's words. A deck's requests print the keyword and notes there too, the same way.
+
+**Not tested until step 4,** because the type is refused before it reaches them: the case in
+`GenerateOneAsync`, the partner-count refusal in `RunGenerateAsync` before the delete, and the
+refusal for a partner with no passage on a real run's path. Each is in place; step 4's whole-run
+test drives them.

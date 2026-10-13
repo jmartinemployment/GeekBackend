@@ -144,5 +144,11 @@ public static class ContentLengthTargets
     // and 300 words unless the user requests otherwise."
     public const int LinkedInDocumentPostMinWords = 150;
     public const int LinkedInDocumentPostMaxWords = 300;
+
+    /// <summary>
+    /// About how many characters of a LinkedIn post show before "see more". Jeff's "social" skill,
+    /// references/platform-limits.md: "Visible before \"more\" ~210 chars".
+    /// </summary>
+    public const int LinkedInPostVisibleCharacters = 210;
 }
 
