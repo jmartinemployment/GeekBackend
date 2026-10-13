@@ -494,35 +494,27 @@ public static class GccNicheFramingReader
         ForHost(briefJson, HostForProduct(briefJson, partnerUrls, productName));
 
     /// <summary>
-    /// The operator's FAQ questions for one tool: <c>perTool[host].faqQuestions</c>, one per line or
-    /// one per array item, resolved through the same product-to-host lookup as
+    /// The operator's FAQ for one tool: <c>perTool[host].faqQuestions</c>, each question with the
+    /// answer entered for it, resolved through the same product-to-host lookup as
     /// <see cref="ForProduct"/>. The tool's own entry only -- the category has no FAQ for a tool page,
     /// so nothing merges. Empty when the product resolves to no host or the entry carries none.
     /// </summary>
-    public static IReadOnlyList<string> ToolFaqQuestions(
+    public static IReadOnlyList<GccFaqEntry> ToolFaq(
         string? briefJson,
         IReadOnlyList<string>? partnerUrls,
         string? productName) =>
-        FaqQuestionsForHost(briefJson, HostForProduct(briefJson, partnerUrls, productName));
+        FaqForHost(briefJson, HostForProduct(briefJson, partnerUrls, productName));
 
     /// <summary>
-    /// The operator's FAQ questions for one partner host (the <c>perTool</c> key, e.g.
-    /// <c>bill.com</c>), each once, in the order written.
+    /// The operator's FAQ for one partner host (the <c>perTool</c> key, e.g. <c>bill.com</c>): each
+    /// question once, in the order written, with its answer. Read by <see cref="GccFaqAnswers.Read"/>,
+    /// which reads the pillar's and the blog's questions too.
     /// </summary>
-    /// <remarks>
-    /// The one reader of a tool's questions. The search of the partner's crawl
-    /// (<c>GccGroundingResolver</c>) and the tool page's FAQ (<see cref="ToolFaqQuestions"/>) both come
-    /// through here, so a question the page is asked to answer is a question the crawl was searched
-    /// for. Until 2026-10-10 only the page read them, after every search was over, and a question
-    /// none of the other searches was about was reported as "no page answers it" when nothing had
-    /// looked.
-    /// </remarks>
-    public static IReadOnlyList<string> FaqQuestionsForHost(string? briefJson, string? host)
+    public static IReadOnlyList<GccFaqEntry> FaqForHost(string? briefJson, string? host)
     {
         foreach (var section in OwnSections(briefJson, host))
         {
-            // Each once: a question is what its search is filed under, so a repeated line is one question.
-            return [.. ReadQuestionLines(section, "faqQuestions").Distinct(StringComparer.Ordinal)];
+            return TryGetPropertyIgnoreCase(section, "faqQuestions", out var faq) ? GccFaqAnswers.Read(faq) : [];
         }
 
         return [];

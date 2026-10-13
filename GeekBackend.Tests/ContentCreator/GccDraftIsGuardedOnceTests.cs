@@ -118,8 +118,7 @@ public class GccDraftIsGuardedOnceTests
     private static GccCreateDto Create(string? briefJson = null) => new(
         Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
         StartingContentType: "pillar", Topic: "AI implementation", Notes: null,
-        // The pillar's People Also Ask is written only for a question a search found passages for.
-        ProjectSiteRunId: null, SiteSectionJson: null, BriefJson: briefJson, ResearchJson: PageFaqResearch.For(briefJson),
+        ProjectSiteRunId: null, SiteSectionJson: null, BriefJson: briefJson, ResearchJson: null,
         Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow);
 
     private static GccGenerateService Build(IContentGenerationProvider provider) => new(
@@ -180,7 +179,7 @@ public class GccDraftIsGuardedOnceTests
     }
 
     private const string BriefWithQuestions = """
-        {"paaQuestions":["Is it secure?"],
+        {"paaQuestions":[{"question":"Is it secure?","answer":"Yes: access is by role and every change is logged."}],
          "nicheFraming":{"diagnosisQuestions":"What business objective should this automation serve?\nHow clean is the data the approvals draw on today?"}}
         """;
 
@@ -234,7 +233,7 @@ public class GccDraftIsGuardedOnceTests
     {
         var provider = new ScriptedProvider();
 
-        var (body, _) = await Pillar(provider, """{"paaQuestions":["Is it secure?"]}""");
+        var (body, _) = await Pillar(provider, """{"paaQuestions":[{"question":"Is it secure?","answer":"Yes: access is by role and every change is logged."}]}""");
 
         var sections = body.GetProperty("sections").EnumerateArray().ToList();
         var last = sections[^2].GetProperty("paragraphs").EnumerateArray().Last();
@@ -340,7 +339,7 @@ public class GccDraftIsGuardedOnceTests
     public async Task The_people_also_ask_section_is_on_the_draft()
     {
         var provider = new ScriptedProvider();
-        const string brief = """{"paaQuestions":["Is it secure?"]}""";
+        const string brief = """{"paaQuestions":[{"question":"Is it secure?","answer":"Yes: access is by role and every change is logged."}]}""";
 
         var (body, _) = await Pillar(provider, brief);
 

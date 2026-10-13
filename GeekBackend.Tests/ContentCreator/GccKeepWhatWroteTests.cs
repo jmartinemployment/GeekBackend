@@ -75,7 +75,7 @@ public sealed class GccKeepWhatWroteTests
             [
                 "pillar: Refused: the pillar. a link leads nowhere",
                 "blog: Refused: the blog. a figure is not in the evidence",
-                "Bill: Refused: money that is not in US dollars",
+                "tool: Bill: Refused: money that is not in US dollars",
             ],
             json.RootElement.GetProperty("refusals").EnumerateArray().Select(r => r.GetString()));
     }

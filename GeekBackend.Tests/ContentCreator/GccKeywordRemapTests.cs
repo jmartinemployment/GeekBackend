@@ -413,13 +413,13 @@ public sealed class GccKeywordRemapTests
     }
 
     [Fact]
-    public void The_target_is_a_share_of_the_pages_words_inside_the_scorers_band_and_the_shares_add_up()
+    public void The_target_is_a_share_of_the_pages_words_under_what_reads_stuffed_and_the_shares_add_up()
     {
         Assert.Equal(21, GccKeywordRemap.TargetFor(3500));
         Assert.Equal(4, GccKeywordRemap.TargetFor(100));
         foreach (var words in new[] { 700, 1800, 3000, 3500, 5000 })
         {
-            Assert.InRange(100.0 * GccKeywordRemap.TargetFor(words) / words, 0.4, 2.5);
+            Assert.True(100.0 * GccKeywordRemap.TargetFor(words) / words < GeekAPI.Services.Gcw.GcwSeoAnalyzer.MaxKeywordDensityPercent);
         }
 
         var shares = GccKeywordRemap.Shares(18, 11);

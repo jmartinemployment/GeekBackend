@@ -28,19 +28,23 @@ public sealed class FaqAnswersCarryNoLinksTests
     private static string SystemOf(ChatCompletionRequest request) =>
         request.Messages.First(m => m.Role == ChatRole.System).Content;
 
-    public static TheoryData<string> EveryFaqPrompt => new() { "pillar", "blog", "toolQuestions", "toolBank" };
+    public static TheoryData<string> EveryFaqPrompt => new() { "pillarQuestions", "pillar", "blog", "toolAnswers", "toolBank" };
+
+    /// <summary>One question with the operator's answer, as a request is handed it.</summary>
+    private static readonly string Answers = GeekAPI.Services.ContentCreator.GccFaqAnswers.Render(
+        [new GeekAPI.Services.ContentCreator.GccFaqEntry("Does it sync with QuickBooks Online?", "Yes, every payment as it is made.")]);
 
     private static ChatCompletionRequest Build(string which)
     {
         var context = GccOpeningAsksNothingTests.Context();
         return which switch
         {
-            "pillar" => Builder.BuildArticleFaqSectionPrompt(context, Article, ["How long does it take?"], isRegeneration: false),
-            "blog" => Builder.BuildBlogFaqSectionPrompt(
-                context, new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview"]), ["How long does it take?"]),
-            "toolQuestions" => Builder.BuildToolFaqFromQuestionsPrompt(
-                context, Article, App, ["Does it sync with QuickBooks Online?"],
-                "Partner Widget (https://partner.test/widget)\n  - Partner Widget syncs every payment to QuickBooks Online."),
+            // The Workflow product's writer asks from the questions alone.
+            "pillarQuestions" => Builder.BuildArticleFaqSectionPrompt(context, Article, ["How long does it take?"], isRegeneration: false),
+            "pillar" => Builder.BuildArticleFaqFromAnswersPrompt(context, Article, Answers),
+            "blog" => Builder.BuildBlogFaqFromAnswersPrompt(
+                context, new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview"]), Answers),
+            "toolAnswers" => Builder.BuildToolFaqFromAnswersPrompt(context, Article, App, Answers),
             // The prompt reads a pair's question, answer and source; provenance is carried, not read.
             _ => Builder.BuildToolFaqSectionPrompt(
                 context, Article, App,

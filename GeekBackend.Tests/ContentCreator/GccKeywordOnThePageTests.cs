@@ -8,14 +8,21 @@ using Xunit;
 namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
-/// The keyword is judged once, on the finished page, by the page's own score: the exact phrase as a
-/// share of the page's words, inside the band the SEO report passes. Outside it the page ships and says
-/// so, naming the sections that never use the phrase.
+/// The keyword's count is judged once, on the finished page, by the page's own score, and only for
+/// stuffing: the exact phrase as a share of the page's words, over which the page ships and says so.
+/// No page is reported for using the phrase too little.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Until 2026-10-13 a page under 0.4% failed the score and was listed. The figure was the code's own
+/// and is in none of Jeff's SEO skills, which judge the keyword by where it is placed and keep density
+/// as a stuffing heuristic ("do not target a quota"). The 13:16 UTC run of that day listed the line on
+/// all five of its pages, which were 8,100 to 9,800 words.
+/// </para>
+/// <para>
 /// Until 2026-10-10 the count was warned a call at a time, against the call's share of a count sized to
-/// the page's floor: 18 of 21 calls on 2026-10-07, nine of them on pages the score passed. The score's
-/// mark is a share of the words the page ends up with, and that is what is checked.
+/// the page's floor: 18 of 21 calls on 2026-10-07, nine of them on pages the score passed.
+/// </para>
 /// </remarks>
 public sealed class GccKeywordOnThePageTests
 {
@@ -51,23 +58,35 @@ public sealed class GccKeywordOnThePageTests
             [H2("Where the hours go", Text(phrase)), H2("What to do next", Text("Book the call."))]);
     }
 
-    [Fact]
-    public void A_page_under_the_scores_floor_ships_with_the_gap_named_and_the_sections_that_never_use_it()
+    [Theory]
+    [InlineData(1, 1000)]
+    [InlineData(3, 8620)]
+    [InlineData(17, 8170)]
+    public void A_page_that_uses_the_phrase_seldom_is_not_reported_and_passes_the_score(int uses, int fillerWords)
     {
-        var page = Page(uses: 1, fillerWords: 1000);
+        var page = Page(uses, fillerWords);
 
-        var finding = KeywordFinding(GccDraftGuard.Pillar(page, Inputs()));
-
-        Assert.NotNull(finding);
-        Assert.False(finding.Refuses);
-        Assert.StartsWith("The pillar uses \"Automated Approval Workflows\" 1 time in 1,0", finding.Detail, StringComparison.Ordinal);
-        Assert.Contains("Its SEO score needs 0.4%.", finding.Detail, StringComparison.Ordinal);
-        Assert.Contains("Sections that never use it: \"The opening\", \"What to do next\".", finding.Detail, StringComparison.Ordinal);
-        Assert.False(ScorePasses(page, "pillar"));
+        Assert.Null(KeywordFinding(GccDraftGuard.Pillar(page, Inputs())));
+        Assert.Null(KeywordFinding(GccDraftGuard.Blog(page, Inputs())));
+        Assert.Null(KeywordFinding(GccDraftGuard.Tool(page, Inputs())));
+        Assert.True(ScorePasses(page, "pillar"));
     }
 
     [Fact]
-    public void A_page_inside_the_band_has_no_keyword_finding()
+    public void The_scores_density_check_says_there_is_no_minimum()
+    {
+        var report = GcwSeoAnalyzer.Analyze(
+            JsonSerializer.Serialize(Page(uses: 1, fillerWords: 1000), GccDocumentJson.Options), Keyword, "pillar");
+
+        var density = report.Checks.Single(c => c.Id == "keyword-density");
+        Assert.True(density.Passed);
+        Assert.Null(density.FixHint);
+        Assert.Contains("over 2.5% reads stuffed; there is no minimum", density.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("Increase natural mentions", report.ApplyFeedback, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_page_under_the_ceiling_has_no_keyword_finding()
     {
         var page = Page(uses: 8, fillerWords: 1000);
 
@@ -77,7 +96,7 @@ public sealed class GccKeywordOnThePageTests
     }
 
     [Fact]
-    public void A_page_over_the_band_ships_and_says_it_reads_stuffed()
+    public void A_page_over_the_ceiling_ships_and_says_it_reads_stuffed()
     {
         var page = Page(uses: 6, fillerWords: 100);
 
@@ -101,12 +120,10 @@ public sealed class GccKeywordOnThePageTests
                 H2("A shortening only", Text("The approval workflows and automated workflows are not the phrase.")),
             ]);
 
-        // The tool guard, because a pillar does not carry a quotation at all.
-        var finding = KeywordFinding(GccDraftGuard.Tool(page, Inputs()));
+        // A shortening is not the phrase: three uses, not five.
+        var counted = GcwSeoAnalyzer.CountKeyword(JsonSerializer.Serialize(page, GccDocumentJson.Options), Keyword);
 
-        Assert.NotNull(finding);
-        Assert.StartsWith("The tool page uses \"Automated Approval Workflows\" 3 times in", finding.Detail, StringComparison.Ordinal);
-        Assert.Contains("Sections that never use it: \"The opening\", \"A shortening only\".", finding.Detail, StringComparison.Ordinal);
+        Assert.Equal(3, counted.Uses);
     }
 
     [Fact]

@@ -1,8 +1,22 @@
 # Use everything: the Brief, the research, and Repurpose for the short types
 
-**Status:** approved 2026-10-12 ("execute your plan"). All six steps are built and committed on
-`main`, in GeekBackend and in content-creator-v2. Nothing is pushed, and nothing is fixed until a
-run of yours says so.
+**Status:** approved 2026-10-12 ("execute your plan"). All six steps are built, committed and
+pushed, in GeekBackend (`f0d88aa`) and in content-creator-v2 (`a55dc9c`). The first run on them is
+the 13:16 UTC run of 2026-10-13: every request carried all of its research and the counter was
+exact; the blog and ADP's tool page were lost to a questions request, and five keyword lines were
+listed. Repurpose has not been run.
+
+**Changed on 2026-10-13, on your word, and not in the steps below** ("FAQ's I have answers to
+questions that I am suppling. Add spot for answers on UI, and no longer query for answer
+passages."). Built in both repositories, not committed.
+- No crawl is searched for an FAQ question. You enter each answer beside its question under "People
+  Also Ask (direct entry, optional)", "Blog FAQ (optional)" and each tool's "Tool page FAQ", and the
+  writer writes it in the Brief's voice, adding nothing.
+- **So everything this plan says about what the question searches found is no longer in the code:**
+  the passages carried in the opening and body requests, the 30 passages for each partner, the "The
+  question: ..." line on a passage, and the size figures that count 150 question passages.
+- A question with no answer entered is left out and named. Every question saved before that day is
+  one.
 
 ## Where the work stands
 
@@ -516,8 +530,9 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
   `GccRecordingProvider` puts them on the `call` event. Nothing else changes: no holding and no
   second send.
 - Left as they are: the reply reservations (`ContentPromptBuilder.cs:270-299`) and the size of a
-  question request (`GccPageFaqEvidence.cs:46`, which splits questions across requests and leaves
-  nothing out). Their comments gave 128,000 as the model's limit and are corrected.
+  question request, which was bounded by the passages it carried. Their comments gave 128,000 as the
+  model's limit and are corrected. Since 2026-10-13 a question request carries the answers you
+  entered and no passage, and is divided by `GccFaqAnswers.MaxAnswerCharsPerCall`.
 
 **Part 1** (step 2, built)
 - `GccNicheFraming.cs`: the method that merged a tool's section over the category's is deleted. A

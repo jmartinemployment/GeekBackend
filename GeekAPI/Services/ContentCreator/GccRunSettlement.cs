@@ -40,9 +40,17 @@ internal static class GccRunSettlement
         /// <summary>A whole type that was not written: its line leads with the type.</summary>
         internal static TypeRefusal OfType(string type, string reason) => new(type, reason, RefusalLine(type, reason));
 
-        /// <summary>One partner a tool run did not write. The reason already leads with the partner
-        /// ("Approvalmax: Refused: ..."), so its line is the reason as it always was.</summary>
-        internal static TypeRefusal OfPartner(string type, string partnerRefusal) => new(type, partnerRefusal, partnerRefusal);
+        /// <summary>One partner a tool run did not write. The reason leads with the partner
+        /// ("Approvalmax: Refused: ..."), and its line leads with the type like any other.</summary>
+        /// <remarks>
+        /// Until 2026-10-13 its line was the reason alone, with no type. The page lists what a run did
+        /// not write from two things, the live note of each type ("tool" and this reason, which it
+        /// prints as "tool: Adp: ...") and the run's record (this line), and shows a line once when the
+        /// two are the same text. They were not, so on the 13:16 UTC run of that day ADP's page was
+        /// listed twice under "Not written", as "tool: Adp: ..." and as "Adp: ...".
+        /// </remarks>
+        internal static TypeRefusal OfPartner(string type, string partnerRefusal) =>
+            new(type, partnerRefusal, RefusalLine(type, partnerRefusal));
     }
 
     /// <summary>What to save, and what to report as not written.</summary>
@@ -50,7 +58,9 @@ internal static class GccRunSettlement
         IReadOnlyList<GccGenerationCoordinator.GeneratedPiece> Pieces,
         IReadOnlyList<TypeRefusal> Refusals);
 
-    /// <summary>One definition of a refusal line: "{type}: {reason}".</summary>
+    /// <summary>One definition of a refusal line: "{type}: {reason}". The page builds the same text
+    /// from a type's live note (content-creator-v2 <c>ProjectContentWorkspace.tsx</c>), which is how
+    /// a line the two both carry is listed once.</summary>
     internal static string RefusalLine(string type, string text) => $"{type}: {text}";
 
     /// <summary>

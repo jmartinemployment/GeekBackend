@@ -271,28 +271,31 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Equal(32, only.TopK);
     }
 
-    // The tool page's FAQ (2026-10-10). Until then the operator's questions for a tool were read once,
-    // by the page, after every search was over: they were answered from whatever the searches above
-    // had brought back, and a question none of those was about was reported as one "no page of the
-    // partner's answers" when nothing had looked.
+    // The operator's FAQ (2026-10-13). Each question is entered with its answer, and no crawl is
+    // searched for one. From 2026-10-10 a tool page's questions, and from 2026-10-11 the pillar's and
+    // the blog's, were each a search of the partners' crawls.
 
     private const string QuickBooks = "Does Tipalti sync with QuickBooks Online?";
     private const string RiskSegments = "How do customer risk segments influence the cash forecast?";
+    private const string WhatIsIt = "What is automated payment execution?";
+    private const string HowLong = "How long does a payment run take by hand?";
 
-    private const string BriefWithFaq = """
-        {
-          "angle": "problem_solution",
-          "nicheFraming": {
-            "coreProblem": "The uncontrolled handoff between an approved invoice and the moment cash leaves the bank.",
-            "perTool": {
-              "tipalti.com": {
-                "faqQuestions": "Does Tipalti sync with QuickBooks Online?\n\nHow do customer risk segments influence the cash forecast?\nDoes Tipalti sync with QuickBooks Online?"
-              },
-              "bill.com": { "faqQuestions": "Does Bill pay international vendors?" }
-            }
-          }
-        }
-        """;
+    /// <summary>
+    /// <see cref="Brief"/> with an FAQ in every box that holds one: the pillar's and the blog's, and the
+    /// tool's own, some with an answer entered and some without, in each shape a brief has saved them.
+    /// </summary>
+    private static string BriefWithEveryFaq() => Brief
+        .Replace(
+            "\"angle\": \"problem_solution\",",
+            "\"angle\": \"problem_solution\", "
+            + "\"paaQuestions\": [{\"question\": \"" + WhatIsIt + "\", \"answer\": \"Paying approved bills on a schedule, without a person keying each one.\"}], "
+            + "\"blogFaqQuestions\": \"" + HowLong + "\",",
+            StringComparison.Ordinal)
+        .Replace(
+            "\"tipalti.com\": {",
+            "\"tipalti.com\": { \"faqQuestions\": [{\"question\": \"" + QuickBooks + "\", \"answer\": \"Yes, in both directions.\"}, "
+            + "{\"question\": \"" + RiskSegments + "\", \"answer\": \"\"}],",
+            StringComparison.Ordinal);
 
     /// <summary>Answers every search with the pages it is told to, given which search it is (1, 2, 3...).</summary>
     private sealed class AnswersWith(Func<int, IReadOnlyList<GccQuoteablePage>> pages) : IGeekCrawlerRagClient
@@ -469,25 +472,6 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Null(search.Failure);
     }
 
-    [Fact]
-    public async Task What_a_faq_search_finds_is_filed_under_its_question_and_needs_no_search_named()
-    {
-        const string faq = "Does Tipalti reconcile payments in multiple currencies?";
-        var project = Project("https://tipalti.com/");
-        var brief = Brief.Replace(
-            "\"coreProblem\": \"International vendors",
-            "\"faqQuestions\": \"" + faq + "\", \"coreProblem\": \"International vendors",
-            StringComparison.Ordinal);
-
-        var outcome = await Build(project, new RecordingRag(), new OneBlockPages())
-            .ResolveAsync(Create(project.Id, brief), "tool");
-
-        var filed = Assert.Single(outcome.FaqEvidence!, e => e.Question == faq);
-        Assert.All(filed.Pages, page => Assert.Null(page.Searches));
-        // And every page the writers read does name one.
-        Assert.All(outcome.Pages, page => Assert.NotEmpty(page.SearchesThatFound(0)));
-    }
-
     private static readonly GccPassageSearch First = new(GccPassageSearch.KindProblem, "The problem.");
     private static readonly GccPassageSearch Second = new(GccPassageSearch.KindRow, "A remedy.", Failure: "A failure.");
 
@@ -631,7 +615,6 @@ public class GccGroundingEvidenceQuestionsTests
     [InlineData(GccPassageSearch.KindRow, "Routes each invoice by amount.", "Approvals stall.", "Where it goes wrong: Approvals stall. -- searched with the remedy noted: Routes each invoice by amount.")]
     [InlineData(GccPassageSearch.KindRow, "Approvals stall.", "Approvals stall.", "Where it goes wrong: Approvals stall.")]
     [InlineData(GccPassageSearch.KindRow, "Routes each invoice by amount.", null, "A remedy noted: Routes each invoice by amount.")]
-    [InlineData(GccPassageSearch.KindQuestion, "Does it sync with Xero?", null, "The question: Does it sync with Xero?")]
     [InlineData(GccPassageSearch.KindKeyword, "invoice approval", null, "The keyword: invoice approval")]
     public void A_search_is_stated_in_the_operators_words_by_what_kind_it_was(
         string kind, string asked, string? failure, string stated) =>
@@ -648,24 +631,17 @@ public class GccGroundingEvidenceQuestionsTests
     ];
 
     [Fact]
-    public async Task A_legal_document_and_an_unfinished_template_are_not_evidence_for_any_writer_or_any_faq_answer()
+    public async Task A_legal_document_and_an_unfinished_template_are_not_evidence_for_any_writer()
     {
         var project = Project("https://tipalti.com/");
-        var brief = Brief.Replace(
-            "\"tipalti.com\": {",
-            "\"tipalti.com\": { \"faqQuestions\": \"Does Tipalti sync with QuickBooks Online?\",",
-            StringComparison.Ordinal);
 
         var outcome = await Build(project, new AnswersWith(WithALegalPageAndAStub), new OneBlockPages())
-            .ResolveAsync(Create(project.Id, brief), "tool");
+            .ResolveAsync(Create(project.Id, Brief), "tool");
 
         Assert.False(outcome.Refused);
         Assert.NotEmpty(outcome.Pages);
         Assert.All(outcome.Pages, p => Assert.Contains("/product/", p.Url, StringComparison.Ordinal));
         Assert.All(outcome.PartnerPassages, p => Assert.Contains("/product/", p.Url, StringComparison.Ordinal));
-
-        var faq = Assert.Single(outcome.FaqEvidence!);
-        Assert.All(faq.Pages, p => Assert.Contains("/product/", p.Url, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -706,208 +682,33 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.DoesNotContain(written, e => e.Kind == "left-out");
     }
 
-    private static IReadOnlyList<GeekCrawlerRagQuery> FaqQueries(RecordingRag rag) =>
-        [.. PartnerQueries(rag).Where(q => q.TopK == GccGroundingResolver.FaqTopK)];
-
-    [Fact]
-    public async Task Every_faq_question_the_tool_page_will_be_asked_is_searched_for_in_its_partners_crawl()
-    {
-        var project = Project("https://tipalti.com/");
-        var rag = new RecordingRag();
-        var create = Create(project.Id, BriefWithFaq);
-
-        var outcome = await Build(project, rag, new OneBlockPages()).ResolveAsync(create, "tool");
-
-        // The page and the search read one list, so the assertion is on the page's own reader.
-        var asked = GccNicheFramingReader.ToolFaqQuestions(
-            BriefWithFaq, project.PartnerUrls,
-            GccRequiredToolMentions.AnchorLookup(BriefWithFaq, project.PartnerUrls).Values.Single());
-        Assert.Equal([QuickBooks, RiskSegments], asked);
-
-        var searches = FaqQueries(rag);
-        Assert.Equal(asked, searches.Select(q => q.Need));
-        Assert.All(searches, q =>
-        {
-            Assert.Equal(TipaltiRun, q.RunId);
-            Assert.Null(q.Keyword);
-        });
-
-        // Filed by host and question, one entry a search, and no other partner's questions among them.
-        Assert.NotNull(outcome.FaqEvidence);
-        Assert.Equal(asked, outcome.FaqEvidence.Select(e => e.Question));
-        Assert.All(outcome.FaqEvidence, e => Assert.Equal("tipalti.com", e.Host));
-        Assert.DoesNotContain(rag.Asked, q => q.Need.Contains("international vendors", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task What_a_faq_search_finds_stays_out_of_the_passages_every_writer_reads()
-    {
-        var project = Project("https://tipalti.com/");
-
-        var without = await Build(project, new RecordingRag(), new OneBlockPages()).ResolveAsync(Create(project.Id, Brief), "tool");
-        var withFaq = new RecordingRag();
-        var brief = Brief.Replace(
-            "\"tipalti.com\": {",
-            "\"tipalti.com\": { \"faqQuestions\": \"Does Tipalti sync with QuickBooks Online?\",",
-            StringComparison.Ordinal);
-        var outcome = await Build(project, withFaq, new OneBlockPages()).ResolveAsync(Create(project.Id, brief), "tool");
-
-        Assert.Single(FaqQueries(withFaq));
-        Assert.Equal(without.Pages.Select(p => p.Url), outcome.Pages.Select(p => p.Url));
-        var entry = Assert.Single(outcome.FaqEvidence!);
-        Assert.DoesNotContain(outcome.Pages, p => entry.Pages.Any(f => f.Url == p.Url));
-    }
-
+    /// <summary>
+    /// No crawl is searched for an FAQ question (Jeff, 2026-10-13: "no longer query for answer
+    /// passages"). A run that writes every page asks each crawl exactly what it is asked when the brief
+    /// holds no FAQ at all: the questions and their answers add no search, change none, and what the
+    /// searches bring back is the same.
+    /// </summary>
     [Theory]
+    [InlineData("tool")]
     [InlineData("pillar")]
     [InlineData("blog")]
-    public async Task A_run_that_writes_no_tool_page_searches_for_no_faq_question(string contentType)
+    [InlineData("tool,pillar,blog")]
+    public async Task No_crawl_is_searched_for_a_question_of_any_faq(string contentTypes)
     {
         var project = Project("https://tipalti.com/");
-        var rag = new RecordingRag();
+        string[] types = contentTypes.Split(',');
+        var without = new RecordingRag();
+        var withFaq = new RecordingRag();
 
-        var outcome = await Build(project, rag).ResolveAsync(Create(project.Id, BriefWithFaq), contentType);
+        var plain = await Build(project, without, new OneBlockPages()).ResolveAsync(Create(project.Id, Brief), types);
+        var outcome = await Build(project, withFaq, new OneBlockPages()).ResolveAsync(Create(project.Id, BriefWithEveryFaq()), types);
 
-        Assert.DoesNotContain(rag.Asked, q => q.Need == QuickBooks || q.Need == RiskSegments);
-        // Null, not empty: nothing was searched for, which is not the same as finding nothing.
-        Assert.Null(outcome.FaqEvidence);
-    }
-
-    [Fact]
-    public async Task A_tool_run_whose_brief_has_no_faq_questions_searched_and_has_none()
-    {
-        var project = Project("https://tipalti.com/");
-
-        var outcome = await Build(project, new RecordingRag(), new OneBlockPages()).ResolveAsync(Create(project.Id, Brief), "tool");
-
-        Assert.NotNull(outcome.FaqEvidence);
-        Assert.Empty(outcome.FaqEvidence);
-    }
-
-    /// <summary>Answers every search but the FAQ questions it is told to find nothing for, or to fail on.</summary>
-    private sealed class FaqRag(string? findsNothingFor = null, string? failsOn = null, string? retrieval = null) : IGeekCrawlerRagClient
-    {
-        private readonly RecordingRag inner = new();
-
-        public bool IsEnabled => true;
-
-        public Task<GeekCrawlerRagQueryResult?> QueryAsync(GeekCrawlerRagQuery query, CancellationToken ct = default)
-        {
-            if (query.Need == failsOn)
-            {
-                return Task.FromResult<GeekCrawlerRagQueryResult?>(new GeekCrawlerRagQueryResult
-                {
-                    RunId = query.RunId, Pages = [], Failed = true, Error = "The index timed out.",
-                });
-            }
-
-            if (query.Need == findsNothingFor)
-            {
-                return Task.FromResult<GeekCrawlerRagQueryResult?>(new GeekCrawlerRagQueryResult
-                {
-                    RunId = query.RunId, Pages = [], Warning = "No chunks for runId=" + query.RunId,
-                });
-            }
-
-            return retrieval is null ? inner.QueryAsync(query, ct) : SaysHowItOrdered(query, ct);
-        }
-
-        /// <summary>The same answer, with the library's word for how it ordered the passages.</summary>
-        private async Task<GeekCrawlerRagQueryResult?> SaysHowItOrdered(GeekCrawlerRagQuery query, CancellationToken ct)
-        {
-            var answered = await inner.QueryAsync(query, ct);
-            return answered is null
-                ? null
-                : new GeekCrawlerRagQueryResult
-                {
-                    RunId = answered.RunId, Pages = answered.Pages, Warning = answered.Warning, Retrieval = retrieval,
-                };
-        }
-
-        public Task<GeekCrawlerRagIndexStatus?> EnqueueIndexAsync(Guid runId, CancellationToken ct = default) =>
-            inner.EnqueueIndexAsync(runId, ct);
-
-        public Task<GeekCrawlerRagIndexStatus?> GetIndexStatusAsync(Guid runId, CancellationToken ct = default) =>
-            inner.GetIndexStatusAsync(runId, ct);
-
-        public Task<IReadOnlyList<GeekCrawlerRagHostIndex>> HostsIndexedAsync(
-            IReadOnlyList<string> urls, string crawlType, CancellationToken ct = default) =>
-            inner.HostsIndexedAsync(urls, crawlType, ct);
-
-        public Task<GeekCrawlerRagQueryResult?> QueryAsync(
-            string need, Guid runId, string? crawlType = null, string? host = null, int topK = 8,
-            bool? preferParent = null, bool? preferChild = null,
-            IReadOnlyList<string>? entityNames = null, string? retrievalMode = null,
-            IReadOnlyDictionary<string, string>? anchorToolLookup = null,
-            CancellationToken ct = default) =>
-            inner.QueryAsync(need, runId, crawlType, host, topK, preferParent, preferChild, entityNames, retrievalMode, anchorToolLookup, ct);
-
-        public Task<GeekCrawlerRagTemplateIndexResult?> IndexTemplatesAsync(
-            IReadOnlyList<GeekCrawlerRagTemplateDto> templates, CancellationToken ct = default) =>
-            inner.IndexTemplatesAsync(templates, ct);
-
-        public Task<GeekCrawlerRagTemplateQueryResult?> QueryTemplatesAsync(
-            string need, int topK = 5, string? channel = null,
-            IReadOnlyList<string>? entityTags = null, CancellationToken ct = default) =>
-            inner.QueryTemplatesAsync(need, topK, channel, entityTags, ct);
-
-        public Task<GeekCrawlerRagPageText?> GetPageTextAsync(
-            string pageId, CancellationToken ct = default, string? runId = null) =>
-            inner.GetPageTextAsync(pageId, ct, runId);
-
-        public Task<JsonElement?> RunDiagnosticAsync(
-            string endpoint, object? payload = null, CancellationToken ct = default) =>
-            inner.RunDiagnosticAsync(endpoint, payload, ct);
-    }
-
-    [Fact]
-    public async Task A_faq_search_is_filed_with_the_librarys_word_for_how_it_ordered_the_passages()
-    {
-        var project = Project("https://tipalti.com/");
-        var brief = Brief.Replace(
-            "\"tipalti.com\": {",
-            "\"tipalti.com\": { \"faqQuestions\": \"Does Tipalti sync with QuickBooks Online?\",",
-            StringComparison.Ordinal);
-
-        var ranked = await Build(project, new FaqRag(retrieval: "llamaindex-hybrid+rerank"), new OneBlockPages())
-            .ResolveAsync(Create(project.Id, brief), "tool");
-        var unranked = await Build(project, new FaqRag(retrieval: "llamaindex-hybrid"), new OneBlockPages())
-            .ResolveAsync(Create(project.Id, brief), "tool");
-
-        Assert.True(Assert.Single(ranked.FaqEvidence!).Reranked);
-        var entry = Assert.Single(unranked.FaqEvidence!);
-        Assert.Equal("llamaindex-hybrid", entry.Retrieval);
-        Assert.False(entry.Reranked);
-    }
-
-    [Fact]
-    public async Task A_faq_search_that_finds_nothing_is_an_entry_with_no_passages_and_refuses_nothing()
-    {
-        var project = Project("https://tipalti.com/");
-
-        var outcome = await Build(project, new FaqRag(findsNothingFor: RiskSegments), new OneBlockPages())
-            .ResolveAsync(Create(project.Id, BriefWithFaq), "tool");
-
-        Assert.False(outcome.Refused);
-        var entries = outcome.FaqEvidence!;
-        Assert.NotEmpty(Assert.Single(entries, e => e.Question == QuickBooks).Pages);
-        Assert.Empty(Assert.Single(entries, e => e.Question == RiskSegments).Pages);
-        // The partner returned evidence for the page's other searches, so it is not one without passages,
-        // and the index's own "no chunks" line for the question is not raised as a warning about the partner.
-        Assert.Empty(outcome.PartnersWithoutPassages ?? []);
-        Assert.DoesNotContain(outcome.Warnings, w => w.Contains("No chunks", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task A_faq_search_that_fails_refuses_the_run_as_any_failed_search_does()
-    {
-        var project = Project("https://tipalti.com/");
-
-        var outcome = await Build(project, new FaqRag(failsOn: RiskSegments), new OneBlockPages())
-            .ResolveAsync(Create(project.Id, BriefWithFaq), "tool");
-
-        Assert.True(outcome.Refused);
-        Assert.Equal("The index timed out.", outcome.Refusal);
+        static string Sent(GeekCrawlerRagQuery q) => $"{q.CrawlType} | {q.RunId} | {q.Need} | {q.Keyword} | {q.TopK}";
+        Assert.NotEmpty(without.Asked);
+        Assert.Equal(without.Asked.Select(Sent), withFaq.Asked.Select(Sent));
+        Assert.DoesNotContain(
+            withFaq.Asked, q => q.Need == QuickBooks || q.Need == RiskSegments || q.Need == WhatIsIt || q.Need == HowLong);
+        Assert.Equal(plain.Pages.Select(p => p.Url), outcome.Pages.Select(p => p.Url));
     }
 
     [Fact]
@@ -922,115 +723,5 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Equal("Automated Payment Execution", site.Need);
         Assert.Null(site.Keyword);
         Assert.Equal(SiteRun, site.RunId);
-    }
-
-    // ---- the pillar's People Also Ask and the blog's FAQ (2026-10-11) ---------------------------------
-    //
-    // Until then these questions were searched for in no crawl: each page's call was given the
-    // questions and no evidence, and the writer answered from its own general knowledge.
-
-    private const string WhatIsIt = "What is automated payment execution?";
-    private const string HowLong = "How long does a payment run take by hand?";
-
-    private static string WithPageQuestions(string brief, string pillarQuestions = WhatIsIt, string blogQuestions = HowLong) =>
-        brief.Replace(
-            "\"angle\": \"problem_solution\",",
-            $"\"angle\": \"problem_solution\", \"paaQuestions\": \"{pillarQuestions}\", \"blogFaqQuestions\": \"{blogQuestions}\",",
-            StringComparison.Ordinal);
-
-    [Fact]
-    public async Task A_pillars_questions_are_searched_for_in_a_partners_crawl_and_filed_under_that_partner()
-    {
-        var project = Project("https://tipalti.com/");
-        var rag = new RecordingRag();
-
-        var outcome = await Build(project, rag, new OneBlockPages())
-            .ResolveAsync(Create(project.Id, WithPageQuestions(Brief)), "pillar");
-
-        // The question as written, no keyword half, the partner's own run: a tool page's FAQ search.
-        var search = Assert.Single(FaqQueries(rag));
-        Assert.Equal(WhatIsIt, search.Need);
-        Assert.Null(search.Keyword);
-        Assert.Equal(TipaltiRun, search.RunId);
-
-        var entry = Assert.Single(outcome.FaqEvidence!);
-        Assert.Equal("tipalti.com", entry.Host);
-        Assert.Equal(WhatIsIt, entry.Question);
-        // What it found answers a question and joins nothing every writer reads.
-        Assert.DoesNotContain(outcome.Pages, p => entry.Pages.Any(f => f.Url == p.Url));
-        // The blog's question belongs to a page this run does not write.
-        Assert.DoesNotContain(rag.Asked, q => q.Need == HowLong);
-    }
-
-    [Fact]
-    public async Task A_run_that_writes_a_pillar_and_a_blog_searches_for_each_pages_questions()
-    {
-        var project = Project("https://tipalti.com/");
-        var rag = new RecordingRag();
-
-        var outcome = await Build(project, rag, new OneBlockPages())
-            .ResolveAsync(Create(project.Id, WithPageQuestions(Brief)), ["pillar", "blog"]);
-
-        Assert.Equal([WhatIsIt, HowLong], FaqQueries(rag).Select(q => q.Need));
-        Assert.Equal([WhatIsIt, HowLong], outcome.FaqEvidence!.Select(e => e.Question));
-    }
-
-    [Fact]
-    public async Task A_question_two_pages_ask_is_searched_for_once()
-    {
-        var project = Project("https://tipalti.com/");
-        var rag = new RecordingRag();
-        // The pillar and the blog ask one question between them, and it is also this tool's own.
-        var brief = WithPageQuestions(BriefWithFaq, pillarQuestions: QuickBooks, blogQuestions: QuickBooks);
-
-        var outcome = await Build(project, rag, new OneBlockPages())
-            .ResolveAsync(Create(project.Id, brief), ["tool", "pillar", "blog"]);
-
-        Assert.Single(FaqQueries(rag), q => q.Need == QuickBooks);
-        Assert.Single(outcome.FaqEvidence!, e => e.Question == QuickBooks);
-        // The tool's other question is still its own.
-        Assert.Single(FaqQueries(rag), q => q.Need == RiskSegments);
-    }
-
-    [Fact]
-    public async Task A_run_that_writes_only_tool_pages_searches_for_no_pillar_or_blog_question()
-    {
-        var project = Project("https://tipalti.com/");
-        var rag = new RecordingRag();
-
-        var outcome = await Build(project, rag, new OneBlockPages())
-            .ResolveAsync(Create(project.Id, WithPageQuestions(Brief)), "tool");
-
-        Assert.DoesNotContain(rag.Asked, q => q.Need == WhatIsIt || q.Need == HowLong);
-        Assert.Empty(outcome.FaqEvidence!);
-    }
-
-    [Fact]
-    public async Task A_page_question_whose_search_finds_nothing_is_an_entry_with_no_passages()
-    {
-        var project = Project("https://tipalti.com/");
-
-        var outcome = await Build(project, new FaqRag(findsNothingFor: WhatIsIt), new OneBlockPages())
-            .ResolveAsync(Create(project.Id, WithPageQuestions(Brief)), "pillar");
-
-        Assert.False(outcome.Refused);
-        var entry = Assert.Single(outcome.FaqEvidence!);
-        Assert.Equal(WhatIsIt, entry.Question);
-        Assert.Empty(entry.Pages);
-    }
-
-    [Fact]
-    public void The_pages_questions_are_read_for_the_pages_the_run_writes_each_once_in_the_briefs_order()
-    {
-        var create = Create(Guid.NewGuid(), """{"paaQuestions":"A?\nB?","blogFaqQuestions":"B?\nC?"}""");
-
-        Assert.Equal(["A?", "B?", "C?"], GccGroundingResolver.PageFaqQuestions(create, ["pillar", "blog", "tool"]));
-        Assert.Equal(["A?", "B?"], GccGroundingResolver.PageFaqQuestions(create, ["pillar"]));
-        Assert.Equal(["B?", "C?"], GccGroundingResolver.PageFaqQuestions(create, ["blog"]));
-        Assert.Empty(GccGroundingResolver.PageFaqQuestions(create, ["tool"]));
-        // What the pillar is asked is what the search reads: one reader.
-        Assert.Equal(
-            GccGenerateService.ExtractBriefFields(create.BriefJson).PaaQuestions,
-            GccGroundingResolver.PageFaqQuestions(create, ["pillar"]));
     }
 }

@@ -16,41 +16,48 @@ public static class BrandTones
 
     private static readonly BrandTone WebpagesTone = new(
         Webpages,
-        "Webpages — Clear and Reassuring",
+        "Webpages: Clear and Reassuring",
         "Build trust fast: put the benefit in the main headline, use bullet points for readability, " +
         "avoid blocks of text. State what you do within the first moments. Emphasize plain English, " +
         "affordable plans for small teams, and real results (saved time, fewer errors, happier customers).");
 
     private static readonly BrandTone EmailTone = new(
         Email,
-        "Email — Personal and Direct",
+        "Email: Personal and Direct",
         "Keep emails structured, respectful of their time, and focused on one specific problem. " +
         "Informal but professional greeting. State the value in the first two sentences. One clear ask.");
 
     private static readonly BrandTone LinkedInTone = new(
         LinkedIn,
-        "LinkedIn — Expert and Collaborative",
+        "LinkedIn: Expert and Collaborative",
         "Share insights, industry trends, and practical lessons. Real examples about small-business growth. " +
         "Conversational formatting. Avoid sounding like a pushy salesperson.");
 
     private static readonly BrandTone FacebookTone = new(
         Facebook,
-        "Facebook — Local and Approachable",
+        "Facebook: Local and Approachable",
         "Warm language, local connection, highly accessible. Keep paragraphs very short. " +
         "Friendly invitation to continue the conversation (e.g. DM) without hard selling.");
 
+    /// <remarks>
+    /// The last line is the em dash rule (Jeff, 2026-10-13: "a dead give away that writing is from
+    /// AI"), here because this is the one block every channel prints. The block used the character
+    /// three times itself until then, and a writer copies the punctuation it is shown.
+    /// </remarks>
     public static readonly string SharedBaseGuidance =
         """
-        Brand voice — always apply:
+        Brand voice, always apply:
         - Clear and simple: skip heavy tech terms; use plain words to explain hard ideas.
         - Helpful and patient: act as a guide, not a teacher; respect what they already know.
-        - Results-focused: talk about saved time, lower costs, and more sales — concrete outcomes.
+        - Results-focused: talk about saved time, lower costs, and more sales: concrete outcomes.
         - Confident and honest: be real about what AI can do today and what it cannot.
         How to sound:
         - Be direct: short sentences; get right to the point.
         - Stay calm: do not hype AI like a magic trick; keep feet on the ground.
         - Show care: acknowledge specific pain points before pitching a tool.
-        """;
+        Punctuation:
+        - 
+        """.TrimEnd() + " " + ContentCreator.Guardrail.GccEmDash.Instruction;
 
     public static string FormatSharedForPrompt() => SharedBaseGuidance.Trim();
 

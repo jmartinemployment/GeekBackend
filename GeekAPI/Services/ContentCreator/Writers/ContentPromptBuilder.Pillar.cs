@@ -118,7 +118,9 @@ public partial class ContentPromptBuilder
             SeoOutlineInstruction(context.TargetKeyword) + " " +
             "With the exception of the Lede, article headings are never questions. People Also Ask questions from the brief are not outline headings. " +
             "Title must NOT be a question and must NOT start with \"How\" — use a definitive statement (e.g. \"AI Prospecting and Lead Intelligence: Implementation Guide\"). " +
+            SeoTitleInstruction(context.TargetKeyword) + " " +
             $"Meta description: 140-160 characters, include \"{context.TargetKeyword}\" naturally, concise factual summary for B2B readers, no hype. " +
+            SeoMetaDescriptionInstruction(context.TargetKeyword) + " " +
             "End sectionOutline with exactly one FAQ section titled \"People Also Ask\" — PAA questions are answered there in the body step, not as main H2s. " +
             "Return title, metaDescription, keywords, and sectionOutline only (body is written separately).");
 
@@ -409,12 +411,20 @@ public partial class ContentPromptBuilder
         ArticleMetadataDraft metadata,
         IReadOnlyList<string> faqQuestions,
         bool isRegeneration,
-        string? revisionNotes = null,
-        string? evidenceBlock = null) =>
+        string? revisionNotes = null) =>
         FaqSectionPrompt(
-            context, metadata.Title, faqQuestions,
+            context, metadata.Title,
             pageKind: "TechnicalArticle pillar", heading: "People Also Ask", isRegeneration, revisionNotes,
-            evidenceBlock);
+            faqQuestions);
+
+    public ChatCompletionRequest BuildArticleFaqFromAnswersPrompt(
+        ProjectGenerationContext context,
+        ArticleMetadataDraft metadata,
+        string answersBlock) =>
+        FaqSectionPrompt(
+            context, metadata.Title,
+            pageKind: "TechnicalArticle pillar", heading: "People Also Ask", isRegeneration: false, revisionNotes: null,
+            questions: null, answersBlock);
 
     private static string BuildIntroductionSectionGuidance(ProjectGenerationContext context)
     {

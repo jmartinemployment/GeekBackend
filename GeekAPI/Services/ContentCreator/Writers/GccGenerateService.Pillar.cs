@@ -177,23 +177,22 @@ public partial class GccGenerateService
         // again at generation time" (the questions are already operator-curated, by SerpIngestPanel's
         // own selection UI, before they ever reach BriefJson); just stop discarding them.
         //
-        // Each question is answered from what a search of every partner's crawl found for it, and a
-        // question with no answer in those passages is left out (2026-10-11). Until then the call was
-        // given no evidence and the writer answered from its own general knowledge.
+        // Each question is written from the answer the operator entered for it (2026-10-13), in the
+        // brief's voice. From 2026-10-11 until then each was searched for in every partner's crawl and
+        // answered only where a passage answered; before that the writer answered from its own
+        // general knowledge.
         Section? pillarFaq = null;
         // The questions left out, each with why: reported with the draft, never a refusal.
         var pillarFaqGaps = new List<string>();
-        var paaQuestions = ExtractBriefFields(create.BriefJson).PaaQuestions ?? [];
-        var pillarFaqSearched = GccResearchFetchService.Deserialize(create.ResearchJson)?.FaqEvidence;
-        if (paaQuestions.Count > 0)
+        var peopleAlsoAsk = ExtractBriefFields(create.BriefJson).PeopleAlsoAsk ?? [];
+        if (peopleAlsoAsk.Count > 0)
         {
             pillarFaq = await WriteFaqInBatchesAsync(
                 llm,
-                (batch, found) => _prompts.BuildArticleFaqSectionPrompt(
-                    context, metadata, batch, isRegeneration: false, evidenceBlock: found),
-                paaQuestions,
-                pillarFaqSearched,
+                answers => _prompts.BuildArticleFaqFromAnswersPrompt(context, metadata, answers),
+                peopleAlsoAsk,
                 "the pillar's People Also Ask",
+                GccFaqAnswers.PillarBox,
                 pillarFaqGaps,
                 ct);
         }
@@ -217,9 +216,9 @@ public partial class GccGenerateService
             ContentTypes.GccLongFormTypes.Pillar,
             evidence,
             requiredTools,
-            // What each question's searches found is evidence the writer is shown, in the FAQ call and in
-            // no other. The figure and currency checks read what the writer was shown, so it is part of it.
-            string.Join(Environment.NewLine, pillarEvidence, PageFaqEvidenceText(pillarFaqSearched, paaQuestions)),
+            // The answers entered for the People Also Ask are in the brief, which the figure and currency
+            // checks read whole as the operator's own statements.
+            pillarEvidence,
             appendedSections: pillarFaq is null ? 0 : 1,
             partnerTools: partnerTools);
 
@@ -273,11 +272,16 @@ public partial class GccGenerateService
         // all of it for a pillar; the Create reimplementation returned a bare document, leaving
         // BuildArticleMetadataPrompt and ArticleSchemaBuilder sitting here with no caller.
         var pillarMetaResult = await llm.CompleteAsync(_prompts.BuildArticleMetadataPrompt(context), ct);
-        var pillarMeta = RequireCompleteMetadata(
-            LlmResponseJsonParser.Parse<ArticleMetadataDraft>(pillarMetaResult.Content, "pillar metadata"), "pillar metadata");
+        var pillarMeta = await WithoutEmDashesAsync(
+            RequireCompleteMetadata(
+                LlmResponseJsonParser.Parse<ArticleMetadataDraft>(pillarMetaResult.Content, "pillar metadata"), "pillar metadata"),
+            "pillar metadata");
         var pillarMetaDescription = pillarMeta.MetaDescription.Length > 160
             ? pillarMeta.MetaDescription[..160]
             : pillarMeta.MetaDescription;
+        await AddKeywordPlacementAsync(
+            "the pillar", "pillar", pillarPromptCtx.Context.TargetKeyword, pillarMeta.Title, pillarMetaDescription,
+            pillarWarnings);
 
         // GccContentPath, which is what GccArtifactExportService writes into the canonical tag for
         // this same artifact. This hand-assembled {base}/{department}/{slug} and the export emits

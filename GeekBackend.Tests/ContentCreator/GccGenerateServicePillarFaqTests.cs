@@ -17,10 +17,11 @@ namespace GeekBackend.Tests.ContentCreator;
 /// actually matters here: how many completion calls fire, and whether the extra one is real.
 ///
 /// <para>
-/// 2026-10-11: the section is answered only from what a search of each partner's crawl found for
-/// each question. Until then the call was given no evidence and the writer answered from its own
-/// general knowledge. A question that was not searched for, whose searches found nothing, or that
-/// the writer did not answer is left out and named; none of those refuses the page.
+/// 2026-10-13: each question is written from the answer the operator entered for it on the Brief, in
+/// the brief's voice, and no crawl is searched for it. From 2026-10-11 until then each was searched
+/// for in every partner's crawl. A question with no answer entered, or that the writer did not write,
+/// is left out and named; a request that fails loses its own questions; none of those refuses the
+/// page.
 /// </para>
 /// </summary>
 public class GccGenerateServicePillarFaqTests
@@ -68,11 +69,22 @@ public class GccGenerateServicePillarFaqTests
         public List<string> FaqUserPromptsSeen { get; } = [];
         /// <summary>The system message of each FAQ call, in the order the calls were made.</summary>
         public List<string> FaqSystemPromptsSeen { get; } = [];
+        /// <summary>The FAQ call, counted from 1, that fails instead of answering.</summary>
+        public int? FailFaqCall { get; init; }
+        /// <summary>What the failing FAQ call fails with: by default, a reply that ended in blanks at its limit.</summary>
+        public Exception FaqFault { get; init; } = CutReply.EndingInBlanks();
+        /// <summary>When set, what every FAQ call replies instead of a section.</summary>
+        public string? FaqReply { get; init; }
+        /// <summary>When set, what the opening call replies: the blog's opening is a lede alone, the pillar's a lede and an introduction.</summary>
+        public string? LedeReply { get; init; }
 
         /// <summary>The literal that opens BuildArticleFaqSectionPrompt, and nothing else. The
         /// metadata prompt names "People Also Ask" too, when it tells the model to end the outline
         /// with one, so the bare phrase does not identify this call.</summary>
         internal const string FaqPromptMarker = """Write ONLY the "People Also Ask" FAQ section""";
+
+        /// <summary>The same line of the same prompt, as the blog's FAQ call carries it.</summary>
+        internal const string BlogFaqPromptMarker = """Write ONLY the "Frequently Asked Questions" FAQ section""";
 
         public Task<ChatCompletionResult> CompleteAsync(
             ChatCompletionRequest request, CancellationToken cancellationToken = default)
@@ -89,14 +101,18 @@ public class GccGenerateServicePillarFaqTests
                 content = bodyCalls < 1 ? SectionsArrayJson : ScriptedBody.PlannedBatch(bodyCalls);
                 bodyCalls++;
             }
-            else if (system.Contains(FaqPromptMarker, StringComparison.Ordinal))
+            else if (system.Contains(FaqPromptMarker, StringComparison.Ordinal)
+                || system.Contains(BlogFaqPromptMarker, StringComparison.Ordinal))
             {
                 var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
                 FaqUserPromptsSeen.Add(user);
                 FaqSystemPromptsSeen.Add(system);
                 var questions = QuestionsIn(user);
                 FaqCallQuestions.Add(questions);
-                content = AnswerFaqWithNoChildren
+                if (FailFaqCall == FaqCallQuestions.Count)
+                    return Task.FromException<ChatCompletionResult>(FaqFault);
+
+                content = FaqReply ?? (AnswerFaqWithNoChildren
                     ? SectionJson
                     : FaqAnswer(
                     [
@@ -104,7 +120,7 @@ public class GccGenerateServicePillarFaqTests
                             .Where(q => q != LeaveOut)
                             .Select(q => Reword is { } r && r.Question == q ? r.Heading : q),
                     ],
-                    AnswerText);
+                    AnswerText));
             }
             else if (system.Contains("image-generation prompts", StringComparison.Ordinal))
             {
@@ -116,17 +132,17 @@ public class GccGenerateServicePillarFaqTests
             }
             else
             {
-                content = LedeAndIntroJson;
+                content = LedeReply ?? LedeAndIntroJson;
             }
 
             return Task.FromResult(new ChatCompletionResult(content, "test-model", null, null));
         }
 
-        /// <summary>The "  - Q1: question" lines BuildArticleFaqSectionPrompt writes, as questions.</summary>
+        /// <summary>The "Q1: question" lines the request carries (GccFaqAnswers.Render), as questions.</summary>
         private static IReadOnlyList<string> QuestionsIn(string user) => user
             .Split('\n')
             .Select(l => l.Trim())
-            .Where(l => l.StartsWith("- Q", StringComparison.Ordinal))
+            .Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^Q\d+: "))
             .Select(l => l[(l.IndexOf(':') + 1)..].Trim())
             .ToList();
 
@@ -151,34 +167,22 @@ public class GccGenerateServicePillarFaqTests
         ProjectSiteRunId: null, SiteSectionJson: null, BriefJson: briefJson, ResearchJson: researchJson,
         Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow);
 
-    private const string Chaser = "chaser.test";
-    private const string Upflow = "upflow.test";
+    /// <summary>What the operator entered as the answer to <paramref name="question"/>, in these tests.</summary>
+    private static string AnswerTo(string question) => $"The operator's note on: {question}";
 
-    /// <summary>What one search of one partner's crawl found for one question: a page with one passage, or none.</summary>
-    private static GccFaqEvidence Found(string host, string question, string? passage) => new(
-        host,
-        question,
-        passage is null ? [] : [new GccQuoteablePage($"https://{host}/answers/", $"{host} answers", [], [passage])]);
+    /// <summary>A brief whose People Also Ask holds every question with an answer entered for it.</summary>
+    private static string Answered(IEnumerable<string> questions) => BriefOf(questions.Select(q => (q, (string?)AnswerTo(q))));
 
-    /// <summary>Research in which every partner's crawl was searched for every question and each found one passage.</summary>
-    private static string Searched(IEnumerable<string> questions) => Research(
-    [
-        .. questions.SelectMany(q => new[]
+    /// <summary>A brief whose People Also Ask holds these rows, as the form saves them: a question and its answer, or no answer.</summary>
+    private static string BriefOf(IEnumerable<(string Question, string? Answer)> rows) =>
+        System.Text.Json.JsonSerializer.Serialize(new
         {
-            Found(Chaser, q, $"Chaser's page on: {q}"),
-            Found(Upflow, q, $"Upflow's page on: {q}"),
-        }),
-    ]);
+            paaQuestions = rows.Select(row => new { question = row.Question, answer = row.Answer ?? string.Empty }),
+        });
 
-    private static string Research(IReadOnlyList<GccFaqEvidence>? searches) =>
-        GccResearchFetchService.Serialize(new GccResearchDocument(null, [], FaqEvidence: searches));
-
-    private static string BriefOf(IEnumerable<string> questions) =>
-        System.Text.Json.JsonSerializer.Serialize(new { paaQuestions = questions });
-
-    private static Task<string> Pillar(RecordingProvider provider, IReadOnlyList<string> questions, string? researchJson) =>
+    private static Task<string> Pillar(RecordingProvider provider, string briefJson) =>
         Build(provider).GeneratePillarBodyAsync(
-            Create(BriefOf(questions), researchJson), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+            Create(briefJson), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
     private static readonly string[] TwoQuestions = ["What is AI implementation?", "How much does it cost?"];
 
@@ -227,7 +231,7 @@ public class GccGenerateServicePillarFaqTests
     {
         var provider = new RecordingProvider();
 
-        await Pillar(provider, TwoQuestions, Searched(TwoQuestions));
+        await Pillar(provider, Answered(TwoQuestions));
 
         // Exactly one, which is the claim -- two PAA questions are one FAQ section, not two calls.
         Assert.Equal(
@@ -241,7 +245,7 @@ public class GccGenerateServicePillarFaqTests
     {
         string[] questions = ["What is AI implementation?"];
 
-        var json = await Pillar(new RecordingProvider(), questions, Searched(questions));
+        var json = await Pillar(new RecordingProvider(), Answered(questions));
 
         // The question is the h3's heading -- confirm it landed as a real section in the persisted
         // document, not just that a call happened.
@@ -259,7 +263,7 @@ public class GccGenerateServicePillarFaqTests
         var provider = new RecordingProvider();
         var questions = Enumerable.Range(1, 20).Select(i => $"Question number {i}?").ToList();
 
-        var json = await Pillar(provider, questions, Searched(questions));
+        var json = await Pillar(provider, Answered(questions));
 
         Assert.Equal([8, 8, 4], provider.FaqCallQuestions.Select(q => q.Count).ToArray());
         Assert.Equal(questions, provider.FaqCallQuestions.SelectMany(q => q).ToList());
@@ -271,107 +275,135 @@ public class GccGenerateServicePillarFaqTests
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, "\"heading\":\"People Also Ask\""));
     }
 
+    /// <summary>
+    /// A reply is limited to 3,072 tokens and an answer is written about as long as the one entered,
+    /// so long answers go in more requests of fewer questions. None is left out and none is divided.
+    /// </summary>
+    [Fact]
+    public async Task LongAnswersAreSpreadOverMoreRequestsAndNoneIsLeftOut()
+    {
+        var provider = new RecordingProvider();
+        var questions = Enumerable.Range(1, 5).Select(i => $"Question number {i}?").ToList();
+        var long_ = new string('a', GccFaqAnswers.MaxAnswerCharsPerCall / 2 - 10) + ".";
+        var brief = BriefOf(questions.Select(q => (q, (string?)long_)));
+
+        await Pillar(provider, brief);
+
+        Assert.Equal([2, 2, 1], provider.FaqCallQuestions.Select(q => q.Count).ToArray());
+        Assert.Equal(questions, provider.FaqCallQuestions.SelectMany(q => q).ToList());
+    }
+
     private static IReadOnlyList<string> WarningsIn(string json) =>
     [
         .. System.Text.Json.JsonDocument.Parse(json).RootElement.GetProperty("warnings")
             .EnumerateArray().Select(w => w.GetString() ?? string.Empty),
     ];
 
-    private static string NotAnswered(string question, int shown) =>
-        $"the pillar's People Also Ask: the writer was shown {shown} passage(s) from the partners' crawls for "
-        + $"\"{question}\" and did not answer it; it was left out.";
+    private static string NotWritten(string question) =>
+        $"the pillar's People Also Ask: the writer was sent the answer entered for \"{question}\" and did not write it; "
+        + "it was left out.";
 
     [Fact]
-    public async Task TheCallIsShownEachQuestionsPassagesFromEveryPartnerAndToldToAnswerFromNothingElse()
+    public async Task TheRequestCarriesEachQuestionWithTheAnswerEnteredForItAndIsToldToAddNothing()
     {
         var provider = new RecordingProvider();
 
-        await Pillar(provider, TwoQuestions, Searched(TwoQuestions));
+        await Pillar(provider, Answered(TwoQuestions));
 
         var system = Assert.Single(provider.FaqSystemPromptsSeen);
-        Assert.Contains("Answer ONLY from the PARTNER EVIDENCE", system, StringComparison.Ordinal);
-        Assert.Contains("LEAVE THAT QUESTION OUT", system, StringComparison.Ordinal);
-        Assert.Contains("Never answer from general knowledge", system, StringComparison.Ordinal);
+        Assert.Contains(ContentPromptBuilder.OperatorAnswersInstruction, system, StringComparison.Ordinal);
+        Assert.Contains("Write a child for EVERY question", system, StringComparison.Ordinal);
+        Assert.Contains("add no fact, capability, price or figure it does not state", system, StringComparison.Ordinal);
+        Assert.Contains("in the voice described above", system, StringComparison.Ordinal);
+        // No passage is shown and nothing tells the writer to decide which questions it can answer.
+        Assert.DoesNotContain("PARTNER EVIDENCE", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("LEAVE THAT QUESTION OUT", system, StringComparison.Ordinal);
 
         var user = Assert.Single(provider.FaqUserPromptsSeen);
-        // Each question's passages sit under its own label, both partners' among them, in the order asked.
-        var q1 = user.IndexOf("Found for Q1:", StringComparison.Ordinal);
-        var q2 = user.IndexOf("Found for Q2:", StringComparison.Ordinal);
+        Assert.Contains(ContentPromptBuilder.OperatorAnswersHeading, user, StringComparison.Ordinal);
+        // Each answer sits under its own question, in the order entered.
+        var q1 = user.IndexOf($"Q1: {TwoQuestions[0]}", StringComparison.Ordinal);
+        var q2 = user.IndexOf($"Q2: {TwoQuestions[1]}", StringComparison.Ordinal);
         Assert.True(q1 >= 0 && q2 > q1);
-        var first = user[q1..q2];
-        Assert.Contains("Chaser's page on: What is AI implementation?", first, StringComparison.Ordinal);
-        Assert.Contains("Upflow's page on: What is AI implementation?", first, StringComparison.Ordinal);
-        Assert.DoesNotContain("How much does it cost?", first, StringComparison.Ordinal);
-        Assert.Contains("Chaser's page on: How much does it cost?", user[q2..], StringComparison.Ordinal);
+        Assert.Contains(
+            "The operator's answer to Q1:" + Environment.NewLine + AnswerTo(TwoQuestions[0]), user[q1..q2], StringComparison.Ordinal);
+        Assert.Contains(
+            "The operator's answer to Q2:" + Environment.NewLine + AnswerTo(TwoQuestions[1]), user[q2..], StringComparison.Ordinal);
+        Assert.DoesNotContain("PARTNER EVIDENCE", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("Found for Q", user, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A question with no answer entered has nothing to be written from. Nothing is sent for it, it is
+    /// never answered from the writer's own knowledge, and one line names it with where its answer goes.
+    /// </summary>
     [Fact]
-    public async Task AQuestionNoCrawlWasSearchedForIsNotSentAndIsNamed()
+    public async Task AQuestionWithNoAnswerEnteredIsNotSentAndIsNamedWithWhereItsAnswerGoes()
     {
         var provider = new RecordingProvider();
+        var brief = BriefOf([(TwoQuestions[0], AnswerTo(TwoQuestions[0])), (TwoQuestions[1], null)]);
 
-        // Research that did not come through the search carries no FAQ searches at all.
-        var json = await Pillar(provider, TwoQuestions, researchJson: null);
-
-        Assert.Empty(provider.FaqCallQuestions);
-        Assert.DoesNotContain("\"heading\":\"People Also Ask\"", json, StringComparison.Ordinal);
-        var warnings = WarningsIn(json);
-        Assert.All(TwoQuestions, q => Assert.Contains(
-            $"the pillar's People Also Ask: the partners' crawls were not searched for \"{q}\"; it was left out.",
-            warnings));
-    }
-
-    [Fact]
-    public async Task AQuestionWhoseSearchesFoundNothingIsNotSentAndTheOthersStillAre()
-    {
-        var provider = new RecordingProvider();
-        var research = Research(
-        [
-            Found(Chaser, TwoQuestions[0], "Chaser's page on implementation."),
-            Found(Upflow, TwoQuestions[0], null),
-            Found(Chaser, TwoQuestions[1], null),
-            Found(Upflow, TwoQuestions[1], null),
-        ]);
-
-        var json = await Pillar(provider, TwoQuestions, research);
+        var json = await Pillar(provider, brief);
 
         Assert.Equal([TwoQuestions[0]], Assert.Single(provider.FaqCallQuestions));
         Assert.Contains($"\"heading\":\"{TwoQuestions[0]}\"", json, StringComparison.Ordinal);
         Assert.DoesNotContain($"\"heading\":\"{TwoQuestions[1]}\"", json, StringComparison.Ordinal);
         Assert.Contains(
-            $"the pillar's People Also Ask: a search of the partners' crawls found nothing for \"{TwoQuestions[1]}\"; it was left out.",
+            $"the pillar's People Also Ask: no answer is entered for \"{TwoQuestions[1]}\", and the question was left out. "
+            + "Its answer goes beside it under \"People Also Ask (direct entry, optional)\" on the Brief.",
             WarningsIn(json));
     }
 
     /// <summary>
-    /// Until 2026-10-11 a call that answered none of its questions refused the whole pillar. With
-    /// answers drawn only from evidence, passages that answer nothing are an ordinary outcome, and the
-    /// page ships without the section.
+    /// A brief saved before 2026-10-13 holds its questions as lines with no answers. None is sent,
+    /// the page ships without the section, and the questions are named together in one line.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"paaQuestions":"What is AI implementation?\nHow much does it cost?"}""")]
+    [InlineData("""{"paaQuestions":["What is AI implementation?","How much does it cost?"]}""")]
+    public async Task QuestionsSavedWithoutAnswersAreNotSentAndAreNamedInOneLine(string brief)
+    {
+        var provider = new RecordingProvider();
+
+        var json = await Pillar(provider, brief);
+
+        Assert.Empty(provider.FaqCallQuestions);
+        Assert.DoesNotContain("\"heading\":\"People Also Ask\"", json, StringComparison.Ordinal);
+        var line = Assert.Single(WarningsIn(json), w => w.StartsWith("the pillar's People Also Ask:", StringComparison.Ordinal));
+        Assert.Equal(
+            "the pillar's People Also Ask: no answer is entered for 2 questions, and all 2 were left out. "
+            + "Their answers go beside them under \"People Also Ask (direct entry, optional)\" on the Brief. "
+            + "The questions: \"What is AI implementation?\"; \"How much does it cost?\".",
+            line);
+    }
+
+    /// <summary>
+    /// A request that writes none of its questions does not refuse the pillar (until 2026-10-11 it
+    /// did). The page ships without the section and each question is named.
     /// </summary>
     [Fact]
-    public async Task AFaqCallThatAnswersNothingShipsThePillarWithoutTheSectionAndNamesEachQuestion()
+    public async Task AFaqCallThatWritesNothingShipsThePillarWithoutTheSectionAndNamesEachQuestion()
     {
         var provider = new RecordingProvider { AnswerFaqWithNoChildren = true };
 
-        var json = await Pillar(provider, TwoQuestions, Searched(TwoQuestions));
+        var json = await Pillar(provider, Answered(TwoQuestions));
 
         Assert.DoesNotContain("\"heading\":\"People Also Ask\"", json, StringComparison.Ordinal);
         var warnings = WarningsIn(json);
-        Assert.All(TwoQuestions, q => Assert.Contains(NotAnswered(q, shown: 2), warnings));
+        Assert.All(TwoQuestions, q => Assert.Contains(NotWritten(q), warnings));
     }
 
     /// <summary>
     /// 2026-10-10: a call that answered seven of its eight questions shipped the seven with no word
-    /// that one was missing. The page still ships; the question is named, with how many passages the
-    /// writer was shown for it.
+    /// that one was missing. The page still ships; the question is named.
     /// </summary>
     [Fact]
-    public async Task AFaqCallThatAnswersSevenOfEightShipsTheSevenAndNamesTheEighth()
+    public async Task AFaqCallThatWritesSevenOfEightShipsTheSevenAndNamesTheEighth()
     {
         var questions = Enumerable.Range(1, 8).Select(i => $"Question number {i}?").ToList();
         var provider = new RecordingProvider { LeaveOut = "Question number 5?" };
 
-        var json = await Pillar(provider, questions, Searched(questions));
+        var json = await Pillar(provider, Answered(questions));
 
         foreach (var answered in questions.Where(q => q != "Question number 5?"))
         {
@@ -379,7 +411,7 @@ public class GccGenerateServicePillarFaqTests
         }
         Assert.DoesNotContain("\"heading\":\"Question number 5?\"", json, StringComparison.Ordinal);
         var named = Assert.Single(WarningsIn(json), w => w.Contains("Question number 5?", StringComparison.Ordinal));
-        Assert.Equal(NotAnswered("Question number 5?", shown: 2), named);
+        Assert.Equal(NotWritten("Question number 5?"), named);
         Assert.DoesNotContain(WarningsIn(json), w => w.Contains("Question number 4?", StringComparison.Ordinal));
     }
 
@@ -395,12 +427,12 @@ public class GccGenerateServicePillarFaqTests
             Reword = ("How much does it cost?", "Pricing for a typical engagement"),
         };
 
-        var json = await Pillar(provider, TwoQuestions, Searched(TwoQuestions));
+        var json = await Pillar(provider, Answered(TwoQuestions));
 
         Assert.DoesNotContain("\"heading\":\"Pricing for a typical engagement\"", json, StringComparison.Ordinal);
         Assert.Contains("\"heading\":\"What is AI implementation?\"", json, StringComparison.Ordinal);
         var warnings = WarningsIn(json);
-        Assert.Contains(NotAnswered("How much does it cost?", shown: 2), warnings);
+        Assert.Contains(NotWritten("How much does it cost?"), warnings);
         Assert.Contains(
             "the pillar's People Also Ask: the writer answered under \"Pricing for a typical engagement\", "
             + "which is not a question it was sent; the answer was dropped.",
@@ -408,38 +440,178 @@ public class GccGenerateServicePillarFaqTests
     }
 
     [Fact]
-    public async Task AFaqThatAnswersEveryQuestionReportsNothing()
+    public async Task AFaqThatWritesEveryQuestionReportsNothing()
     {
-        var json = await Pillar(new RecordingProvider(), TwoQuestions, Searched(TwoQuestions));
+        var json = await Pillar(new RecordingProvider(), Answered(TwoQuestions));
 
         Assert.DoesNotContain(WarningsIn(json), w => w.Contains("People Also Ask", StringComparison.Ordinal));
     }
 
     /// <summary>
-    /// The page's figure check reads the evidence the writer was shown. A question's passages are shown
-    /// in the FAQ call and nowhere else, so they have to be part of what the check reads: without them
-    /// an answer that takes a figure from its own passage refuses the whole pillar.
+    /// The 13:16 UTC run of 2026-10-13 lost its blog to this: the reply to the questions request ended
+    /// in 2,913 tabs and reached its limit, the failure was thrown out of the questions writer, and the
+    /// whole page was refused. The page is kept, its questions are left out, and one line says why.
     /// </summary>
     [Fact]
-    public async Task AFigureAnAnswerTakesFromItsOwnPassageDoesNotRefuseThePage()
+    public async Task AFaqRequestCutAtItsLimitShipsThePillarWithoutItsQuestionsAndSaysWhyInOneLine()
     {
-        string[] questions = ["How fast are invoices paid?"];
-        var research = Research([Found(Chaser, questions[0], "Customers are paid within 45 minutes of approval.")]);
+        var provider = new RecordingProvider { FailFaqCall = 1 };
+
+        var json = await Pillar(provider, Answered(TwoQuestions));
+
+        Assert.DoesNotContain("\"heading\":\"People Also Ask\"", json, StringComparison.Ordinal);
+        var line = Assert.Single(WarningsIn(json), w => w.Contains("People Also Ask", StringComparison.Ordinal));
+        Assert.Equal(
+            GccGenerateService.FaqRequestFailed(
+                "the pillar's People Also Ask", TwoQuestions, CutReply.EndingInBlanks().Message),
+            line);
+        Assert.StartsWith(
+            "the pillar's People Also Ask: the request that answers 2 questions failed, and all 2 were left out. "
+            + "OpenAI stopped at the output limit of 3072 tokens before finishing; the response is incomplete. "
+            + "Its last 2,913 characters are blank",
+            line,
+            StringComparison.Ordinal);
+        Assert.All(TwoQuestions, q => Assert.Contains($"\"{q}\"", line, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The page that run lost, through its own writer: the blog's questions go through the same
+    /// method as the pillar's, and the blog is kept the same way.
+    /// </summary>
+    [Fact]
+    public async Task AFaqRequestCutAtItsLimitShipsTheBlogWithoutItsQuestionsAndSaysWhyInOneLine()
+    {
+        var provider = new RecordingProvider
+        {
+            FailFaqCall = 1,
+            LedeReply = """{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]}""",
+        };
+        var brief = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            blogFaqQuestions = TwoQuestions.Select(q => new { question = q, answer = AnswerTo(q) }),
+        });
+
+        var json = await Build(provider).GenerateBlogBodyAsync(
+            Create(brief) with { StartingContentType = "blog" },
+            null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.Single(provider.FaqCallQuestions);
+        Assert.DoesNotContain("\"heading\":\"Frequently Asked Questions\"", json, StringComparison.Ordinal);
+        var line = Assert.Single(WarningsIn(json), w => w.Contains("the request that answers", StringComparison.Ordinal));
+        Assert.Contains("failed, and all 2 were left out.", line, StringComparison.Ordinal);
+        Assert.Contains("Its last 2,913 characters are blank", line, StringComparison.Ordinal);
+        Assert.All(TwoQuestions, q => Assert.Contains($"\"{q}\"", line, StringComparison.Ordinal));
+    }
+
+    /// <summary>The blog's questions are written from the answers entered under "Blog FAQ (optional)", and a question with none names that box.</summary>
+    [Fact]
+    public async Task TheBlogWritesItsQuestionsFromTheAnswersEnteredAndNamesItsOwnBoxForOneWithNone()
+    {
+        var provider = new RecordingProvider
+        {
+            LedeReply = """{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]}""",
+        };
+        var brief = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            blogFaqQuestions = new[]
+            {
+                new { question = TwoQuestions[0], answer = AnswerTo(TwoQuestions[0]) },
+                new { question = TwoQuestions[1], answer = string.Empty },
+            },
+        });
+
+        var json = await Build(provider).GenerateBlogBodyAsync(
+            Create(brief) with { StartingContentType = "blog" },
+            null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.Equal([TwoQuestions[0]], Assert.Single(provider.FaqCallQuestions));
+        Assert.Contains(AnswerTo(TwoQuestions[0]), Assert.Single(provider.FaqUserPromptsSeen), StringComparison.Ordinal);
+        Assert.Contains($"\"heading\":\"{TwoQuestions[0]}\"", json, StringComparison.Ordinal);
+        Assert.Contains(
+            $"the blog's FAQ: no answer is entered for \"{TwoQuestions[1]}\", and the question was left out. "
+            + "Its answer goes beside it under \"Blog FAQ (optional)\" on the Brief.",
+            WarningsIn(json));
+    }
+
+    /// <summary>A failed request loses its own questions. The request after it is still sent and its answers are kept.</summary>
+    [Fact]
+    public async Task AFailedFaqRequestLosesItsOwnQuestionsAndTheNextRequestIsStillSent()
+    {
+        var questions = Enumerable.Range(1, 9).Select(i => $"Question number {i}?").ToList();
+        var provider = new RecordingProvider { FailFaqCall = 1 };
+
+        var json = await Pillar(provider, Answered(questions));
+
+        Assert.Equal(2, provider.FaqCallQuestions.Count);
+        Assert.Contains("\"heading\":\"Question number 9?\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"heading\":\"Question number 1?\"", json, StringComparison.Ordinal);
+        // By the section's own label: with the section on the page, the keyword's line names it too.
+        var line = Assert.Single(
+            WarningsIn(json), w => w.StartsWith("the pillar's People Also Ask:", StringComparison.Ordinal));
+        Assert.Contains("the request that answers 8 questions failed, and all 8 were left out.", line, StringComparison.Ordinal);
+        Assert.Contains("\"Question number 8?\"", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Question number 9?", line, StringComparison.Ordinal);
+    }
+
+    /// <summary>A reply that is no section is the same failure: nothing of it can be kept, and the page is.</summary>
+    [Fact]
+    public async Task AFaqReplyThatCannotBeReadShipsThePillarAndNamesItsQuestions()
+    {
+        var provider = new RecordingProvider { FaqReply = "These questions cannot be answered." };
+
+        var json = await Pillar(provider, Answered(TwoQuestions));
+
+        Assert.DoesNotContain("\"heading\":\"People Also Ask\"", json, StringComparison.Ordinal);
+        var line = Assert.Single(WarningsIn(json), w => w.Contains("People Also Ask", StringComparison.Ordinal));
+        Assert.StartsWith(
+            "the pillar's People Also Ask: the request that answers 2 questions failed, and all 2 were left out. "
+            + "Model did not return a valid structured section",
+            line,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>A run that is stopped is stopped. It is not a gap in a questions section.</summary>
+    [Fact]
+    public async Task ARunStoppedDuringTheFaqRequestIsStillStopped()
+    {
+        var provider = new RecordingProvider { FailFaqCall = 1, FaqFault = new OperationCanceledException() };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => Pillar(provider, Answered(TwoQuestions)));
+    }
+
+    [Fact]
+    public void A_failed_request_for_one_question_is_one_sentence_naming_it()
+    {
+        Assert.Equal(
+            "FAQ: the request that answers \"Does it sync?\" failed, and the question was left out. The reply was cut.",
+            GccGenerateService.FaqRequestFailed("FAQ", ["Does it sync?"], " The reply was cut. "));
+    }
+
+    /// <summary>
+    /// The page's figure check reads the Brief whole as the operator's own statements, and the answers
+    /// are entered on the Brief. So a figure the operator's answer states is one the written answer may
+    /// state, and nothing has to be added to what the check reads.
+    /// </summary>
+    [Fact]
+    public async Task AFigureTheOperatorsAnswerStatesDoesNotRefuseThePage()
+    {
+        var brief = BriefOf([("How fast are invoices paid?", "Customers are paid within 45 minutes of approval.")]);
         var provider = new RecordingProvider { AnswerText = "Invoices are paid within 45 minutes of approval." };
 
-        var json = await Pillar(provider, questions, research);
+        var json = await Pillar(provider, brief);
 
         Assert.Contains("within 45 minutes", json, StringComparison.Ordinal);
     }
 
+    /// <summary>The writer is told to add no figure. One it adds anyway is caught by the page's check, as any figure is.</summary>
     [Fact]
-    public async Task AFigureInNoPassageStillRefusesThePage()
+    public async Task AFigureTheWriterAddsToAnAnswerStillRefusesThePage()
     {
-        string[] questions = ["How fast are invoices paid?"];
-        var research = Research([Found(Chaser, questions[0], "Customers are paid soon after approval.")]);
+        var brief = BriefOf([("How fast are invoices paid?", "Customers are paid soon after approval.")]);
         var provider = new RecordingProvider { AnswerText = "Invoices are paid within 45 minutes of approval." };
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Pillar(provider, questions, research));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Pillar(provider, brief));
     }
 
     [Theory]

@@ -29,7 +29,17 @@ namespace GeekAPI.Services.Gcw;
 public static class GcwBodyDocument
 {
     /// <summary>Everything a stored body says, as text.</summary>
-    public sealed record Text(string Lede, IReadOnlyList<string> Headings, string PlainText, int SectionCount);
+    /// <param name="Title">The page's title, where the stored body is the envelope a long-form page is
+    /// saved in. Null for a bare document, which has no title of its own to read; empty for an envelope
+    /// that carries none.</param>
+    /// <param name="MetaDescription">The page's meta description, on the same terms.</param>
+    public sealed record Text(
+        string Lede,
+        IReadOnlyList<string> Headings,
+        string PlainText,
+        int SectionCount,
+        string? Title = null,
+        string? MetaDescription = null);
 
     /// <summary>
     /// Empty when the body will not parse -- never the raw JSON. Returning the JSON as prose is how
@@ -53,11 +63,12 @@ public static class GcwBodyDocument
         {
             var root = doc.RootElement;
             // The envelope every long-form type returns, or a bare document from an older artifact.
-            var document = root.ValueKind == JsonValueKind.Object
+            var isEnvelope = root.ValueKind == JsonValueKind.Object
                 && root.TryGetProperty("body", out var body)
-                && body.ValueKind == JsonValueKind.Object
-                    ? body
-                    : root;
+                && body.ValueKind == JsonValueKind.Object;
+            var document = isEnvelope ? root.GetProperty("body") : root;
+            var title = isEnvelope ? StringOf(root, "title") : null;
+            var metaDescription = isEnvelope ? StringOf(root, "metaDescription") : null;
 
             var parts = new List<string>();
             var headings = new List<string>();
@@ -110,9 +121,14 @@ public static class GcwBodyDocument
                 }
             }
 
-            return new Text(lede, headings, string.Join("\n", parts), sectionCount);
+            return new Text(lede, headings, string.Join("\n", parts), sectionCount, title, metaDescription);
         }
     }
+
+    private static string StringOf(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? ""
+            : "";
 
     private static void CollectSection(JsonElement section, List<string> parts, List<string> headings)
     {

@@ -97,34 +97,39 @@ public interface IContentPromptBuilder
         bool isRegeneration,
         string? revisionNotes = null);
 
-    /// <param name="evidenceBlock">What a search of each partner's crawl found for each question,
-    /// grouped by question. Given, the answers come from it alone and a question no passage answers
-    /// is left out; null, the section is written without evidence (the Workflow product's writer).</param>
+    /// <summary>The pillar's People Also Ask from the questions alone, as the Workflow product's
+    /// writer asks for it: no answer is supplied and none is searched for.</summary>
     ChatCompletionRequest BuildArticleFaqSectionPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft metadata,
         IReadOnlyList<string> faqQuestions,
         bool isRegeneration,
-        string? revisionNotes = null,
-        string? evidenceBlock = null);
+        string? revisionNotes = null);
 
-    /// <summary>The blog's FAQ from the brief's own questions -- the pillar's People Also Ask shape,
-    /// headed "Frequently Asked Questions" on a BlogPosting.</summary>
-    ChatCompletionRequest BuildBlogFaqSectionPrompt(
+    /// <summary>The pillar's People Also Ask from the operator's questions and the answers entered
+    /// for them on the Brief: each answer written in the brief's voice, nothing added to it.</summary>
+    /// <param name="answersBlock">The request's questions, each with the operator's answer beneath
+    /// it, under the labels Q1, Q2, ... (<c>GccFaqAnswers.Render</c>).</param>
+    ChatCompletionRequest BuildArticleFaqFromAnswersPrompt(
+        ProjectGenerationContext context,
+        ArticleMetadataDraft metadata,
+        string answersBlock);
+
+    /// <summary>The blog's FAQ from the operator's questions and answers -- the pillar's People Also
+    /// Ask shape, headed "Frequently Asked Questions" on a BlogPosting.</summary>
+    ChatCompletionRequest BuildBlogFaqFromAnswersPrompt(
         ProjectGenerationContext context,
         BlogMetadataDraft metadata,
-        IReadOnlyList<string> faqQuestions,
-        string? evidenceBlock = null);
+        string answersBlock);
 
-    /// <summary>The tool page's FAQ from the operator's questions, answered only from the partner's
-    /// retrieved pages in <paramref name="evidenceBlock"/>; a question no passage answers is left out
-    /// (the caller reports it), never answered from general knowledge.</summary>
-    ChatCompletionRequest BuildToolFaqFromQuestionsPrompt(
+    /// <summary>The tool page's FAQ from the operator's questions for that tool and the answers
+    /// entered for them: each answer written in the brief's voice, nothing added to it.</summary>
+    ChatCompletionRequest BuildToolFaqFromAnswersPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft pillarMetadata,
         SchemaBuilders.SoftwareApplicationDescriptor app,
-        IReadOnlyList<string> questions,
-        string evidenceBlock);
+        string answersBlock);
+
 
 
 
@@ -589,6 +594,28 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>
     /// The SEO rules that belong to a plan: what the headings have to do.
     /// </summary>
+    /// <summary>
+    /// The keyword in a page's title, which is its title tag and its H1, and from which a pillar's and
+    /// a blog's address is made.
+    /// </summary>
+    /// <remarks>
+    /// Jeff's <c>seo-content-brief</c> skill lists the title tag, the H1 and the URL slug among the
+    /// places the primary keyword must appear, each "near the front". No request asked for it until
+    /// 2026-10-13 (Jeff: "SEO skill requires, in which case it should be implemented"), and no check
+    /// read it. The check is <c>GccDraftGuard.KeywordPlacement</c>.
+    /// </remarks>
+    internal static string SeoTitleInstruction(string keyword) =>
+        $"TITLE AND THE KEYWORD: the title contains \"{keyword}\", as near its start as reads naturally.";
+
+    /// <summary>The keyword in a page's meta description, by the same skill and the same check.</summary>
+    /// <remarks>
+    /// Only the pillar's request asked for it. The description is cut to 160 characters when it is
+    /// saved, so the phrase is asked for early: one the cut removes is reported as missing.
+    /// </remarks>
+    internal static string SeoMetaDescriptionInstruction(string keyword) =>
+        $"META DESCRIPTION AND THE KEYWORD: the meta description contains \"{keyword}\" in a sentence that "
+        + "would be there anyway, early enough that it is whole within 160 characters.";
+
     private static string SeoOutlineInstruction(string keyword) =>
         $"HEADINGS AND THE KEYWORD: at least one H2 contains \"{keyword}\", and not more than two -- "
         + "a page with it in every heading fails on density. Every heading names the question its "
@@ -1968,48 +1995,46 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
 
 
 
-    public ChatCompletionRequest BuildBlogFaqSectionPrompt(
+    public ChatCompletionRequest BuildBlogFaqFromAnswersPrompt(
         ProjectGenerationContext context,
         BlogMetadataDraft metadata,
-        IReadOnlyList<string> faqQuestions,
-        string? evidenceBlock = null) =>
+        string answersBlock) =>
         FaqSectionPrompt(
-            context, metadata.Title, faqQuestions,
+            context, metadata.Title,
             pageKind: "BlogPosting blog", heading: "Frequently Asked Questions", isRegeneration: false, revisionNotes: null,
-            evidenceBlock);
+            questions: null, answersBlock);
 
     /// <summary>
-    /// One FAQ section from the operator's own questions, for the pillar (People Also Ask) and the
-    /// blog (Frequently Asked Questions) alike; the two differ only in the page named and the heading.
-    /// Called once per batch of questions (<c>GccGenerateService.WriteFaqInBatchesAsync</c>), so a
-    /// long list never meets the 3,072-token budget in one reply.
+    /// One FAQ section for the pillar (People Also Ask) or the blog (Frequently Asked Questions); the
+    /// two differ only in the page named and the heading. Called once per batch of questions
+    /// (<c>GccGenerateService.WriteFaqInBatchesAsync</c>), so a long list never meets the 3,072-token
+    /// budget in one reply.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// With <paramref name="evidenceBlock"/>, the answers come from it and from nowhere else: what a
-    /// search of each partner's crawl found for each question, grouped by question. A question no
-    /// passage answers is left out and the caller reports it, the rule the tool page's FAQ has had
-    /// since 2026-10-10 (<see cref="BuildToolFaqFromQuestionsPrompt"/>). Until 2026-10-11 the Content
-    /// Creator's pillar and blog passed none: the call was given the questions, the title and the
-    /// keyword, and the writer answered from its own general knowledge.
+    /// With <paramref name="answersBlock"/>, each question comes with the answer the operator entered
+    /// for it on the Brief, and the writer writes that answer in the brief's voice: every question,
+    /// nothing added. The Content Creator's pillar and blog ask this way since 2026-10-13. From
+    /// 2026-10-11 until then they passed what a search of each partner's crawl had found for each
+    /// question, and the writer answered only where a passage answered.
     /// </para>
     /// <para>
-    /// Without it (null), the section is written as it always was. The Workflow product's writer
-    /// passes none: it has no search of a partner's crawl to pass.
+    /// With <paramref name="questions"/> alone, the section is written from the questions as it always
+    /// was. The Workflow product's writer asks this way: it holds no answer to pass.
     /// </para>
     /// </remarks>
     private ChatCompletionRequest FaqSectionPrompt(
         ProjectGenerationContext context,
         string title,
-        IReadOnlyList<string> faqQuestions,
         string pageKind,
         string heading,
         bool isRegeneration,
         string? revisionNotes,
-        string? evidenceBlock = null)
+        IReadOnlyList<string>? questions,
+        string? answersBlock = null)
     {
-        var paaBlock = string.Join("\n", faqQuestions.Select((q, i) => $"  - Q{i + 1}: {q}"));
-        var fromEvidence = evidenceBlock is not null;
+        var fromAnswers = answersBlock is not null;
+        var paaBlock = string.Join("\n", (questions ?? []).Select((q, i) => $"  - Q{i + 1}: {q}"));
 
         var briefBody = BuildBriefBodyGuidance(context);
         var system = new StringBuilder()
@@ -2019,22 +2044,14 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Write ONLY the \"{heading}\" FAQ section of a {pageKind}.")
             .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
             .AppendLine(SectionJsonContract)
-            .AppendLine($"This section's tag is \"h2\" and heading is exactly \"{heading}\". Each {(fromEvidence ? "answered question" : "question")} is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
+            .AppendLine($"This section's tag is \"h2\" and heading is exactly \"{heading}\". Each question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds {(fromAnswers ? "its answer" : "a 2-4 sentence answer")}.")
             .AppendLine("Direct, factual answers. Third person.")
             .AppendLine($"Answers must sound like {context.PublisherName} ({context.ImplementerPositioning}), not a generic textbook FAQ — reflect the same consultative brand voice as the rest of the article, not interchangeable boilerplate.")
             .ToString();
 
-        if (fromEvidence)
+        if (fromAnswers)
         {
-            system += Environment.NewLine
-                + "Answer ONLY from the PARTNER EVIDENCE in the user message -- passages from the partner tools' own pages. "
-                + "If no passage answers a question, LEAVE THAT QUESTION OUT: no child for it and no placeholder. Never answer "
-                + "from general knowledge, and never state a capability, price or figure the evidence does not state."
-                + Environment.NewLine
-                + "The evidence is grouped by question: \"Found for Q1:\" heads what a search of the partners' pages found "
-                + "for Q1, and so on for each question."
-                + Environment.NewLine
-                + CurrencyInstruction;
+            system += Environment.NewLine + OperatorAnswersInstruction + Environment.NewLine + CurrencyInstruction;
         }
 
         if (isRegeneration)
@@ -2055,15 +2072,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine($"Article title: {title}")
             .AppendLine($"Target keyword: {context.TargetKeyword}")
             .AppendLine()
-            .AppendLine(fromEvidence ? "Questions to answer, only where the evidence answers them:" : "Questions to answer:")
-            .AppendLine(paaBlock);
-
-        if (fromEvidence)
-        {
-            user.AppendLine()
-                .AppendLine("=== PARTNER EVIDENCE (the partner tools' own pages; the only source for these answers) ===")
-                .AppendLine(evidenceBlock!.Length > 0 ? evidenceBlock : "(nothing was retrieved -- answer no question)");
-        }
+            .AppendLine(fromAnswers ? OperatorAnswersHeading : "Questions to answer:")
+            .AppendLine(fromAnswers ? answersBlock : paaBlock);
 
         return WithSectionSchema(new ChatCompletionRequest(
             Messages: new List<ChatMessage> { new(ChatRole.System, system), new(ChatRole.User, user.ToString()) },
@@ -2071,28 +2081,40 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             MaxOutputTokens: 3072));
     }
 
-    public ChatCompletionRequest BuildToolFaqFromQuestionsPrompt(
+    /// <summary>
+    /// What a writer is told when each question comes with the operator's own answer: write every one,
+    /// say what the answer says and no more, in the brief's voice and not in the operator's wording.
+    /// </summary>
+    /// <remarks>
+    /// The answer is the operator's to give (Jeff, 2026-10-13), and it is not printed as typed: a note
+    /// entered on the Brief may not be in the voice the page is written in (Jeff, 2026-10-10). No code
+    /// checks a written answer against the one entered; its figures and money are checked with the
+    /// page's, against evidence that includes the Brief.
+    /// </remarks>
+    internal const string OperatorAnswersInstruction =
+        "Each question in the user message comes with THE OPERATOR'S ANSWER to it. Write a child for EVERY question, in the "
+        + "order given. An answer says what the operator's answer to that question says and nothing else: add no fact, "
+        + "capability, price or figure it does not state, and drop none that it states. The operator's answer is a note, not "
+        + "finished copy: write it in your own sentences, in the voice described above, and no longer than the note.";
+
+    /// <summary>The line of the user message that heads the questions and their answers.</summary>
+    internal const string OperatorAnswersHeading = "Questions, each with the operator's answer to it:";
+
+    public ChatCompletionRequest BuildToolFaqFromAnswersPrompt(
         ProjectGenerationContext context,
         ArticleMetadataDraft pillarMetadata,
         SchemaBuilders.SoftwareApplicationDescriptor app,
-        IReadOnlyList<string> questions,
-        string evidenceBlock)
+        string answersBlock)
     {
-        var questionBlock = string.Join("\n", questions.Select((q, i) => $"  - Q{i + 1}: {q}"));
-
         var system = new StringBuilder()
             .AppendLine("You are a senior technical writer for an IT consulting firm.")
             .AppendLine(BrandTones.ForWebpages())
-            .AppendLine($"Write ONLY the FAQ section of the tool overview page for {app.Name}, answering the operator's questions.")
+            .AppendLine($"Write ONLY the FAQ section of the tool overview page for {app.Name}, from the operator's questions and answers.")
             .AppendLine("Respond with ONLY a single valid JSON Section object — no code fences, no commentary.")
             .AppendLine(SectionJsonContract)
-            .AppendLine("This section's tag is \"h2\" and heading is exactly \"Frequently Asked Questions\". Each answered " +
-                "question is a child Section: tag \"h3\", heading is the question verbatim, paragraphs holds a 2-4 sentence answer.")
-            .AppendLine($"Answer ONLY from the PARTNER EVIDENCE in the user message -- {app.Name}'s own pages. If no passage " +
-                "answers a question, LEAVE THAT QUESTION OUT: no child for it and no placeholder. Never answer from general " +
-                "knowledge, and never state a capability, price or figure the evidence does not state.")
-            .AppendLine($"The evidence is grouped by question: \"Found for Q1:\" heads what a search of {app.Name}'s pages " +
-                "found for Q1, and so on for each question.")
+            .AppendLine("This section's tag is \"h2\" and heading is exactly \"Frequently Asked Questions\". Each question is a " +
+                "child Section: tag \"h3\", heading is the question verbatim, paragraphs holds its answer.")
+            .AppendLine(OperatorAnswersInstruction)
             .AppendLine($"Answers sound like {context.PublisherName} ({context.ImplementerPositioning}): third person, direct, factual.")
             .AppendLine(CurrencyInstruction)
             .ToString();
@@ -2100,12 +2122,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         var user = new StringBuilder()
             .AppendLine($"Tool name: {app.Name}")
             .AppendLine($"Page topic: {pillarMetadata.Title}")
-            .Append(BuildBriefForSourcedCopy(context, "the partner evidence below"))
-            .AppendLine("Questions to answer, only where the evidence answers them:")
-            .AppendLine(questionBlock)
-            .AppendLine()
-            .AppendLine("=== PARTNER EVIDENCE (the partner's own pages; the only source for these answers) ===")
-            .AppendLine(evidenceBlock.Length > 0 ? evidenceBlock : "(nothing was retrieved -- answer no question)")
+            .Append(BuildBriefForSourcedCopy(context, "the operator's answers below"))
+            .AppendLine(OperatorAnswersHeading)
+            .AppendLine(answersBlock)
             .ToString();
 
         return WithSectionSchema(new ChatCompletionRequest(
@@ -2237,6 +2256,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences, no commentary.")
             .AppendLine(BlogMetadataJsonContract)
             .AppendLine("This is a standalone deep-dive blog — there is no companion pillar article. Title should be a conversational hook, question, or numbered angle.")
+            .AppendLine(SeoTitleInstruction(context.TargetKeyword))
+            .AppendLine(SeoMetaDescriptionInstruction(context.TargetKeyword))
             .AppendLine(SeoOutlineInstruction(context.TargetKeyword))
             // The ban lived only in the pillar's outline prompt, so nothing ever told a blog not to
             // write one -- which is why "Choosing the Right AI Tools for ..." turned up on them. It
@@ -2982,6 +3003,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine(ToolMetadataJsonContract)
             .AppendLine("departmentListExcerpt, summary, mainSummary, heroSummary, homeSummary, blogSummary, toolPageExcerpt, advertisingSummary, and metaDescription must each use different wording — no field may restate another's sentence structure or lede.")
+            .AppendLine(SeoMetaDescriptionInstruction(context.TargetKeyword))
+            .AppendLine(GeekAPI.Services.ContentCreator.Guardrail.GccEmDash.Instruction)
             .ToString();
 
         var user = new StringBuilder()

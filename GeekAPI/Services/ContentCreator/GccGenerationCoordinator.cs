@@ -40,13 +40,10 @@ public sealed class GccGenerationCoordinator
     /// itself in a test — a duplicated merge is two implementations of one rule.</remarks>
     internal static GccCreateDto MergeRetrievedEvidence(GccCreateDto create, GccGroundingOutcome grounding)
     {
-        // FaqEvidence counts when it is a list at all, even an empty one or one whose searches all found
-        // nothing: that is "searched", and dropping it here would turn it into "not searched".
         if (grounding.Pages.Count == 0
             && grounding.CompetitorPages.Count == 0
             && grounding.SitePages.Count == 0
-            && grounding.PublisherPositions is not { Count: > 0 }
-            && grounding.FaqEvidence is null)
+            && grounding.PublisherPositions is not { Count: > 0 })
         {
             return create;
         }
@@ -63,21 +60,15 @@ public sealed class GccGenerationCoordinator
         // nothing an operator uploads stands in for what their own site says.
         var positions = grounding.PublisherPositions is { Count: > 0 } read ? read : existing?.PublisherPositions;
 
-        // Set, not merged, and not kept from before: what each FAQ question's search found is this run's
-        // answer or nothing. Null when this run searched for none.
-        var faqEvidence = grounding.FaqEvidence;
-
         var merged = existing is null
             ? new GccResearchDocument(
-                null, quoteables, CompetitorQuoteables: competitors, SiteQuoteables: site, PublisherPositions: positions,
-                FaqEvidence: faqEvidence)
+                null, quoteables, CompetitorQuoteables: competitors, SiteQuoteables: site, PublisherPositions: positions)
             : existing with
             {
                 Quoteables = quoteables,
                 CompetitorQuoteables = competitors,
                 SiteQuoteables = site,
                 PublisherPositions = positions,
-                FaqEvidence = faqEvidence,
             };
 
         return create with { ResearchJson = GccResearchFetchService.Serialize(merged) };
@@ -352,7 +343,12 @@ public sealed class GccGenerationCoordinator
         // when it is one, so the existing single-select contract is unchanged for every other type.
         return single.Pieces.Count == 1 && single.SoftFailures.Count == 0 && preflight.Count == 0 && singleWarnings.Count == 0
             ? singleCreated[0]
-            : BuildGenerateResult(singleCreated, single.SoftFailures, preflight, singleWarnings);
+            // Spelled as the live note of each is, so the page lists a partner's refusal once.
+            : BuildGenerateResult(
+                singleCreated,
+                [.. single.SoftFailures.Select(soft => GccRunSettlement.RefusalLine(requested[0], soft))],
+                preflight,
+                singleWarnings);
     }
 
     /// <summary>
@@ -1049,25 +1045,6 @@ public sealed class GccGenerationCoordinator
             competitorQuoteables = research.CompetitorQuoteables?.Count ?? 0,
             siteQuoteables = research.SiteQuoteables?.Count ?? 0,
             publisherPositions = (research.PublisherPositions ?? []).Select(p => p.Heading).ToList(),
-            // Each FAQ question a partner's crawl was searched for: how many passages came back, how
-            // the library ordered them and whether a reranking model did, and what it scored each
-            // passage, best first as returned. Null when this run searched for none, which is not the
-            // same as an empty list.
-            //
-            // The scores are what a cut-off is read from before one is set. On the run of 2026-10-10 a
-            // question's three passages came from a terms-of-service page, an engineering post and a
-            // page-template stub, and nothing on the record said how the search had rated them.
-            faqSearches = research.FaqEvidence?
-                .Select(e => new
-                {
-                    host = e.Host,
-                    question = e.Question,
-                    passages = e.Pages.Sum(p => p.Paragraphs.Count),
-                    retrieval = e.Retrieval,
-                    reranked = e.Reranked,
-                    scores = GccToolFaqEvidence.ScoresOf(e.Pages),
-                })
-                .ToList(),
             // What each of the brief's searches brought into the pages every writer reads, and the kinds
             // of page those are. Kept since 2026-10-11; null
             // on research that kept neither.

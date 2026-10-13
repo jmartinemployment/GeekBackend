@@ -68,8 +68,13 @@ public sealed class GccPartialRunTests
         Assert.Equal(["social", "pillar", "email-cold-outreach"], settled.Pieces.Select(p => p.ContentType));
     }
 
+    /// <summary>
+    /// The page lists what was not written from a type's live note ("tool" and the reason, which it
+    /// prints as "tool: Bill: ...") and from the run's record, once where the two are one text. Until
+    /// 2026-10-13 the record's line for a partner had no type, and that day's run listed ADP twice.
+    /// </summary>
     [Fact]
-    public void A_partner_a_tool_run_refused_keeps_its_line_as_it_always_read_and_the_pages_that_wrote_are_kept()
+    public void A_partner_a_tool_run_refused_is_a_line_that_leads_with_its_type_and_the_pages_that_wrote_are_kept()
     {
         var tool = GccRunSettlement.TypeAttempt.Wrote(
             "tool",
@@ -81,10 +86,12 @@ public sealed class GccPartialRunTests
 
         Assert.Equal(["Ramp: Automated Approval Workflows"], settled.Pieces.Select(p => p.ArtifactName));
         Assert.Equal(
-            ["pillar: Refused: the pillar. x", "Bill: Refused: money that is not in US dollars"],
+            ["pillar: Refused: the pillar. x", "tool: Bill: Refused: money that is not in US dollars"],
             settled.Refusals.Select(r => r.Line));
         Assert.Equal("tool", settled.Refusals[1].Type);
         Assert.Equal("Bill: Refused: money that is not in US dollars", settled.Refusals[1].Text);
+        // The line is the type and the note the page is sent live, joined as the page joins them.
+        Assert.All(settled.Refusals, r => Assert.Equal($"{r.Type}: {r.Text}", r.Line));
     }
 
     [Fact]

@@ -341,8 +341,7 @@ public partial class GccGenerateService
     /// </para>
     /// <para>
     /// <b>The pages are the page's research</b> (<see cref="GccPageResearch.PagesOf"/>): what the
-    /// brief's searches found, with what the searches for the operator's questions found on the same
-    /// crawls added, each passage once.
+    /// brief's searches found, each passage once.
     /// </para>
     /// <para>
     /// <b>Each passage says what it was found for.</b> Which search found which passage was recorded
@@ -412,8 +411,8 @@ public partial class GccGenerateService
             if (searches.Count > 0)
             {
                 sb.AppendLine($"- {FoundForLabel} says why the passage is here: it is what that site answered when it");
-                sb.AppendLine("  was searched with the operator's own statement of a problem, a failure, a remedy or");
-                sb.AppendLine("  a question. Use a passage where the piece deals with what it was found for. The");
+                sb.AppendLine("  was searched with the operator's own statement of a problem, a failure or a");
+                sb.AppendLine("  remedy. Use a passage where the piece deals with what it was found for. The");
                 sb.AppendLine("  statement is the operator's note and never a claim about the product: say of a");
                 sb.AppendLine("  product only what the passage itself states.");
             }
@@ -593,7 +592,6 @@ public partial class GccGenerateService
                 => $"Where it goes wrong: {failure} -- searched with the remedy noted: {asked}",
             GccPassageSearch.KindRow when failure.Length > 0 => $"Where it goes wrong: {failure}",
             GccPassageSearch.KindRow => $"A remedy noted: {asked}",
-            GccPassageSearch.KindQuestion => $"The question: {asked}",
             _ => $"The keyword: {asked}",
         };
     }
@@ -1175,8 +1173,10 @@ public partial class GccGenerateService
         // particular to say, which is the whole of why these came back short (Jeff, 2026-09-23:
         // "The headings reflect why content word count is so drastically low").
         var metaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
-        var planned = RequireCompleteMetadata(
-            LlmResponseJsonParser.Parse<BlogMetadataDraft>(metaResult.Content, "standalone blog metadata"),
+        var planned = await WithoutEmDashesAsync(
+            RequireCompleteMetadata(
+                LlmResponseJsonParser.Parse<BlogMetadataDraft>(metaResult.Content, "standalone blog metadata"),
+                "standalone blog metadata"),
             "standalone blog metadata");
         var metadata = planned with
         {
@@ -1198,6 +1198,7 @@ public partial class GccGenerateService
             throw new InvalidOperationException("CWV2 blog body returned no sections.");
         var blogDocument = new ContentDocument(standaloneLede with { Tag = "h2" }, sections);
         blogDocument = ContentGuardrail.Apply(blogDocument).Document;
+        blogDocument = Guardrail.GccEmDash.Clean(blogDocument).Document;
         return JsonSerializer.Serialize(blogDocument, CwDocumentJson);
     }
 
@@ -1431,16 +1432,12 @@ public partial class GccGenerateService
         var toolFraming = create is null
             ? null
             : GccNicheFramingReader.ForProduct(create.BriefJson, toolPartnerUrls, name);
-        // The operator's FAQ questions for this tool alone -- its own perTool entry, never the
-        // category's. Answered in ToolFaqAsync from what a search of the partner's crawl found for
-        // each, or left out and reported (2026-10-08: FAQ fields for the tool pages).
-        IReadOnlyList<string> toolFaqQuestions = create is null
+        // The operator's FAQ for this tool alone -- its own perTool entry, never the category's: each
+        // question with the answer entered for it, written in ToolFaqAsync (2026-10-08: FAQ fields for
+        // the tool pages; 2026-10-13: the answer is the operator's).
+        IReadOnlyList<GccFaqEntry> toolFaq = create is null
             ? []
-            : GccNicheFramingReader.ToolFaqQuestions(create.BriefJson, toolPartnerUrls, name);
-        // The host those questions are filed under, which is also what their searches are filed under.
-        var toolFaqHost = create is null
-            ? string.Empty
-            : GccNicheFramingReader.HostForProduct(create.BriefJson, toolPartnerUrls, name);
+            : GccNicheFramingReader.ToolFaq(create.BriefJson, toolPartnerUrls, name);
 
         var toolOutlineCtx = new ContentTypes.ContentTypePromptContext(
             context, App: app, ToolSlug: slug, ExtractedResearchJson: extractedToolResearchJson,
@@ -1598,17 +1595,13 @@ public partial class GccGenerateService
         //
         // Written once, after the body draft, and the draft the guard sees carries it. Two sources,
         // one section: the partner's own FAQ (paraphrased, never re-derived) and the operator's
-        // questions for this tool, answered only from the partner's own pages. A question that is not
-        // answered is left out and reported as a gap -- never answered from general knowledge
-        // (2026-10-08: FAQ fields for the tool pages).
+        // questions for this tool, each written from the answer the operator entered for it. A
+        // question with no answer entered is left out and reported as a gap -- never answered from
+        // general knowledge (2026-10-08: FAQ fields for the tool pages).
         //
-        // Each question is answered from what a search of the partner's crawl found for that question
-        // (GccGroundingResolver.FaqQuestions, filed in the research's FaqEvidence). Until 2026-10-10
-        // the questions were never searched for: they were answered from whatever the page's other
-        // searches had brought back, and a question none of those was about was reported as one "no
-        // page of the partner's answers" when nothing had looked. So the report now says what was
-        // checked, and there are four of them: not searched, searched and nothing found, shown
-        // passages and not answered, and answered under a heading that is none of the questions.
+        // From 2026-10-10 to 2026-10-13 each question was searched for in the partner's crawl and
+        // answered only where a passage answered. The answer is the operator's now (Jeff, 2026-10-13:
+        // "no longer query for answer passages"), and nothing is searched for.
         Section? toolFaqSection = null;
         var toolFaqWritten = false;
         async Task<Section?> ToolFaqAsync(List<string> shortfalls)
@@ -1617,88 +1610,54 @@ public partial class GccGenerateService
             toolFaqWritten = true;
             Section? head = null;
             var children = new List<Section>();
+            // A request of this section that fails loses what it was to write and nothing else: it is
+            // named among the page's gaps, the requests after it are still sent, and the page is kept.
+            // Until 2026-10-13 the failure was thrown out of here and refused the whole tool page, which
+            // is how that day's run lost ADP's to one reply that ended in 2,481 spaces. Nothing is sent
+            // a second time.
             if (groundedExtraction is { FaqBank.Count: > 0 })
             {
-                var faqResult = await llm.CompleteAsync(
-                    _prompts.BuildToolFaqSectionPrompt(context, pillarMeta, app, groundedExtraction.FaqBank),
-                    ct);
-                head = LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section");
-                children.AddRange(head.Children);
+                try
+                {
+                    var faqResult = await llm.CompleteAsync(
+                        _prompts.BuildToolFaqSectionPrompt(context, pillarMeta, app, groundedExtraction.FaqBank),
+                        ct);
+                    head = LlmResponseJsonParser.ParseSection(faqResult.Content, "h2", $"tool page '{name}' FAQ section");
+                    children.AddRange(head.Children);
+                }
+                catch (ContentGenerationException ex)
+                {
+                    shortfalls.Add(
+                        $"FAQ: the request that writes the {groundedExtraction.FaqBank.Count} question(s) taken from "
+                        + $"{name}'s own pages failed, and they were left out. {ex.Message.Trim()}");
+                    await GccRunLog.RecordIfAnyAsync("faq", new
+                    {
+                        tool = name,
+                        partnerQuestions = groundedExtraction.FaqBank.Count,
+                        outcome = "request failed",
+                        reason = ex.Message,
+                    });
+                }
             }
 
-            if (toolFaqQuestions.Count > 0)
+            if (toolFaq.Count > 0)
             {
-                // What becomes of each question, for the run's record: the same four outcomes the
-                // operator is told, readable without the prompts.
-                var outcomes = new List<object>(toolFaqQuestions.Count);
-                // Only a question with passages is sent. One that was not searched for, or whose
-                // search found nothing, has nothing to be answered from, and the model is not paid
-                // to say so.
-                var toAsk = new List<(string Question, IReadOnlyList<GccQuoteablePage> Pages)>();
-                foreach (var question in toolFaqQuestions)
+                // The pillar's and the blog's writer, question for question: one way a page's FAQ is
+                // written from the operator's answers, and one set of things reported about it.
+                var answered = await WriteFaqInBatchesAsync(
+                    llm,
+                    answers => _prompts.BuildToolFaqFromAnswersPrompt(context, pillarMeta, app, answers),
+                    toolFaq,
+                    "FAQ",
+                    GccFaqAnswers.ToolBox,
+                    shortfalls,
+                    ct,
+                    recordAs: $"tool page '{name}' FAQ");
+                if (answered is not null)
                 {
-                    var found = GccToolFaqEvidence.FoundFor(toolResearch?.FaqEvidence, toolFaqHost, question);
-                    if (found is null)
-                    {
-                        shortfalls.Add($"FAQ: {toolFaqHost}'s crawl was not searched for \"{question}\"; it was left out.");
-                        outcomes.Add(new { question, passages = 0, outcome = "not searched" });
-                        continue;
-                    }
-
-                    if (GccToolFaqEvidence.PassageCount(found) == 0)
-                    {
-                        shortfalls.Add($"FAQ: a search of {toolFaqHost}'s crawl found nothing for \"{question}\"; it was left out.");
-                        outcomes.Add(new { question, passages = 0, outcome = "nothing found" });
-                        continue;
-                    }
-
-                    toAsk.Add((question, found));
+                    head ??= answered;
+                    children.AddRange(answered.Children);
                 }
-
-                for (var start = 0; start < toAsk.Count; start += PaaQuestionsPerFaqCall)
-                {
-                    var batch = toAsk.Skip(start).Take(PaaQuestionsPerFaqCall).ToList();
-                    var answered = await llm.CompleteAsync(
-                        _prompts.BuildToolFaqFromQuestionsPrompt(
-                            context, pillarMeta, app, [.. batch.Select(b => b.Question)], GccToolFaqEvidence.Render(batch)),
-                        ct);
-                    var section = LlmResponseJsonParser.ParseSection(
-                        answered.Content, "h2", $"tool page '{name}' FAQ, questions {start + 1}-{start + batch.Count}");
-                    head ??= section;
-                    // By reference: two answers may read alike, and each is still its own child.
-                    var kept = new HashSet<Section>(ReferenceEqualityComparer.Instance);
-                    foreach (var (question, pages) in batch)
-                    {
-                        var shown = GccToolFaqEvidence.PassageCount(pages);
-                        var answer = section.Children.FirstOrDefault(c => AnswersQuestion(c.Heading, question));
-                        if (answer is null)
-                        {
-                            shortfalls.Add(
-                                $"FAQ: the writer was shown {shown} passage(s) from {toolFaqHost} for \"{question}\" "
-                                + "and did not answer it; it was left out.");
-                            outcomes.Add(new { question, passages = shown, outcome = "not answered", scores = GccToolFaqEvidence.ScoresOf(pages) });
-                            continue;
-                        }
-
-                        outcomes.Add(new { question, passages = shown, outcome = "answered", scores = GccToolFaqEvidence.ScoresOf(pages) });
-                        if (kept.Add(answer)) children.Add(answer);
-                    }
-
-                    // An answer under a heading that is none of the call's questions cannot be filed
-                    // under one, and guessing which it meant would put an answer under a question it
-                    // may not address. It is dropped, as it always was -- and now it is said.
-                    foreach (var stray in section.Children.Where(c => !kept.Contains(c)))
-                    {
-                        shortfalls.Add(
-                            $"FAQ: the writer answered under \"{stray.Heading}\", which is not a question it was sent; "
-                            + "the answer was dropped.");
-                        outcomes.Add(new { question = stray.Heading, passages = 0, outcome = "answered under another heading" });
-                    }
-                }
-
-                // Each question sent carries what the search scored its passages, so an unanswered
-                // question can be told from one the search rated poorly to begin with.
-                await GccRunLog.RecordIfAnyAsync("faq", new { tool = name, host = toolFaqHost, questions = outcomes });
             }
 
             if (head is null || children.Count == 0) return null;
@@ -1718,18 +1677,6 @@ public partial class GccGenerateService
         // Scoped to `create is not null` (no candidates, no quotation check), the same boundary the
         // partner-grounding refusal above draws. The legacy no-create path has no partner evidence at
         // all, so requiring a partner quote there would be requiring an invented one.
-        // What each FAQ question's search found is evidence the writer is shown: in the FAQ call and,
-        // since 2026-10-12, in the page's opening and body among its partner's research. The page's
-        // figure and currency checks read the evidence the writer was shown, so these passages are part
-        // of it: without them an answer that takes "within 45 minutes" from its own passage refuses
-        // the whole page for stating a figure that appears in none of its evidence.
-        var toolFaqEvidenceText = string.Join(
-            Environment.NewLine,
-            toolFaqQuestions
-                .Select(q => GccToolFaqEvidence.FoundFor(toolResearch?.FaqEvidence, toolFaqHost, q))
-                .SelectMany(found => found ?? [])
-                .SelectMany(page => page.Paragraphs));
-
         var toolGuardInputs = GuardInputsFor(
             create,
             context,
@@ -1740,7 +1687,6 @@ public partial class GccGenerateService
                 Environment.NewLine,
                 toolOutlineCtx.EvidenceBlock ?? string.Empty,
                 toolCompetitorBlock,
-                toolFaqEvidenceText,
                 brief ?? string.Empty),
             quoteCandidates: create is null ? null : quoteCandidates,
             extractionJson: extractedToolResearchJson);
@@ -1823,13 +1769,21 @@ public partial class GccGenerateService
         var metaResult = await llm.CompleteAsync(
             _prompts.BuildToolMetadataPrompt(context, pillarMeta, app, document),
             ct);
-        var metadata = RequireCompleteMetadata(
-            LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata"), "tool metadata");
+        var metadata = await WithoutEmDashesAsync(
+            RequireCompleteMetadata(
+                LlmResponseJsonParser.Parse<ToolMetadataDraft>(metaResult.Content, "tool metadata"), "tool metadata"),
+            $"the tool page '{name}' metadata");
 
         var metaDescription = metadata.MetaDescription.Length > 160
             ? metadata.MetaDescription[..160]
             : metadata.MetaDescription;
         metadata = metadata with { MetaDescription = metaDescription };
+        // The title the page is saved under: the product and the keyword on a create, the product alone
+        // on the orchestrator's create-less path.
+        await AddKeywordPlacementAsync(
+            $"the tool page '{name}'", "tool page", toolOutlineCtx.Context.TargetKeyword,
+            create is null ? name : ToolPageTitle(name, create.Topic), metaDescription, toolWarnings,
+            page: $"Tool page '{name}'");
 
         // {base}/{department}/{descriptor}/{slug} -- Jeff, 2026-10-02: /tools/accounting/accounts-payable.
         // The descriptor directory is what stops one partner's pages colliding: the slug is the product
@@ -2180,43 +2134,14 @@ public partial class GccGenerateService
         return (fields.Segment, fields.Details, fields.Notes, fields.Angle);
     }
 
-    /// <summary>People Also Ask lines the operator typed on the brief — newline string or JSON array.</summary>
-    /// <summary>A list of questions from the brief, one per line in a string or one per array item --
-    /// <c>paaQuestions</c> (the pillar's People Also Ask) and <c>blogFaqQuestions</c> (the blog's FAQ).</summary>
-    private static IReadOnlyList<string>? ParseQuestionList(JsonElement root, string name)
+    /// <summary>The operator's FAQ under <paramref name="name"/> on the brief -- <c>paaQuestions</c>
+    /// (the pillar's People Also Ask) or <c>blogFaqQuestions</c> (the blog's FAQ) -- each question
+    /// with the answer entered for it. Null when the brief holds none.</summary>
+    private static IReadOnlyList<GccFaqEntry>? ParseFaq(JsonElement root, string name)
     {
-        if (!root.TryGetProperty(name, out var prop))
-        {
-            return null;
-        }
-
-        var list = new List<string>();
-        if (prop.ValueKind == JsonValueKind.String)
-        {
-            var raw = prop.GetString();
-            if (!string.IsNullOrWhiteSpace(raw))
-            {
-                foreach (var line in raw.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                {
-                    if (line.Length > 0)
-                    {
-                        list.Add(line);
-                    }
-                }
-            }
-        }
-        else if (prop.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var el in prop.EnumerateArray())
-            {
-                if (el.ValueKind == JsonValueKind.String && el.GetString() is string s && !string.IsNullOrWhiteSpace(s))
-                {
-                    list.Add(s.Trim());
-                }
-            }
-        }
-
-        return list.Count == 0 ? null : list;
+        if (!root.TryGetProperty(name, out var prop)) return null;
+        var entries = GccFaqAnswers.Read(prop);
+        return entries.Count == 0 ? null : entries;
     }
 
     internal static BriefFields ExtractBriefFields(string? briefJson)
@@ -2314,8 +2239,8 @@ public partial class GccGenerateService
                 if (list.Count > 0) eeatSignals = list;
             }
             var lengthBand = S("lengthBand");
-            IReadOnlyList<string>? paaQuestions = ParseQuestionList(root, "paaQuestions");
-            IReadOnlyList<string>? blogFaqQuestions = ParseQuestionList(root, "blogFaqQuestions");
+            var peopleAlsoAsk = ParseFaq(root, "paaQuestions");
+            var blogFaq = ParseFaq(root, "blogFaqQuestions");
             var segNotes = notes;
             return new BriefFields
             {
@@ -2329,8 +2254,8 @@ public partial class GccGenerateService
                 ToneOfVoice = string.IsNullOrWhiteSpace(toneOfVoice) ? null : toneOfVoice,
                 EeatSignals = eeatSignals,
                 LengthBand = string.IsNullOrWhiteSpace(lengthBand) ? null : lengthBand.Trim(),
-                PaaQuestions = paaQuestions,
-                BlogFaqQuestions = blogFaqQuestions,
+                PeopleAlsoAsk = peopleAlsoAsk,
+                BlogFaq = blogFaq,
             };
         }
         catch (JsonException)
@@ -2351,10 +2276,16 @@ public partial class GccGenerateService
         public string? ToneOfVoice { get; init; }
         public IReadOnlyList<string>? EeatSignals { get; init; }
         public string? LengthBand { get; init; }
-        public IReadOnlyList<string>? PaaQuestions { get; init; }
-        /// <summary>The blog's FAQ questions, written by the operator (2026-10-08): answered at the end
-        /// of the blog from the brief and the evidence, the way the pillar's People Also Ask is.</summary>
-        public IReadOnlyList<string>? BlogFaqQuestions { get; init; }
+        /// <summary>The pillar's People Also Ask: each question with the answer the operator entered
+        /// for it, written at the end of the pillar in the brief's voice. Null when none is entered.</summary>
+        public IReadOnlyList<GccFaqEntry>? PeopleAlsoAsk { get; init; }
+        /// <summary>The blog's FAQ, the same way (2026-10-08: the pillar had its People Also Ask and the
+        /// blog had nothing).</summary>
+        public IReadOnlyList<GccFaqEntry>? BlogFaq { get; init; }
+        /// <summary>The People Also Ask questions alone, with or without an answer: what a heading may
+        /// be tagged as taken from, and what the Workflow product's writer reads.</summary>
+        public IReadOnlyList<string>? PaaQuestions =>
+            PeopleAlsoAsk is null ? null : GccFaqAnswers.QuestionsOf(PeopleAlsoAsk);
     }
 
     public static string SerializeAnalysisPayload(SiteAnalysisStoredPayload payload) =>
@@ -2520,6 +2451,7 @@ public partial class GccGenerateService
             .AppendLine("You write cold outreach / sales emails for an IT consulting firm that specializes in AI implementation.")
             .AppendLine("Body must be 150-200 words.")
             .AppendLine("Pitch ONE clear idea. No HTML. No inline link syntax. Do not invent URLs.")
+            .AppendLine(Guardrail.GccEmDash.Instruction)
             .AppendLine("ctaLabel is short button/link text (e.g. \"Read the full guide\"). The destination URL is injected by the app.")
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine("{\"subject\": string, \"body\": string, \"ctaLabel\": string}")
@@ -2553,6 +2485,7 @@ public partial class GccGenerateService
                 : string.IsNullOrWhiteSpace(r.CtaLabel) ? "the reply carried no ctaLabel"
                 : null);
 
+        email = await WithoutEmDashesAsync(email, "the email");
         if (GccRepurpose.FigureRefusal("email", [email.Subject, email.Body, email.CtaLabel], source) is { } figures)
             throw new InvalidOperationException(figures);
 
@@ -2594,6 +2527,7 @@ public partial class GccGenerateService
             .AppendLine($"You write {platform} posts for an IT consulting firm that specializes in AI implementation.")
             .AppendLine(styleGuidance)
             .AppendLine(lengthGuidance)
+            .AppendLine(Guardrail.GccEmDash.Instruction)
             .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
             .AppendLine("{\"text\": string}")
             .AppendLine("JSON rules: one string value for text. Use \\n for line breaks.")
@@ -2622,6 +2556,7 @@ public partial class GccGenerateService
             "social post",
             static r => string.IsNullOrWhiteSpace(r.Text) ? "the reply carried no text" : null);
 
+        post = await WithoutEmDashesAsync(post, $"the {platform} post");
         if (GccRepurpose.FigureRefusal(piece, [post.Text], source) is { } figures)
             throw new InvalidOperationException(figures);
 
@@ -2707,8 +2642,10 @@ public partial class GccGenerateService
         // was thrown away, which is why a blog came back at 791 words opening with "Overview"
         // (Jeff, 2026-09-23).
         var blogMetaResult = await llm.CompleteAsync(_prompts.BuildStandaloneBlogMetadataPrompt(context), ct);
-        var blogMeta = RequireCompleteMetadata(
-            LlmResponseJsonParser.Parse<BlogMetadataDraft>(blogMetaResult.Content, "blog metadata"), "blog metadata");
+        var blogMeta = await WithoutEmDashesAsync(
+            RequireCompleteMetadata(
+                LlmResponseJsonParser.Parse<BlogMetadataDraft>(blogMetaResult.Content, "blog metadata"), "blog metadata"),
+            "blog metadata");
         var blogMetaDescription = blogMeta.MetaDescription.Length > 160
             ? blogMeta.MetaDescription[..160]
             : blogMeta.MetaDescription;
@@ -2796,26 +2733,22 @@ public partial class GccGenerateService
         // checks read whatever a request carried.
         var blogEvidence = BlogEvidenceWith(GccRequestCarries.Everything);
 
-        // The blog's FAQ, from the brief's own questions (2026-10-08: the pillar had its People Also
-        // Ask and the blog had nothing). Written before the body like the pillar's, in calls of eight
-        // at most, and carried onto the draft after the closing, where the guards check it like the body.
-        //
-        // Each question is answered from what a search of every partner's crawl found for it, and a
-        // question with no answer in those passages is left out (2026-10-11). Until then the call was
-        // given no evidence and the writer answered from its own general knowledge.
+        // The blog's FAQ, from the brief's own questions and the answers entered for them (2026-10-08:
+        // the pillar had its People Also Ask and the blog had nothing). Written before the body like
+        // the pillar's, and carried onto the draft after the closing, where the guards check it like
+        // the body.
         Section? blogFaq = null;
         // The questions left out, each with why: reported with the draft, never a refusal.
         var blogFaqGaps = new List<string>();
-        var blogFaqQuestions = ExtractBriefFields(create.BriefJson).BlogFaqQuestions ?? [];
-        var blogFaqSearched = GccResearchFetchService.Deserialize(create.ResearchJson)?.FaqEvidence;
-        if (blogFaqQuestions.Count > 0)
+        var blogFaqEntries = ExtractBriefFields(create.BriefJson).BlogFaq ?? [];
+        if (blogFaqEntries.Count > 0)
         {
             blogFaq = await WriteFaqInBatchesAsync(
                 llm,
-                (batch, found) => _prompts.BuildBlogFaqSectionPrompt(context, metadata, batch, found),
-                blogFaqQuestions,
-                blogFaqSearched,
+                answers => _prompts.BuildBlogFaqFromAnswersPrompt(context, metadata, answers),
+                blogFaqEntries,
                 "the blog's FAQ",
+                GccFaqAnswers.BlogBox,
                 blogFaqGaps,
                 ct);
         }
@@ -2826,9 +2759,9 @@ public partial class GccGenerateService
             ContentTypes.GccLongFormTypes.Blog,
             evidence,
             blogRequiredTools,
-            // What each question's searches found is evidence the writer is shown, in the FAQ call and in
-            // no other. The figure and currency checks read what the writer was shown, so it is part of it.
-            string.Join(Environment.NewLine, blogEvidence, PageFaqEvidenceText(blogFaqSearched, blogFaqQuestions)),
+            // The answers entered for the FAQ are in the brief, which the figure and currency checks
+            // read whole as the operator's own statements.
+            blogEvidence,
             appendedSections: blogFaq is null ? 0 : 1,
             partnerTools: partnerTools);
 
@@ -2877,6 +2810,8 @@ public partial class GccGenerateService
         // step has to happen before wrapping.
         document = await WithSectionImagePromptsAsync(
             "blog", create.Topic, document, section, provider, blogWarnings, ct);
+        await AddKeywordPlacementAsync(
+            "the blog", "blog", blogPromptCtx.Context.TargetKeyword, metadata.Title, blogMetaDescription, blogWarnings);
 
         var blogNow = DateTime.UtcNow;
         // GccContentPath, for the reason the pillar gives: the export's canonical is built there.
@@ -3237,137 +3172,149 @@ public partial class GccGenerateService
     internal const int MeasuredWordsPerBodyCall = 650;
 
     /// <summary>
-    /// How many People Also Ask questions one FAQ call answers. The FAQ prompt's output budget is
-    /// 3,072 tokens (<c>BuildArticleFaqSectionPrompt</c>); an h3 child with a two-to-four-sentence
-    /// answer is 120-200 tokens of section JSON, so eight questions use about half of it. On
-    /// 2026-10-08 a brief with 37 questions went to one call, the reply stopped at the limit, and
-    /// the whole pillar was refused for an appendix.
+    /// The most questions one FAQ request writes. The reply is limited to 3,072 tokens
+    /// (<c>ContentPromptBuilder.FaqSectionPrompt</c>), and a request closes sooner when its answers are
+    /// long (<see cref="GccFaqAnswers.MaxAnswerCharsPerCall"/>). On 2026-10-08 a brief with 37
+    /// questions went to one call, the reply stopped at the limit, and the whole pillar was refused
+    /// for an appendix.
     /// </summary>
     private const int PaaQuestionsPerFaqCall = 8;
 
     /// <summary>
-    /// The pillar's People Also Ask or the blog's FAQ, written from the operator's questions and
-    /// answered only from what a search of each partner's crawl found for each question
-    /// (<see cref="GccPageFaqEvidence"/>). Null when no question was answered: the page then carries
-    /// no such section.
+    /// A page's FAQ, written from the operator's questions and the answers the operator entered for
+    /// them: the pillar's People Also Ask, the blog's FAQ, and a tool page's own questions. Null when
+    /// no question was written: the page then carries no such section.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The rule is the tool page's FAQ rule, question for question. Only a question with passages is
-    /// sent: one whose searches were not made, or found nothing, has nothing to be answered from, and
-    /// the model is not paid to say so. A question sent and not answered is left out. An answer under
-    /// a heading that is none of the call's questions is dropped. Each of the four is named in
-    /// <paramref name="gaps"/>, which the caller reports with the draft, and recorded on the run log.
-    /// Nothing here refuses the page.
+    /// <b>The answer is the operator's</b> (<see cref="GccFaqAnswers"/>). Each question is sent with
+    /// its answer, and the writer writes that answer in the brief's voice, adding nothing. No crawl is
+    /// searched for a question and no passage is shown: from 2026-10-10 to 2026-10-13 one was, and the
+    /// writer was told to answer only where a passage answered.
     /// </para>
     /// <para>
-    /// Until 2026-10-11 these questions were searched for nowhere and the call was given no evidence:
-    /// the writer answered from its own general knowledge, a call that answered none of its questions
-    /// refused the whole page, and an answer under a heading that was no question stayed on it.
+    /// <b>What is reported, never a refusal of the page.</b> Questions with no answer entered are left
+    /// out and named in one line, with the box their answers go in; nothing is sent for them. A
+    /// request that fails loses its own questions and is named in one line with why
+    /// (<see cref="FaqRequestFailed"/>), and the requests after it are still sent: until 2026-10-13
+    /// that failure was thrown out of here and refused the page, which is how that day's run lost its
+    /// blog to one reply that ended in 2,913 tabs, and ADP's tool page to one that ended in 2,481
+    /// spaces. A question sent and not written is left out. An answer under a heading that is none of
+    /// the request's questions is dropped. Nothing is sent a second time.
     /// </para>
     /// <para>
-    /// The questions go in calls of at most <see cref="PaaQuestionsPerFaqCall"/>, fewer when their
-    /// passages would take a call past <see cref="GccPageFaqEvidence.MaxEvidenceCharsPerCall"/>, and
-    /// the answers are joined in the brief's order under the first call's heading.
+    /// The questions go in requests of at most <see cref="PaaQuestionsPerFaqCall"/>, fewer when their
+    /// answers are long, and what was written is joined in the brief's order under the first
+    /// request's heading.
     /// </para>
     /// </remarks>
-    /// <param name="prompt">The call for some questions and the evidence found for them.</param>
-    /// <param name="searched">The research's FAQ searches; null when it carries none.</param>
+    /// <param name="prompt">The request for some questions, given them with their answers as the writer is shown them.</param>
+    /// <param name="faq">The page's questions, each with the answer entered for it or none.</param>
+    /// <param name="label">Whose questions they are, as a line of the report begins: "the pillar's People Also Ask", or "FAQ" on a tool page.</param>
+    /// <param name="box">The box on the Brief the answers are entered in, by the label the form shows.</param>
+    /// <param name="recordAs">What the run's record and a failure name these requests as, when <paramref name="label"/> alone would not say which page.</param>
     private async Task<Section?> WriteFaqInBatchesAsync(
         IContentGenerationProvider llm,
-        Func<IReadOnlyList<string>, string, ChatCompletionRequest> prompt,
-        IReadOnlyList<string> questions,
-        IReadOnlyList<GccFaqEvidence>? searched,
+        Func<string, ChatCompletionRequest> prompt,
+        IReadOnlyList<GccFaqEntry> faq,
         string label,
+        string box,
         List<string> gaps,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? recordAs = null)
     {
-        // What becomes of each question, for the run's record: the same four outcomes the operator is
-        // told, readable without the prompts.
-        var outcomes = new List<object>(questions.Count);
-        var toAsk = new List<(string Question, IReadOnlyList<GccQuoteablePage> Pages)>();
-        foreach (var question in questions)
+        var page = recordAs ?? label;
+        // What becomes of each question, for the run's record: the outcomes the operator is told,
+        // readable without the prompts.
+        var outcomes = new List<object>(faq.Count);
+        var unanswered = faq.Where(entry => !entry.HasAnswer).Select(entry => entry.Question).ToList();
+        if (unanswered.Count > 0)
         {
-            var found = GccPageFaqEvidence.FoundFor(searched, question);
-            if (found is null)
-            {
-                gaps.Add($"{label}: the partners' crawls were not searched for \"{question}\"; it was left out.");
-                outcomes.Add(new { question, passages = 0, outcome = "not searched" });
-                continue;
-            }
-
-            if (GccToolFaqEvidence.PassageCount(found) == 0)
-            {
-                gaps.Add($"{label}: a search of the partners' crawls found nothing for \"{question}\"; it was left out.");
-                outcomes.Add(new { question, passages = 0, outcome = "nothing found" });
-                continue;
-            }
-
-            toAsk.Add((question, found));
+            gaps.Add(GccFaqAnswers.NoAnswerEntered(label, box, unanswered));
+            outcomes.AddRange(unanswered.Select(question => (object)new { question, outcome = "no answer entered" }));
         }
 
         Section? head = null;
         var children = new List<Section>();
         var sent = 0;
-        foreach (var batch in GccPageFaqEvidence.Calls(toAsk, PaaQuestionsPerFaqCall))
+        foreach (var batch in GccFaqAnswers.Calls([.. faq.Where(entry => entry.HasAnswer)], PaaQuestionsPerFaqCall))
         {
-            var result = await llm.CompleteAsync(
-                prompt([.. batch.Select(b => b.Question)], GccToolFaqEvidence.Render(batch)), ct);
-            var section = LlmResponseJsonParser.ParseSection(
-                result.Content, "h2", $"{label}, questions {sent + 1}-{sent + batch.Count}");
+            var first = sent + 1;
             sent += batch.Count;
+
+            Section section;
+            try
+            {
+                var result = await llm.CompleteAsync(prompt(GccFaqAnswers.Render(batch)), ct);
+                section = LlmResponseJsonParser.ParseSection(result.Content, "h2", $"{page}, questions {first}-{sent}");
+            }
+            catch (ContentGenerationException ex)
+            {
+                gaps.Add(FaqRequestFailed(label, GccFaqAnswers.QuestionsOf(batch), ex.Message));
+                outcomes.AddRange(batch.Select(entry => (object)new
+                {
+                    question = entry.Question,
+                    outcome = "request failed",
+                    reason = ex.Message,
+                }));
+                continue;
+            }
+
             head ??= section;
 
-            // Matched the way the tool page's FAQ matches (AnswersQuestion), so one definition decides
-            // whether a question was answered on every page that has an FAQ. By reference: two answers
-            // may read alike, and each is still its own child.
+            // One definition of "this child is that question" on every page that has an FAQ
+            // (AnswersQuestion). By reference: two answers may read alike, and each is still its own
+            // child.
             var kept = new HashSet<Section>(ReferenceEqualityComparer.Instance);
-            foreach (var (question, pages) in batch)
+            foreach (var entry in batch)
             {
-                var shown = GccToolFaqEvidence.PassageCount(pages);
-                var answer = section.Children.FirstOrDefault(c => AnswersQuestion(c.Heading, question));
+                var answer = section.Children.FirstOrDefault(c => AnswersQuestion(c.Heading, entry.Question));
                 if (answer is null)
                 {
                     gaps.Add(
-                        $"{label}: the writer was shown {shown} passage(s) from the partners' crawls for \"{question}\" "
-                        + "and did not answer it; it was left out.");
-                    outcomes.Add(new { question, passages = shown, outcome = "not answered", scores = GccToolFaqEvidence.ScoresOf(pages) });
+                        $"{label}: the writer was sent the answer entered for \"{entry.Question}\" and did not write it; "
+                        + "it was left out.");
+                    outcomes.Add(new { question = entry.Question, outcome = "not written" });
                     continue;
                 }
 
-                outcomes.Add(new { question, passages = shown, outcome = "answered", scores = GccToolFaqEvidence.ScoresOf(pages) });
+                outcomes.Add(new { question = entry.Question, outcome = "written" });
                 if (kept.Add(answer)) children.Add(answer);
             }
 
-            // An answer under a heading that is none of the call's questions was written from no
-            // question's passages that code can name. It is dropped, as the tool page drops it.
+            // An answer under a heading that is none of the request's questions cannot be filed under
+            // one, and guessing which it meant would put an answer under a question it may not address.
             foreach (var stray in section.Children.Where(c => !kept.Contains(c)))
             {
                 gaps.Add(
                     $"{label}: the writer answered under \"{stray.Heading}\", which is not a question it was sent; "
                     + "the answer was dropped.");
-                outcomes.Add(new { question = stray.Heading, passages = 0, outcome = "answered under another heading" });
+                outcomes.Add(new { question = stray.Heading, outcome = "answered under another heading" });
             }
         }
 
-        await GccRunLog.RecordIfAnyAsync("faq", new { page = label, questions = outcomes });
+        await GccRunLog.RecordIfAnyAsync("faq", new { page, questions = outcomes });
 
         if (head is null || children.Count == 0) return null;
         return head with { Children = children };
     }
 
     /// <summary>
-    /// The passages the searches found for a page's FAQ questions, as text: what the FAQ call was shown
-    /// beyond the page's other evidence, for the checks that read what the writer was shown.
+    /// What the operator is told when a request for some of a page's questions failed: how many were
+    /// left out, why in the request's own words, and which. One line for the request, not one for each
+    /// question: they share one cause.
     /// </summary>
-    private static string PageFaqEvidenceText(
-        IReadOnlyList<GccFaqEvidence>? searched, IReadOnlyList<string> questions) =>
-        string.Join(
-            Environment.NewLine,
-            questions
-                .Select(question => GccPageFaqEvidence.FoundFor(searched, question))
-                .SelectMany(found => found ?? [])
-                .SelectMany(page => page.Paragraphs));
+    /// <param name="label">Whose questions they are: "the pillar's People Also Ask", or "FAQ" on a tool page.</param>
+    /// <param name="reason">Why the request failed, as the failure itself says it.</param>
+    internal static string FaqRequestFailed(string label, IReadOnlyList<string> questions, string reason)
+    {
+        var named = string.Join("; ", questions.Select(q => $"\"{q}\""));
+        var why = reason.Trim();
+        return questions.Count == 1
+            ? $"{label}: the request that answers {named} failed, and the question was left out. {why}"
+            : $"{label}: the request that answers {questions.Count} questions failed, and all {questions.Count} "
+                + $"were left out. {why} The questions: {named}.";
+    }
 
     /// <summary>
     /// Whether an FAQ child answers one of the operator's questions: the same words ignoring case,
@@ -3472,6 +3419,10 @@ public partial class GccGenerateService
         string? page = null)
     {
         var draft = await write();
+        // No em dash on the page (Jeff, 2026-10-13), taken out before anything reads the draft, so what
+        // is checked is what is saved. A quotation keeps the source's own.
+        var (withoutEmDashes, emDashesRemoved) = Guardrail.GccEmDash.Clean(draft.Document);
+        draft = draft with { Document = withoutEmDashes };
         var verdict = guard(draft.Document);
         // The page's keyword count as its score will count it, on every page, passed or not.
         var counted = string.IsNullOrWhiteSpace(keyword)
@@ -3486,6 +3437,7 @@ public partial class GccGenerateService
             words = ContentDocumentText.CountWords(draft.Document),
             keywordUses = counted?.Uses,
             keywordDensity = counted?.DensityPercent,
+            emDashesRemoved,
             findings = verdict.Findings.Select(f => new { f.Check, f.Detail, f.Refuses }).ToList(),
             shortfalls = draft.Shortfalls,
             callsUnderFloor = draft.CallsUnderFloor,
@@ -3513,6 +3465,53 @@ public partial class GccGenerateService
         }
 
         return (draft.Document, warnings);
+    }
+
+    /// <summary>
+    /// A reply's own record (a title and meta description, a tool page's summaries, an email, a post)
+    /// with no em dash in any of its strings; how many were taken out is on the run's record
+    /// (<c>em-dash</c>). The rule and what takes a dash's place are <c>GccEmDash</c>.
+    /// </summary>
+    private static async Task<T> WithoutEmDashesAsync<T>(T reply, string label) where T : class
+    {
+        var (cleaned, removed) = Guardrail.GccEmDash.Strings(reply);
+        if (removed > 0) await GccRunLog.RecordIfAnyAsync("em-dash", new { label, removed });
+        return cleaned;
+    }
+
+    /// <summary>
+    /// The keyword in a page's title and meta description, read once both are final, added to the
+    /// page's lines and put on the run's record (<c>placement</c>).
+    /// </summary>
+    /// <remarks>
+    /// Its own step because a pillar's and a tool page's title and meta description are written after
+    /// the body's checks have run. The rule and its wording are <c>GccDraftGuard.KeywordPlacement</c>.
+    /// </remarks>
+    private async Task AddKeywordPlacementAsync(
+        string label,
+        string type,
+        string? keyword,
+        string? title,
+        string? metaDescription,
+        List<string> warnings,
+        string? page = null)
+    {
+        var findings = Guardrail.GccDraftGuard.KeywordPlacement(type, keyword, title, metaDescription);
+        await GccRunLog.RecordIfAnyAsync("placement", new
+        {
+            label,
+            keyword,
+            title,
+            metaDescription,
+            findings = findings.Select(f => new { f.Check, f.Detail }).ToList(),
+        });
+
+        foreach (var finding in findings)
+        {
+            var line = page is null ? finding.Detail : NamedFor(page, finding.Detail);
+            warnings.Add(line);
+            _logger.LogWarning("{Label} ships with: {Warning}", label, line);
+        }
     }
 
     /// <summary>

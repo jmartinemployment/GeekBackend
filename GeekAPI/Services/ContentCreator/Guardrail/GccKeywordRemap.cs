@@ -67,7 +67,7 @@ namespace GeekAPI.Services.ContentCreator.Guardrail;
 /// </remarks>
 public static class GccKeywordRemap
 {
-    /// <summary>The share of a page's words the exact phrase is brought up to: 0.6%, well inside the scorer's 0.4% to 2.5%.</summary>
+    /// <summary>The share of a page's words the exact phrase is brought up to: 0.6%, well under the 2.5% the score reads as stuffed.</summary>
     public const double ShareOfWords = 0.006;
 
     /// <summary>Fewer than this is a page with no keyword presence at all, whatever its length.</summary>

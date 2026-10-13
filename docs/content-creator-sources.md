@@ -78,9 +78,9 @@ grounded, cited claims about those tools (pricing, integrations, proof points) a
   stored in the database, keyed by the partner and its pages, and reused. Since 2026-10-12 it reads every passage of a
   page whole (40 passages cut at 1,200 characters were read), and quotable sentences are read from every page a
   partner returned (the first 32 were).
-- What the searches for the operator's questions found on a partner's site is part of that partner's research since
-  2026-10-12: in the opening and every body request of the pillar and the blog (every partner's) and of that partner's
-  tool page. Until then it reached the question requests alone.
+- No partner's site is searched for an FAQ question since 2026-10-13: the operator enters each answer beside its
+  question on the Brief, and the writer is handed it. From 2026-10-10 each question was searched for (three passages a
+  site) and, on 2026-10-12 and 2026-10-13, what was found was also part of that partner's research.
 - A page on a partner's help or documentation address is that partner's, on a tool page as on the pillar and blog.
 - In the 2026-10-07 pillar call the partner evidence was 105 passages from 105 pages: Bill 19 (49,000 characters),
   Ramp 23 (43,500), ApprovalMax 20 (38,200), Stampli 23 (32,300), Melio 20 (21,700). The retrieval asks for up to 32
@@ -118,7 +118,9 @@ they are good".
 
 Not a crawl source. The brief fields reached the pillar call as about 5,500 characters: the audience, intent, angle, tone,
 length and notes. The operator's closing questions are not sent to the writer; the page builds its closing from them
-(`GccClosing`). Tools are entered here and in the Partner URLs. The rules we add (SEO scoring 8,500 characters, the
+(`GccClosing`). The FAQ questions are entered with their answers, a row each, under "People Also Ask (direct entry,
+optional)", "Blog FAQ (optional)" and each tool's "Tool page FAQ"; the writer writes each answer in the Brief's voice and
+adds nothing to it (2026-10-13). Tools are entered here and in the Partner URLs. The rules we add (SEO scoring 8,500 characters, the
 amounts note, the opening already written) are not data.
 
 ## Other documents, and how far to trust them

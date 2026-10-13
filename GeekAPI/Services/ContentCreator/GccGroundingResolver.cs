@@ -69,14 +69,7 @@ public sealed record GccGroundingOutcome(
     /// (<see cref="GccPublisherPositionsReader"/>). Empty when the site crawl was not resolved or the
     /// page has no sections -- and then a warning says so.
     /// </summary>
-    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null,
-    /// <summary>
-    /// What a search of each partner's crawl found for each of the operator's FAQ questions for that
-    /// tool: one entry per question searched, with no pages when the search found nothing. Kept apart
-    /// from <see cref="Pages"/>, so the other writers are given what they were given before. Null when
-    /// this generate writes no tool page, which is when no question was searched for.
-    /// </summary>
-    IReadOnlyList<GccFaqEvidence>? FaqEvidence = null)
+    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null)
 {
     public bool Refused => !string.IsNullOrWhiteSpace(Refusal);
 
@@ -215,15 +208,6 @@ public sealed class GccGroundingResolver(
     /// beside the category's problem. The union is deduped by URL.
     /// </summary>
     private const int EvidenceTopK = 8;
-
-    /// <summary>
-    /// Passages per FAQ question, from each crawl searched for it. An answer is two to four
-    /// sentences, and a tool page's call of eight questions then carries at most the twenty-four
-    /// passages an FAQ call was shown before each question had a search of its own. A pillar's or a
-    /// blog's question is searched for in every partner's crawl, so it brings this many from each;
-    /// <see cref="GccPageFaqEvidence.MaxEvidenceCharsPerCall"/> is what bounds those calls.
-    /// </summary>
-    internal const int FaqTopK = 3;
 
     /// <summary>
     /// The evidence <paramref name="contentType"/> must be able to cite, or empty when it declares
@@ -377,14 +361,6 @@ public sealed class GccGroundingResolver(
         var partnerHostsByRun = new Dictionary<Guid, List<string>>();
         // Partner run -> the host key (bill.com) the brief's per-tool framing is filed under.
         var partnerHostKeyByRun = new Dictionary<Guid, string>();
-        // A tool's FAQ questions are its tool page's alone, so they are searched for only when one will
-        // be written. The pillar's People Also Ask and the blog's FAQ are searched for in every
-        // partner's crawl, when the run writes that page. Null when the run asks no such question:
-        // "not searched" must stay distinguishable from "found nothing".
-        var writesToolPage = contentTypes.Any(t => string.Equals(Canonical(t), "tool", StringComparison.OrdinalIgnoreCase));
-        var pageFaqQuestions = PageFaqQuestions(create, contentTypes);
-        List<GccFaqEvidence>? faqEvidence = writesToolPage || pageFaqQuestions.Count > 0 ? [] : null;
-
         foreach (var crawlType in crawlTypes)
         {
             // Binary, and the question is per URL: does an indexed crawl exist for it?
@@ -528,21 +504,6 @@ public sealed class GccGroundingResolver(
                     ? PartnerQuestions(create, partnerHostKeyByRun.GetValueOrDefault(runId))
                     : [new PartnerQuestion(BuildNeed(create.Topic, crawlType), null, TopK)];
 
-                // The tool page's FAQ, asked of the partner's own crawl after the questions above. Until
-                // 2026-10-10 these were never asked: the page answered them from whatever the searches
-                // above had brought back, and reported a question none of them was about as one "no
-                // page answers".
-                //
-                // Then the pillar's and the blog's questions, asked of this partner's crawl like every
-                // other partner's. Until 2026-10-11 those were asked of no crawl and answered from the
-                // writer's general knowledge.
-                if (isPartner && faqEvidence is not null)
-                {
-                    var hostKey = partnerHostKeyByRun.GetValueOrDefault(runId);
-                    IReadOnlyList<PartnerQuestion> toolFaq = writesToolPage ? FaqQuestions(create, hostKey) : [];
-                    questions = [.. questions, .. toolFaq, .. PageFaqSearches(pageFaqQuestions, toolFaq, hostKey)];
-                }
-
                 var pagesReturned = 0;
                 foreach (var question in questions)
                 {
@@ -573,8 +534,8 @@ public sealed class GccGroundingResolver(
                     }
 
                     // A legal document or an unfinished template is not what a partner says its
-                    // product does, whichever question brought it back. Left out here, once, so no
-                    // writer, no FAQ answer and no quotation is built on one.
+                    // product does, whichever search brought it back. Left out here, once, so no
+                    // writer and no quotation is built on one.
                     var pages = new List<GccQuoteablePage>(result.Pages.Count);
                     foreach (var page in result.Pages)
                     {
@@ -585,18 +546,6 @@ public sealed class GccGroundingResolver(
                         }
 
                         pages.Add(page);
-                    }
-
-                    // An FAQ question's passages are filed under the question: not into the pool the
-                    // partner data is read from, not into the quotable blocks, and not into the count
-                    // that decides whether this partner returned evidence. A page's opening and body
-                    // are given them beside the pool, each passage once (GccPageResearch.PagesOf). A
-                    // search that found nothing is still an entry, because that is what the tool page
-                    // reports.
-                    if (question.FaqHost is { } faqHost)
-                    {
-                        faqEvidence!.Add(new GccFaqEvidence(faqHost, question.Need, pages, result.Retrieval));
-                        continue;
                     }
 
                     pagesReturned += pages.Count;
@@ -703,7 +652,7 @@ public sealed class GccGroundingResolver(
         }
 
         return new GccGroundingOutcome(
-            retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages, positions, faqEvidence);
+            retrieved, warnings, null, passages, competitors, sitePages, partnersWithoutPassages, positions);
     }
 
     /// <summary>How a crawl type reads in a message to the operator.</summary>
@@ -748,10 +697,6 @@ public sealed class GccGroundingResolver(
     }
 
     /// <summary>One search of a partner run: the meaning half's text, the keyword half's, and how many passages.</summary>
-    /// <param name="FaqHost">
-    /// Set when the search is one of the operator's FAQ questions for this host's tool page: the host
-    /// its passages are filed under. Null for every search that feeds the shared pool.
-    /// </param>
     /// <param name="Kind">
     /// What kind of search this is, for the record each passage keeps of what found it
     /// (<see cref="GccPassageSearch"/>): the brief's problem, one of its rows, or the keyword.
@@ -761,7 +706,6 @@ public sealed class GccGroundingResolver(
         string Need,
         string? Keyword,
         int TopK,
-        string? FaqHost = null,
         string Kind = GccPassageSearch.KindKeyword,
         string? Failure = null)
     {
@@ -877,64 +821,6 @@ public sealed class GccGroundingResolver(
         }
 
         return grew;
-    }
-
-    /// <summary>
-    /// The operator's FAQ questions for one partner host, each as a search of that partner's crawl:
-    /// the question as written, no keyword half, <see cref="FaqTopK"/> passages. Read through
-    /// <see cref="GccNicheFramingReader.FaqQuestionsForHost"/>, the reader the tool page asks for the
-    /// same questions, so what the page must answer is what the crawl was searched for.
-    /// </summary>
-    internal static IReadOnlyList<PartnerQuestion> FaqQuestions(GccCreateDto create, string? hostKey)
-    {
-        if (string.IsNullOrWhiteSpace(hostKey)) return [];
-        return
-        [
-            .. GccNicheFramingReader.FaqQuestionsForHost(create.BriefJson, hostKey)
-                .Select(q => new PartnerQuestion(q, null, FaqTopK, FaqHost: hostKey)),
-        ];
-    }
-
-    /// <summary>
-    /// The pillar's People Also Ask and the blog's FAQ questions, for the pages this run writes: each
-    /// question once, in the order the brief lists them, the pillar's first. Read through
-    /// <see cref="GccGenerateService.ExtractBriefFields"/>, the reader each page asks for the same
-    /// questions, so what a page must answer is what the crawls were searched for.
-    /// </summary>
-    internal static IReadOnlyList<string> PageFaqQuestions(GccCreateDto create, IReadOnlyList<string> contentTypes)
-    {
-        var brief = GccGenerateService.ExtractBriefFields(create.BriefJson);
-        var questions = new List<string>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (type, asked) in new[] { ("pillar", brief.PaaQuestions), ("blog", brief.BlogFaqQuestions) })
-        {
-            if (!contentTypes.Any(t => string.Equals(Canonical(t), type, StringComparison.OrdinalIgnoreCase))) continue;
-            foreach (var question in asked ?? [])
-            {
-                if (seen.Add(question)) questions.Add(question);
-            }
-        }
-
-        return questions;
-    }
-
-    /// <summary>
-    /// The pillar's and the blog's questions as searches of one partner's crawl: the question as
-    /// written, no keyword half, <see cref="FaqTopK"/> passages, filed under that partner. A question
-    /// the partner's own tool page already asks (<paramref name="alreadyAsked"/>) is not searched for
-    /// twice: one search answers both pages.
-    /// </summary>
-    internal static IReadOnlyList<PartnerQuestion> PageFaqSearches(
-        IReadOnlyList<string> pageFaqQuestions, IReadOnlyList<PartnerQuestion> alreadyAsked, string? hostKey)
-    {
-        if (string.IsNullOrWhiteSpace(hostKey)) return [];
-        var asked = new HashSet<string>(alreadyAsked.Select(q => q.Need), StringComparer.Ordinal);
-        return
-        [
-            .. pageFaqQuestions
-                .Where(question => !asked.Contains(question))
-                .Select(question => new PartnerQuestion(question, null, FaqTopK, FaqHost: hostKey)),
-        ];
     }
 
     /// <summary>

@@ -25,9 +25,19 @@ public static class GcwSeoAnalyzer
         IReadOnlyList<SeoCheck> Checks,
         string ApplyFeedback);
 
-    /// <summary>The band the keyword's share of the page's words passes in. Read by the page guard; never copied.</summary>
-    public const double MinKeywordDensityPercent = 0.4;
-
+    /// <summary>
+    /// The share of a page's words the exact phrase may take before it reads stuffed. Read by the page
+    /// guard; never copied.
+    /// </summary>
+    /// <remarks>
+    /// <b>There is no minimum</b> (Jeff, 2026-10-13: the SEO standard decides, not a number of the
+    /// code's own). Until then a page under 0.4% failed this check, a figure that is in none of his SEO
+    /// skills: <c>seo-content-brief</c> says density "is not a Google percentage rule", "do not target a
+    /// quota", and that the keyword is judged by where it is placed, with density kept as a stuffing
+    /// heuristic only. On the 13:16 UTC run of that day the minimum asked 33 to 39 exact uses of a
+    /// five-word phrase on pages of 8,100 to 9,800 words and was listed against all five. Where the
+    /// phrase must be is checked beside this: the opening and a heading.
+    /// </remarks>
     public const double MaxKeywordDensityPercent = 2.5;
 
     /// <summary>The exact phrase counted over a stored body: how many times, in how many words, and the share.</summary>
@@ -56,6 +66,22 @@ public static class GcwSeoAnalyzer
     public static bool KeywordInAHeading(string bodyDocumentJson, string keyword) =>
         HeadingsCarry(GcwBodyDocument.Read(bodyDocumentJson).Headings, (keyword ?? "").Trim());
 
+    /// <summary>
+    /// Whether the opening of a stored body carries the exact phrase: the report's "Keyword in lede"
+    /// check, by the same reader and the same match.
+    /// </summary>
+    public static bool KeywordInTheOpening(string bodyDocumentJson, string keyword) =>
+        ContainsPhrase(GcwBodyDocument.Read(bodyDocumentJson).Lede, (keyword ?? "").Trim());
+
+    /// <summary>
+    /// Whether a title or a meta description carries the exact phrase: the report's "Keyword in the
+    /// title" and "Keyword in the meta description" checks, by the same match. The page's own check
+    /// (<c>GccDraftGuard.KeywordPlacement</c>) reads this, so a run's lines and the score cannot
+    /// disagree.
+    /// </summary>
+    public static bool Carries(string? text, string keyword) =>
+        ContainsPhrase(text ?? "", (keyword ?? "").Trim());
+
     private static bool HeadingsCarry(IEnumerable<string> headings, string keyword) =>
         headings.Any(h => ContainsPhrase(h, keyword));
 
@@ -81,10 +107,15 @@ public static class GcwSeoAnalyzer
     public static SeoReport Analyze(string bodyDocumentJson, string targetKeyword, string? contentType)
     {
         var keyword = (targetKeyword ?? "").Trim();
-        var text = ExtractPlainText(bodyDocumentJson, out var lede, out var headings, out var sectionCount);
-        var counted = CountKeywordIn(text, keyword);
+        // One reader, shared with the polish analyser -- see GcwBodyDocument.
+        var body = GcwBodyDocument.Read(bodyDocumentJson);
+        var lede = body.Lede;
+        var headings = body.Headings;
+        var sectionCount = body.SectionCount;
+        var counted = CountKeywordIn(body.PlainText, keyword);
         var wordCount = counted.Words;
         var density = counted.DensityPercent;
+        var (minWords, minSections, applyLengthChecks) = GcwContentTypeScoring.GetSeoLengthRules(contentType);
 
         var checks = new List<SeoCheck>();
 
@@ -115,20 +146,52 @@ public static class GcwSeoAnalyzer
                 inHeading ? "At least one section heading includes the keyword." : "No section heading includes the keyword.",
                 inHeading ? null : $"Use “{keyword}” in at least one H2-style section heading."));
 
-            var densityOk = density >= MinKeywordDensityPercent && density <= MaxKeywordDensityPercent;
+            // The title and the meta description, on a page that is saved with them (Jeff, 2026-10-13:
+            // "SEO skill requires, in which case it should be implemented"). His seo-content-brief
+            // skill lists where the primary keyword MUST appear: the title tag and the H1, both made
+            // from this title; the URL slug, which a pillar and a blog take from this title; the meta
+            // description; and the first paragraph, which is the lede check above. Until then nothing
+            // read the title or the meta description, and only the pillar's request asked for either.
+            // Not for a short piece, which has no title tag, and not for a bare document, which
+            // carries neither field.
+            if (applyLengthChecks && body.Title is { } title)
+            {
+                var inTitle = ContainsPhrase(title, keyword);
+                checks.Add(new SeoCheck(
+                    "keyword-in-title",
+                    "Keyword in the title",
+                    inTitle,
+                    inTitle
+                        ? "The title includes the target keyword."
+                        : title.Length == 0
+                            ? "The page has no title."
+                            : $"The title, “{title}”, does not include the target keyword.",
+                    inTitle ? null : $"Put “{keyword}” in the title, near its start."));
+            }
+
+            if (applyLengthChecks && body.MetaDescription is { } metaDescription)
+            {
+                var inMeta = ContainsPhrase(metaDescription, keyword);
+                checks.Add(new SeoCheck(
+                    "keyword-in-meta-description",
+                    "Keyword in the meta description",
+                    inMeta,
+                    inMeta
+                        ? "The meta description includes the target keyword."
+                        : metaDescription.Length == 0
+                            ? "The page has no meta description."
+                            : "The meta description does not include the target keyword.",
+                    inMeta ? null : $"Work “{keyword}” into the meta description."));
+            }
+
+            var densityOk = density <= MaxKeywordDensityPercent;
             checks.Add(new SeoCheck(
                 "keyword-density",
                 "Keyword density",
                 densityOk,
-                $"Density ≈ {density:0.00}% (target roughly {MinKeywordDensityPercent:0.0}–{MaxKeywordDensityPercent:0.0}%).",
-                densityOk
-                    ? null
-                    : density < MinKeywordDensityPercent
-                        ? $"Increase natural mentions of “{keyword}”."
-                        : $"Reduce repetition of “{keyword}”; it reads stuffed."));
+                $"Density ≈ {density:0.00}% (over {MaxKeywordDensityPercent:0.0}% reads stuffed; there is no minimum).",
+                densityOk ? null : $"Reduce repetition of “{keyword}”; it reads stuffed."));
         }
-
-        var (minWords, minSections, applyLengthChecks) = GcwContentTypeScoring.GetSeoLengthRules(contentType);
 
         if (applyLengthChecks)
         {
@@ -140,7 +203,7 @@ public static class GcwSeoAnalyzer
                 $"{wordCount} words extracted from the document.",
                 lengthOk
                     ? null
-                    : $"CRITICAL: Expand from {wordCount} words to at least {minWords} words. Add substantive H2 sections with concrete examples and steps. Do not only rephrase — substantially increase length while keeping “{keyword}” natural (density ~0.4–2.5%)."));
+                    : $"CRITICAL: Expand from {wordCount} words to at least {minWords} words. Add substantive H2 sections with concrete examples and steps. Do not only rephrase — substantially increase length while keeping “{keyword}” natural (under {MaxKeywordDensityPercent:0.0}% of the words)."));
 
             var sectionsOk = sectionCount >= minSections;
             checks.Add(new SeoCheck(
@@ -177,26 +240,6 @@ public static class GcwSeoAnalyzer
             checks,
             applyFeedback);
     }
-
-    /// <summary>
-    /// One reader, shared with the polish analyser -- see <see cref="GcwBodyDocument"/>. The copy
-    /// that lived here read `lede`/`sections` off the envelope root, treated the lede as a string,
-    /// and matched paragraphs on `$type` when the converter writes `type`. Any one of those made a
-    /// full draft score 0 words.
-    /// </summary>
-    private static string ExtractPlainText(
-        string bodyDocumentJson,
-        out string lede,
-        out List<string> headings,
-        out int sectionCount)
-    {
-        var text = GcwBodyDocument.Read(bodyDocumentJson);
-        lede = text.Lede;
-        headings = [.. text.Headings];
-        sectionCount = text.SectionCount;
-        return text.PlainText;
-    }
-
 
     private static List<string> Tokenize(string text) =>
         Regex.Matches(text.ToLowerInvariant(), @"[a-z0-9']+")

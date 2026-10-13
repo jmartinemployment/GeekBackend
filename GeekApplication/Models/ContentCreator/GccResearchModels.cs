@@ -42,39 +42,7 @@ public sealed record GccResearchDocument(
     /// argues these as the publisher's own (Jeff, 2026-10-06: "writer needs to use my The Methodology
     /// instead of inventing its own").
     /// </summary>
-    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null,
-    /// <summary>
-    /// What a search of a partner's crawl found for one of the operator's questions, one entry per
-    /// search: that partner's tool page's FAQ questions, and the pillar's People Also Ask and the
-    /// blog's FAQ, which are searched for in every partner's crawl. Filed apart from
-    /// <see cref="Quoteables"/> because a question's call answers from its own search alone, and
-    /// because the partner data and the quotable sentences are read from the brief's searches. A
-    /// page's opening and body carry both: the passages here join the page's research, each once
-    /// (<c>GccPageResearch.PagesOf</c>).
-    ///
-    /// <para>
-    /// An entry with no pages is a search that found nothing. A question with no entry was never
-    /// searched for, and null is research that did not go through the search at all -- the tool page
-    /// reports those two differently, so neither is ever written as an empty entry.
-    /// </para>
-    /// </summary>
-    IReadOnlyList<GccFaqEvidence>? FaqEvidence = null);
-
-/// <summary>What one search of one partner's crawl found for one of the operator's questions: a tool
-/// page's FAQ question, a pillar's People Also Ask question or a blog's FAQ question.</summary>
-/// <param name="Host">The partner whose crawl was searched, as its host key (<c>bill.com</c>), the key the brief files the tool's questions under.</param>
-/// <param name="Question">The question as the operator wrote it, and as the search was asked it.</param>
-/// <param name="Pages">The passages found, by page. Empty when the search found nothing.</param>
-/// <param name="Retrieval">How the evidence library says it ordered this search's passages, in its own
-/// word: "llamaindex-hybrid" for the fused order of the meaning and keyword halves, and the same with
-/// "+rerank" when a reranking model then read each passage against the question. For the run's record;
-/// null when the library did not say.</param>
-public sealed record GccFaqEvidence(
-    string Host, string Question, IReadOnlyList<GccQuoteablePage> Pages, string? Retrieval = null)
-{
-    /// <summary>Whether a reranking model ordered this search's passages, by the library's own account.</summary>
-    public bool Reranked => Retrieval is not null && Retrieval.Contains("+rerank", StringComparison.Ordinal);
-}
+    IReadOnlyList<GccPublisherPosition>? PublisherPositions = null);
 
 /// <summary>
 /// What a search scored one passage: the library's score for the hit, and the reranking model's own
@@ -96,8 +64,7 @@ public sealed record GccPassageScore(double Score, double? Reranked = null);
 /// <param name="Kind">
 /// <see cref="KindProblem"/> for the brief's statement of the problem, <see cref="KindRow"/> for one of
 /// its rows of failure and remedy, <see cref="KindKeyword"/> for the project's keyword, which is what a
-/// crawl is asked when the brief says nothing of it, <see cref="KindQuestion"/> for one of the
-/// operator's questions (a tool page's FAQ, the pillar's People Also Ask, the blog's FAQ).
+/// crawl is asked when the brief says nothing of it.
 /// </param>
 /// <param name="Asked">What the meaning half of the search was sent.</param>
 /// <param name="Failure">For a row, the failure the operator entered on it; null when the row has none.</param>
@@ -107,7 +74,6 @@ public sealed record GccPassageSearch(string Kind, string Asked, string? Failure
     public const string KindProblem = "problem";
     public const string KindRow = "row";
     public const string KindKeyword = "keyword";
-    public const string KindQuestion = "question";
 }
 
 /// <summary>One position the publisher states on their own site: a named section and its text.</summary>

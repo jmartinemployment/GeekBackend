@@ -160,27 +160,38 @@ public class GccNicheFramingEvidenceTests
     }
 
     /// <summary>
-    /// The tool page FAQ (2026-10-08): the operator's questions live in the tool's own perTool entry,
-    /// one per line or as an array, and are read for that tool only -- the category has no FAQ for a
-    /// tool page, so a tool without an entry gets none.
+    /// The tool page FAQ (2026-10-08): the operator's questions live in the tool's own perTool entry
+    /// and are read for that tool only -- the category has no FAQ for a tool page, so a tool without an
+    /// entry gets none. Each is read with the answer entered for it (2026-10-13); a brief saved before
+    /// then holds questions alone, as lines or as an array, and those have no answer.
     /// </summary>
     [Fact]
-    public void Tool_faq_questions_are_read_from_the_tools_own_entry_only()
+    public void A_tools_faq_is_read_from_the_tools_own_entry_only_each_question_with_its_answer()
     {
         const string brief = """
             { "nicheFraming": {
                 "faqQuestions": "A category question that no tool page answers",
                 "perTool": {
-                  "tipalti.com": { "faqQuestions": "Does it sync with QuickBooks Online?\n\nCan a bookkeeper schedule a payment the owner releases?" },
-                  "melio.com": { "faqQuestions": ["Does Melio pay by card?"] }
+                  "tipalti.com": { "faqQuestions": [
+                    { "question": "Does it sync with QuickBooks Online?", "answer": "Yes, in both directions." },
+                    { "question": "Can a bookkeeper schedule a payment the owner releases?", "answer": "" } ] },
+                  "melio.com": { "faqQuestions": "Does Melio pay by card?\n\nDoes Melio pay abroad?" },
+                  "ramp.com": { "faqQuestions": ["Does Ramp issue cards?"] }
                 } } }
             """;
+        string[] urls = [.. PartnerUrls, "https://ramp.com/"];
 
         Assert.Equal(
-            ["Does it sync with QuickBooks Online?", "Can a bookkeeper schedule a payment the owner releases?"],
-            GccNicheFramingReader.ToolFaqQuestions(brief, PartnerUrls, "Tipalti"));
-        Assert.Equal(["Does Melio pay by card?"], GccNicheFramingReader.ToolFaqQuestions(brief, PartnerUrls, "Melio"));
-        Assert.Empty(GccNicheFramingReader.ToolFaqQuestions(brief, PartnerUrls, "Bill"));
-        Assert.Empty(GccNicheFramingReader.ToolFaqQuestions(brief, null, "Tipalti"));
+            [
+                new GccFaqEntry("Does it sync with QuickBooks Online?", "Yes, in both directions."),
+                new GccFaqEntry("Can a bookkeeper schedule a payment the owner releases?", string.Empty),
+            ],
+            GccNicheFramingReader.ToolFaq(brief, urls, "Tipalti"));
+        Assert.Equal(
+            [new GccFaqEntry("Does Melio pay by card?", string.Empty), new GccFaqEntry("Does Melio pay abroad?", string.Empty)],
+            GccNicheFramingReader.ToolFaq(brief, urls, "Melio"));
+        Assert.Equal([new GccFaqEntry("Does Ramp issue cards?", string.Empty)], GccNicheFramingReader.ToolFaq(brief, urls, "Ramp"));
+        Assert.Empty(GccNicheFramingReader.ToolFaq(brief, urls, "Bill"));
+        Assert.Empty(GccNicheFramingReader.ToolFaq(brief, null, "Tipalti"));
     }
 }

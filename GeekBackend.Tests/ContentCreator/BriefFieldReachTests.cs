@@ -42,6 +42,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     private const string ToolFaqA = "Does Partner Widget sync with QuickBooks Online?";
     private const string ToolFaqB = "Does Partner Widget post to Xero?";
 
+    /// <summary>The rows of one FAQ box, as the form saves them: each question with the answer entered for it.</summary>
+    private static JsonArray Faq(params (string Question, string Answer)[] rows) =>
+        new([.. rows.Select(row => (JsonNode)new JsonObject { ["question"] = row.Question, ["answer"] = row.Answer })]);
+
+    /// <summary>The first row of an FAQ box.</summary>
+    private static JsonObject FirstRow(JsonNode? box) => (JsonObject)((JsonArray)box!)[0]!;
+
     /// <summary>Every field the brief form saves, each with a value.</summary>
     internal const string CompleteBrief = """
         {
@@ -55,8 +62,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
           "toneOfVoice": "consultant_professional",
           "eeatSignals": ["first_hand_experience", "expertise", "authoritativeness", "trustworthiness"],
           "lengthBand": "",
-          "paaQuestions": "What does month end cost a distributor?\nWho owns the close calendar?",
-          "blogFaqQuestions": "How long does a close take by hand?",
+          "paaQuestions": [
+            { "question": "What does month end cost a distributor?", "answer": "The controller's first week of every month goes to it." },
+            { "question": "Who owns the close calendar?", "answer": "The controller owns it, and each reconciliation has one named preparer." }
+          ],
+          "blogFaqQuestions": [
+            { "question": "How long does a close take by hand?", "answer": "Most of a working week once the period has ended." }
+          ],
           "nicheFraming": {
             "taxonomyPath": "Accounting -> Month End Close -> Reconciliation",
             "diagnosisQuestions": "How many accounts are reconciled by hand each month?",
@@ -75,7 +87,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                 "evidence": [
                   { "problem": "The vendor master has to be mapped by hand.", "solution": "Automated setup wizard maps the vendor master.", "terms": ["setup wizard", "vendor master"] }
                 ],
-                "faqQuestions": "Does Partner Widget sync with QuickBooks Online?"
+                "faqQuestions": [
+                  { "question": "Does Partner Widget sync with QuickBooks Online?", "answer": "Every Partner Widget payment is synced to QuickBooks Online as it is made." }
+                ]
               }
             }
           }
@@ -101,8 +115,12 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         new("toneOfVoice", b => b["toneOfVoice"] = "commercial_balanced"),
         new("eeatSignals", b => b["eeatSignals"] = new JsonArray("expertise")),
         new("lengthBand", b => b["lengthBand"] = "long"),
-        new("paaQuestions", b => b["paaQuestions"] = "What does a late close cost a wholesaler?\nWho signs off the reconciliations?"),
-        new("blogFaqQuestions", b => b["blogFaqQuestions"] = "How many people does a close take?"),
+        new("paaQuestions", b => b["paaQuestions"] = Faq(
+            ("What does a late close cost a wholesaler?", "A late close delays every report that depends on it."),
+            ("Who signs off the reconciliations?", "The controller signs each one off."))),
+        new("paaQuestions, an answer alone", b => FirstRow(b["paaQuestions"])["answer"] = "It takes the finance team away from everything else for days."),
+        new("blogFaqQuestions", b => b["blogFaqQuestions"] = Faq(("How many people does a close take?", "Usually the whole finance team."))),
+        new("blogFaqQuestions, an answer alone", b => FirstRow(b["blogFaqQuestions"])["answer"] = "Long enough that the numbers are stale when they arrive."),
         new("briefVersion", b => b["briefVersion"] = 1),
         new("nicheFraming.taxonomyPath, first level", b => Framing(b)["taxonomyPath"] = "Sales -> Month End Close -> Reconciliation"),
         new("nicheFraming.taxonomyPath, later levels", b => Framing(b)["taxonomyPath"] = "Accounting -> Payroll -> Timesheets"),
@@ -120,7 +138,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         new("perTool.evidence.problem", b => Row(Tool(b))["problem"] = "The chart of accounts is rebuilt by hand."),
         new("perTool.evidence.solution", b => Row(Tool(b))["solution"] = "Ledger importer rebuilds the chart of accounts."),
         new("perTool.evidence.terms", b => Row(Tool(b))["terms"] = new JsonArray("ledger importer", "chart of accounts")),
-        new("perTool.faqQuestions", b => Tool(b)["faqQuestions"] = ToolFaqB),
+        new("perTool.faqQuestions", b => Tool(b)["faqQuestions"] = Faq((ToolFaqB, "Partner Widget posts each bill to Xero."))),
+        new("perTool.faqQuestions, an answer alone", b => FirstRow(Tool(b)["faqQuestions"])["answer"] = "Yes, and a failed sync is retried overnight."),
     ];
 
     /// <summary>The brief with the tool's own section taken out, so the tool has the category's alone.</summary>
@@ -158,16 +177,16 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         """{"lede":{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]},"introduction":{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[]}}""";
 
     private const string LedeJson =
-        """{"ledeType":"directAddress","heading":"Reclaiming The Hours You Lose","paragraphs":[{"type":"text","runs":[{"text":"A hook paragraph that opens the page."}]}]}""";
+        """{"ledeType":"directAddress","heading":"Reclaiming The Hours You Lose","paragraphs":[{"type":"text","runs":[{"text":"A hook paragraph \u2014 one that opens the page."}]}]}""";
 
     private const string MetadataJson =
-        """{"title":"A Title","summary":"A standfirst.","metaDescription":"A meta description.","keywords":["k"],"sectionOutline":["A"]}""";
+        """{"title":"A Title","summary":"A standfirst \u2014 in a sentence.","metaDescription":"A meta description.","keywords":["k"],"sectionOutline":["A"]}""";
 
     private const string ToolMetadataJson =
-        """{"departmentListExcerpt":"x","summary":"x","mainSummary":"x","heroSummary":"x","homeSummary":"x","blogSummary":"x","toolPageExcerpt":"x","advertisingSummary":"x","metaDescription":"x"}""";
+        """{"departmentListExcerpt":"x","summary":"x \u2014 y","mainSummary":"x","heroSummary":"x","homeSummary":"x","blogSummary":"x","toolPageExcerpt":"x","advertisingSummary":"x","metaDescription":"x"}""";
 
     private const string FirstBatchJson =
-        """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}],"href":null,"children":[],"provenance":"plan"}]}""";
+        """{"sections":[{"tag":"h2","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body \u2014 written."}]}],"href":null,"children":[],"provenance":"plan"}]}""";
 
     private static readonly string[] ToolBodyBatches =
     [
@@ -221,14 +240,14 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
 
             if (request.JsonSchemaName == "section")
             {
-                if (page == "tool" && !asked.Contains("=== PARTNER EVIDENCE", StringComparison.Ordinal))
+                if (page == "tool" && !asked.Contains(ContentPromptBuilder.OperatorAnswersHeading, StringComparison.Ordinal))
                     return ("FAQ from the partner's own FAQ", Faq("Frequently Asked Questions", ["Is it secure?"]));
 
                 var heading = page == "pillar" ? "People Also Ask" : "Frequently Asked Questions";
                 var label = page switch
                 {
                     "pillar" => "People Also Ask",
-                    "tool" => "FAQ from the operator's questions",
+                    "tool" => "FAQ from the operator's answers",
                     _ => "FAQ",
                 };
                 return (label, Faq(heading, QuestionsIn(asked)));
@@ -239,9 +258,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             if (asked.Contains("\"negativePrompt\"", StringComparison.Ordinal) || page == "image")
                 return ("image prompt", """{"prompt":"A ledger on a desk.","style":"photo","negativePrompt":"text","aspectRatio":"16:9","imageModel":"m","stylePreset":"p","notes":"n"}""");
             if (page == "email")
-                return ("email", """{"subject":"A subject","body":"A body.","ctaLabel":"Read the guide"}""");
+                return ("email", """{"subject":"A subject","body":"A body \u2014 short.","ctaLabel":"Read the guide"}""");
             if (page == "social")
-                return ("social post", """{"text":"A post."}""");
+                return ("social post", """{"text":"A post \u2014 short."}""");
             if (asked.Contains("sectionOutline", StringComparison.Ordinal))
                 return ("title and outline", MetadataJson);
             if (asked.Contains("departmentListExcerpt", StringComparison.Ordinal))
@@ -253,7 +272,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         [
             .. asked.Split('\n')
                 .Select(l => l.Trim())
-                .Where(l => l.StartsWith("- Q", StringComparison.Ordinal) && l.Contains(':', StringComparison.Ordinal))
+                .Where(l => System.Text.RegularExpressions.Regex.IsMatch(l, @"^Q\d+: "))
                 .Select(l => l[(l.IndexOf(':') + 1)..].Trim()),
         ];
 
@@ -323,7 +342,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             NullLogger<GccKnownToolsResolver>.Instance),
         new GccToolPageFanOutFixture.FakeExtractionBank());
 
-    /// <summary>One partner page, and what a search of the partner's crawl found for each FAQ question.</summary>
+    /// <summary>One partner page, as the brief's searches of the partner's crawl leave it.</summary>
     private static string ToolResearch() =>
         GccResearchFetchService.Serialize(new GccResearchDocument(
             SerpIndex: null,
@@ -339,16 +358,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                         "Partner Widget reduces setup time by half, and the vendor master maps itself.",
                     ],
                     RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
-            ])
-        {
-            FaqEvidence =
-            [
-                new GccFaqEvidence(Host, ToolFaqA, [new GccQuoteablePage(
-                    "https://partner.test/integrations", "Integrations", [], ["Every Partner Widget payment syncs to QuickBooks Online."])]),
-                new GccFaqEvidence(Host, ToolFaqB, [new GccQuoteablePage(
-                    "https://partner.test/xero", "Xero", [], ["Partner Widget posts each bill to Xero."])]),
-            ],
-        });
+            ]));
 
     /// <summary>The approved page an email or a social post is written from (<see cref="GccRepurpose"/>).</summary>
     private static readonly GccRepurposeSource ApprovedPage = new(
@@ -392,15 +402,12 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         switch (page)
         {
             case "pillar":
-                // The research the search step leaves: each of the brief's questions for these two pages,
-                // searched for and found. A question with no passages is not sent, so without it neither
-                // page would make its FAQ call and no field could be seen to reach it.
                 saved = await forProject.GeneratePillarBodyAsync(
-                    Create("pillar", "AI implementation", briefJson, pageResearch ?? PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                    Create("pillar", "AI implementation", briefJson, pageResearch, ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "blog":
                 saved = await forProject.GenerateBlogBodyAsync(
-                    Create("blog", "AI implementation", briefJson, pageResearch ?? PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                    Create("blog", "AI implementation", briefJson, pageResearch, ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "email":
                 saved = await plain.RepurposeEmailAsync(
@@ -481,11 +488,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         static string Lines(IEnumerable<GccGroundingResolver.PartnerQuestion> questions) =>
             string.Join("\n", questions.Select(q => $"{q.Need} | {q.Keyword} | {q.TopK}"));
 
-        return
-        [
-            ("searches for evidence", Lines(GccGroundingResolver.PartnerQuestions(create, Host))),
-            ("searches for FAQ questions", Lines(GccGroundingResolver.FaqQuestions(create, Host))),
-        ];
+        return [("searches for evidence", Lines(GccGroundingResolver.PartnerQuestions(create, Host)))];
     }
 
     // ---- the audit ----------------------------------------------------------------------------------
@@ -631,11 +634,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         var filler = string.Join(' ', Enumerable.Range(0, 480).Select(n => $"item{(n * 7919) % 10007}"));
         var passages = Enumerable.Range(0, 130).Select(i => $"Passage {i:000} of the partner's research. {filler}").ToList();
         var (calls, recorded) = await WriteWithResearchAsync(page, passages, model: "gpt-4o");
-        // What the searches for the operator's questions found is part of the page's research too
-        // (2026-10-12): each on a page of its own here, one passage each.
-        var questionPassages = QuestionPassages(page);
-        Assert.NotEmpty(questionPassages);
-        var all = 130 + questionPassages.Count;
+        const int all = 130;
 
         // Once for the page: how its research divides by label.
         var labels = JsonDocument.Parse(Assert.Single(recorded, e => e.Kind == "evidence-labels").PayloadJson).RootElement;
@@ -684,13 +683,6 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             var text = call == 0 ? opening.Text : body[call - 1].Text;
             Assert.All(chosen, i => Assert.Contains(passages[i], text, StringComparison.Ordinal));
             Assert.All(leftOut, i => Assert.DoesNotContain(passages[i], text, StringComparison.Ordinal));
-            // What a question's search found is chosen from like any other passage, and is in the
-            // request exactly when the record says so.
-            Assert.All(questionPassages, found =>
-            {
-                Assert.Contains(found.Url, chosenUrls.Concat(leftOutUrls));
-                Assert.Equal(chosenUrls.Contains(found.Url), text.Contains($"- {found.Passage}", StringComparison.Ordinal));
-            });
             Assert.Contains(GccGenerateService.ResearchIsAPartNote, text, StringComparison.Ordinal);
             carriedByThePage.UnionWith(chosen);
         }
@@ -842,12 +834,11 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// <summary>
     /// Research that every count the blocks used to cut by would cut: a partner page of nine passages
     /// (six were printed), seven competitor pages of seven passages (five pages of six), seven of the
-    /// publisher's own pages of seven passages (five of six), and what the question searches found.
+    /// publisher's own pages of seven passages (five of six).
     /// </summary>
-    private static string ResearchPastEveryOldCount(string page)
+    private static string ResearchPastEveryOldCount()
     {
-        var questions = GccResearchFetchService.Deserialize(page == "tool" ? ToolResearch() : PageFaqResearch.For(CompleteBrief))!;
-        return GccResearchFetchService.Serialize(questions with
+        return GccResearchFetchService.Serialize(new GccResearchDocument(SerpIndex: null, Quoteables: []) with
         {
             Quoteables =
             [
@@ -904,8 +895,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// Nothing a search brought back is left out of a request for a count (Jeff, 2026-10-12: "STOP NOT
     /// USING DATA, EVEN IF THAT MEANS IT COSTS MORE"). Written through the real writers, with research
     /// past every count the blocks used to cut by: a page's passages past its sixth, competitor pages
-    /// past the fifth, the publisher's own pages past the fifth, outline headings past the twenty-fifth,
-    /// and what the searches for the operator's questions found, which reached no body request at all.
+    /// past the fifth, the publisher's own pages past the fifth and outline headings past the
+    /// twenty-fifth.
     /// </summary>
     [Theory]
     [InlineData("pillar")]
@@ -913,21 +904,18 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     [InlineData("tool")]
     public async Task Nothing_a_search_brought_back_is_left_out_of_a_request_for_a_count(string page)
     {
-        var calls = await WriteAsync(page, CompleteBrief, ResearchPastEveryOldCount(page), competitors: CompetitorCrawl);
+        var calls = await WriteAsync(page, CompleteBrief, ResearchPastEveryOldCount(), competitors: CompetitorCrawl);
 
         var opening = Assert.Single(calls, c => c.Label == "opening").Text;
         var body = calls.Where(c => c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal)).ToList();
         Assert.NotEmpty(body);
-        var questionPassages = QuestionPassages(page);
-        Assert.NotEmpty(questionPassages);
 
-        // The opening and every body request: every passage of the partner's page, the partner's help
-        // page, and what the question searches found.
+        // The opening and every body request: every passage of the partner's page and the partner's
+        // help page.
         foreach (var text in body.Select(b => b.Text).Append(opening))
         {
             Assert.All(Enumerable.Range(1, PassagesOnThePartnersPage), n => Assert.Contains($"- {PartnerPassage(n)}", text, StringComparison.Ordinal));
             Assert.Contains("- Partner Widget help: setup takes one afternoon.", text, StringComparison.Ordinal);
-            Assert.All(questionPassages, found => Assert.Contains($"- {found.Passage}", text, StringComparison.Ordinal));
             // The publisher's positions: in a tool page's opening too, since 2026-10-12.
             Assert.Contains("We map the close before we automate it.", text, StringComparison.Ordinal);
         }
@@ -961,43 +949,6 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Each passage tells the writer which of the operator's searches found it, in a pillar's, a blog's
-    /// and a tool page's opening and body alike: a question's passage says it was found for that question.
-    /// </summary>
-    [Theory]
-    [InlineData("pillar")]
-    [InlineData("blog")]
-    [InlineData("tool")]
-    public async Task A_passage_found_for_a_question_says_so_in_the_opening_and_in_every_body_request(string page)
-    {
-        var calls = await WriteAsync(page, CompleteBrief, ResearchPastEveryOldCount(page));
-        var question = GccResearchFetchService.Deserialize(ResearchPastEveryOldCount(page))!.FaqEvidence![0];
-        var passage = Assert.Single(question.Pages[0].Paragraphs);
-
-        var requests = calls.Where(c =>
-            c.Label == "opening" || c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal)).ToList();
-        Assert.InRange(requests.Count, 2, int.MaxValue);
-        foreach (var (_, text) in requests)
-        {
-            var lines = text.Split('\n').Select(line => line.TrimEnd('\r')).ToList();
-            var listed = Assert.Single(lines, line => line.EndsWith($". The question: {question.Question}", StringComparison.Ordinal));
-            var number = listed.Trim().Split('.')[0];
-            var at = lines.IndexOf($"- {passage}");
-            Assert.InRange(at, 0, lines.Count - 2);
-            Assert.Equal($"  {GccGenerateService.FoundForLabel} {number}", lines[at + 1]);
-        }
-    }
-
-    /// <summary>What the searches for the operator's questions found for <paramref name="page"/>, a page and its one passage each.</summary>
-    private static IReadOnlyList<(string Url, string Passage)> QuestionPassages(string page) =>
-    [
-        .. (GccResearchFetchService.Deserialize(page == "tool" ? ToolResearch() : PageFaqResearch.For(CompleteBrief))!.FaqEvidence ?? [])
-            .SelectMany(found => found.Pages)
-            .Select(found => (found.Url, Assert.Single(found.Paragraphs)))
-            .Distinct(),
-    ];
-
-    /// <summary>
     /// A pillar, a blog or a tool page written through its real writer for the partner, with
     /// <paramref name="passages"/> as its partner research, a passage a page: the requests it made, and
     /// what went on the run's record.
@@ -1006,7 +957,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         string page, IReadOnlyList<string> passages, string model = "gpt-4.1")
     {
         var research = GccResearchFetchService.Serialize(
-            GccResearchFetchService.Deserialize(page == "tool" ? ToolResearch() : PageFaqResearch.For(CompleteBrief))! with
+            new GccResearchDocument(SerpIndex: null, Quoteables: []) with
             {
                 Quoteables =
                 [
@@ -1236,8 +1187,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             toneOfVoice => opening | People Also Ask | every body call | title and outline
             eeatSignals => opening | People Also Ask | every body call | title and outline
             lengthBand => opening | People Also Ask | every body call | title and outline
-            paaQuestions => opening | People Also Ask | every body call | the saved page
-            blogFaqQuestions => opening | every body call
+            # Each question is written from the answer the operator entered for it, in its own request
+            # (2026-10-13), and no crawl is searched for one. A question is also a heading the outline
+            # may take, which is why it is in every body call; its answer is in that request alone.
+            paaQuestions => People Also Ask | every body call | the saved page
+            paaQuestions, an answer alone => People Also Ask
+            blogFaqQuestions => nothing
+            blogFaqQuestions, an answer alone => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => the saved page
             # The first level is the department in the page's address, and one that is not a department
@@ -1270,6 +1226,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.evidence.terms => nothing
             # A tool's questions are its own page's.
             perTool.faqQuestions => nothing
+            perTool.faqQuestions, an answer alone => nothing
             """
         },
         {
@@ -1284,8 +1241,10 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             toneOfVoice => title and outline | opening | FAQ | every body call
             eeatSignals => title and outline | opening | FAQ | every body call
             lengthBand => title and outline | opening | FAQ | every body call
-            paaQuestions => opening | every body call
-            blogFaqQuestions => opening | FAQ | every body call | the saved page
+            paaQuestions => every body call
+            paaQuestions, an answer alone => nothing
+            blogFaqQuestions => FAQ | the saved page
+            blogFaqQuestions, an answer alone => FAQ
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => the saved page
             nicheFraming.taxonomyPath, later levels => nothing
@@ -1311,22 +1270,25 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.evidence.solution => every body call
             perTool.evidence.terms => nothing
             perTool.faqQuestions => nothing
+            perTool.faqQuestions, an answer alone => nothing
             """
         },
         {
             "tool", true,
             """
-            primaryIntent => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
-            secondaryIntent => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
-            buyingStage => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
-            audienceSegment => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
-            audienceNotes => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
+            primaryIntent => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's answers | summaries
+            secondaryIntent => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's answers | summaries
+            buyingStage => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's answers | summaries
+            audienceSegment => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's answers | summaries
+            audienceNotes => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's answers | summaries
             angle => opening | every body call
-            toneOfVoice => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
-            eeatSignals => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
-            lengthBand => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's questions | summaries
+            toneOfVoice => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's answers | summaries
+            eeatSignals => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's answers | summaries
+            lengthBand => opening | every body call | FAQ from the partner's own FAQ | FAQ from the operator's answers | summaries
             paaQuestions => nothing
+            paaQuestions, an answer alone => nothing
             blogFaqQuestions => nothing
+            blogFaqQuestions, an answer alone => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
@@ -1352,7 +1314,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.evidence.problem => every body call
             perTool.evidence.solution => every body call
             perTool.evidence.terms => nothing
-            perTool.faqQuestions => FAQ from the operator's questions | summaries | the saved page
+            perTool.faqQuestions => FAQ from the operator's answers | summaries | the saved page
+            perTool.faqQuestions, an answer alone => FAQ from the operator's answers
             """
         },
         {
@@ -1383,7 +1346,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             eeatSignals => nothing
             lengthBand => nothing
             paaQuestions => nothing
+            paaQuestions, an answer alone => nothing
             blogFaqQuestions => nothing
+            blogFaqQuestions, an answer alone => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
@@ -1403,6 +1368,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.evidence.solution => nothing
             perTool.evidence.terms => nothing
             perTool.faqQuestions => nothing
+            perTool.faqQuestions, an answer alone => nothing
             """
         },
         {
@@ -1418,7 +1384,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             eeatSignals => nothing
             lengthBand => nothing
             paaQuestions => nothing
+            paaQuestions, an answer alone => nothing
             blogFaqQuestions => nothing
+            blogFaqQuestions, an answer alone => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
@@ -1438,6 +1406,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.evidence.solution => nothing
             perTool.evidence.terms => nothing
             perTool.faqQuestions => nothing
+            perTool.faqQuestions, an answer alone => nothing
             """
         },
         {
@@ -1453,7 +1422,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             eeatSignals => image prompt
             lengthBand => image prompt
             paaQuestions => nothing
+            paaQuestions, an answer alone => nothing
             blogFaqQuestions => nothing
+            blogFaqQuestions, an answer alone => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
@@ -1472,6 +1443,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.evidence.solution => nothing
             perTool.evidence.terms => nothing
             perTool.faqQuestions => nothing
+            perTool.faqQuestions, an answer alone => nothing
             """
         },
         {
@@ -1487,7 +1459,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             eeatSignals => nothing
             lengthBand => nothing
             paaQuestions => nothing
+            paaQuestions, an answer alone => nothing
             blogFaqQuestions => nothing
+            blogFaqQuestions, an answer alone => nothing
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => nothing
             nicheFraming.taxonomyPath, later levels => nothing
@@ -1507,7 +1481,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             perTool.evidence.problem => nothing
             perTool.evidence.solution => searches for evidence
             perTool.evidence.terms => searches for evidence
-            perTool.faqQuestions => searches for FAQ questions
+            perTool.faqQuestions => nothing
+            perTool.faqQuestions, an answer alone => nothing
             """
         },
         {
@@ -1526,4 +1501,107 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             """
         },
     };
+
+    /// <summary>
+    /// The keyword in a page's title and meta description, through the real writers: the request that
+    /// writes them asks for it, and a page saved without it says so in its own lines.
+    /// </summary>
+    /// <remarks>
+    /// Jeff, 2026-10-13: "SEO skill requires, in which case it should be implemented." The stand-in
+    /// writer answers every title request "A Title" and "A meta description.", and a tool page's
+    /// summaries request "x", so each page here is one that was asked and did not do it. A tool page's
+    /// title is put together by code from the product and the keyword, so it lists the meta description
+    /// alone.
+    /// </remarks>
+    [Theory]
+    [InlineData("pillar", "pillar", "AI implementation", "title and outline")]
+    [InlineData("blog", "blog", "AI implementation", "title and outline")]
+    [InlineData("tool", "tool page", "Partner Widget", "summaries")]
+    public async Task The_keyword_is_asked_for_in_the_title_and_the_meta_description_and_a_page_without_it_says_so(
+        string page, string named, string keyword, string request)
+    {
+        var calls = await WriteAsync(page, CompleteBrief);
+
+        var asked = Assert.Single(calls, call => call.Label == request).Text;
+        Assert.Contains(ContentPromptBuilder.SeoMetaDescriptionInstruction(keyword), asked, StringComparison.Ordinal);
+        if (page == "tool")
+        {
+            Assert.DoesNotContain("TITLE AND THE KEYWORD", asked, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains(ContentPromptBuilder.SeoTitleInstruction(keyword), asked, StringComparison.Ordinal);
+        }
+
+        using var saved = System.Text.Json.JsonDocument.Parse(calls[^1].Text);
+        var lines = saved.RootElement.GetProperty("warnings").EnumerateArray().Select(line => line.GetString() ?? string.Empty).ToList();
+        var metaLine = $"The {named}'s meta description does not contain \"{keyword}\". Its SEO score needs it there.";
+        var titleLine = $"The {named}'s title, \"A Title\", does not contain \"{keyword}\". Its SEO score needs it there.";
+
+        if (page == "tool")
+        {
+            var tool = GccRequiredToolMentions.AnchorLookup(CompleteBrief, PartnerUrls).Values.Single();
+            Assert.Contains($"Tool page '{tool}': {metaLine}", lines);
+            Assert.DoesNotContain(lines, line => line.Contains("title", StringComparison.Ordinal) && line.Contains("does not contain", StringComparison.Ordinal));
+            Assert.Equal($"{tool}: {keyword}", saved.RootElement.GetProperty("title").GetString());
+        }
+        else
+        {
+            Assert.Contains(titleLine, lines);
+            Assert.Contains(metaLine, lines);
+        }
+    }
+
+    /// <summary>
+    /// Every request that writes words a reader will see is told not to use the em dash (Jeff,
+    /// 2026-10-13). Read through the real writers, so a request added later without the rule fails here.
+    /// The requests for an image's prompt are left out: what they write is read by an image model.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    [InlineData("email")]
+    [InlineData("social")]
+    public async Task Every_request_that_writes_for_a_reader_is_told_not_to_use_the_em_dash(string page)
+    {
+        var calls = await WriteAsync(page, CompleteBrief);
+
+        var untold = calls
+            .Where(call => call.Label is not ("the saved page" or "image prompts" or "image prompt"))
+            .Where(call => !call.Text.Contains(GeekAPI.Services.ContentCreator.Guardrail.GccEmDash.Instruction, StringComparison.Ordinal))
+            .Select(call => call.Label)
+            .Distinct()
+            .ToList();
+
+        Assert.True(untold.Count == 0, $"The {page}'s requests not told: {string.Join(", ", untold)}.");
+    }
+
+    /// <summary>
+    /// A page whose writer used the em dash is saved without one, through the real writers. The
+    /// stand-in writer here uses one in its opening, its body, its standfirst, a tool page's summary,
+    /// its email and its post, so every page this audit writes is one that came back with it.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar", "A standfirst, in a sentence.")]
+    [InlineData("blog", "A hook paragraph, one that opens the page.")]
+    [InlineData("tool", "x, y")]
+    [InlineData("email", "A body, short.")]
+    [InlineData("social", "A post, short.")]
+    public async Task A_page_whose_writer_used_the_em_dash_is_saved_without_one(string page, string savedAs)
+    {
+        Assert.Contains("\\u2014", LedeJson, StringComparison.Ordinal);
+        Assert.Contains("\\u2014", MetadataJson, StringComparison.Ordinal);
+        Assert.Contains("\\u2014", ToolMetadataJson, StringComparison.Ordinal);
+        Assert.Contains("\\u2014", FirstBatchJson, StringComparison.Ordinal);
+
+        var saved = (await WriteAsync(page, CompleteBrief))[^1].Text;
+
+        // What the writer wrote with one is on the page with a comma in its place.
+        Assert.Contains(savedAs, saved, StringComparison.Ordinal);
+        // As the character and as JSON writes it when it escapes one.
+        Assert.DoesNotContain("\u2014", saved, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\u2014", saved, StringComparison.OrdinalIgnoreCase);
+    }
 }
+

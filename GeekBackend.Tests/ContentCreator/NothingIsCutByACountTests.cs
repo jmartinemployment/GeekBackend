@@ -83,69 +83,31 @@ public class NothingIsCutByACountTests
             new GccQuoteablePage(url, "A page", [], passages, RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk), by);
 
     /// <summary>
-    /// What a question's search found reached the one request that answers the question. It is part of
-    /// the page's research: joined to the pages the brief's searches found, each passage once.
+    /// A page's research is the pages the brief's searches found, as they are stored: one list, read by
+    /// the page's opening, every body request, the count that decides whether a request fits, and the
+    /// page's checks.
     /// </summary>
     [Fact]
-    public void What_the_question_searches_found_joins_the_pages_research_each_passage_once()
+    public void A_pages_research_is_the_pages_the_briefs_searches_found()
     {
         var research = new GccResearchDocument(
             null,
             [
                 Found("https://partner.test/product", Problem, "It routes each invoice.", "It syncs to Xero."),
                 Found("https://partner.test/pricing", Problem, "It is billed monthly."),
-            ])
-        {
-            FaqEvidence =
-            [
-                // On a page the brief's search already found: one passage it has, one it has not.
-                new GccFaqEvidence("partner.test", "Does it sync with Xero?",
-                    [new GccQuoteablePage("https://PARTNER.test/product", "A page", [], ["It syncs to Xero.", "Xero bills post nightly."])]),
-                // On a page only this question found.
-                new GccFaqEvidence("partner.test", "Is there an audit trail?",
-                    [new GccQuoteablePage("https://partner.test/security", "Security", [], ["Every approval is logged."])]),
-                // A search that found nothing adds nothing.
-                new GccFaqEvidence("partner.test", "Does it file sales tax?", []),
-            ],
-        };
+            ]);
 
         var pages = GccPageResearch.PagesOf(research);
 
-        Assert.Equal(
-            ["https://partner.test/product", "https://partner.test/pricing", "https://partner.test/security"],
-            pages.Select(page => page.Url));
-        Assert.Equal(["It routes each invoice.", "It syncs to Xero.", "Xero bills post nightly."], pages[0].Paragraphs);
-        Assert.Equal(["Every approval is logged."], pages[2].Paragraphs);
-
-        var xero = new GccPassageSearch(GccPassageSearch.KindQuestion, "Does it sync with Xero?");
-        var audit = new GccPassageSearch(GccPassageSearch.KindQuestion, "Is there an audit trail?");
-        Assert.Equal([Problem], pages[0].SearchesThatFound(0));
-        // Found by the brief's search and by the question's: printed once, and it says both.
-        Assert.Equal([Problem, xero], pages[0].SearchesThatFound(1));
-        Assert.Equal([xero], pages[0].SearchesThatFound(2));
-        Assert.Equal([audit], pages[2].SearchesThatFound(0));
-        Assert.Equal([Problem, xero, audit], GccPageResearch.SearchesOf(pages));
-
-        // The research as it is stored is not changed: the question's own request still reads its own search.
-        Assert.Equal(2, research.Quoteables[0].Paragraphs.Count);
-        // The same research gives the same list, so every request of a page carries the same text.
-        Assert.Equal(
-            GccPageResearch.PagesOf(research).SelectMany(page => page.Paragraphs),
-            pages.SelectMany(page => page.Paragraphs));
-    }
-
-    [Fact]
-    public void Research_with_no_question_search_is_the_pages_the_briefs_searches_found()
-    {
-        var research = new GccResearchDocument(null, [Found("https://partner.test/product", Problem, "It routes each invoice.")]);
-
-        Assert.Same(research.Quoteables[0], Assert.Single(GccPageResearch.PagesOf(research)));
+        Assert.Equal(["https://partner.test/product", "https://partner.test/pricing"], pages.Select(page => page.Url));
+        Assert.Same(research.Quoteables[0], pages[0]);
+        Assert.Equal([Problem], GccPageResearch.SearchesOf(pages));
         Assert.Empty(GccPageResearch.PagesOf(null));
     }
 
-    /// <summary>A tool page's create holds its own partner's question searches alone, and so does its research.</summary>
+    /// <summary>A tool page's create holds its own partner's pages alone, and so does its research.</summary>
     [Fact]
-    public void A_tool_pages_research_carries_its_own_partners_question_passages_and_no_other_partners()
+    public void A_tool_pages_research_carries_its_own_partners_passages_and_no_other_partners()
     {
         var create = new GccCreateDto(
             Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
@@ -156,16 +118,7 @@ public class NothingIsCutByACountTests
                 [
                     Found("https://dext.com/product", Problem, "Dext reads the receipt."),
                     Found("https://bill.com/product", Problem, "BILL routes the approval."),
-                ])
-            {
-                FaqEvidence =
-                [
-                    new GccFaqEvidence("dext.com", "Does Dext read handwriting?",
-                        [new GccQuoteablePage("https://dext.com/help", "Help", [], ["Dext reads printed and handwritten receipts."])]),
-                    new GccFaqEvidence("bill.com", "Does BILL pay by card?",
-                        [new GccQuoteablePage("https://bill.com/pay", "Pay", [], ["BILL pays vendors by card."])]),
-                ],
-            }),
+                ])),
             Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow, ProjectId: Guid.NewGuid());
         var dext = Assert.Single(
             GccPartnerToolSlices.Build(create, ["https://dext.com", "https://bill.com"], []), slice => slice.Host == "dext.com");
@@ -173,8 +126,6 @@ public class NothingIsCutByACountTests
         var block = GccGenerateService.BuildResearchBlock(dext.Narrow(create));
 
         Assert.Contains("- Dext reads the receipt.", block, StringComparison.Ordinal);
-        Assert.Contains("- Dext reads printed and handwritten receipts.", block, StringComparison.Ordinal);
-        Assert.Contains("The question: Does Dext read handwriting?", block, StringComparison.Ordinal);
         Assert.DoesNotContain("BILL", block, StringComparison.Ordinal);
     }
 

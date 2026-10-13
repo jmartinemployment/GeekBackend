@@ -63,6 +63,44 @@ public sealed class OpenAiProviderOutcomeTests
         Assert.Contains("output limit of 16384 tokens", ex.Message, StringComparison.Ordinal);
         Assert.Equal("length", ex.FinishReason);
         Assert.Equal("""{"sections":[{"tag":"h2" """.TrimEnd(), ex.PartialResponse);
+        Assert.DoesNotContain("blank", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Two replies of the 13:16 UTC run of 2026-10-13 reached their limit this way: the model wrote
+    /// part of its answer and filled the rest of the reply with blanks, 2,913 tabs in one and 2,481
+    /// spaces in the other. A larger limit finishes a reply cut for its length and only buys this one
+    /// more blanks, so the failure says which it was.
+    /// </summary>
+    [Theory]
+    [InlineData('\t', 2913, "2,913")]
+    [InlineData(' ', 2481, "2,481")]
+    [InlineData('\n', 32, "32")]
+    public async Task An_answer_that_reached_its_limit_in_blanks_says_so_and_keeps_what_was_written(
+        char blank, int blanks, string counted)
+    {
+        var written = """{"tag":"h2","children":[]""" + new string(blank, blanks);
+        var provider = Provider(new Stub(Reply(
+            "\"message\":{\"role\":\"assistant\",\"content\":" + System.Text.Json.JsonSerializer.Serialize(written)
+            + "},\"finish_reason\":\"length\"")));
+
+        var ex = await Assert.ThrowsAsync<ContentGenerationException>(() => provider.CompleteAsync(Request()));
+
+        Assert.Equal(
+            "OpenAI stopped at the output limit of 16384 tokens before finishing; the response is incomplete. "
+            + $"Its last {counted} characters are blank: the model stopped writing its answer and filled the rest of "
+            + "the reply with blanks, so a larger limit would not have finished it.",
+            ex.Message);
+        Assert.Equal(written, ex.PartialResponse);
+    }
+
+    /// <summary>A reply cut for its length may end in a space or two. That is not the model turning to blanks.</summary>
+    [Fact]
+    public void A_cut_answer_ending_in_a_few_blanks_is_not_said_to_have_ended_in_blanks()
+    {
+        Assert.Equal(string.Empty, OpenAiCompatibleOutcome.BlankRunNote(
+            "{\"tag\":\"h2\"" + new string(' ', OpenAiCompatibleOutcome.BlankRunWorthNaming - 1)));
+        Assert.Equal(string.Empty, OpenAiCompatibleOutcome.BlankRunNote(null));
     }
 
     [Fact]

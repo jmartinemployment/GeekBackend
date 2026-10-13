@@ -72,7 +72,10 @@ public class GccGenerateServiceToolPageGroundingTests
         """{"ledeType":"directAddress","heading":"Reclaiming The Hours You Lose","paragraphs":[{"type":"text","runs":[{"text":"A hook paragraph that opens the page."}]}]}""";
 
     private sealed class ScriptedProvider(
-        bool includeFaq = false, bool quoteByNumber = false, string? operatorFaqJson = null) : IContentGenerationProvider
+        bool includeFaq = false, bool quoteByNumber = false, string? operatorFaqJson = null,
+        // What the request for the operator's questions, or for the partner's own published ones, fails
+        // with instead of answering.
+        Exception? operatorFaqFault = null, Exception? bankFaqFault = null) : IContentGenerationProvider
     {
         private int bodyCalls;
 
@@ -99,15 +102,21 @@ public class GccGenerateServiceToolPageGroundingTests
             // script would hand sections 3-4 to the call that owns 1-2. Same batch, not counted,
             // and no better -- so the service keeps the first draft, as it should.
             var isLengthRetry = asked.Contains("=== SHORTFALL", StringComparison.Ordinal);
+            if (request.JsonSchemaName == "section")
+            {
+                var fault = Asked(asked, ContentPromptBuilder.OperatorAnswersHeading) ? operatorFaqFault : bankFaqFault;
+                if (fault is not null) return Task.FromException<ChatCompletionResult>(fault);
+            }
+
             var content = request.JsonSchemaName switch
             {
                 // One batch per body call. Returning the whole body each time gave the page three
                 // copies of itself, which the image-prompt count then caught.
                 "sections" when isLengthRetry => Script(ToolBodyBatches[Math.Min(Math.Max(bodyCalls - 1, 0), ToolBodyBatches.Length - 1)]),
                 "sections" => Script(ToolBodyBatches[Math.Min(bodyCalls++, ToolBodyBatches.Length - 1)]),
-                // The operator's FAQ questions are the one "section" call that carries the partner
-                // evidence; the bank's FAQ call carries Q/Answer/Source pairs instead.
-                "section" when operatorFaqJson is not null && Asked(asked, "=== PARTNER EVIDENCE") => operatorFaqJson,
+                // The operator's FAQ is the one "section" call that carries the operator's answers; the
+                // bank's FAQ call carries Q/Answer/Source pairs instead.
+                "section" when operatorFaqJson is not null && Asked(asked, ContentPromptBuilder.OperatorAnswersHeading) => operatorFaqJson,
                 "section" => includeFaq ? ToolFaqJson : ToolMetadataJson,
                 _ => Asked(asked, "ledeType") ? ToolLedeJson
                     : Asked(asked, "image-generation prompts") ? ToolImagePromptsJson
@@ -630,6 +639,40 @@ public class GccGenerateServiceToolPageGroundingTests
         Assert.Equal(expected, GccGenerateService.ToolPageTitle(product, topic));
     }
 
+    /// <summary>
+    /// The request that writes the partner's own published questions is one more request of the same
+    /// section. When it fails the page is kept and the line says how many questions went with it.
+    /// </summary>
+    [Fact]
+    public async Task ARequestForThePartnersOwnQuestionsThatFailsKeepsTheToolPageAndSaysSo()
+    {
+        var fault = CutReply.EndingInBlanks();
+        var provider = new ScriptedProvider(includeFaq: true, bankFaqFault: fault);
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Faqs = [new GeekAPI.Services.ContentCreator.Partner.PartnerFaqItem(
+                "Is Partner Widget secure?", "Yes, SOC 2 Type II certified.", "SOC 2 Type II certified")],
+        };
+        var partner = GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction);
+        var service = Build(provider, partner);
+
+        var result = await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: Create(ResearchJsonWithOnePartnerPage()), passages: PartnerPassages());
+
+        Assert.DoesNotContain("Frequently Asked Questions", result.Document.Sections.Select(s => s.Heading));
+        Assert.NotEmpty(result.Document.Sections);
+        Assert.Equal(
+            ["FAQ: the request that writes the 1 question(s) taken from Partner Widget's own pages failed, and they "
+                + "were left out. " + fault.Message],
+            FaqWarnings(result));
+    }
+
     [Fact]
     public async Task GroundedFaqBankDataProducesAnAdditionalFaqSectionBeyondTheWordCountTarget()
     {
@@ -666,44 +709,46 @@ public class GccGenerateServiceToolPageGroundingTests
         Assert.Contains("Frequently Asked Questions", result.Document.Sections.Select(s => s.Heading));
     }
 
-    // ---- The operator's FAQ questions for a tool ----------------------------------------------
+    // ---- The operator's FAQ for a tool ---------------------------------------------------------
     //
     // FAQ fields for the tool pages (Jeff, 2026-10-08). The operator's questions for a tool live in
-    // its own perTool entry and are answered from the partner's own pages alone; a question that is
-    // not answered is left out of the section and reported as a gap, never answered from general
-    // knowledge.
+    // its own perTool entry; a question that is not written is left out of the section and reported
+    // as a gap, never answered from general knowledge.
     //
-    // 2026-10-10: each question is answered from what a search of the partner's crawl found for that
-    // question (the research's FaqEvidence). Until then no question was searched for -- they were
-    // answered from the passages the page's other searches had brought back, and one none of those
-    // was about was reported as "no page of the partner's answers" when nothing had looked. So the
-    // report says what was checked, and each of its four forms has a test below.
+    // 2026-10-13: each question is written from the answer the operator entered for it ("I have
+    // answers to questions that I am suppling ... no longer query for answer passages"). From
+    // 2026-10-10 until then each was searched for in the partner's crawl and answered only where a
+    // passage answered. What is reported has a test each below.
 
-    private const string FaqHost = "partner.test";
     private const string SyncQuestion = "Does Partner Widget sync with QuickBooks Online?";
     private const string FlyQuestion = "Does Partner Widget fly?";
-    private const string FaqBrief =
-        """{"nicheFraming":{"perTool":{"partner.test":{"faqQuestions":"Does Partner Widget sync with QuickBooks Online?\nDoes Partner Widget fly?"}}}}""";
+    private const string SyncAnswer = "Yes. Every Partner Widget payment is synced to QuickBooks Online as it is made.";
+    private const string FlyAnswer = "No. Partner Widget is cloud software and runs in a browser.";
     private const string AnsweredOnlySync =
         """{"tag":"h2","heading":"Frequently Asked Questions","paragraphs":[],"href":null,"children":[{"tag":"h3","heading":"Does Partner Widget sync with QuickBooks Online?","paragraphs":[{"type":"text","runs":[{"text":"Yes: every payment syncs to QuickBooks Online."}]}],"href":null,"children":[]}]}""";
 
-    /// <summary>A passage only a search for the sync question finds: it is on no page in the shared pool.</summary>
-    private static GccQuoteablePage SyncPassage() => new(
-        "https://partner.test/integrations", "Integrations", [],
-        ["Every Partner Widget payment syncs to QuickBooks Online within the hour."]);
+    /// <summary>A brief whose section for the partner holds these FAQ rows, as the form saves them.</summary>
+    private static string FaqBrief(params (string Question, string? Answer)[] rows) =>
+        JsonSerializer.Serialize(new
+        {
+            nicheFraming = new
+            {
+                perTool = new Dictionary<string, object>
+                {
+                    ["partner.test"] = new
+                    {
+                        faqQuestions = rows.Select(row => new { question = row.Question, answer = row.Answer ?? string.Empty }),
+                    },
+                },
+            },
+        });
 
-    private static GccQuoteablePage FlyPassage() => new(
-        "https://partner.test/about", "About", [], ["Partner Widget is cloud software.", "It runs in a browser."]);
-
-    /// <summary>The one partner page every tool test grounds on, with what each FAQ search found beside it.</summary>
-    private static string ResearchWithFaqSearches(params GccFaqEvidence[] searches) =>
-        GccResearchFetchService.Serialize(
-            GccResearchFetchService.Deserialize(ResearchJsonWithOnePartnerPage())! with { FaqEvidence = searches });
+    private static readonly string BothAnswered = FaqBrief((SyncQuestion, SyncAnswer), (FlyQuestion, FlyAnswer));
 
     private async Task<(GccGenerateService.ToolPageResult Result, ScriptedProvider Provider)> WriteToolPageWithFaqAsync(
-        string researchJson, string? operatorFaqJson)
+        string briefJson, string? operatorFaqJson, Exception? operatorFaqFault = null)
     {
-        var provider = new ScriptedProvider(operatorFaqJson: operatorFaqJson);
+        var provider = new ScriptedProvider(operatorFaqJson: operatorFaqJson, operatorFaqFault: operatorFaqFault);
         var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
         {
             Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
@@ -722,18 +767,18 @@ public class GccGenerateServiceToolPageGroundingTests
             DateTime.UtcNow, DateTime.UtcNow);
         var service = Build(provider, partner, project);
         // The product name the fan-out would use for this host, so the per-tool lookup resolves.
-        var toolName = GccRequiredToolMentions.AnchorLookup(FaqBrief, partnerUrls).Values.Single();
+        var toolName = GccRequiredToolMentions.AnchorLookup(briefJson, partnerUrls).Values.Single();
 
         var result = await service.GenerateToolPageAsync(
             toolName, "brief", "context", "marketing", null,
             ContentGeneratorProvider.OpenAi, CancellationToken.None,
-            create: Create(researchJson) with { ProjectId = projectId, BriefJson = FaqBrief },
+            create: Create(ResearchJsonWithOnePartnerPage()) with { ProjectId = projectId, BriefJson = briefJson },
             passages: PartnerPassages());
         return (result, provider);
     }
 
     private static IReadOnlyList<ChatCompletionRequest> FaqRequests(ScriptedProvider provider) =>
-        [.. provider.Requests.Where(r => r.Messages.Any(m => m.Content.Contains("=== PARTNER EVIDENCE", StringComparison.Ordinal)))];
+        [.. provider.Requests.Where(r => r.Messages.Any(m => m.Content.Contains(ContentPromptBuilder.OperatorAnswersHeading, StringComparison.Ordinal)))];
 
     /// <summary>
     /// The page's FAQ lines. Each carries the tool's name in front, as every line of a tool page does
@@ -751,125 +796,108 @@ public class GccGenerateServiceToolPageGroundingTests
     }
 
     [Fact]
-    public async Task AQuestionIsAnsweredFromWhatTheSearchForItFoundAndNotFromTheSharedPassages()
+    public async Task AQuestionIsWrittenFromTheAnswerEnteredForItAndNoPassageIsShown()
     {
-        var (result, provider) = await WriteToolPageWithFaqAsync(
-            ResearchWithFaqSearches(
-                new GccFaqEvidence(FaqHost, SyncQuestion, [SyncPassage()]),
-                new GccFaqEvidence(FaqHost, FlyQuestion, [FlyPassage()])),
-            AnsweredOnlySync);
+        var (result, provider) = await WriteToolPageWithFaqAsync(BothAnswered, AnsweredOnlySync);
 
-        var faqUser = Assert.Single(FaqRequests(provider)).Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.Contains("- Q1: " + SyncQuestion, faqUser, StringComparison.Ordinal);
-        Assert.Contains("- Q2: " + FlyQuestion, faqUser, StringComparison.Ordinal);
-        // The passage the search for the question found reaches its call, under its label, though no
-        // page in the shared pool carries it. This is the defect, pinned: before, it could not.
-        var evidence = faqUser[faqUser.IndexOf("=== PARTNER EVIDENCE", StringComparison.Ordinal)..];
-        var forSync = evidence[evidence.IndexOf("Found for Q1:", StringComparison.Ordinal)..evidence.IndexOf("Found for Q2:", StringComparison.Ordinal)];
-        Assert.Contains("https://partner.test/integrations", forSync, StringComparison.Ordinal);
-        Assert.Contains("syncs to QuickBooks Online within the hour", forSync, StringComparison.Ordinal);
-        // And the passages every other call is written from are not the FAQ's evidence.
-        Assert.DoesNotContain("starts at $19 per month", evidence, StringComparison.Ordinal);
+        var request = Assert.Single(FaqRequests(provider));
+        var faqUser = request.Messages.First(m => m.Role == ChatRole.User).Content;
+        var faqSystem = request.Messages.First(m => m.Role == ChatRole.System).Content;
+        Assert.Contains(
+            "Q1: " + SyncQuestion + Environment.NewLine + "The operator's answer to Q1:" + Environment.NewLine + SyncAnswer,
+            faqUser,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Q2: " + FlyQuestion + Environment.NewLine + "The operator's answer to Q2:" + Environment.NewLine + FlyAnswer,
+            faqUser,
+            StringComparison.Ordinal);
+        Assert.Contains(ContentPromptBuilder.OperatorAnswersInstruction, faqSystem, StringComparison.Ordinal);
+        // No passage of the partner's pages is in the request: neither one found for a question, which
+        // nothing searches for any more, nor the passages the body is written from.
+        Assert.DoesNotContain("PARTNER EVIDENCE", faqUser + faqSystem, StringComparison.Ordinal);
+        Assert.DoesNotContain("Found for Q", faqUser, StringComparison.Ordinal);
+        Assert.DoesNotContain("starts at $19 per month", faqUser, StringComparison.Ordinal);
 
         var faq = Assert.Single(result.Document.Sections, s => s.Heading == "Frequently Asked Questions");
         Assert.Equal([SyncQuestion], faq.Children.Select(c => c.Heading));
     }
 
     [Fact]
-    public async Task TheFaqRecordCarriesWhatTheSearchScoredEachPassageOfEveryQuestionSent()
+    public async Task AQuestionSentWithItsAnswerAndNotWrittenIsReportedAsThat()
     {
-        // An unanswered question can then be told from one the search rated poorly to begin with. On the
-        // run of 2026-10-10 five of BILL's questions were shown three passages each and left out, and the
-        // record held nothing that said how good the search thought those passages were.
-        var written = new List<GccGenerateJobEventWrite>();
-        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
-
-        await WriteToolPageWithFaqAsync(
-            ResearchWithFaqSearches(
-                new GccFaqEvidence(
-                    FaqHost, SyncQuestion, [SyncPassage() with { Scores = [new GccPassageScore(0.031, 6.1)] }], "llamaindex-hybrid+rerank"),
-                new GccFaqEvidence(
-                    FaqHost,
-                    FlyQuestion,
-                    [FlyPassage() with { Scores = [new GccPassageScore(0.016, -4.2), new GccPassageScore(0.015, -5.0)] }],
-                    "llamaindex-hybrid+rerank")),
-            AnsweredOnlySync);
-
-        using var faq = System.Text.Json.JsonDocument.Parse(Assert.Single(written, e => e.Kind == "faq").PayloadJson);
-        var questions = faq.RootElement.GetProperty("questions").EnumerateArray().ToList();
-        var answered = Assert.Single(questions, q => q.GetProperty("outcome").GetString() == "answered");
-        Assert.Equal(6.1, Assert.Single(answered.GetProperty("scores").EnumerateArray()).GetProperty("reranked").GetDouble());
-        var left = Assert.Single(questions, q => q.GetProperty("outcome").GetString() == "not answered");
-        Assert.Equal(
-            [-4.2, -5.0],
-            left.GetProperty("scores").EnumerateArray().Select(s => s.GetProperty("reranked").GetDouble()));
-        Assert.All(
-            left.GetProperty("scores").EnumerateArray(),
-            s => Assert.Equal("https://partner.test/about", s.GetProperty("url").GetString()));
-    }
-
-    [Fact]
-    public async Task AQuestionShownPassagesAndNotAnsweredIsReportedAsThat()
-    {
-        var (result, _) = await WriteToolPageWithFaqAsync(
-            ResearchWithFaqSearches(
-                new GccFaqEvidence(FaqHost, SyncQuestion, [SyncPassage()]),
-                new GccFaqEvidence(FaqHost, FlyQuestion, [FlyPassage()])),
-            AnsweredOnlySync);
+        var (result, _) = await WriteToolPageWithFaqAsync(BothAnswered, AnsweredOnlySync);
 
         Assert.Equal(
-            ["FAQ: the writer was shown 2 passage(s) from partner.test for \"Does Partner Widget fly?\" and did not answer it; it was left out."],
+            ["FAQ: the writer was sent the answer entered for \"Does Partner Widget fly?\" and did not write it; it was left out."],
             FaqWarnings(result));
     }
 
+    /// <summary>
+    /// The 13:16 UTC run of 2026-10-13 lost ADP's tool page to this: the reply to its questions request
+    /// ended in 2,481 spaces and reached its limit, and the failure refused the whole page. The page is
+    /// kept, the questions are left out, and one line says why.
+    /// </summary>
     [Fact]
-    public async Task AQuestionWhoseSearchFoundNothingIsNotSentAndIsReportedAsThat()
+    public async Task AFaqRequestCutAtItsLimitKeepsTheToolPageAndNamesItsQuestionsInOneLine()
+    {
+        var fault = CutReply.EndingInBlanks(blanks: 2481, blank: ' ');
+
+        var (result, provider) = await WriteToolPageWithFaqAsync(BothAnswered, AnsweredOnlySync, fault);
+
+        Assert.Single(FaqRequests(provider));
+        var line = Assert.Single(FaqWarnings(result));
+        Assert.Equal(GccGenerateService.FaqRequestFailed("FAQ", [SyncQuestion, FlyQuestion], fault.Message), line);
+        Assert.StartsWith(
+            "FAQ: the request that answers 2 questions failed, and all 2 were left out. "
+            + "OpenAI stopped at the output limit of 3072 tokens before finishing; the response is incomplete. "
+            + "Its last 2,481 characters are blank",
+            line,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("Frequently Asked Questions", result.Document.Sections.Select(s => s.Heading));
+        Assert.NotEmpty(result.Document.Sections);
+    }
+
+    [Fact]
+    public async Task AQuestionWithNoAnswerEnteredIsNotSentAndIsReportedWithTheBoxItsAnswerGoesIn()
     {
         var (result, provider) = await WriteToolPageWithFaqAsync(
-            ResearchWithFaqSearches(
-                new GccFaqEvidence(FaqHost, SyncQuestion, [SyncPassage()]),
-                new GccFaqEvidence(FaqHost, FlyQuestion, [])),
-            AnsweredOnlySync);
+            FaqBrief((SyncQuestion, SyncAnswer), (FlyQuestion, null)), AnsweredOnlySync);
 
         var faqUser = Assert.Single(FaqRequests(provider)).Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.Contains("- Q1: " + SyncQuestion, faqUser, StringComparison.Ordinal);
+        Assert.Contains("Q1: " + SyncQuestion, faqUser, StringComparison.Ordinal);
         Assert.DoesNotContain(FlyQuestion, faqUser, StringComparison.Ordinal);
         Assert.Equal(
-            ["FAQ: a search of partner.test's crawl found nothing for \"Does Partner Widget fly?\"; it was left out."],
+            [
+                "FAQ: no answer is entered for \"Does Partner Widget fly?\", and the question was left out. "
+                + "Its answer goes beside it under \"Tool page FAQ\" on the Brief.",
+            ],
             FaqWarnings(result));
         var faq = Assert.Single(result.Document.Sections, s => s.Heading == "Frequently Asked Questions");
         Assert.Equal([SyncQuestion], faq.Children.Select(c => c.Heading));
     }
 
+    /// <summary>
+    /// A brief saved before 2026-10-13 holds a tool's questions as lines with no answers. Nothing is
+    /// sent for them, they are named together in one line, and the page is written without the section.
+    /// </summary>
     [Fact]
-    public async Task AQuestionThatWasNeverSearchedForIsReportedAsThatAndNeverAsFoundNothing()
+    public async Task QuestionsSavedWithoutAnswersSendNoRequestAndAreNamedInOneLine()
     {
-        // Research that did not come through the search: the one partner page, and no FAQ searches.
-        var (result, provider) = await WriteToolPageWithFaqAsync(ResearchJsonWithOnePartnerPage(), AnsweredOnlySync);
+        const string savedBefore =
+            """{"nicheFraming":{"perTool":{"partner.test":{"faqQuestions":"Does Partner Widget sync with QuickBooks Online?\nDoes Partner Widget fly?"}}}}""";
 
-        // No model call: there is nothing to answer either question from.
+        var (result, provider) = await WriteToolPageWithFaqAsync(savedBefore, AnsweredOnlySync);
+
         Assert.Empty(FaqRequests(provider));
         Assert.Equal(
             [
-                "FAQ: partner.test's crawl was not searched for \"Does Partner Widget sync with QuickBooks Online?\"; it was left out.",
-                "FAQ: partner.test's crawl was not searched for \"Does Partner Widget fly?\"; it was left out.",
+                "FAQ: no answer is entered for 2 questions, and all 2 were left out. "
+                + "Their answers go beside them under \"Tool page FAQ\" on the Brief. "
+                + "The questions: \"Does Partner Widget sync with QuickBooks Online?\"; \"Does Partner Widget fly?\".",
             ],
             FaqWarnings(result));
         Assert.DoesNotContain(result.Document.Sections, s => s.Heading == "Frequently Asked Questions");
-    }
-
-    [Fact]
-    public async Task AQuestionSearchedForInAnotherPartnersCrawlWasNotSearchedForInThisOne()
-    {
-        var (result, provider) = await WriteToolPageWithFaqAsync(
-            ResearchWithFaqSearches(
-                new GccFaqEvidence("rival.test", SyncQuestion, [SyncPassage()]),
-                new GccFaqEvidence("rival.test", FlyQuestion, [FlyPassage()])),
-            AnsweredOnlySync);
-
-        Assert.Empty(FaqRequests(provider));
-        Assert.All(FaqWarnings(result), w => Assert.Contains("partner.test's crawl was not searched for", w, StringComparison.Ordinal));
-        Assert.Equal(2, FaqWarnings(result).Count);
+        Assert.NotEmpty(result.Document.Sections);
     }
 
     [Fact]
@@ -878,41 +906,31 @@ public class GccGenerateServiceToolPageGroundingTests
         const string answeredUnderOtherWords =
             """{"tag":"h2","heading":"Frequently Asked Questions","paragraphs":[],"href":null,"children":[{"tag":"h3","heading":"Does Partner Widget sync with QuickBooks Online?","paragraphs":[{"type":"text","runs":[{"text":"Yes: every payment syncs to QuickBooks Online."}]}],"href":null,"children":[]},{"tag":"h3","heading":"Is Partner Widget installed on a server?","paragraphs":[{"type":"text","runs":[{"text":"No. It runs in a browser."}]}],"href":null,"children":[]}]}""";
 
-        var (result, _) = await WriteToolPageWithFaqAsync(
-            ResearchWithFaqSearches(
-                new GccFaqEvidence(FaqHost, SyncQuestion, [SyncPassage()]),
-                new GccFaqEvidence(FaqHost, FlyQuestion, [FlyPassage()])),
-            answeredUnderOtherWords);
+        var (result, _) = await WriteToolPageWithFaqAsync(BothAnswered, answeredUnderOtherWords);
 
         var faq = Assert.Single(result.Document.Sections, s => s.Heading == "Frequently Asked Questions");
         Assert.Equal([SyncQuestion], faq.Children.Select(c => c.Heading));
         Assert.Equal(
             [
-                "FAQ: the writer was shown 2 passage(s) from partner.test for \"Does Partner Widget fly?\" and did not answer it; it was left out.",
+                "FAQ: the writer was sent the answer entered for \"Does Partner Widget fly?\" and did not write it; it was left out.",
                 "FAQ: the writer answered under \"Is Partner Widget installed on a server?\", which is not a question it was sent; the answer was dropped.",
             ],
             FaqWarnings(result));
     }
 
     /// <summary>
-    /// The page's figure check refuses a figure that is in none of the evidence. What a question's
-    /// search found is evidence the writer is shown, in the FAQ call and nowhere else, so an answer
-    /// that takes a figure from it must not be refused as inventing one.
+    /// The page's figure check refuses a figure that is in none of the evidence. The answers are
+    /// entered on the Brief, which the check reads whole as the operator's own statements, so a figure
+    /// the operator's answer states is not refused when the written answer states it.
     /// </summary>
     [Fact]
-    public async Task AFigureAnAnswerTakesFromItsOwnPassageIsNotRefusedAsUnsupported()
+    public async Task AFigureTheOperatorsAnswerStatesIsNotRefusedAsUnsupported()
     {
         const string answeredWithAFigure =
             """{"tag":"h2","heading":"Frequently Asked Questions","paragraphs":[],"href":null,"children":[{"tag":"h3","heading":"Does Partner Widget sync with QuickBooks Online?","paragraphs":[{"type":"text","runs":[{"text":"Yes. Partner Widget syncs each payment to QuickBooks Online within 45 minutes."}]}],"href":null,"children":[]}]}""";
-        var onlyTheSearchFoundThis = new GccQuoteablePage(
-            "https://partner.test/integrations", "Integrations", [],
-            ["Partner Widget syncs each payment to QuickBooks Online within 45 minutes."]);
 
         var (result, _) = await WriteToolPageWithFaqAsync(
-            ResearchWithFaqSearches(
-                new GccFaqEvidence(FaqHost, SyncQuestion, [onlyTheSearchFoundThis]),
-                new GccFaqEvidence(FaqHost, FlyQuestion, [])),
-            answeredWithAFigure);
+            FaqBrief((SyncQuestion, "Yes, within 45 minutes of each payment.")), answeredWithAFigure);
 
         var faq = Assert.Single(result.Document.Sections, s => s.Heading == "Frequently Asked Questions");
         Assert.Equal([SyncQuestion], faq.Children.Select(c => c.Heading));
@@ -924,17 +942,15 @@ public class GccGenerateServiceToolPageGroundingTests
         var written = new List<GccGenerateJobEventWrite>();
         GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, NullLogger.Instance);
 
-        await WriteToolPageWithFaqAsync(
-            ResearchWithFaqSearches(new GccFaqEvidence(FaqHost, SyncQuestion, [SyncPassage()])),
-            AnsweredOnlySync);
+        var (result, _) = await WriteToolPageWithFaqAsync(
+            FaqBrief((SyncQuestion, SyncAnswer), (FlyQuestion, null)), AnsweredOnlySync);
 
         var faq = JsonDocument.Parse(Assert.Single(written, e => e.Kind == "faq").PayloadJson).RootElement;
-        Assert.Equal("partner.test", faq.GetProperty("host").GetString());
+        Assert.Equal($"tool page '{result.Name}' FAQ", faq.GetProperty("page").GetString());
         var outcomes = faq.GetProperty("questions").EnumerateArray()
             .ToDictionary(q => q.GetProperty("question").GetString()!, q => q.GetProperty("outcome").GetString());
-        Assert.Equal("answered", outcomes[SyncQuestion]);
-        // The brief asks two questions and one was searched for: the other is on the record as not searched.
-        Assert.Equal("not searched", outcomes[FlyQuestion]);
+        Assert.Equal("written", outcomes[SyncQuestion]);
+        Assert.Equal("no answer entered", outcomes[FlyQuestion]);
     }
 
     [Fact]

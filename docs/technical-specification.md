@@ -161,12 +161,16 @@ blog and tool have registered prompt sets.
      (389 tokens for "sections" today), so that part is near and not exact. A request of 370,000 characters takes about
      14 ms to count. Every request's count is on its `call` event (`countedTokens`, with `accepts`) beside OpenAI's
      `promptTokens`, so the counter is checked by every run.
-   - **Every question section is answered from searched passages.** A tool page's FAQ questions are each searched for in
-     that partner's crawl; the pillar's People Also Ask and the blog's FAQ questions are each searched for in every
-     partner's crawl (`GccGroundingResolver.PageFaqSearches`), three passages a search. Only a question with passages is
-     sent to the model, the writer is told to answer from them alone, and a question left out is reported with why. No
-     code checks an answer's sentences against its passages. A pillar or blog question call carries at most 200,000
-     characters of passages (`GccPageFaqEvidence.MaxEvidenceCharsPerCall`), the one call whose size code bounds.
+   - **Every question section is written from the answer the operator entered** (2026-10-13; built, not committed,
+     not seen in a real run). The three FAQ boxes of the Brief, "People Also Ask (direct entry, optional)", "Blog FAQ
+     (optional)" and each tool's "Tool page FAQ", hold rows of a question and an answer, read by one reader
+     (`GccFaqAnswers.Read`) and written by one writer (`GccGenerateService.WriteFaqInBatchesAsync`). A question is sent
+     with its answer, eight a request at most and fewer when the answers are long
+     (`GccFaqAnswers.MaxAnswerCharsPerCall`, 6,000 characters); the writer is told to say what the answer says and
+     nothing else, in the Brief's voice. A question with no answer entered is left out and named, one line for a page's
+     questions together, with the box its answer goes in. No crawl is searched for a question. No code checks a written
+     answer against the one entered; its figures are checked with the page's, against the whole Brief. From 2026-10-10
+     until then each question was searched for in the partners' crawls and answered only from the passages found.
 5. The runner records `completed` or `failure`, writes the job row, and pushes over SignalR.
 
 **Repurpose, end to end** (2026-10-12; `GccRepurpose`). The one way a short piece is written. Until then Email, Social and
@@ -373,13 +377,13 @@ sized for a model of 128,000 tokens, and they cut research that fitted; a tool p
   passage of a page and every partner product name (`GccPartnerExtractionService.BuildUserPrompt`; 40 passages cut at
   1,200 characters, eight headings and 12 names were). Quotable sentences are read from every page a partner returned
   (`GccTypedPassageReader`, 32 a read); the list a tool page may quote from is still 40.
-- **Still counts, and why.** A search returns 8 passages, 3 for a question: that is how much is fetched. The partner
-  data request is not counted before it is sent; a page's passages are a few thousand tokens. A page found only by a
-  question search is not read for partner data or quotable sentences. The "Search results" lines of the research
+- **Still counts, and why.** A search returns 8 passages: that is how much is fetched. The partner data request is not
+  counted before it is sent; a page's passages are a few thousand tokens. The "Search results" lines of the research
   block (12 titles, 15 questions) are fed by nothing.
 - **Size, measured** through the real writers on research of the 15:29 UTC run's shape with both problems searched
   (364,000 characters of partner research, 150 question passages, 40 competitor pages with outlines, 8 of the
-  publisher's own), in made-up text: a pillar or blog body request about 157,000 tokens (165,000 with the reply's
+  publisher's own; the question passages are no longer carried since 2026-10-13, so a request is smaller by them), in
+  made-up text: a pillar or blog body request about 157,000 tokens (165,000 with the reply's
   reservation, 16% of GPT-4.1's 1,047,576), its opening about 127,000, a tool page body request about 61,000, its
   opening about 31,500. A run of a pillar, a blog and five tool pages sends about 3.2 million tokens.
 - **The page's checks read all of the research.** Figures, money, quotations and headings are judged against what the
@@ -434,10 +438,11 @@ Push failures are logged as errors and recorded in the run log; they never fail 
 
 **Run log.** Table `content_creator.gcc_generate_job_events` (id, job_id, seq, at, kind up to 32, piece up to 128,
 payload_json). Kinds written: started, left-out (pages a search returned that are not evidence: a legal document, or a
-template page still carrying a page builder's placeholder text, each with why), grounding (with each FAQ search: its
-passage count, how the library ordered it and what it scored each passage), call (prompt, response, model, tokens, finish reason), batch (a call's words, floor, headings
+template page still carrying a page builder's placeholder text, each with why), grounding, call (prompt, response, model, tokens, finish reason), batch (a call's words, floor, headings
 and keyword uses), keyword (the page's count, before and after, each edit and each section's share, uses and places), faq
-(what became of each FAQ question, with its passages' scores), verdict, warning, fault (exception type, stack, inner
+(what became of each FAQ question: no answer entered, request failed, not written, written, or answered under another
+heading), placement (the page's title and meta description, and whether each carries the keyword), em-dash (how many
+were taken out of a reply's strings), verdict, warning, fault (exception type, stack, inner
 exceptions), outcome, settled, failure, completed.
 
 **Export.** `GccArtifactExportService` renders a full HTML document per page through `SectionHtmlRenderer`, the only place
@@ -505,10 +510,10 @@ SMTP_*.
 
 ## 13. Build, test and delivery
 
-- **Tests:** `dotnet test GEEKBACKEND.slnx`. GeekBackend.Tests: xUnit, 2,139 tests on 2026-10-12 (theory rows included;
-  1,972 on 2026-10-07), using EphemeralMongo and EF InMemory with scripted model providers, so they prove wiring and the
+- **Tests:** `dotnet test GEEKBACKEND.slnx`. GeekBackend.Tests: xUnit, 2,170 tests on 2026-10-13 after the tests of the
+  removed question searches went (theory rows included; 2,151 earlier that day; 2,139 on 2026-10-12; 1,972 on 2026-10-07), using EphemeralMongo and EF InMemory with scripted model providers, so they prove wiring and the
   checks and nothing about model behaviour. IntegrationTests (44 tests; 33 on 2026-10-07) need `TEST_DATABASE_URL` and run
-  the app through `WebApplicationFactory`. content-creator-v2: `node --test`, 63 tests on 2026-10-12 (14 on 2026-10-07),
+  the app through `WebApplicationFactory`. content-creator-v2: `node --test`, 83 tests on 2026-10-13 (63 on 2026-10-12; 14 on 2026-10-07),
   plus a CI of typecheck, lint and build. The form's tests render pages against a GeekAPI answered from fixtures; none
   follows a run over the hub.
 - **CI:** the only GeekBackend workflow is `geek-crawler-playwright.yml` (daily and manual). There is no build or deploy CI;
@@ -530,6 +535,56 @@ controller has served since 2026-10-03.
 See `plans/real-run-findings-2026-10-07.md` (writer output under its word floors, the lede with no enforced schema, the
 JSON-LD name and `@graph` form, the FAQ without evidence) and `plans/single-source-of-responsibility.md` (the plan to divide
 the application by single responsibility). The `content_creator_v2` schema and its workers are dormant.
+
+**A reply that ends in blanks at its limit loses a body's page, and is not sent again** (found 2026-10-13). On the
+13:16 UTC run of that day, the first on GPT-4.1, 2 of 59 requests came back cut at the reply limit with the end of the reply
+blank: 2,913 tabs after one of four answers, 2,481 spaces after five of eight. The reply's format allows blanks between any
+two of its parts, and the model filled the rest of the reply with them. Both were requests for a page's questions section,
+and each refused its whole page (the blog; ADP's tool page). Since 2026-10-13 a questions request that fails leaves its
+questions out, says so in one line and keeps the page (`GccGenerateService.FaqRequestFailed`), and the failure's message
+says when the reply ended in blanks (`OpenAiCompatibleOutcome.BlankRunNote`); built, not committed, not seen in a real run.
+Both were requests that had to decide which questions their passages answered; since the same day a questions request is
+handed the operator's answers and has no such decision to make.
+**Not handled:** the same reply to an opening or a body request still refuses that page, because half a page cannot be
+saved and nothing is sent a second time (Jeff, 2026-10-06 and 2026-10-12). One more send of that one request is the only
+thing that would save the page; it was put to Jeff on 2026-10-13 and is his to decide. GeekAPI's Railway log holds no cut
+reply from 2026-10-06 until that run.
+
+**A page is two and a half times its floor on GPT-4.1** (the same run): 8,100 to 9,800 words against 3,000, because the
+model writes the 500-700 words each of ten sections is asked, where the model before it stopped at about 650 a request of
+two. The keyword's share of the page fell with it (0.03% to 0.21% against 0.4%). Nothing was changed; the length is Jeff's
+to decide.
+
+**The keyword has no minimum share of a page** (2026-10-13; built, not committed, not seen in a real run). Until then
+the score's "Keyword density" check failed under 0.4% and the page was listed for it, on every real run from 2026-10-10.
+The figure was the code's own. Jeff's `seo-content-brief` skill says density is a stuffing heuristic, "not a Google
+percentage rule", and that the keyword is judged by where it is placed. On the 13:16 UTC run the minimum asked 33 to 39
+exact uses of "Payroll Tax & Worker Misclassification" on pages of 8,100 to 9,800 words; the writer wrote it 3 to 17
+times. The check now fails only over 2.5% (`GcwSeoAnalyzer.MaxKeywordDensityPercent`), and so does the page's line.
+Placement, by the same skill, is asked for and read since the same day (Jeff: "SEO skill requires, in which case it should
+be implemented"): the pillar's and the blog's title request asks for the keyword near the start of the title
+(`ContentPromptBuilder.SeoTitleInstruction`), all three requests ask for it in the meta description
+(`SeoMetaDescriptionInstruction`; only the pillar's did), and a tool page's title carries it by code. The score has "Keyword
+in the title" and "Keyword in the meta description" beside "Keyword in lede" and "Keyword in a heading", and a run lists
+`keyword-title`, `keyword-meta-description` and `keyword-opening` when one is missing (`GccDraftGuard.KeywordPlacement`,
+by the score's own match), each on the run log's `placement` event. A pillar's and a blog's address is made from the title.
+Left: a tool page's address is its product, and no image is produced, so there is no alt text.
+
+**No em dash in what a writer produces** (2026-10-13, on Jeff's word; built, not committed, not seen in a real run).
+`GccEmDash` holds the rule: the instruction, printed in the voice every channel shares (`BrandTones.SharedBaseGuidance`) and
+in the three requests that do not print it, and the code that takes out what a reply carries anyway, with a comma between
+words and nothing beside an existing mark. A page's document is read in `GuardedDraftAsync` before its checks; a title, a
+meta description, a tool page's summaries, an email and a post are read where their reply is parsed. A quotation and a code
+block keep theirs. Counts are on the run log (`emDashesRemoved` on verdict, and `em-dash`). Request wording outside the shared
+voice still uses the character; the Workflow product has the instruction and no code step.
+
+**Built on 2026-10-13, not committed and not seen in a real run:** the FAQ written from the operator's answers (step 4
+above), in GeekAPI and on the form, and a partner's not-written line leading with its type ("tool: Adp: ..."), which is
+why ADP was listed twice on the 13:16 UTC run. Two things to know:
+- **Every question saved before that day has no answer,** so each page that has questions lists one line saying so until
+  the answers are typed under its box and Save is clicked.
+- **GeekBackend goes out before the form.** The GeekAPI deployed before this change reads a box saved as rows as holding
+  no questions, without a word; the GeekAPI after it reads every shape.
 
 **A rate refusal from OpenAI (a 429) is not handled, on a decision** (Jeff, 2026-10-12: "File suggestion, in case the
 problem occurs, but take it out"). A 429 is OpenAI's reply when the account has sent more tokens or requests in a minute than

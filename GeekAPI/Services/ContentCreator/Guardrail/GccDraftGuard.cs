@@ -157,6 +157,7 @@ public static partial class GccDraftGuard
         AddLengthFinding(document, inputs, findings, "tool page");
         AddKeywordFindings(document, inputs, findings, "tool page");
         AddKeywordHeadingFindings(document, inputs, findings, "tool page");
+        AddKeywordOpeningFinding(document, inputs, findings, "tool page");
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
     }
@@ -240,6 +241,7 @@ public static partial class GccDraftGuard
         AddLengthFinding(document, inputs, findings, type);
         AddKeywordFindings(document, inputs, findings, type);
         AddKeywordHeadingFindings(document, inputs, findings, type);
+        AddKeywordOpeningFinding(document, inputs, findings, type);
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
     }
@@ -269,18 +271,23 @@ public static partial class GccDraftGuard
     }
 
     /// <summary>
-    /// The page's keyword, judged once and by the page's own score: the exact phrase as a share of the
-    /// page's words, inside the band the SEO report passes (<see cref="GcwSeoAnalyzer"/>, the same
-    /// reader, tokenizer and match). Outside it the page ships and says so, naming the sections that
-    /// never use the phrase. A reported gap, never a refusal: the writer was asked for no count (Jeff,
-    /// 2026-10-10), and what could go back without breaking the grammar, <see cref="GccKeywordRemap"/>
-    /// has put back.
+    /// The page's keyword, judged once and by the page's own score: whether the exact phrase takes so
+    /// large a share of the page's words that it reads stuffed (<see cref="GcwSeoAnalyzer"/>, the same
+    /// reader, tokenizer and match). Over it the page ships and says so. A reported gap, never a
+    /// refusal.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <b>No page is reported for using the phrase too little</b> (Jeff, 2026-10-13). Until then a
+    /// page under 0.4% was, a minimum of the code's own that his SEO skills do not hold: the keyword
+    /// is judged by where it is placed, and <see cref="AddKeywordHeadingFindings"/> and the score's
+    /// own opening check read that. The line was on every real run from 2026-10-10 on.
+    /// </para>
+    /// <para>
     /// Until 2026-10-10 the count was checked a call at a time against the call's share of a count
     /// sized to the page's floor. Nine of the eighteen warnings on 2026-10-07 landed on pages the
-    /// score passed. The score's mark is a share of the words the page ends up with, closing and
-    /// questions included, and cannot be divided among calls in advance the way a word floor can.
+    /// score passed.
+    /// </para>
     /// </remarks>
     private static void AddKeywordFindings(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into, string type)
     {
@@ -291,21 +298,7 @@ public static partial class GccDraftGuard
 
         var used = $"The {type} uses \"{phrase}\" {counted.Uses} time{(counted.Uses == 1 ? string.Empty : "s")} in "
             + $"{counted.Words:N0} words ({counted.DensityPercent:0.00}%).";
-        if (counted.DensityPercent < GcwSeoAnalyzer.MinKeywordDensityPercent)
-        {
-            // Each section counted as the score counts it, headings and subsections included.
-            var never = new List<Section> { document.Lede }
-                .Concat(document.Sections)
-                .Where(s => !string.IsNullOrWhiteSpace(s.Heading) && UsesIn(s, phrase) == 0)
-                .Select(s => $"\"{s.Heading}\"")
-                .ToList();
-            into.Add(new GccGuardFinding(
-                "keyword-density",
-                $"{used} Its SEO score needs {GcwSeoAnalyzer.MinKeywordDensityPercent:0.0}%."
-                + (never.Count == 0 ? string.Empty : $" Sections that never use it: {string.Join(", ", never)}."),
-                Refuses: false));
-        }
-        else if (counted.DensityPercent > GcwSeoAnalyzer.MaxKeywordDensityPercent)
+        if (counted.DensityPercent > GcwSeoAnalyzer.MaxKeywordDensityPercent)
         {
             into.Add(new GccGuardFinding(
                 "keyword-density",
@@ -369,12 +362,77 @@ public static partial class GccDraftGuard
             Refuses: false));
     }
 
-    private static int UsesIn(Section section, string phrase) =>
-        GcwSeoAnalyzer.CountKeyword(
-            JsonSerializer.Serialize(
-                new ContentDocument(new Section("h2", string.Empty, [], null, []), [section]),
-                GccDocumentJson.Options),
-            phrase).Uses;
+    /// <summary>
+    /// The keyword in the page's opening, judged by the page's own score: the report's "Keyword in
+    /// lede" check (<see cref="GcwSeoAnalyzer.KeywordInTheOpening"/>). A reported gap, never a refusal.
+    /// </summary>
+    /// <remarks>
+    /// Jeff's <c>seo-content-brief</c> skill lists the first paragraph among the places the primary
+    /// keyword must appear. The score has always read it and the opening's request has always asked
+    /// for it; until 2026-10-13 a run's own lines did not say when it was missing.
+    /// </remarks>
+    private static void AddKeywordOpeningFinding(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into, string type)
+    {
+        if (string.IsNullOrWhiteSpace(inputs.Keyword)) return;
+        var phrase = inputs.Keyword.Trim();
+        if (GcwSeoAnalyzer.KeywordInTheOpening(JsonSerializer.Serialize(document, GccDocumentJson.Options), phrase)) return;
+
+        into.Add(new GccGuardFinding(
+            "keyword-opening",
+            $"The {type}'s opening does not contain \"{phrase}\". Its SEO score needs it there.",
+            Refuses: false));
+    }
+
+    /// <summary>
+    /// The keyword in a page's title and its meta description, judged by the page's own score
+    /// (<see cref="GcwSeoAnalyzer.Carries"/>, the match behind "Keyword in the title" and "Keyword in
+    /// the meta description"). Reported gaps, never refusals.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Jeff, 2026-10-13: "SEO skill requires, in which case it should be implemented." His
+    /// <c>seo-content-brief</c> skill lists where the primary keyword must appear: the title tag and
+    /// the H1, both made from the title; the URL slug, which a pillar and a blog take from the title;
+    /// the meta description; and the first paragraph. Until then no check read the title or the meta
+    /// description, the blog's and the tool page's requests asked for the keyword in neither, and the
+    /// pillar's asked for it in the meta description alone.
+    /// </para>
+    /// <para>
+    /// Apart from the page's other checks because it cannot run with them: a pillar's and a tool
+    /// page's title and meta description are written after the body is checked. Read after the meta
+    /// description is cut to its 160 characters, so a keyword the cut removed is reported.
+    /// </para>
+    /// </remarks>
+    /// <param name="type">The page as its lines name it: "pillar", "blog" or "tool page".</param>
+    public static IReadOnlyList<GccGuardFinding> KeywordPlacement(
+        string type, string? keyword, string? title, string? metaDescription)
+    {
+        if (string.IsNullOrWhiteSpace(keyword)) return [];
+        var phrase = keyword.Trim();
+        var findings = new List<GccGuardFinding>();
+
+        if (!GcwSeoAnalyzer.Carries(title, phrase))
+        {
+            findings.Add(new GccGuardFinding(
+                "keyword-title",
+                string.IsNullOrWhiteSpace(title)
+                    ? $"The {type} has no title. Its SEO score needs \"{phrase}\" in it."
+                    : $"The {type}'s title, \"{title.Trim()}\", does not contain \"{phrase}\". Its SEO score needs it there.",
+                Refuses: false));
+        }
+
+        if (!GcwSeoAnalyzer.Carries(metaDescription, phrase))
+        {
+            findings.Add(new GccGuardFinding(
+                "keyword-meta-description",
+                string.IsNullOrWhiteSpace(metaDescription)
+                    ? $"The {type} has no meta description. Its SEO score needs \"{phrase}\" in it."
+                    : $"The {type}'s meta description does not contain \"{phrase}\". Its SEO score needs it there.",
+                Refuses: false));
+        }
+
+        return findings;
+    }
 
     /// <summary>
     /// Every run and section href must lead somewhere the writer was given: the scheduler, the

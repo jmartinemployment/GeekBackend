@@ -12,9 +12,13 @@ namespace GeekBackend.Tests.ContentCreator;
 /// <summary>
 /// FAQ fields for the blog and the tool pages (Jeff, 2026-10-08: "Add Blog, Tool FAQ's"). The pillar
 /// answered the brief's People Also Ask list; the blog had no FAQ, and the tool page's FAQ came only
-/// from the vendor's extracted bank. Now the brief carries <c>blogFaqQuestions</c>, answered at the end
-/// of the blog the way the pillar's are, and each tool's entry carries <c>faqQuestions</c>, answered on
-/// that page from the partner's retrieved pages alone.
+/// from the vendor's extracted bank. The brief carries <c>blogFaqQuestions</c>, written at the end of
+/// the blog the way the pillar's are, and each tool's entry carries <c>faqQuestions</c>, written on
+/// that page.
+/// <para>
+/// 2026-10-13: every one of them is a question with the answer the operator entered for it, and the
+/// request hands the writer both. These hold what the three requests say.
+/// </para>
 /// </summary>
 public class GccFaqFromOperatorQuestionsTests
 {
@@ -42,28 +46,41 @@ public class GccFaqFromOperatorQuestionsTests
         ImplementerPositioning: "an AI implementation partner",
         Provider: LlmProviderType.OpenAi);
 
+    private static readonly GccFaqEntry[] TwoAnswered =
+    [
+        new("How long does a rollout take?", "Six weeks for a team of ten."),
+        new("What does it cost to run?", "Nothing beyond the licence."),
+    ];
+
     [Fact]
-    public void The_blogs_faq_questions_are_read_from_the_brief_as_lines_or_an_array()
+    public void The_blogs_faq_is_read_from_the_brief_as_rows_of_question_and_answer_or_as_questions_alone()
     {
+        var rows = GccGenerateService.ExtractBriefFields(
+            """{"blogFaqQuestions":[{"question":" How long does a rollout take? ","answer":" Six weeks for a team of ten. "},{"question":"What does it cost to run?","answer":""}]}""");
         var lines = GccGenerateService.ExtractBriefFields(
             """{"blogFaqQuestions":"How long does a rollout take?\nWhat does it cost to run?"}""");
         var array = GccGenerateService.ExtractBriefFields(
             """{"blogFaqQuestions":["How long does a rollout take?"," What does it cost to run? "]}""");
         var none = GccGenerateService.ExtractBriefFields("""{"paaQuestions":["A pillar question?"]}""");
 
-        Assert.Equal(["How long does a rollout take?", "What does it cost to run?"], lines.BlogFaqQuestions);
-        Assert.Equal(["How long does a rollout take?", "What does it cost to run?"], array.BlogFaqQuestions);
-        Assert.Null(none.BlogFaqQuestions);
+        Assert.Equal(
+            [new GccFaqEntry("How long does a rollout take?", "Six weeks for a team of ten."), new GccFaqEntry("What does it cost to run?", string.Empty)],
+            rows.BlogFaq);
+        GccFaqEntry[] unanswered = [new("How long does a rollout take?", string.Empty), new("What does it cost to run?", string.Empty)];
+        Assert.Equal(unanswered, lines.BlogFaq);
+        Assert.Equal(unanswered, array.BlogFaq);
+        Assert.Null(none.BlogFaq);
+        // The questions alone are what a heading may be tagged as taken from, with or without an answer.
         Assert.Equal(["A pillar question?"], none.PaaQuestions);
     }
 
     [Fact]
     public void The_blog_faq_prompt_is_the_pillars_shape_on_a_blog_under_its_own_heading()
     {
-        var request = Builder.BuildBlogFaqSectionPrompt(
+        var request = Builder.BuildBlogFaqFromAnswersPrompt(
             Context(),
             new BlogMetadataDraft("A Blog Title", "Meta", ["ai"], ["A"]),
-            ["How long does a rollout take?", "What does it cost to run?"]);
+            GccFaqAnswers.Render(TwoAnswered));
 
         var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
         var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
@@ -71,146 +88,98 @@ public class GccFaqFromOperatorQuestionsTests
         Assert.Contains("heading is exactly \"Frequently Asked Questions\"", system, StringComparison.Ordinal);
         Assert.DoesNotContain("People Also Ask", system, StringComparison.Ordinal);
         Assert.Contains("Article title: A Blog Title", user, StringComparison.Ordinal);
-        Assert.Contains("- Q1: How long does a rollout take?", user, StringComparison.Ordinal);
-        Assert.Contains("- Q2: What does it cost to run?", user, StringComparison.Ordinal);
+        Assert.Contains("Q1: How long does a rollout take?", user, StringComparison.Ordinal);
+        Assert.Contains("Q2: What does it cost to run?", user, StringComparison.Ordinal);
         Assert.Equal(3072, request.MaxOutputTokens);
     }
 
-    [Fact]
-    public void The_pillars_faq_prompt_is_unchanged_by_the_shared_builder()
+    /// <summary>
+    /// 2026-10-13: the pillar's and the blog's questions are written from the answers the operator
+    /// entered. From 2026-10-11 until then the request carried what a search of each partner's crawl
+    /// found and told the writer to answer only where a passage answered.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public void A_pillars_or_a_blogs_faq_prompt_hands_the_writer_each_question_with_its_answer(string page)
     {
-        var request = Builder.BuildArticleFaqSectionPrompt(
-            Context(), new ArticleMetadataDraft("A Pillar", "Meta", ["ai"], ["A"]), ["Q?"], isRegeneration: false);
+        var answers = GccFaqAnswers.Render(TwoAnswered);
+        var request = page == "pillar"
+            ? Builder.BuildArticleFaqFromAnswersPrompt(
+                Context(), new ArticleMetadataDraft("A Title", "Meta", ["ai"], ["A"]), answers)
+            : Builder.BuildBlogFaqFromAnswersPrompt(
+                Context(), new BlogMetadataDraft("A Title", "Meta", ["ai"], ["A"]), answers);
 
         var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
+        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
+        Assert.Contains(ContentPromptBuilder.OperatorAnswersInstruction, system, StringComparison.Ordinal);
+        Assert.Contains("Each question is a child Section", system, StringComparison.Ordinal);
+        Assert.Contains("paragraphs holds its answer", system, StringComparison.Ordinal);
+        // An answer is as long as the one entered, not a fixed two to four sentences.
+        Assert.DoesNotContain("2-4 sentence", system, StringComparison.Ordinal);
+        // The same money rule every other call that states figures carries.
+        Assert.Contains("US dollars", system, StringComparison.OrdinalIgnoreCase);
+        // No passage, and no deciding which question can be answered.
+        Assert.DoesNotContain("PARTNER EVIDENCE", system + user, StringComparison.Ordinal);
+        Assert.DoesNotContain("LEAVE THAT QUESTION OUT", system, StringComparison.Ordinal);
+
+        Assert.Contains(ContentPromptBuilder.OperatorAnswersHeading, user, StringComparison.Ordinal);
+        Assert.Contains(
+            "Q1: How long does a rollout take?" + Environment.NewLine
+            + "The operator's answer to Q1:" + Environment.NewLine
+            + "Six weeks for a team of ten.",
+            user,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "The operator's answer to Q2:" + Environment.NewLine + "Nothing beyond the licence.", user, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_pillars_faq_prompt_from_questions_alone_is_written_as_it_always_was()
+    {
+        // The Workflow product's writer: it holds no answer to pass.
+        var request = Builder.BuildArticleFaqSectionPrompt(
+            Context(), new ArticleMetadataDraft("A Pillar", "Meta", ["ai"], ["A"]), ["How long does a rollout take?"], isRegeneration: false);
+
+        var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
+        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
         Assert.Contains("Write ONLY the \"People Also Ask\" FAQ section of a TechnicalArticle pillar.", system, StringComparison.Ordinal);
         Assert.Contains("heading is exactly \"People Also Ask\"", system, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// 2026-10-11: the pillar's and the blog's questions are answered from what a search of each
-    /// partner's crawl found for them. Until then the call carried the questions and no evidence, and
-    /// the writer answered from its own general knowledge.
-    /// </summary>
-    [Theory]
-    [InlineData("pillar")]
-    [InlineData("blog")]
-    public void A_pillars_or_a_blogs_faq_prompt_given_evidence_answers_only_from_it(string page)
-    {
-        string[] questions = ["How long does a rollout take?", "What does it cost to run?"];
-        const string evidence = "Found for Q1:\n[Rollout] (https://partner.test/rollout)\n  - A rollout takes six weeks.";
-        var request = page == "pillar"
-            ? Builder.BuildArticleFaqSectionPrompt(
-                Context(), new ArticleMetadataDraft("A Title", "Meta", ["ai"], ["A"]), questions,
-                isRegeneration: false, evidenceBlock: evidence)
-            : Builder.BuildBlogFaqSectionPrompt(
-                Context(), new BlogMetadataDraft("A Title", "Meta", ["ai"], ["A"]), questions, evidence);
-
-        var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
-        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.Contains("Answer ONLY from the PARTNER EVIDENCE in the user message", system, StringComparison.Ordinal);
-        Assert.Contains("LEAVE THAT QUESTION OUT: no child for it and no placeholder", system, StringComparison.Ordinal);
-        Assert.Contains("Never answer from general knowledge", system, StringComparison.Ordinal);
-        Assert.Contains("\"Found for Q1:\" heads what a search of the partners' pages found for Q1", system, StringComparison.Ordinal);
-        Assert.Contains("Each answered question is a child Section", system, StringComparison.Ordinal);
-        // The same money rule every other call that is shown evidence carries.
-        Assert.Contains("US dollars", system, StringComparison.OrdinalIgnoreCase);
-
-        Assert.Contains("Questions to answer, only where the evidence answers them:", user, StringComparison.Ordinal);
-        Assert.Contains("=== PARTNER EVIDENCE (the partner tools' own pages; the only source for these answers) ===", user, StringComparison.Ordinal);
-        Assert.Contains("A rollout takes six weeks.", user, StringComparison.Ordinal);
-        Assert.True(
-            user.IndexOf("- Q2: What does it cost to run?", StringComparison.Ordinal)
-                < user.IndexOf("=== PARTNER EVIDENCE", StringComparison.Ordinal),
-            "the questions are listed before the evidence found for them");
-    }
-
-    [Theory]
-    [InlineData("pillar")]
-    [InlineData("blog")]
-    public void A_faq_prompt_given_no_evidence_is_written_as_it_always_was(string page)
-    {
-        // The Workflow product's writer: it has no search of a partner's crawl to pass.
-        string[] questions = ["How long does a rollout take?"];
-        var request = page == "pillar"
-            ? Builder.BuildArticleFaqSectionPrompt(
-                Context(), new ArticleMetadataDraft("A Title", "Meta", ["ai"], ["A"]), questions, isRegeneration: false)
-            : Builder.BuildBlogFaqSectionPrompt(
-                Context(), new BlogMetadataDraft("A Title", "Meta", ["ai"], ["A"]), questions);
-
-        var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
-        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.DoesNotContain("PARTNER EVIDENCE", system, StringComparison.Ordinal);
-        Assert.DoesNotContain("PARTNER EVIDENCE", user, StringComparison.Ordinal);
         Assert.Contains("Each question is a child Section", system, StringComparison.Ordinal);
+        Assert.Contains("paragraphs holds a 2-4 sentence answer", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("OPERATOR'S ANSWER", system, StringComparison.Ordinal);
         Assert.Contains("Questions to answer:", user, StringComparison.Ordinal);
+        Assert.Contains("  - Q1: How long does a rollout take?", user, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void The_tool_faq_prompt_answers_only_from_the_partners_evidence_and_leaves_the_rest_out()
+    public void The_tool_faq_prompt_hands_the_writer_each_question_with_its_answer_and_the_briefs_voice()
     {
-        var request = Builder.BuildToolFaqFromQuestionsPrompt(
-            Context(),
+        var request = Builder.BuildToolFaqFromAnswersPrompt(
+            Context() with { ToneOfVoice = "consultant_professional" },
             new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
             new SoftwareApplicationDescriptor("Partner Widget", null, "https://partner.test/widget"),
-            ["Does it sync with QuickBooks Online?", "Does it fly?"],
-            "[Partner Widget] (https://partner.test/widget)\n  - Partner Widget syncs every payment to QuickBooks Online.");
+            GccFaqAnswers.Render(
+            [
+                new GccFaqEntry("Does it sync with QuickBooks Online?", "Yes: every payment is synced as it is made."),
+                new GccFaqEntry("Does it fly?", "No."),
+            ]));
 
         var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
         var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.Contains("Answer ONLY from the PARTNER EVIDENCE", system, StringComparison.Ordinal);
-        Assert.Contains("LEAVE THAT QUESTION OUT", system, StringComparison.Ordinal);
+        Assert.Contains(ContentPromptBuilder.OperatorAnswersInstruction, system, StringComparison.Ordinal);
         Assert.Contains("heading is exactly \"Frequently Asked Questions\"", system, StringComparison.Ordinal);
-        Assert.Contains("=== PARTNER EVIDENCE", user, StringComparison.Ordinal);
-        Assert.Contains("syncs every payment to QuickBooks Online", user, StringComparison.Ordinal);
-        Assert.Contains("- Q2: Does it fly?", user, StringComparison.Ordinal);
+        Assert.Contains("paragraphs holds its answer", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("PARTNER EVIDENCE", system + user, StringComparison.Ordinal);
+        Assert.DoesNotContain("LEAVE THAT QUESTION OUT", system, StringComparison.Ordinal);
+        Assert.Contains(ContentPromptBuilder.OperatorAnswersHeading, user, StringComparison.Ordinal);
+        Assert.Contains("Q1: Does it sync with QuickBooks Online?", user, StringComparison.Ordinal);
+        Assert.Contains("Yes: every payment is synced as it is made.", user, StringComparison.Ordinal);
+        Assert.Contains("The operator's answer to Q2:" + Environment.NewLine + "No.", user, StringComparison.Ordinal);
         Assert.Contains("Page topic: Partner Widget", user, StringComparison.Ordinal);
         Assert.DoesNotContain("Pillar topic", user, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void The_tool_faq_prompt_with_no_evidence_says_so_instead_of_inviting_an_answer()
-    {
-        var request = Builder.BuildToolFaqFromQuestionsPrompt(
-            Context(),
-            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
-            new SoftwareApplicationDescriptor("Partner Widget", null, "https://partner.test/widget"),
-            ["Does it fly?"],
-            string.Empty);
-
-        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.Contains("(nothing was retrieved -- answer no question)", user, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// 2026-10-10: each question's passages come from a search for that question and are listed under
-    /// its label. The prompt says what the label means, with the label the block actually uses
-    /// (<c>GccToolFaqEvidence.Render</c>), so the two cannot name it differently.
-    /// </summary>
-    [Fact]
-    public void The_tool_faq_prompt_says_the_evidence_is_listed_under_the_question_it_was_found_for()
-    {
-        var evidence = GccToolFaqEvidence.Render(
-        [
-            ("Does it sync with QuickBooks Online?",
-            [
-                new GccQuoteablePage(
-                    "https://partner.test/widget", "Partner Widget", [],
-                    ["Partner Widget syncs every payment to QuickBooks Online."]),
-            ]),
-        ]);
-
-        var request = Builder.BuildToolFaqFromQuestionsPrompt(
-            Context(),
-            new ArticleMetadataDraft("Partner Widget", "Meta", ["ai"], []),
-            new SoftwareApplicationDescriptor("Partner Widget", null, "https://partner.test/widget"),
-            ["Does it sync with QuickBooks Online?"],
-            evidence);
-
-        var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
-        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.Contains("\"Found for Q1:\" heads what a search of Partner Widget's pages found for Q1", system, StringComparison.Ordinal);
-        Assert.Contains("- Q1: Does it sync with QuickBooks Online?", user, StringComparison.Ordinal);
-        Assert.Contains("Found for Q1:", user, StringComparison.Ordinal);
+        // The brief sets the voice and is not a source: every fact is the operator's answer.
+        Assert.Contains("every fact comes from the operator's answers below", user, StringComparison.Ordinal);
+        Assert.Equal(3072, request.MaxOutputTokens);
     }
 }
