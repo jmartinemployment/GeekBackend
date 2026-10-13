@@ -638,6 +638,25 @@ public class GccController : ControllerBase
     }
 
     /// <summary>
+    /// A "PDF / LinkedIn document" as the PDF that is posted, one slide a page, made now from the
+    /// saved deck. 400, saying why, for a version that is not a deck.
+    /// </summary>
+    /// <remarks>
+    /// Under the manage policy, as every route of the project's controller is. The routes beside this
+    /// one here are not: they ask only for a signed-in caller.
+    /// </remarks>
+    [HttpGet("versions/{id:guid}/pdf")]
+    [Authorize(Policy = ContentCreatorAuthConstants.ManagePolicy)]
+    public async Task<IActionResult> GetVersionPdf(Guid id, CancellationToken ct)
+    {
+        var deck = await _export.DeckPdfAsync(id, ct);
+        if (deck.NotFound) return NotFound();
+        if (deck.Refusal is not null) return BadRequest(deck.Refusal);
+
+        return File(deck.Pdf!, "application/pdf", deck.FileName);
+    }
+
+    /// <summary>
     /// One page as a standalone HTML file -- the pillar alone, one tool page, the blog -- from its
     /// newest version. The project export is every page as a zip; this is the file for the page on
     /// screen (Jeff, 2026-10-09: "Why can't I export just Pillar from this run?").
@@ -651,7 +670,15 @@ public class GccController : ControllerBase
 
         var bytes = document.BinaryContent ?? System.Text.Encoding.UTF8.GetBytes(document.Content ?? string.Empty);
         var fileName = Path.GetFileName(document.FileName);
-        var contentType = fileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? "application/json" : "text/html";
+        // By the file: a page is HTML, a deck is its PDF, a body that could not be read is the JSON it
+        // is saved as, and a deck whose PDF could not be made is the text that says why.
+        var contentType = Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".json" => "application/json",
+            ".txt" => "text/plain",
+            _ => "text/html",
+        };
         return File(bytes, contentType, fileName);
     }
 

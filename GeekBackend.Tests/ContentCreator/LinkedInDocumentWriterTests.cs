@@ -435,6 +435,20 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
         Assert.Empty(slides[5].GetProperty("outsideItsNumbers").EnumerateArray());
         Assert.Equal(3, deck.GetProperty("links").GetArrayLength());
 
+        // How each slide sets in the PDF is on the record: its sizes, and that none had to be set under
+        // the legible size. The slide with five lines is set smaller than the slide with two.
+        var pdf = deck.GetProperty("pdf");
+        var set = pdf.GetProperty("slides").EnumerateArray().ToList();
+        Assert.Equal([1, 2, 3, 4, 5, 6], set.Select(slide => slide.GetProperty("slide").GetInt32()));
+        Assert.All(set, slide =>
+        {
+            Assert.False(slide.GetProperty("underLegibleSize").GetBoolean());
+            Assert.True(slide.GetProperty("textSize").GetDouble() >= GccLinkedInDocumentPdfRenderer.LegibleTextSize);
+        });
+        Assert.True(set[4].GetProperty("textSize").GetDouble() <= set[2].GetProperty("textSize").GetDouble());
+        Assert.Empty(pdf.GetProperty("charactersNotHeld").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, pdf.GetProperty("failure").ValueKind);
+
         // The checks' verdict is on the record too, with the post as the section after the last slide.
         var verdict = Assert.Single(Events(recorded, "verdict"));
         Assert.True(verdict.GetProperty("clean").GetBoolean());

@@ -59,6 +59,8 @@ public sealed class ContentCreatorAuthorizationPipelineTests(GeekApiTestFactory 
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/deliverables"];
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/artifacts"];
         yield return [HttpMethod.Get, $"/api/geek-content-creator/projects/{SomeProjectId:D}/export/html"];
+        // A deck's PDF, by its version. Any id serves: the question here is who may ask.
+        yield return [HttpMethod.Get, $"/api/geek-content-creator/versions/{SomeProjectId:D}/pdf"];
     }
 
     /// <summary>

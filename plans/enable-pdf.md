@@ -1,7 +1,7 @@
 # Enable "PDF / LinkedIn document"
 
 **Written 2026-10-13. Status: approved the same day ("execute your plan to turn on PDF, Social and
-Email"). Steps 1 and 2 of six are built and committed on `main`, not pushed; see "As built" at the
+Email"). Steps 1, 2 and 3 of six are built and committed on `main`, not pushed; see "As built" at the
 end, which also lists where the build differs from this plan. The type stays "(disabled)" on
 Generate's "Content type" list until step 5 ships, and until step 4 a request for it is still
 refused. The four decisions at the end are settled, as written there, but for where the links go.**
@@ -149,11 +149,14 @@ The post is checked for figures and currency with the deck.
   Stored bytes could differ from the stored text.
 - **Routes.** `GET api/geek-content-creator/versions/{id}/pdf` beside `versions/{id}`
   (`GccController.cs:624`), answering `application/pdf`, and 400 by name for a version that is not a
-  deck. The project export zip gains `linkedin-document/{slug}.pdf` and `{slug}.caption.txt`
-  (`GccArtifactExportService`, `FolderFor` at line 298).
-- **Fonts** are files shipped inside GeekAPI and registered with QuestPDF at startup.
+  deck. The project export zip gains `linkedin-document/{slug}.pdf`, `{slug}.caption.txt` and
+  `{slug}.first-comment.txt` (`GccArtifactExportService`, `FolderFor`).
+- **Fonts** are files shipped inside GeekAPI and registered with QuestPDF the first time a PDF is
+  laid out.
 - **Tests read the PDF back** with PdfPig: the page count, the cover's title on page one, no address
-  on any page, the booking words on the last.
+  on any page but the site's on the last, the booking words on the last.
+
+Built in step 3; "As built" says what a slide looks like and what you are told when one does not fit.
 
 ## What Generate offers once it is open
 
@@ -179,7 +182,7 @@ do, so a real run should come in under this; its `evidence` events are the real 
 |---|---|---|
 | 1 | **Built 2026-10-13.** The prompt set: `ContentTypes/LinkedInDocumentPrompts.cs`, its outline, the cover-and-post reply shape, registered in `Program.cs` and in the tests' registry (`TestContentTypePrompts.cs`) | A five-partner Brief gives nine slides in the order above; a Brief with one partner gives the refusal |
 | 2 | **Built 2026-10-13.** The writer and the checks: `Writers/GccGenerateService.LinkedInDocument.cs`, `GccDraftGuard.LinkedInDocument`, the case in `GenerateOneAsync`, the deck's numbers in `ContentLengthTargets` | A deck is written through the real writer with a stand-in model; one test for each check; `BriefFieldReachTests` gains the deck and fails if a Brief box reaches none of its requests; each request's size is counted and written in this plan |
-| 3 | The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the PDF, the post and the first comment |
+| 3 | **Built 2026-10-13.** The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the PDF, the post and the first comment |
 | 4 | Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
 | 5 | The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides and the first comment under the post; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser |
 | 6 | The proof | Jeff runs one Generate with "PDF / LinkedIn document" alone and reads the PDF: every partner on its slide, no link inside, every figure in the evidence, the booking words on the last page, a post that reads as a LinkedIn post |
@@ -339,3 +342,66 @@ your site's words. A deck's requests print the keyword and notes there too, the 
 `GenerateOneAsync`, the partner-count refusal in `RunGenerateAsync` before the delete, and the
 refusal for a partner with no passage on a real run's path. Each is in place; step 4's whole-run
 test drives them.
+
+### Step 3, 2026-10-13: the PDF, its download and the export
+
+Not pushed. Nothing a run does has changed: the type is still on GeekAPI's disabled list. 2,314 unit
+and 48 integration tests pass.
+
+**Files.** `GccLinkedInDocumentPdfRenderer.cs` (the PDF), `GccLinkedInDocument.ReadSaved` (a saved
+page read as a deck), `GccArtifactExportService` (`DeckPdfAsync`, the deck's files in the export),
+the route in `GccController`, the two fonts in `GeekAPI/Assets/Fonts` with their licences. Tests:
+`LinkedInDocumentPdfTests`, 27.
+
+**What a slide looks like.** 1080 by 1350, one slide a page. The cover: navy ground, the title in
+white Sora, its one line under it. Every slide between: white ground, the title in navy Sora, a
+short navy rule, each line with a square marker in front. The last: navy ground, the booking words
+in white on the one orange band of the deck, your questions under it, the site's address as words.
+At the foot of every slide: "Geek @ Your Spot" on the left and "3 / 9" on the right. I looked at the
+slides as images, not only at their text read back.
+
+**How a slide is fitted.** Each slide is set at the largest of seven sizes at which it fits its page,
+found by laying it out, so a slide with five long lines is set smaller than a slide with two. The
+smallest is your `social` skill's 28 points. A slide that does not fit even at 28 is scaled down to
+its one page, nothing cut, and you are told when the deck is written, in one line naming the slide:
+"In the PDF, slide 4 ("...") holds more than fits a page at a size that reads on a phone, so its text
+is set smaller than 28 points. Write the deck again for a shorter slide." A slide at the most it is
+asked for, a ten-word title and four lines of fourteen words, is set with its lines at 46 points.
+
+**The download.** `GET api/geek-content-creator/versions/{id}/pdf` answers the PDF, named for the
+deck's title. A version that is not a deck is answered 400: "Only a PDF / LinkedIn document has a
+PDF, and this page is not one: it is saved as "pillar"." No bytes are stored; the PDF is made from
+the saved deck each time.
+
+**The export.** A project's zip holds, for its deck, `linkedin-document/{title}.pdf`,
+`{title}.caption.txt` (the post) and `{title}.first-comment.txt` (the links to paste under it), and
+no HTML for it. The one-page export of a deck answers the PDF.
+
+**Where step 3 differs from this plan, and what it adds. Say so if any should go back.**
+
+1. **The lines are set in Figtree, the titles in Sora.** This plan said Sora for titles and named no
+   face for the lines. Figtree is what your site sets body text in. Both are under the SIL Open Font
+   License, shipped inside GeekAPI (150 KB together) with the licence text beside each. Sora is from
+   `sora-xor/sora-font`, Figtree from `erikdkennedy/figtree`, the faces' own repositories.
+2. **A character the two faces have no shape for.** Neither has an emoji, a check mark or the
+   non-breaking hyphen the models write inside "month-end". The hyphen is drawn as a plain one. An
+   arrow, which only Figtree has, is drawn from Figtree in a title. Anything else would print as an
+   empty box, so you are told when the deck is written, in one line naming the slide and the
+   character, and both requests now ask for no symbol such as an arrow or a check mark (they already
+   asked for no emoji).
+3. **If the PDF cannot be laid out at all** when a deck is written (the PDF library not loading on
+   Railway), the deck is saved with a line saying so, not refused: the two requests are paid for and
+   the words are good. In the export a text file in the PDF's place says why. No test forces this.
+4. **The new route asks for the content-creator permission** (`content-creator.manage`), as every
+   project route does. **Found, and yours to decide:** the 19 routes beside it on that controller
+   (a version's text, a page's export, a create's export and the rest) ask only for a signed-in
+   caller, not for that permission. Only its five `clients` routes ask for it.
+5. **The fonts and the licence are registered the first time a PDF is laid out,** not at startup:
+   one place, and the tests go through it.
+6. **A deck type whose body is not a deck is exported as the JSON it is saved as,** as any page that
+   cannot be read is. A deck with no links has no first-comment file.
+
+**Railway, checked without a container.** The Linux build of the PDF library needs only the C and
+C++ runtime libraries GeekAPI's image already has (read from the library's own list of what it
+needs). It has not been run on Railway; the first deck there is the proof.
+

@@ -77,7 +77,8 @@ public partial class ContentPromptBuilder
     /// refuse a link and a quotation in a deck, so the writer is told of both here, before the reply.
     /// </summary>
     private const string DeckLineRules =
-        "A title and a line are plain words: no address, no link, no hashtag, no emoji, no quotation "
+        "A title and a line are plain words: no address, no link, no hashtag, no emoji and no symbol such as an "
+        + "arrow or a check mark, no quotation "
         + "marks around a source's words, and no label in front such as \"Slide 3:\" or \"Tip:\". "
         + "A figure, a price, a percentage or a timeframe appears only where the evidence in this message gives it; "
         + "where the evidence gives none, the line is written without one. No customer and no case study "

@@ -37,6 +37,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The two faces a "PDF / LinkedIn document" is set in, inside the assembly: Sora for a slide's
+      title and Figtree for its lines, the site's own (geekatyourspot layout.tsx). The Railway
+      container has no font to ask for by name. Both are under the SIL Open Font License, whose text
+      is beside each file.
+    -->
+    <EmbeddedResource Include="Assets\Fonts\Sora-Bold.ttf" LogicalName="GeekAPI.Assets.Fonts.Sora-Bold.ttf" />
+    <EmbeddedResource Include="Assets\Fonts\Figtree-Regular.ttf" LogicalName="GeekAPI.Assets.Fonts.Figtree-Regular.ttf" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="GeekBackend.Tests" />
     <!--
       The RAG contract tests deserialize a stub /v1/query payload through the client's own

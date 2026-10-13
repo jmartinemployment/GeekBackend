@@ -189,6 +189,14 @@ public partial class GccGenerateService
         // and a page it does not have is named then (GccGenerationCoordinator.NameMissingToolPages).
         var links = GccLinkedInDocument.Links(
             _company, GccPartnerToolPages.For(create, partnerUrls, _company.ToolBaseUrl));
+        var firstComment = GccLinkedInDocument.FirstComment(links);
+
+        // (6) How the deck sets as the PDF that is posted, found now so the operator hears of it with
+        // the deck and not on opening the file: a slide that had to be set under the legible size to
+        // fit its page, and a character the PDF's typefaces have no shape for.
+        var setting = SettingOf(new GccLinkedInDocument.SavedDeck(deck.Lede.Heading, deck, slides, post, firstComment));
+        warnings.AddRange(setting.Lines);
+
         // What a slide holds against the deck's numbers, on the run's record and not in the operator's
         // list: a line a word long is not something to act on. See GccDraftGuard.SlideSizes.
         await GccRunLog.RecordIfAnyAsync("deck", new
@@ -198,13 +206,21 @@ public partial class GccGenerateService
             postWords = GccDraftGuard.WordCount(post),
             postCharacters = post.Length,
             links = links.Select(link => new { link.Label, link.Url }).ToList(),
+            pdf = new
+            {
+                slides = setting.Slides
+                    .Select(fit => new { fit.Slide, fit.TitleSize, fit.TextSize, fit.UnderLegibleSize })
+                    .ToList(),
+                charactersNotHeld = setting.NotHeld,
+                failure = setting.Failure,
+            },
         });
 
         return JsonSerializer.Serialize(new
         {
             title = deck.Lede.Heading,
             caption = post,
-            firstComment = GccLinkedInDocument.FirstComment(links),
+            firstComment,
             links = links.Select(link => new { label = link.Label, href = link.Href, url = link.Url }).ToList(),
             slides = slides
                 .Select(slide => new { kind = slide.Kind.ToString().ToLowerInvariant(), partner = slide.Partner })
@@ -212,5 +228,53 @@ public partial class GccGenerateService
             warnings,
             body = deck,
         }, CwDocumentJson);
+    }
+
+    /// <summary>How a deck sets as a PDF, as found when the deck is written.</summary>
+    /// <param name="Slides">Each slide's sizes, in order. Empty when the deck could not be laid out.</param>
+    /// <param name="NotHeld">The characters the PDF's typefaces have no shape for, by slide.</param>
+    /// <param name="Failure">Why the deck could not be laid out, or null when it was.</param>
+    private sealed record DeckSetting(
+        IReadOnlyList<GccLinkedInDocumentPdfRenderer.SlideFit> Slides,
+        IReadOnlyList<GccLinkedInDocumentPdfRenderer.NotHeld> NotHeld,
+        string? Failure)
+    {
+        /// <summary>What the operator is told of it, one line for each thing to act on.</summary>
+        public IEnumerable<string> Lines =>
+            Failure is not null
+                ? [$"The PDF of this deck could not be laid out ({Failure}). The deck is saved as it was written; "
+                   + "its PDF cannot be downloaded until that is put right."]
+                : new[]
+                    {
+                        GccLinkedInDocumentPdfRenderer.SetSmallLine(Slides),
+                        GccLinkedInDocumentPdfRenderer.EmptyBoxLine(NotHeld),
+                    }
+                    .OfType<string>();
+    }
+
+    /// <summary>
+    /// Lays the deck out as its PDF and answers how it set. Nothing is kept of the PDF itself: it is
+    /// made again from the saved deck when it is asked for.
+    /// </summary>
+    /// <remarks>
+    /// A deck is its words, and the PDF is one way of printing them. If the layout itself fails (the
+    /// PDF library not loading in the container, a font not found inside GeekAPI) the deck that two
+    /// requests were paid for is still saved, with the reason in its lines; refusing it would throw the
+    /// words away for a fault the words did not cause.
+    /// </remarks>
+    private DeckSetting SettingOf(GccLinkedInDocument.SavedDeck deck)
+    {
+        try
+        {
+            return new DeckSetting(
+                GccLinkedInDocumentPdfRenderer.Fit(deck, _company),
+                GccLinkedInDocumentPdfRenderer.CharactersNotHeld(deck),
+                Failure: null);
+        }
+        catch (Exception fault) when (fault is not OperationCanceledException)
+        {
+            _logger.LogError(fault, "A deck's PDF could not be laid out when the deck was written.");
+            return new DeckSetting([], [], fault.GetBaseException().Message);
+        }
     }
 }

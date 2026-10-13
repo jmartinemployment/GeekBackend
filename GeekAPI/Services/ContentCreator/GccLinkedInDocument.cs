@@ -406,6 +406,78 @@ public static class GccLinkedInDocument
                 : null;
     }
 
+    /// <summary>A deck as it is saved, read back: what the PDF and the export are made from.</summary>
+    /// <param name="Title">The deck's title, which is its cover's.</param>
+    /// <param name="Deck">The cover as the opening, and each slide after it as a section.</param>
+    /// <param name="Slides">What each slide is, in order, the cover first.</param>
+    /// <param name="Post">The LinkedIn post the document is attached to.</param>
+    /// <param name="FirstComment">The links, as text to paste as the first comment under the post.</param>
+    public sealed record SavedDeck(
+        string Title,
+        ContentDocument Deck,
+        IReadOnlyList<GccDeckSlidePlan> Slides,
+        string Post,
+        string FirstComment);
+
+    /// <summary>
+    /// A saved page's body read as a deck, or null when it is not one: another type's page, a body
+    /// that is not JSON, or a deck whose slide list and document do not agree.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is inferred. What each slide is comes from the saved <c>slides</c> list, which the
+    /// writer made beside the document, and a body without it is not read as a deck by the position
+    /// of its sections.
+    /// </remarks>
+    public static SavedDeck? ReadSaved(string? bodyJson, JsonSerializerOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(bodyJson)) return null;
+
+        try
+        {
+            using var saved = JsonDocument.Parse(bodyJson);
+            var root = saved.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("slides", out var listed) || listed.ValueKind != JsonValueKind.Array
+                || !root.TryGetProperty("body", out var body) || body.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var slides = new List<GccDeckSlidePlan>();
+            foreach (var slide in listed.EnumerateArray())
+            {
+                if (slide.ValueKind != JsonValueKind.Object
+                    || !slide.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String
+                    || !Enum.TryParse<GccDeckSlideKind>(kind.GetString(), ignoreCase: true, out var what)
+                    || !Enum.IsDefined(what))
+                {
+                    return null;
+                }
+
+                slides.Add(new GccDeckSlidePlan(what, Text(slide, "partner")));
+            }
+
+            var deck = body.Deserialize<ContentDocument>(options);
+            if (deck?.Lede is null || deck.Sections is null) return null;
+            // One section for each slide after the cover, and the cover first.
+            if (slides.Count != deck.Sections.Count + 1 || slides[0].Kind != GccDeckSlideKind.Cover) return null;
+
+            return new SavedDeck(
+                Text(root, "title") ?? deck.Lede.Heading,
+                deck,
+                slides,
+                Text(root, "caption") ?? string.Empty,
+                Text(root, "firstComment") ?? string.Empty);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        static string? Text(JsonElement of, string name) =>
+            of.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+
     /// <summary>Each partner once, in the order given, blanks left out.</summary>
     private static IReadOnlyList<string> Named(IReadOnlyList<string>? partners) =>
         [.. (partners ?? [])

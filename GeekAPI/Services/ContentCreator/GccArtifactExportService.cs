@@ -79,6 +79,7 @@ public sealed class GccArtifactExportService(
     /// <summary>
     /// One page -- the pillar, a tool page, the blog -- as the single HTML file the project zip would
     /// hold for it, from its newest version. Null when the artifact does not exist or has no version.
+    /// A deck's one file is its PDF.
     /// </summary>
     /// <remarks>
     /// Jeff, 2026-10-09: "Why can't I export just Pillar from this run?" The only export was the whole
@@ -93,6 +94,91 @@ public sealed class GccArtifactExportService(
 
         var documents = await ExportArtifactsAsync(create, [artifact], ct);
         return documents.FirstOrDefault(d => !d.FileName.StartsWith("image-prompts/", StringComparison.Ordinal));
+    }
+
+    /// <summary>What asking for a version's PDF came to: exactly one of the three is set.</summary>
+    /// <param name="NotFound">True when there is no such version, or its page is gone.</param>
+    /// <param name="Refusal">Why this version has no PDF: it is not a deck, or was not saved as one.</param>
+    /// <param name="FileName">The PDF's file name, when it was made.</param>
+    /// <param name="Pdf">The PDF.</param>
+    public sealed record DeckPdf(bool NotFound = false, string? Refusal = null, string? FileName = null, byte[]? Pdf = null);
+
+    /// <summary>
+    /// A "PDF / LinkedIn document" as the PDF that is posted, made now from the saved deck. No bytes
+    /// are stored: stored bytes could differ from the stored words.
+    /// </summary>
+    public async Task<DeckPdf> DeckPdfAsync(Guid versionId, CancellationToken ct)
+    {
+        var version = await repo.GetVersionAsync(versionId, ct);
+        if (version is null) return new DeckPdf(NotFound: true);
+        var artifact = await repo.GetArtifactAsync(version.ArtifactId, ct);
+        if (artifact is null) return new DeckPdf(NotFound: true);
+
+        if (!IsDeck(artifact.Type))
+        {
+            return new DeckPdf(Refusal:
+                $"Only a {GccLinkedInDocument.Label} has a PDF, and this page is not one: it is saved as \"{artifact.Type}\".");
+        }
+
+        if (GccLinkedInDocument.ReadSaved(version.BodyDocumentJson, Json) is not { } deck)
+        {
+            return new DeckPdf(Refusal:
+                $"This {GccLinkedInDocument.Label} is not saved as a deck of slides, so no PDF can be made from it. "
+                + "Write it again with Generate.");
+        }
+
+        return new DeckPdf(
+            FileName: $"{Slug(deck.Title, artifact.Id)}.pdf",
+            Pdf: GccLinkedInDocumentPdfRenderer.Render(deck, _company));
+    }
+
+    /// <summary>Whether a page's type is the deck's, however it is spelled.</summary>
+    private static bool IsDeck(string? contentType) =>
+        GccGenerationCoordinator.LettersOf(contentType ?? string.Empty) == GccGenerationCoordinator.LinkedInDocumentType;
+
+    /// <summary>
+    /// A deck's files: the PDF that is posted, the post it is attached to, and the links to paste as
+    /// the first comment under it. No HTML: a deck is not a page of the site.
+    /// </summary>
+    /// <remarks>
+    /// A deck whose PDF cannot be made is not left out of the archive without a word and does not
+    /// cost the archive its other pages: a text file in the PDF's place says why, beside the post and
+    /// the comment.
+    /// </remarks>
+    private List<ExportedHtmlDocument> DeckFiles(GccArtifactDto artifact, GccArtifactVersionDto latest)
+    {
+        var folder = FolderFor(artifact.Type);
+        if (GccLinkedInDocument.ReadSaved(latest.BodyDocumentJson, Json) is not { } deck)
+        {
+            // As for any page whose body cannot be read: exported as it is saved, not dropped.
+            logger.LogWarning(
+                "Artifact {ArtifactId} ({Type}) could not be read as a deck; exporting raw.",
+                artifact.Id, artifact.Type);
+            return [new ExportedHtmlDocument($"{folder}/{Slug(artifact.Name, artifact.Id)}.json", latest.BodyDocumentJson)];
+        }
+
+        var slug = Slug(deck.Title, artifact.Id);
+        var files = new List<ExportedHtmlDocument>();
+        try
+        {
+            files.Add(new ExportedHtmlDocument(
+                $"{folder}/{slug}.pdf", BinaryContent: GccLinkedInDocumentPdfRenderer.Render(deck, _company)));
+        }
+        catch (Exception fault) when (fault is not OperationCanceledException)
+        {
+            logger.LogError(fault, "The PDF of artifact {ArtifactId} could not be made for the export.", artifact.Id);
+            files.Add(new ExportedHtmlDocument(
+                $"{folder}/{slug}.pdf-was-not-made.txt",
+                $"The PDF of this deck could not be made: {fault.GetBaseException().Message}"));
+        }
+
+        files.Add(new ExportedHtmlDocument($"{folder}/{slug}.caption.txt", deck.Post));
+        if (!string.IsNullOrWhiteSpace(deck.FirstComment))
+        {
+            files.Add(new ExportedHtmlDocument($"{folder}/{slug}.first-comment.txt", deck.FirstComment));
+        }
+
+        return files;
     }
 
     /// <summary><paramref name="fileName"/>, or it with "-2", "-3"... before the extension when taken.</summary>
@@ -121,6 +207,12 @@ public sealed class GccArtifactExportService(
             var versions = await repo.ListVersionsAsync(artifact.Id, ct);
             var latest = versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
             if (latest is null) continue;
+
+            if (IsDeck(artifact.Type))
+            {
+                documents.AddRange(DeckFiles(artifact, latest));
+                continue;
+            }
 
             var parsed = GccBodyEnvelope.Read(latest.BodyDocumentJson, Json);
             if (parsed.Document is null)
@@ -294,21 +386,23 @@ public sealed class GccArtifactExportService(
         return files;
     }
 
-    /// <summary>v1's folder scheme, by content type.</summary>
+    /// <summary>v1's folder scheme, by content type, and a folder of its own for a deck.</summary>
     private static string FolderFor(string? contentType) =>
-        (contentType ?? "").Trim().ToLowerInvariant() switch
-        {
-            "pillar" => "use-cases",
-            "blog" => "blog",
-            "tool" or "aitool" => "tools",
-            "email" or "email-cold-outreach" => "email",
-            "linkedin" => "social/linkedin",
-            "facebook" => "social/facebook",
-            "x" or "instagram" or "social" => "social",
-            "ads" or "googleads" or "metaads" => "ads",
-            "image-prompt" or "imageprompt" => "image-prompts/standalone",
-            _ => "misc",
-        };
+        IsDeck(contentType)
+            ? "linkedin-document"
+            : (contentType ?? "").Trim().ToLowerInvariant() switch
+            {
+                "pillar" => "use-cases",
+                "blog" => "blog",
+                "tool" or "aitool" => "tools",
+                "email" or "email-cold-outreach" => "email",
+                "linkedin" => "social/linkedin",
+                "facebook" => "social/facebook",
+                "x" or "instagram" or "social" => "social",
+                "ads" or "googleads" or "metaads" => "ads",
+                "image-prompt" or "imageprompt" => "image-prompts/standalone",
+                _ => "misc",
+            };
 
     private static string Slug(string? value, Guid fallback)
     {
