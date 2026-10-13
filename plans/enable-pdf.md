@@ -1,10 +1,10 @@
 # Enable "PDF / LinkedIn document"
 
 **Written 2026-10-13. Status: approved the same day ("execute your plan to turn on PDF, Social and
-Email"). Steps 1 to 4 of six are built and committed on `main`, not pushed; see "As built" at the
-end, which also lists where the build differs from this plan. The type stays "(disabled)" on
-Generate's "Content type" list until step 5 ships. GeekAPI as deployed still refuses a request for
-it; GeekAPI as committed takes one. The four decisions at the end are settled, as written there, but for where the links go.**
+Email"). Steps 1 to 5 of six are built and committed on `main` in both repositories, and **nothing
+of it is pushed**; see "As built" at the end, which also lists where the build differs from this
+plan. Until the push the live screen still shows the type as "(disabled)" and the live GeekAPI
+still refuses it. Step 6 is your proof run. The four decisions at the end are settled, as written there, but for where the links go.**
 
 Jeff, 2026-10-13: *"Create a plan to enable PDF."*
 
@@ -184,7 +184,7 @@ do, so a real run should come in under this; its `evidence` events are the real 
 | 2 | **Built 2026-10-13.** The writer and the checks: `Writers/GccGenerateService.LinkedInDocument.cs`, `GccDraftGuard.LinkedInDocument`, the case in `GenerateOneAsync`, the deck's numbers in `ContentLengthTargets` | A deck is written through the real writer with a stand-in model; one test for each check; `BriefFieldReachTests` gains the deck and fails if a Brief box reaches none of its requests; each request's size is counted and written in this plan |
 | 3 | **Built 2026-10-13.** The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the PDF, the post and the first comment |
 | 4 | **Built 2026-10-13, not pushed.** Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
-| 5 | The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides and the first comment under the post; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser |
+| 5 | **Built 2026-10-13, not pushed.** The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides and the first comment under the post; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser, which waits for the push |
 | 6 | The proof | Jeff runs one Generate with "PDF / LinkedIn document" alone and reads the PDF: every partner on its slide, no link inside, every figure in the evidence, the booking words on the last page, a post that reads as a LinkedIn post |
 
 The form is pushed after GeekAPI: the other order offers a type the server refuses.
@@ -444,4 +444,41 @@ for eight.
 **Before it is pushed.** No Generate and no crawl may be running: a GeekBackend push kills a running
 Generate and makes the crawler delete a running crawl. GeekBackend goes first and the form after it,
 since the other order offers a type the server refuses.
+
+### Step 5, 2026-10-13: the form
+
+Committed in content-creator-v2, not pushed. 89 tests pass, `tsc` is clean, `eslint` has no error,
+and the production build holds the new wording whole (checked in the built files, because on
+2026-10-13 the build dropped a space the tests kept).
+
+**What you will see once it is pushed.**
+- Generate's "Content type" list: "PDF / LinkedIn document" can be ticked, with no "(disabled)".
+- Its tab, "PDF / LinkedIn document": each slide as "Slide 3 of 9 · Ramp" with its title and its
+  lines; under the slides "The LinkedIn post"; under the post "The first comment", with the line
+  "Paste this as the first comment under the post. The post itself carries no link."
+- One line of facts above the slides: "9 slides. The post is 182 words, 1,204 characters."
+- Under "Approve & export": "Download PDF" where a page has "Export this page (.html)". "Export HTML
+  (.zip)" holds the deck's PDF, its post and its first comment.
+- "Written with a gap (n)" above the slides, as on a page, when the deck was saved with a line.
+
+**Where step 5 differs from this plan. Say so if any should go back.**
+
+1. **The type has no length band, where this plan said its own.** A band is a word range, and step 1
+   dropped the deck's word range: its slide numbers are its size. The tab states the slides and the
+   post's length and judges neither. Until now the type borrowed the LinkedIn post's band.
+2. **No "On-page SEO & polish" under a deck.** The search score is refused by GeekAPI for a deck
+   (step 4). The polish score is left out too: one of its five checks is the quality of a page's
+   opening paragraph, which a cover's one line would fail with nothing for you to act on.
+3. **No "Repurpose" under a deck.** As this plan says: an email, a post and an ad are written from
+   the Pillar.
+
+**Found and fixed while testing.** Choosing another tab changes the page a moment before its text is
+read, and in that moment the old text's scores were asked for again under the new page's name. It
+wasted two requests on every change of tab, and going from a deck to a Pillar it would have asked
+for a deck's search score, which GeekAPI now refuses. Scores are asked only for the chosen page's
+own text.
+
+**Deleted:** the second list of content types in `src/lib/config.ts`. Nothing read it.
+
+**Not done until the push:** reading the live screen's exact words in the browser.
 
