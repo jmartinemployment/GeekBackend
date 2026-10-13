@@ -114,7 +114,7 @@ public sealed class GccArtifactExportService(
         var artifact = await repo.GetArtifactAsync(version.ArtifactId, ct);
         if (artifact is null) return new DeckPdf(NotFound: true);
 
-        if (!IsDeck(artifact.Type))
+        if (!GccLinkedInDocument.IsType(artifact.Type))
         {
             return new DeckPdf(Refusal:
                 $"Only a {GccLinkedInDocument.Label} has a PDF, and this page is not one: it is saved as \"{artifact.Type}\".");
@@ -131,10 +131,6 @@ public sealed class GccArtifactExportService(
             FileName: $"{Slug(deck.Title, artifact.Id)}.pdf",
             Pdf: GccLinkedInDocumentPdfRenderer.Render(deck, _company));
     }
-
-    /// <summary>Whether a page's type is the deck's, however it is spelled.</summary>
-    private static bool IsDeck(string? contentType) =>
-        GccGenerationCoordinator.LettersOf(contentType ?? string.Empty) == GccGenerationCoordinator.LinkedInDocumentType;
 
     /// <summary>
     /// A deck's files: the PDF that is posted, the post it is attached to, and the links to paste as
@@ -208,7 +204,7 @@ public sealed class GccArtifactExportService(
             var latest = versions.OrderByDescending(v => v.VersionNumber).FirstOrDefault();
             if (latest is null) continue;
 
-            if (IsDeck(artifact.Type))
+            if (GccLinkedInDocument.IsType(artifact.Type))
             {
                 documents.AddRange(DeckFiles(artifact, latest));
                 continue;
@@ -388,7 +384,7 @@ public sealed class GccArtifactExportService(
 
     /// <summary>v1's folder scheme, by content type, and a folder of its own for a deck.</summary>
     private static string FolderFor(string? contentType) =>
-        IsDeck(contentType)
+        GccLinkedInDocument.IsType(contentType)
             ? "linkedin-document"
             : (contentType ?? "").Trim().ToLowerInvariant() switch
             {

@@ -227,20 +227,22 @@ public partial class GccGenerateService
     /// GenerateStartingContentAsync, never repurposed, never mis-routed).
     /// Everything still in this set has no real, correctly-routed implementation at all:
     /// TechArticle/Comparison/Alternatives/CaseStudy/Guide/Listicle/Service/Local/Whitepaper are
-    /// always the generic fallback inside GenerateStartingContentAsync; LinkedInDocument has zero
-    /// content-type-specific treatment; EmailNewsletter/EmailStoryNurture/EmailTransactional all
+    /// always the generic fallback inside GenerateStartingContentAsync;
+    /// EmailNewsletter/EmailStoryNurture/EmailTransactional all
     /// currently produce cold-outreach-shaped content regardless of which is selected -- not a thin
     /// version of the right thing, the wrong thing. Standalone Image prompt is not in this set: it
     /// was never flagged as broken. Email-cold-outreach, Social and Ads are not in it either, and are
     /// not disabled: each is written from a page (<see cref="GccRepurpose"/>), by a Generate from the
-    /// project's Pillar and by a Repurpose from one approved page.
-    /// Normalized by stripping hyphens/spaces/slashes and lowercasing, so "tech-article"/"techArticle"
-    /// and "PDF / LinkedIn document"/"linkedin-document" both match one entry each.
+    /// project's Pillar and by a Repurpose from one approved page. "PDF / LinkedIn document" left
+    /// the set on 2026-10-13, when it was given a writer, checks and a PDF of its own
+    /// (<c>Writers/GccGenerateService.LinkedInDocument.cs</c>, <c>plans/enable-pdf.md</c>).
+    /// Normalized by stripping hyphens/spaces/slashes and lowercasing, so "tech-article" and
+    /// "techArticle" match one entry.
     /// </summary>
     private static readonly HashSet<string> DisabledContentTypes = new(StringComparer.Ordinal)
     {
         "techarticle", "comparison", "alternatives", "casestudy", "guide", "listicle",
-        "service", "local", "whitepaper", "linkedindocument",
+        "service", "local", "whitepaper",
         "emailnewsletter", "emailstorynurture", "emailtransactional",
     };
 

@@ -1,10 +1,10 @@
 # Enable "PDF / LinkedIn document"
 
 **Written 2026-10-13. Status: approved the same day ("execute your plan to turn on PDF, Social and
-Email"). Steps 1, 2 and 3 of six are built and committed on `main`, not pushed; see "As built" at the
+Email"). Steps 1 to 4 of six are built and committed on `main`, not pushed; see "As built" at the
 end, which also lists where the build differs from this plan. The type stays "(disabled)" on
-Generate's "Content type" list until step 5 ships, and until step 4 a request for it is still
-refused. The four decisions at the end are settled, as written there, but for where the links go.**
+Generate's "Content type" list until step 5 ships. GeekAPI as deployed still refuses a request for
+it; GeekAPI as committed takes one. The four decisions at the end are settled, as written there, but for where the links go.**
 
 Jeff, 2026-10-13: *"Create a plan to enable PDF."*
 
@@ -183,7 +183,7 @@ do, so a real run should come in under this; its `evidence` events are the real 
 | 1 | **Built 2026-10-13.** The prompt set: `ContentTypes/LinkedInDocumentPrompts.cs`, its outline, the cover-and-post reply shape, registered in `Program.cs` and in the tests' registry (`TestContentTypePrompts.cs`) | A five-partner Brief gives nine slides in the order above; a Brief with one partner gives the refusal |
 | 2 | **Built 2026-10-13.** The writer and the checks: `Writers/GccGenerateService.LinkedInDocument.cs`, `GccDraftGuard.LinkedInDocument`, the case in `GenerateOneAsync`, the deck's numbers in `ContentLengthTargets` | A deck is written through the real writer with a stand-in model; one test for each check; `BriefFieldReachTests` gains the deck and fails if a Brief box reaches none of its requests; each request's size is counted and written in this plan |
 | 3 | **Built 2026-10-13.** The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the PDF, the post and the first comment |
-| 4 | Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
+| 4 | **Built 2026-10-13, not pushed.** Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
 | 5 | The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides and the first comment under the post; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser |
 | 6 | The proof | Jeff runs one Generate with "PDF / LinkedIn document" alone and reads the PDF: every partner on its slide, no link inside, every figure in the evidence, the booking words on the last page, a post that reads as a LinkedIn post |
 
@@ -404,4 +404,44 @@ no HTML for it. The one-page export of a deck answers the PDF.
 **Railway, checked without a container.** The Linux build of the PDF library needs only the C and
 C++ runtime libraries GeekAPI's image already has (read from the library's own list of what it
 needs). It has not been run on Railway; the first deck there is the proof.
+
+### Step 4, 2026-10-13: GeekAPI's gate is open
+
+Committed, not pushed. Until it is pushed nothing a run does has changed. 2,333 unit and 48
+integration tests pass.
+
+**What changed.** "PDF / LinkedIn document" is off GeekAPI's disabled list, so a Generate asked for
+it is run. The route answers 400, before a run exists, for a project with fewer than two partner
+tools or more than eight, saying how many it has. The names left from the deleted deck code are gone
+(`LinkedInCarousel`, `IsLinkedIn`, `IsCarouselJob`, and the deck in the list of types given image
+prompts). `AGENTS.md`, `docs/technical-specification.md` and `docs/content-creator-sources.md` say
+what was built.
+
+**Found by the first test that drove a whole run, and fixed before any real run.** Asked for alone,
+a deck would have been written with nothing searched for: the table that says which crawls a type
+is searched in listed the Pillar, the Blog and tool pages, and a type that is not in it is searched
+for nothing and written from the Brief alone, with no line saying so. Every earlier test of the deck
+handed the writer its research, so none saw it. The deck is in the table now and is searched for
+exactly what a Pillar is. Ticked beside "Pillar" it would have been given the Pillar's research and
+the fault would have shown only on a run with the deck alone, which is the proof run this plan asks
+you for.
+
+**A deck is not scored for search.** `versions/{id}/seo` answers 400 for one, saying so. The old code
+scored a deck against 400 words and 6 sections; scored as a page it would be failed for having no
+meta description. Step 5 keeps the form from asking.
+
+**Tested through a whole run** (`LinkedInDocumentRunTests`, 18): the real coordinator, the real
+search resolver over a stand-in index, the real writer over a stand-in model, and a repository that
+holds what it is given. A deck ticked alone is searched for in the site's crawl and each partner's,
+its old page is deleted before a request is sent, it is written in two requests that each carry
+what the searches returned for both partners, and it is saved in one write as one page named for the
+keyword, which reads back as a deck. A deck ticked beside "Pillar" is saved with it in one write.
+One partner and nine partners are refused before anything is deleted, searched or sent, the Pillar
+ticked beside it included. A partner whose crawl returns nothing refuses the deck by name before a
+request is sent. The route answers 400 for none, one and nine partners and starts a run for two and
+for eight.
+
+**Before it is pushed.** No Generate and no crawl may be running: a GeekBackend push kills a running
+Generate and makes the crawler delete a running crawl. GeekBackend goes first and the form after it,
+since the other order offers a type the server refuses.
 

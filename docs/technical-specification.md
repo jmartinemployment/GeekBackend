@@ -119,16 +119,17 @@ client, get, create, update, status, brief PATCH, soft delete), artifacts, log, 
 `{jobId}`; `GET {id}/generate/latest`; `GET {id}/generate/{jobId}/events`), **repurpose**
 (`POST {id}/pages/{pageId}/repurpose` returns 202 `{jobId, pageId}`; `GET {id}/pages/{pageId}/repurpose/latest`),
 `export/html`, tasks, time, deliverables.
-`GccController`: clients, creates, versions (`GET`, `seo`, `polish`, `approve`), keyword sources, image prompts,
+`GccController`: clients, creates, versions (`GET`, `seo`, `polish`, `approve`, `pdf`), keyword sources, image prompts,
 SERP parse, partner-quote readiness. `GccInternalController` (API key): brief backfill.
 GeekRepository mirrors these under `repo/content-creator/**` (InternalService).
 
-**Content types.** Written by Generate from the Brief and the research: pillar, blog, tool (one page per partner), image
+**Content types.** Written by Generate from the Brief and the research: pillar, blog, tool (one page per partner), the
+"PDF / LinkedIn document" (`linkedin-document`, a deck of slides and its post; below), image
 prompt. Written from a page, by Generate from the project's Pillar and by Repurpose from one approved page: email (cold
 outreach), social, ads, and the per-channel posts (`linkedin`, `x`, `instagram`, `facebook`, `metaads`, `googleads`).
-Disabled by `DisabledContentTypes` (13 keys): tech article, comparison,
-alternatives, case study, guide, listicle, service, local, whitepaper, LinkedIn document, three email variants. Only pillar,
-blog and tool have registered prompt sets.
+Disabled by `DisabledContentTypes` (12 keys): tech article, comparison,
+alternatives, case study, guide, listicle, service, local, whitepaper, three email variants. Pillar,
+blog, tool and the deck have registered prompt sets.
 
 **Generate, end to end.**
 1. `GccProjectsController.Generate` validates the actor, provider, types, declared URL index, site crawl and brief; inserts the
@@ -201,6 +202,42 @@ no short piece is unchanged.
   deleted) and `piecesWrittenFrom` on `settled`.
 - **Not built:** a piece written by Generate from a tool page (that is Repurpose's), and the six per-channel types on the
   form's list, which GeekAPI takes by the same rule.
+
+**A "PDF / LinkedIn document", end to end** (2026-10-13; `plans/enable-pdf.md`; committed, not pushed, not seen in a real
+run). Jeff: *"execute your plan to turn on PDF, Social and Email"*. A deck of 6 to 12 slides and the LinkedIn post that
+carries it, written from the Brief and the research like the Pillar and not from a page.
+1. **The slides are fixed by code** (`GccLinkedInDocument.Slides`): the cover, the problem, one slide for each partner in
+   the project's order, the approach, what to do next. Two to eight partners; any other number is refused saying how many
+   the project has (`PartnerRefusal`), by the route with 400 before a run exists, by the run before a page is deleted, and
+   by the writer before a request is built.
+2. **Searched for like the Pillar** (`GccGroundingResolver.RetrieveCrawlTypes`). A type that is not in that table is
+   searched for nothing and written from the Brief alone; the deck was not in it until its first whole-run test. A partner
+   whose crawl returns no passage refuses the deck by name, as it refuses a pillar.
+3. **Two requests** (`Writers/GccGenerateService.LinkedInDocument.cs`), each through `RequestThatFitsAsync` with all of the
+   page's research: the cover with the post, then every slide between the cover and the last. A slide's reply is a title
+   and its lines as strings; a reply with another number of slides than were assigned is refused, never fitted.
+4. **The last slide is built by code** (`NextSlide`): the booking words, the Brief's questions, the site's address as words.
+   No request is shown the questions.
+5. **The checks, once** (`GccDraftGuard.LinkedInDocument`), with the post as one more section so it is checked as a slide
+   is: a line or a sentence of the post with a number the research does not hold is deleted and named; such a number in a
+   title refuses the deck; money not in US dollars, a quotation, a link or a typed address, and a quiz on a slide refuse;
+   a partner not named on its slide and a post over LinkedIn's 3,000 characters are listed.
+6. **Saved as** `{ title, caption, firstComment, links, slides, warnings, body }`. `body` is the `ContentDocument` every
+   page is (the cover is the opening, each slide a top-level section); `slides` says what each one is, so nothing is
+   worked out from where a section stands (`GccLinkedInDocument.ReadSaved`). `caption` is the post; `firstComment` is the
+   booking link and each partner's tool page as text to paste under the post, links in a LinkedIn post's body costing it
+   reach (his `social` skill).
+7. **The PDF** (`GccLinkedInDocumentPdfRenderer`, QuestPDF under its Community licence): one slide a page at 1080 by 1350,
+   made from the saved deck each time it is asked for and never stored. It writes no markup; `SectionHtmlRenderer` is
+   still the only producer of HTML. Sora for titles and Figtree for lines, both embedded in GeekAPI; no font of the machine
+   is used. Each slide is set at the largest of seven sizes at which it fits its page, found by laying it out; one that
+   does not fit at 28 points is scaled to its page and named for the operator when the deck is written, as is a character
+   neither face has a shape for.
+8. **Routes.** `GET versions/{id}/pdf` answers `application/pdf`, 400 saying why for a version that is not a deck. The
+   project export holds `linkedin-document/{title}.pdf`, `.caption.txt` and `.first-comment.txt`, and no HTML for a deck.
+   `versions/{id}/seo` answers 400 for a deck: it is not scored for search.
+- **Not done for a deck:** the keyword remap and the keyword checks, an FAQ, image prompts, a meta description, structured
+  data, a canonical address, a link placed in the text. No short piece is written from a deck.
 
 **Repurpose, end to end** (2026-10-12; `GccRepurpose`). How a short piece is written again from one approved page without
 running Generate. Until 2026-10-12 Email, Social and Ads were ticked on Generate and written from the Brief alone, with no

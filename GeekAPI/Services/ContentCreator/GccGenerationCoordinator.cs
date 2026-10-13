@@ -240,7 +240,7 @@ public sealed class GccGenerationCoordinator
         // A deck has a slide for each partner tool, so a project with too few or too many partners for
         // one is refused here, saying how many it has, before a page of the project is deleted. The
         // deck's writer asks the same rule again before it builds a request.
-        if (requested.Any(type => LettersOf(type) == LinkedInDocumentType)
+        if (requested.Any(GccLinkedInDocument.IsType)
             && await gen.LinkedInDocumentRefusalAsync(create, ct) is { } deckRefusal)
         {
             throw new InvalidOperationException(deckRefusal);

@@ -13,10 +13,10 @@ the dormant V2 pipeline and the 2026-10-01 state; that document was deleted on 2
 |---|---|---|---|
 | **The operator enters** | The project's Site URL, which gets a crawl run | The project's Partner URLs | The project's Competitor URLs |
 | **Crawl type** | `ProjectSite` | `Partner` | `Competitors` |
-| **Retrieved for** | pillar, blog, tool | pillar, blog, tool | pillar, blog, tool |
+| **Retrieved for** | pillar, blog, tool, the PDF / LinkedIn document | pillar, blog, tool, the PDF / LinkedIn document | pillar, blog, tool, the PDF / LinkedIn document |
 | **Passages per search** | 8 | 32 per partner site | 8 |
 | **The search text** | the keyword alone. From 2026-10-02 to 2026-10-08, 22 fixed words followed it ("the cost, delay and error rate of the manual or status-quo way, the capability that removes it, and measured outcomes"); once the index ran its keyword half they matched every ERP, pricing and integration page, and Jeff had them deleted on 2026-10-08 | the same | "competitor differentiation research; topic: ..." |
-| **Must the draft cite it?** | no | tool pages only (a tool page is refused without partner evidence) | no |
+| **Must the draft cite it?** | no | tool pages only (a tool page is refused without partner evidence). A pillar, a blog and a PDF / LinkedIn document are refused when a declared partner's crawl returns no passage, naming the partner | no |
 | **Pillar call, 2026-10-07** | about 39,400 characters (14%) | 187,700 characters (69%) | 15,200 characters (6%) |
 
 Retrieval happens once per Generate (`GccGroundingResolver`), is held in the running job's memory, and is not stored.

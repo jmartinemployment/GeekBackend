@@ -10,9 +10,6 @@ public static class GcwContentTypeScoring
     public static bool IsShortForm(string? contentType) =>
         contentType is "email" or "social" or "ads" or "image-prompt";
 
-    public static bool IsCarouselJob(string? contentType) =>
-        GccChannelTypes.IsLinkedIn(contentType);
-
     public static bool ExpectsFaqSection(string? contentType) =>
         GccLongFormTypes.ExpectsFaqSection(contentType);
 
@@ -23,9 +20,6 @@ public static class GcwContentTypeScoring
     {
         if (IsShortForm(contentType))
             return (0, 0, false);
-
-        if (IsCarouselJob(contentType))
-            return (400, 6, true);
 
         return GccLongFormTypes.GetSeoLengthRules(contentType);
     }

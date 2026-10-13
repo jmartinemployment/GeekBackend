@@ -157,6 +157,11 @@ public sealed class GccGroundingResolver(
             ["pillar"] = EveryGroundingCrawlType,
             ["blog"] = EveryGroundingCrawlType,
             ["tool"] = EveryGroundingCrawlType,
+            // A "PDF / LinkedIn document" is written from the same research as the Pillar. A type that
+            // is not in this table is searched for nothing, and is then written from the Brief alone
+            // with nothing saying so: the deck was not in it until its first whole-run test, on the
+            // day its gate was opened (2026-10-13).
+            [GccGenerationCoordinator.LinkedInDocumentType] = EveryGroundingCrawlType,
         };
 
     /// <summary>

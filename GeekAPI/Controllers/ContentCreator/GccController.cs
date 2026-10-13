@@ -695,6 +695,11 @@ public class GccController : ControllerBase
         var artifact = await _repo.GetArtifactAsync(version.ArtifactId, ct);
         if (artifact is null) return NotFound();
 
+        // A deck is slides and a post, not a page of the site. Scored as a page it would be failed
+        // for having no meta description and for being 2,800 words short, none of which is a fault.
+        if (GccLinkedInDocument.IsType(artifact.Type))
+            return BadRequest($"A {GccLinkedInDocument.Label} is not scored for search: it is slides, not a page of the site.");
+
         // A topic is context plus keyword -- "Accounts Payable: Automated Data Entry & Processing"
         // -- and the caller sends the whole thing. Scoring the whole thing asks whether the lede
         // contains both halves verbatim, which no readable sentence does, so keyword-in-lede and

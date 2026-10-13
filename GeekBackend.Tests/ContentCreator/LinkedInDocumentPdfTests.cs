@@ -476,6 +476,21 @@ public sealed class LinkedInDocumentPdfTests
         Assert.IsType<NotFoundResult>(await controller.GetVersionPdf(Guid.NewGuid(), CancellationToken.None));
     }
 
+    [Fact]
+    public async Task A_deck_is_not_scored_for_search_and_the_scores_route_says_so()
+    {
+        var (saved, _) = await WrittenDeckAsync();
+        var versionId = Guid.NewGuid();
+        var (export, repo) = ExportOver((Page("linkedin-document"), versionId, saved));
+
+        var answer = await ControllerOver(export, repo).Seo(versionId, "AI implementation", CancellationToken.None);
+
+        var refused = Assert.IsType<BadRequestObjectResult>(answer);
+        Assert.Equal(
+            "A PDF / LinkedIn document is not scored for search: it is slides, not a page of the site.",
+            refused.Value);
+    }
+
     // ---- the export --------------------------------------------------------------------------------
 
     [Fact]

@@ -37,7 +37,7 @@ public static class GccLongFormTypes
     {
         Pillar, Blog, Tool, Comparison, CaseStudy, Guide, Alternatives,
         TechArticle, Listicle, Service, Local, Whitepaper,
-        "email", "social", "ads", "linkedin-document",
+        "email", "social", "ads",
     };
 
     private static readonly HashSet<string> CmsPublishable = new(StringComparer.OrdinalIgnoreCase)

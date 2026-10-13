@@ -67,6 +67,13 @@ public static class GccLinkedInDocument
     public const string Label = "PDF / LinkedIn document";
 
     /// <summary>
+    /// Whether a content type is the deck's, however it is spelled ("linkedin-document",
+    /// "linkedinDocument"). The one place that is asked.
+    /// </summary>
+    public static bool IsType(string? contentType) =>
+        GccGenerationCoordinator.LettersOf(contentType ?? string.Empty) == GccGenerationCoordinator.LinkedInDocumentType;
+
+    /// <summary>
     /// The slides of a deck for these partners, in order: the cover, the problem, one for each partner
     /// in the project's order, the approach, what to do next.
     /// </summary>

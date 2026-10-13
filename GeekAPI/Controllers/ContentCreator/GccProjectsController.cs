@@ -353,8 +353,9 @@ public class GccProjectsController : ControllerBase
     /// <para>
     /// Refusals: 404 no project; 400 no keyword, an incomplete brief, a missing site crawl, a bad
     /// provider or output type, an email, a social post or an ad asked of a project with no Pillar and
-    /// no Blog to write it from; 409 a run already running on the project, named; 409 the brief was
-    /// saved again after this request read it. Every refusal writes nothing.
+    /// no Blog to write it from, a "PDF / LinkedIn document" asked of a project with fewer than two
+    /// partner tools or more than eight; 409 a run already running on the project, named; 409 the
+    /// brief was saved again after this request read it. Every refusal writes nothing.
     /// </para>
     /// <para>
     /// A short piece is a Generate type since 2026-10-13: the run writes its pages first and each piece
@@ -416,6 +417,15 @@ public class GccProjectsController : ControllerBase
         if (gate.Refusal is not null) return gate.Refusal;
         project = gate.Project;
         var (backing, view, section) = (gate.Backing, gate.View, gate.Section);
+
+        // A deck has one slide for each partner tool, so it takes two partners at the least and eight
+        // at the most. Answered here, by the rule the run and the writer use, from the brief and the
+        // partners the run will read, before a run exists or anything is deleted.
+        if (requested.Any(GccLinkedInDocument.IsType)
+            && GccLinkedInDocument.PartnerRefusal(GccRequiredToolMentions.For(view.BriefJson, project.PartnerUrls)) is { } deckRefusal)
+        {
+            return BadRequest(deckRefusal);
+        }
 
         // Before the run row exists: the keyword and site run it reads are the project's, and anything
         // that fails here must fail with nothing started.
