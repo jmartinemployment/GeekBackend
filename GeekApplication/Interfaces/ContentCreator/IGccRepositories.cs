@@ -65,6 +65,14 @@ public interface IGccProjectPageRepository
     /// so the others stand.</param>
     Task<GccPagesDeleteResult> DeletePagesAsync(
         Guid projectId, IReadOnlyList<string> types, IReadOnlyList<string>? names = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Delete the pieces of the given types that were written from one page of the project, with their
+    /// content. A Repurpose calls this first, as a Generate deletes its pages first. The page itself and
+    /// its pieces of other types stand.
+    /// </summary>
+    Task<GccPiecesDeleteResult> DeletePiecesAsync(
+        Guid projectId, Guid pageId, IReadOnlyList<string> types, CancellationToken ct = default);
 }
 
 public interface IGccArtifactVersionRepository
@@ -249,11 +257,18 @@ public interface IGccGenerateJobRepository
     Task<GccGenerateJobDto?> GetByIdAsync(Guid id, CancellationToken ct = default);
 
     /// <summary>
-    /// The project's newest run: the one going now, or the last to end. Null when it has never run.
+    /// The project's newest Generate: the one going now, or the last to end. Null when it has never run.
     /// What the page reads when it opens, so a run started before a reload is still shown as running
-    /// and the last run's result is still there to read.
+    /// and the last run's result is still there to read. A Repurpose is not a Generate and is never
+    /// returned here: the last Generate's result, with what it left unwritten, stays readable after one.
     /// </summary>
     Task<GccGenerateJobDto?> GetLatestForProjectAsync(Guid projectId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The newest Repurpose of one page of the project, going or ended. Null when the page has never
+    /// been repurposed.
+    /// </summary>
+    Task<GccGenerateJobDto?> GetLatestForPageAsync(Guid projectId, Guid pageId, CancellationToken ct = default);
 
     /// <summary>The create a project's drafts are stored under: its newest. Null when it has none.</summary>
     Task<GccCreateDto?> GetBackingCreateAsync(Guid projectId, CancellationToken ct = default);

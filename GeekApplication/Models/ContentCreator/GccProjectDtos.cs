@@ -478,6 +478,8 @@ public static class GccGenerateJobStatuses
 /// <param name="BriefRevisionId">The brief revision the run was written from (J7).</param>
 /// <param name="Status">running | ready | failed, and never running forever: a run a redeploy cut off is
 /// failed when GeekAPI starts.</param>
+/// <param name="SourcePageId">Null for a Generate. For a Repurpose, the page its pieces were written
+/// from. The two share the table because they share its rule: one run on a project at a time.</param>
 public sealed record GccGenerateJobDto(
     Guid Id,
     Guid ProjectId,
@@ -491,7 +493,8 @@ public sealed record GccGenerateJobDto(
     string? ResultJson,
     string? Error,
     DateTime StartedAtUtc,
-    DateTime? FinishedAtUtc);
+    DateTime? FinishedAtUtc,
+    Guid? SourcePageId = null);
 
 /// <summary>
 /// One thing that happened in a Generate run, as it happened: what the run was grounded on, each model
@@ -521,6 +524,8 @@ public sealed record AppendGccGenerateJobEventsCommand(IReadOnlyList<GccGenerate
 /// <param name="CreateId">The project's backing create as GeekAPI read it, or null to mint one.</param>
 /// <param name="ExpectedBriefVersion">The brief version GeekAPI read and validated. A Save landing after
 /// that read refuses the start, so the revision recorded is always the brief the run was given.</param>
+/// <param name="SourcePageId">For a Repurpose, the page of this project its pieces are written from; null
+/// for a Generate. A page that is not one of the project's refuses the start.</param>
 public sealed record StartGccGenerateJobCommand(
     Guid Id,
     Guid ProjectId,
@@ -528,7 +533,8 @@ public sealed record StartGccGenerateJobCommand(
     int ExpectedBriefVersion,
     Guid OwnerUserId,
     IReadOnlyList<string> RequestedTypes,
-    string Provider);
+    string Provider,
+    Guid? SourcePageId = null);
 
 /// <summary>A run started, or why not. Nothing is written when it was refused.</summary>
 public sealed record GccGenerateJobStartResult(
@@ -537,7 +543,8 @@ public sealed record GccGenerateJobStartResult(
     bool ProjectNotFound,
     bool StaleBrief,
     bool NoSavedBrief,
-    bool CreateNotOnProject)
+    bool CreateNotOnProject,
+    bool SourcePageNotOnProject = false)
 {
     public static GccGenerateJobStartResult Started(GccGenerateJobDto job) => new(job, null, false, false, false, false);
     public static GccGenerateJobStartResult Running(GccGenerateJobDto running) => new(null, running, false, false, false, false);
@@ -545,6 +552,7 @@ public sealed record GccGenerateJobStartResult(
     public static GccGenerateJobStartResult Stale() => new(null, null, false, true, false, false);
     public static GccGenerateJobStartResult NoBrief() => new(null, null, false, false, true, false);
     public static GccGenerateJobStartResult ForeignCreate() => new(null, null, false, false, false, true);
+    public static GccGenerateJobStartResult NoSourcePage() => new(null, null, false, false, false, false, true);
 }
 
 public sealed record CompleteGccGenerateJobCommand(string ResultJson);

@@ -27,10 +27,10 @@ namespace GeekBackend.Tests.ContentCreator;
 /// </summary>
 public sealed class GccProjectGenerateRouteTests
 {
-    private const string Sub = "11111111-1111-1111-1111-111111111111";
+    internal const string Sub = "11111111-1111-1111-1111-111111111111";
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
-    private const string CompleteBrief = """
+    internal const string CompleteBrief = """
         {"primaryIntent":"commercial","buyingStage":"consideration","audienceSegment":"AP managers",
          "audienceNotes":"mid-market","angle":"problem_solution",
          "toneOfVoice":"plain","eeatSignals":["case study"],"lengthBand":"long"}
@@ -300,7 +300,7 @@ public sealed class GccProjectGenerateRouteTests
 
     /// <summary>The index: every declared URL has a finished crawl, and a search of its run finds pages
     /// unless the URL is one of <paramref name="emptyUrls"/>.</summary>
-    private static GccDeclaredUrlValidator Index(GccProjectDto project, params string[] emptyUrls) =>
+    internal static GccDeclaredUrlValidator Index(GccProjectDto project, params string[] emptyUrls) =>
         Index(project, siteRun: null, emptyUrls);
 
     /// <param name="siteRun">The crawl of the project's site the index holds. Null means the one the
@@ -396,7 +396,7 @@ public sealed class GccProjectGenerateRouteTests
                 .GetCustomAttributes(typeof(HttpGetAttribute), false).Cast<HttpGetAttribute>().Single().Template);
     }
 
-    private static ApiProjectsController Controller(Repo repo, GccDeclaredUrlValidator? index = null)
+    internal static ApiProjectsController Controller(Repo repo, GccDeclaredUrlValidator? index = null)
     {
         var http = new HttpGccRepository(
             new HttpClient(repo) { BaseAddress = new Uri("http://repo.test/") },
@@ -438,8 +438,8 @@ public sealed class GccProjectGenerateRouteTests
             Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
     }
 
-    /// <summary>GeekRepository, as the routes the generate path calls.</summary>
-    private sealed class Repo(GccProjectDto? project, GccCreateDto? backing) : HttpMessageHandler
+    /// <summary>GeekRepository, as the routes a Generate and a Repurpose call.</summary>
+    internal sealed class Repo(GccProjectDto? project, GccCreateDto? backing) : HttpMessageHandler
     {
         public GccProjectDto? Project => project;
         public List<StartGccGenerateJobCommand> Starts { get; } = [];
@@ -454,13 +454,32 @@ public sealed class GccProjectGenerateRouteTests
         /// <summary>The project's newest run as GeekRepository holds it, or null when it has never run.</summary>
         public GccGenerateJobDto? LatestJob { get; init; }
 
+        /// <summary>The one page GeekRepository holds, whatever project it is on, or null when it holds none.</summary>
+        public GccArtifactDto? Page { get; init; }
+
+        /// <summary>That page's one version as stored, or null when the page has no content.</summary>
+        public string? PageBody { get; init; }
+
+        /// <summary>The newest Repurpose of that page, or null when it has never been repurposed.</summary>
+        public GccGenerateJobDto? LatestRepurpose { get; init; }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var path = request.RequestUri!.AbsolutePath;
             if (request.Method == HttpMethod.Get && path.EndsWith("/backing-create"))
                 return backing is null ? Status(HttpStatusCode.NotFound) : Json(backing);
+            if (request.Method == HttpMethod.Get && path.Contains("/pages/") && path.EndsWith("/generate-jobs/latest"))
+                return LatestRepurpose is null ? Status(HttpStatusCode.NotFound) : Json(LatestRepurpose);
             if (request.Method == HttpMethod.Get && path.EndsWith("/generate-jobs/latest"))
                 return LatestJob is null ? Status(HttpStatusCode.NotFound) : Json(LatestJob);
+            if (request.Method == HttpMethod.Get && path.StartsWith("/repo/content-creator/artifacts/"))
+                return Page is null || !path.EndsWith(Page.Id.ToString()) ? Status(HttpStatusCode.NotFound) : Json(Page);
+            if (request.Method == HttpMethod.Get && path == "/repo/content-creator/versions")
+            {
+                return Json(Page is null || PageBody is null
+                    ? Array.Empty<GccArtifactVersionDto>()
+                    : [new GccArtifactVersionDto(Guid.NewGuid(), Page.Id, 1, PageBody, null, 1, DateTime.UtcNow)]);
+            }
             if (request.Method == HttpMethod.Get && path.StartsWith("/repo/content-creator/projects/"))
                 return project is null ? Status(HttpStatusCode.NotFound) : Json(project);
             if (request.Method == HttpMethod.Post && path == "/repo/content-creator/generate-jobs")
@@ -527,16 +546,16 @@ public sealed class GccProjectGenerateRouteTests
         }
     }
 
-    private static GccProjectDto Project(string brief, int briefVersion) =>
+    internal static GccProjectDto Project(string brief, int briefVersion) =>
         new(Guid.NewGuid(), Guid.NewGuid(), "Q4", null, null, GccProjectStatuses.Planned, "https://acme.test",
             Guid.NewGuid(), null, [], [], DateOnly.FromDateTime(DateTime.UtcNow), null, null, null, null, null,
             DateTime.UtcNow, DateTime.UtcNow, brief, "AP: Approvals", null, null, briefVersion, DateTime.UtcNow);
 
-    private static GccCreateDto Create(Guid projectId) =>
+    internal static GccCreateDto Create(Guid projectId) =>
         new(Guid.NewGuid(), Guid.NewGuid(), Guid.Parse(Sub), "tool", "AP", null, null, null, null, null,
             "draft", DateTime.UtcNow, DateTime.UtcNow, "marketing", projectId);
 
-    private static GccGenerateJobDto Job(Guid projectId) =>
+    internal static GccGenerateJobDto Job(Guid projectId) =>
         new(Guid.NewGuid(), projectId, Guid.NewGuid(), Guid.NewGuid(), DateTime.UtcNow, Sub, ["pillar"],
             "Anthropic", GccGenerateJobStatuses.Running, null, null, DateTime.UtcNow, null);
 }

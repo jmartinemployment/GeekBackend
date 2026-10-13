@@ -43,7 +43,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     private const string ToolFaqB = "Does Partner Widget post to Xero?";
 
     /// <summary>Every field the brief form saves, each with a value.</summary>
-    private const string CompleteBrief = """
+    internal const string CompleteBrief = """
         {
           "briefVersion": 2,
           "primaryIntent": "informational",
@@ -350,6 +350,11 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             ],
         });
 
+    /// <summary>The approved page an email or a social post is written from (<see cref="GccRepurpose"/>).</summary>
+    private static readonly GccRepurposeSource ApprovedPage = new(
+        Guid.Parse("99999999-9999-9999-9999-999999999999"), "pillar", "AI implementation", "AI Implementation: A Guide",
+        "Where it goes wrong\n\nThe vendor master has to be mapped by hand before anything else can start.");
+
     private static IReadOnlyList<GccGroundedPassage> PartnerPassages() =>
     [
         new GccGroundedPassage("https://partner.test/widget", "Partner Widget",
@@ -398,12 +403,12 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                     Create("blog", "AI implementation", briefJson, pageResearch ?? PageFaqResearch.For(briefJson), ProjectId), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
                 break;
             case "email":
-                saved = await plain.GenerateEmailAsync(
-                    Create("email", "AI implementation", briefJson, null, null), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                saved = await plain.RepurposeEmailAsync(
+                    Create("email", "AI implementation", briefJson, null, null), ApprovedPage, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
                 break;
             case "social":
-                saved = await plain.GenerateSocialPostAsync(
-                    Create("linkedin", "AI implementation", briefJson, null, null), "linkedin", null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+                saved = await plain.RepurposeSocialPostAsync(
+                    Create("linkedin", "AI implementation", briefJson, null, null), "linkedin", ApprovedPage, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
                 break;
             case "image":
                 saved = await plain.GenerateStartingContentAsync(

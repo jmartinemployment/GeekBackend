@@ -220,6 +220,89 @@ public sealed class GccGenerateJobRepositoryTests
         }
     }
 
+    /// <summary>
+    /// A Repurpose is a run on the project, written from one of its pages: it holds the project's one
+    /// running place, it is read by its page, and it never takes the place of the last Generate.
+    /// </summary>
+    [Fact]
+    public async Task A_repurpose_is_a_run_from_one_page_and_never_the_projects_newest_generate()
+    {
+        var options = Options();
+        var (project, _) = await Seed(options);
+        var generate = await Start(options, project.Id, createId: null);
+        await using (var db = new ContentCreatorDbContext(options))
+            await new GccGenerateJobRepository(db).CompleteAsync(generate.Job!.Id, """{"created":[]}""");
+
+        Guid pillar, blog;
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var pages = new[] { "pillar", "blog" }.Select(type => new GccArtifact
+            {
+                ProjectId = project.Id, CreateId = generate.Job!.CreateId, Type = type, Name = "AP: Approvals", Status = "approved",
+            }).ToList();
+            db.AddRange(pages);
+            await db.SaveChangesAsync();
+            (pillar, blog) = (pages[0].Id, pages[1].Id);
+        }
+
+        var repurpose = await StartRepurpose(options, project.Id, generate.Job!.CreateId, pillar);
+        Assert.Equal(pillar, repurpose.Job!.SourcePageId);
+        Assert.Equal(["email-cold-outreach", "social"], repurpose.Job.RequestedTypes);
+
+        // It is running, so nothing else starts on the project, a Generate included.
+        var blocked = await Start(options, project.Id, generate.Job.CreateId);
+        Assert.Equal(repurpose.Job.Id, blocked.AlreadyRunning!.Id);
+        Assert.Equal(pillar, blocked.AlreadyRunning.SourcePageId);
+
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var jobs = new GccGenerateJobRepository(db);
+            // The project's newest Generate is still the Generate, with its result.
+            var latest = await jobs.GetLatestForProjectAsync(project.Id);
+            Assert.Equal(generate.Job.Id, latest!.Id);
+            Assert.Null(latest.SourcePageId);
+            // The page's newest Repurpose is this one; a page never repurposed has none.
+            Assert.Equal(repurpose.Job.Id, (await jobs.GetLatestForPageAsync(project.Id, pillar))!.Id);
+            Assert.Null(await jobs.GetLatestForPageAsync(project.Id, blog));
+            Assert.Equal(pillar, (await jobs.GetByIdAsync(repurpose.Job.Id))!.SourcePageId);
+        }
+    }
+
+    [Fact]
+    public async Task A_repurpose_from_a_page_that_is_not_one_of_the_projects_is_refused_and_nothing_is_written()
+    {
+        var options = Options();
+        var (project, _) = await Seed(options);
+        var (other, _) = await Seed(options);
+        var create = await AddCreate(options, project.Id, DateTime.UtcNow);
+        var othersCreate = await AddCreate(options, other.Id, DateTime.UtcNow);
+
+        Guid othersPage, piece, page;
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var mine = new GccArtifact { ProjectId = project.Id, CreateId = create.Id, Type = "pillar", Name = "AP: Approvals" };
+            var under = new GccArtifact
+            {
+                ProjectId = project.Id, CreateId = create.Id, ParentArtifactId = mine.Id, Type = "social", Name = "AP: Approvals",
+            };
+            var theirs = new GccArtifact { ProjectId = other.Id, CreateId = othersCreate.Id, Type = "pillar", Name = "AP: Approvals" };
+            db.AddRange(mine, under, theirs);
+            await db.SaveChangesAsync();
+            (page, piece, othersPage) = (mine.Id, under.Id, theirs.Id);
+        }
+
+        // Another project's page, a piece under a page, and a page that does not exist.
+        foreach (var source in new[] { othersPage, piece, Guid.NewGuid() })
+        {
+            var refused = await StartRepurpose(options, project.Id, create.Id, source);
+            Assert.True(refused.SourcePageNotOnProject);
+            Assert.Null(refused.Job);
+        }
+
+        await AssertNoJobs(options);
+        Assert.NotNull((await StartRepurpose(options, project.Id, create.Id, page)).Job);
+    }
+
     [Fact]
     public async Task Startup_fails_every_running_run_and_frees_the_project()
     {
@@ -269,6 +352,14 @@ public sealed class GccGenerateJobRepositoryTests
         await using var db = new ContentCreatorDbContext(options);
         return await new GccGenerateJobRepository(db).StartAsync(new StartGccGenerateJobCommand(
             Guid.NewGuid(), projectId, createId, expectedBriefVersion, Owner, ["pillar", "tool"], "Anthropic"));
+    }
+
+    private static async Task<GccGenerateJobStartResult> StartRepurpose(
+        DbContextOptions<ContentCreatorDbContext> options, Guid projectId, Guid? createId, Guid sourcePageId)
+    {
+        await using var db = new ContentCreatorDbContext(options);
+        return await new GccGenerateJobRepository(db).StartAsync(new StartGccGenerateJobCommand(
+            Guid.NewGuid(), projectId, createId, BriefVersion, Owner, ["email-cold-outreach", "social"], "OpenAi", sourcePageId));
     }
 
     private static async Task AssertNoJobs(DbContextOptions<ContentCreatorDbContext> options)

@@ -50,18 +50,24 @@ public sealed class GccArtifactExportService(
     /// Two different pages can still reduce to one file name, because a file is named for the title
     /// its page was given. A zip cannot hold two files of one name and keeping one would drop a page
     /// without a word, so the second is numbered.
+    ///
+    /// A piece written from a page by Repurpose carries its page's name, and a pillar and a blog are
+    /// both named for the keyword, so the file of a piece also says which page it came from
+    /// (<see cref="FromPage"/>): "email/accounts-payable-from-pillar.json". Numbered, the pillar's
+    /// email and the blog's would be two files with nothing saying which was which.
     /// </remarks>
     public async Task<IReadOnlyList<ExportedHtmlDocument>> ExportProjectAsync(Guid projectId, CancellationToken ct)
     {
         var artifacts = await repo.ListProjectArtifactsAsync(projectId, ct);
         var documents = new List<ExportedHtmlDocument>();
         var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var onProject = artifacts.ToDictionary(a => a.Id);
 
         foreach (var artifact in artifacts.OrderByDescending(a => a.CreatedAtUtc))
         {
             var create = await repo.GetCreateAsync(artifact.CreateId, ct)
                 ?? throw new InvalidOperationException($"Create {artifact.CreateId} was not found.");
-            foreach (var document in await ExportArtifactsAsync(create, [artifact], ct))
+            foreach (var document in await ExportArtifactsAsync(create, [artifact], ct, onProject))
             {
                 documents.Add(document with { FileName = Unused(document.FileName, taken) });
             }
@@ -103,8 +109,10 @@ public sealed class GccArtifactExportService(
         }
     }
 
+    /// <param name="known">Pages already read, by id, so the page a piece was written from is not read again.</param>
     private async Task<IReadOnlyList<ExportedHtmlDocument>> ExportArtifactsAsync(
-        GccCreateDto create, IReadOnlyList<GccArtifactDto> artifacts, CancellationToken ct)
+        GccCreateDto create, IReadOnlyList<GccArtifactDto> artifacts, CancellationToken ct,
+        IReadOnlyDictionary<Guid, GccArtifactDto>? known = null)
     {
         var documents = new List<ExportedHtmlDocument>();
 
@@ -122,8 +130,9 @@ public sealed class GccArtifactExportService(
                 logger.LogWarning(
                     "Artifact {ArtifactId} ({Type}) could not be read as a document; exporting raw.",
                     artifact.Id, artifact.Type);
+                var fromPage = FromPage(await PageOfAsync(artifact, artifacts, known, ct));
                 documents.Add(new ExportedHtmlDocument(
-                    $"{FolderFor(artifact.Type)}/{Slug(artifact.Name, artifact.Id)}.json",
+                    $"{FolderFor(artifact.Type)}/{Slug(artifact.Name, artifact.Id)}{fromPage}.json",
                     latest.BodyDocumentJson));
                 continue;
             }
@@ -158,6 +167,30 @@ public sealed class GccArtifactExportService(
 
         return documents;
     }
+
+    /// <summary>
+    /// The page a piece was written from, or null for a page of the project's own: from the pages
+    /// already in hand, else read from the repository.
+    /// </summary>
+    private async Task<GccArtifactDto?> PageOfAsync(
+        GccArtifactDto artifact,
+        IReadOnlyList<GccArtifactDto> beside,
+        IReadOnlyDictionary<Guid, GccArtifactDto>? known,
+        CancellationToken ct)
+    {
+        if (artifact.ParentArtifactId is not Guid pageId) return null;
+        if (known is not null && known.TryGetValue(pageId, out var page)) return page;
+        return beside.FirstOrDefault(a => a.Id == pageId) ?? await repo.GetArtifactAsync(pageId, ct);
+    }
+
+    /// <summary>
+    /// What a piece's file name ends with to say which page it was written from: "-from-pillar",
+    /// "-from-blog", "-from-tool". Empty for a page of the project's own.
+    /// </summary>
+    internal static string FromPage(GccArtifactDto? page) =>
+        page is null
+            ? string.Empty
+            : $"-from-{(GccGenerationCoordinator.WritesToolPages(page.Type) ? "tool" : Slug(page.Type, page.Id))}";
 
     /// <summary>
     /// The canonical URL for this artifact, matching what v1's export puts in the tag and what each

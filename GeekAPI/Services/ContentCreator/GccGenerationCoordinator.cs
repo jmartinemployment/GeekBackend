@@ -198,7 +198,10 @@ public sealed class GccGenerationCoordinator
             return $"Refused: '{string.Join("', '", disabled)}' "
                 + "is disabled pending a written, approved resolve plan for its content-type quality.";
 
-        return null;
+        // A short piece is written from a page, by Repurpose, and never from the Brief alone
+        // (Jeff, 2026-10-12: short content types "ARE DERIVED OR REPURPOSED FROM EXISTING CONTENT").
+        // Until then Email, Social and Ads were Generate types.
+        return GccRepurpose.GenerateRefusal(requested);
     }
 
     public async Task<object> RunGenerateAsync(
@@ -277,10 +280,8 @@ public sealed class GccGenerationCoordinator
             // calls once.
             //
             // That ruling is about this tangle, not about writing a short piece from a finished page.
-            // Repurpose is kept for that (Jeff, 2026-10-10: Email, Social, Ads, Comparison,
-            // Alternatives, perhaps Listicle, once the platform is stable). Its route answers 403
-            // today for a different reason: it never checked that the project's site was crawled
-            // (GeekBackend 08187d9).
+            // That is Repurpose (RunRepurposeAsync): a run of its own, started from an approved page,
+            // after this one. A Generate is refused a short piece (ValidateRequestedTypes).
             //
             // Parallel, not sequential: every call is genuinely independent (no shared mutable state,
             // nothing waits on another type's output), so awaiting them one at a time only summed
@@ -352,6 +353,107 @@ public sealed class GccGenerationCoordinator
         return single.Pieces.Count == 1 && single.SoftFailures.Count == 0 && preflight.Count == 0 && singleWarnings.Count == 0
             ? singleCreated[0]
             : BuildGenerateResult(singleCreated, single.SoftFailures, preflight, singleWarnings);
+    }
+
+    /// <summary>
+    /// A Repurpose: each requested short piece written from one approved page of the project, and what
+    /// wrote saved under that page in one write (<see cref="GccRepurpose"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same order as a Generate, for the same reasons. The refusals that cost nothing first. Then
+    /// the page's pieces of the requested types are deleted, before a word is written, so a piece that
+    /// is refused does not leave the last run's piece to be read as this one's. Then every type is
+    /// attempted, each on its own; what a type cannot write is that type's refusal and the others are
+    /// kept. The run fails only when none wrote.
+    /// </para>
+    /// <para>
+    /// Nothing is searched: the writer is handed the page, which already used the research. So there is
+    /// no grounding step, no partner check and no pre-flight here, and the result carries an empty
+    /// pre-flight so it is the shape a Generate's result is.
+    /// </para>
+    /// </remarks>
+    public async Task<object> RunRepurposeAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        IReadOnlyList<string>? outputTypes,
+        GccRepurposeSource source,
+        CancellationToken ct,
+        Func<string, object?, string?, Task>? onTypeOutcome = null,
+        Func<string, string, Task>? onTypeWarning = null,
+        GccBriefRevisionStamp? briefRevision = null)
+    {
+        var requested = NormalizeRequestedTypes(outputTypes);
+        if (GccRepurpose.TypesRefusal(requested) is { } refusal) throw new InvalidOperationException(refusal);
+        if (create.ProjectId is not Guid projectId) throw new InvalidOperationException(NoProjectRefusal);
+        if (gen.ModelRefusal(provider) is { } unknownModel) throw new InvalidOperationException(unknownModel);
+
+        var deleted = await repo.DeletePagePiecesAsync(projectId, source.PageId, requested, ct)
+            ?? throw new InvalidOperationException(
+                $"Refused: the {source.Type} page '{source.Name}' is no longer one of this project's pages, "
+                + "so there is nothing to write from and nowhere to save to. Nothing was written.");
+        _logger.LogInformation(
+            "Repurpose on project {ProjectId} deleted {Pieces} piece(s) of {Types} under page {PageId} before writing",
+            projectId, deleted.Pieces, string.Join(", ", requested), source.PageId);
+
+        var createId = create.Id;
+        var attempts = await Task.WhenAll(requested.Select(type => AttemptAsync(_logger, type, createId, async () =>
+        {
+            var contentType = type.Trim().ToLowerInvariant();
+            string bodyJson;
+            if (GccRepurpose.IsEmail(type))
+            {
+                bodyJson = await gen.RepurposeEmailAsync(
+                    create with { StartingContentType = "email" }, source, section, provider, ct);
+                bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
+            }
+            else
+            {
+                var platform = GccRepurpose.PlatformOf(type);
+                bodyJson = await gen.RepurposeSocialPostAsync(
+                    create with { StartingContentType = platform }, platform, source, section, provider, ct);
+                bodyJson = await AddImagePromptForContentAsync(gen, platform, create.Topic, bodyJson, section, provider, ct);
+            }
+
+            // The piece carries its page's name: a page has one piece of each type.
+            return new TypeOutcome([new GeneratedPiece(contentType, bodyJson, source.Name)], []);
+        })));
+
+        // Throws, saying why for each type, only when no type wrote anything.
+        var settled = GccRunSettlement.Settle(attempts);
+
+        var created = await PersistAllAsync(
+            repo, create, settled.Pieces, provider, briefRevision, onTypeOutcome, ct, parentPageId: source.PageId);
+
+        var warnings = new List<string>();
+        foreach (var piece in settled.Pieces)
+        {
+            foreach (var warning in WarningsOf(piece.BodyJson))
+            {
+                warnings.Add($"{piece.ContentType}: {warning}");
+                if (onTypeWarning is not null) await onTypeWarning(piece.ContentType, warning);
+            }
+        }
+
+        var refusals = new List<string>();
+        foreach (var refused in settled.Refusals)
+        {
+            refusals.Add(refused.Line);
+            if (onTypeOutcome is not null) await onTypeOutcome(refused.Type, null, refused.Text);
+        }
+
+        // After the save, so it never claims a piece that was not kept.
+        await GccRunLog.RecordIfAnyAsync("settled", new
+        {
+            sourcePageId = source.PageId,
+            saved = settled.Pieces.Select(p => new { type = p.ContentType, name = p.ArtifactName }).ToList(),
+            refused = settled.Refusals.Select(r => new { type = r.Type, reason = r.Text }).ToList(),
+        });
+
+        return BuildGenerateResult(created, refusals, [], warnings);
     }
 
     /// <summary>
@@ -612,32 +714,6 @@ public sealed class GccGenerationCoordinator
                     create with { StartingContentType = "blog" }, section, provider, mustMentionBlock, ct);
                 break;
 
-            case "email" or "emailcoldoutreach":
-                bodyJson = await gen.GenerateEmailAsync(
-                    create with { StartingContentType = "email" }, section, provider, mustMentionBlock, ct);
-                bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
-                break;
-
-            // Every social/ads channel is its own independent post now, not one bundled into a
-            // shared "pack" artifact with whichever other channels happened to be checked --
-            // GenerateSocialPostAsync already takes any platform string, with dedicated style
-            // guidance for linkedin/facebook and a generic fallback for the rest.
-            case "linkedin" or "x" or "instagram" or "facebook" or "metaads" or "googleads" or "social" or "ads":
-            {
-                var platform = normalizedType switch
-                {
-                    "x" => "X",
-                    "instagram" => "Instagram",
-                    "metaads" => "MetaAds",
-                    "googleads" => "GoogleAds",
-                    _ => normalizedType, // "linkedin"/"facebook"/"social"/"ads" as-is
-                };
-                bodyJson = await gen.GenerateSocialPostAsync(
-                    create with { StartingContentType = platform }, platform, section, provider, mustMentionBlock, ct);
-                bodyJson = await AddImagePromptForContentAsync(gen, platform, create.Topic, bodyJson, section, provider, ct);
-                break;
-            }
-
             // Both route through GenerateStartingContentAsync's own internal dispatch, which already
             // fully owns tool's partner grounding + FAQ + per-H2 images and image-prompt's topic/
             // notes validation -- overriding StartingContentType guarantees the right internal
@@ -889,7 +965,10 @@ public sealed class GccGenerationCoordinator
         ContentGeneratorProvider provider,
         GccBriefRevisionStamp? briefRevision,
         Func<string, object?, string?, Task>? onTypeOutcome,
-        CancellationToken ct)
+        CancellationToken ct,
+        // For a Repurpose: the page every piece was written from, and is saved under. Null for a
+        // Generate, whose pieces are the project's own pages.
+        Guid? parentPageId = null)
     {
         // A tool run whose every partner was refused wrote nothing; there is nothing to save, and
         // the refusals are reported by the caller.
@@ -901,7 +980,7 @@ public sealed class GccGenerationCoordinator
             projectId,
             new SaveGccGeneratedPiecesCommand(
                 create.Id,
-                [.. pieces.Select(p => new GccGeneratedPiece(p.ContentType, p.ArtifactName, p.BodyJson, metadata))]),
+                [.. pieces.Select(p => new GccGeneratedPiece(p.ContentType, p.ArtifactName, p.BodyJson, metadata, parentPageId))]),
             ct);
         if (result is null)
         {

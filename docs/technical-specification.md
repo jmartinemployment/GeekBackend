@@ -9,8 +9,9 @@ workflow and Dockerfile lists and the hub routes; the rest is the explorers' rea
 ## 1. What the application is
 
 A content-production backend. An operator saves a project brief, presses Generate, and receives pages (pillar, blog,
-tool pages, email, social, image prompts) grounded in three sets of crawled sites: the project's own site, its
-partners' sites (tools it sells or promotes) and its competitors' sites. Generation is done by GeekAPI. Retrieval and
+tool pages, image prompts) grounded in three sets of crawled sites: the project's own site, its
+partners' sites (tools it sells or promotes) and its competitors' sites. A short piece (an email, a social post, an ad)
+is written afterwards by Repurpose, from one of those pages once it is approved. Generation is done by GeekAPI. Retrieval and
 quote verification are done by a separate RAG service that never generates.
 
 ## 2. System map
@@ -114,14 +115,18 @@ Markdown is not used as a corpus, verification or interchange format.
 
 **Surface (GeekAPI, `api/geek-content-creator`).** `GccProjectsController` (class policy ManagePolicy): projects (list by
 client, get, create, update, status, brief PATCH, soft delete), artifacts, log, **generate** (`POST {id}/generate` returns 202
-`{jobId}`; `GET {id}/generate/latest`; `GET {id}/generate/{jobId}/events`), `export/html`, tasks, time, deliverables.
+`{jobId}`; `GET {id}/generate/latest`; `GET {id}/generate/{jobId}/events`), **repurpose**
+(`POST {id}/pages/{pageId}/repurpose` returns 202 `{jobId, pageId}`; `GET {id}/pages/{pageId}/repurpose/latest`),
+`export/html`, tasks, time, deliverables.
 `GccController`: clients, creates, versions (`GET`, `seo`, `polish`, `approve`), keyword sources, image prompts,
-SERP parse, partner-quote readiness; `repurpose` returns 403 (disabled). `GccInternalController` (API key): brief backfill.
+SERP parse, partner-quote readiness. `GccInternalController` (API key): brief backfill.
 GeekRepository mirrors these under `repo/content-creator/**` (InternalService).
 
-**Content types.** Live: pillar, blog, tool (one page per partner), email (cold outreach), social (and ads types), image
-prompt. Disabled by `DisabledContentTypes` (13 keys): tech article, comparison, alternatives, case study, guide, listicle,
-service, local, whitepaper, LinkedIn document, three email variants. Only pillar, blog and tool have registered prompt sets.
+**Content types.** Written by Generate: pillar, blog, tool (one page per partner), image prompt. Written by Repurpose, from
+an approved page, and refused on Generate: email (cold outreach), social, ads, and the per-channel posts (`linkedin`, `x`,
+`instagram`, `facebook`, `metaads`, `googleads`). Disabled by `DisabledContentTypes` (13 keys): tech article, comparison,
+alternatives, case study, guide, listicle, service, local, whitepaper, LinkedIn document, three email variants. Only pillar,
+blog and tool have registered prompt sets.
 
 **Generate, end to end.**
 1. `GccProjectsController.Generate` validates the actor, provider, types, declared URL index, site crawl and brief; inserts the
@@ -163,6 +168,34 @@ service, local, whitepaper, LinkedIn document, three email variants. Only pillar
      code checks an answer's sentences against its passages. A pillar or blog question call carries at most 200,000
      characters of passages (`GccPageFaqEvidence.MaxEvidenceCharsPerCall`), the one call whose size code bounds.
 5. The runner records `completed` or `failure`, writes the job row, and pushes over SignalR.
+
+**Repurpose, end to end** (2026-10-12; `GccRepurpose`). The one way a short piece is written. Until then Email, Social and
+Ads were ticked on Generate and written from the Brief alone, with no page in front of the writer.
+1. `GccProjectsController.Repurpose` validates the actor, provider and types (every one a short piece), reads the page and
+   its one version, and refuses unless it is a pillar, a blog or a tool page of this project that is approved and has text
+   (`GccRepurpose.SourceOf`). It then passes the same two gates as a Generate, in the one method both routes call
+   (`GateAsync`: the declared URLs and the site crawl, the Brief), inserts the job row with the page it is written from
+   (`gcc_generate_jobs.source_page_id`; `409` if a Generate or a Repurpose is running on the project) and returns 202.
+2. `GccGenerateJobRunner.StartRepurpose` runs it as a Generate is run: own scope, run log, hub events.
+3. `GccGenerationCoordinator.RunRepurposeAsync`: **delete the page's pieces of the requested types**
+   (`DELETE repo/content-creator/projects/{id}/pages/{pageId}/pieces?type=`); write each piece on its own through
+   `GccGenerateService.RepurposeEmailAsync` or `RepurposeSocialPostAsync`, then its image prompt; settle; save what wrote in
+   one write, each piece under the page (`GccGeneratedPiece.ParentPageId`) and carrying the page's name. The run fails only
+   when no piece wrote.
+4. **What a writer is handed:** the page's text, whole (`GccRepurpose.SourceBlock`), and from the Brief the reader, the
+   voice and the problem. No research, no search, and not the block of the site's own structure a short piece was handed
+   while Generate wrote it. A piece from a 3,000-word page is a request of about 3,750 tokens.
+5. **The one check:** a figure in the piece must be in the page (`GccRepurpose.FigureRefusal`, on `GccFigureGrammar`). A
+   piece that states another is refused, not written again, and the others are kept.
+- **A page has one piece of each type**, by the unique index `ux_gcc_artifacts_one_piece_per_page_type_and_name`
+  (`ParentArtifactId`, type and name, where `ParentArtifactId` is set). Writing the page again, or deleting it, deletes its
+  pieces.
+- **The project's newest Generate is read apart from a page's newest Repurpose**
+  (`GccGenerateJobRepository.GetLatestForProjectAsync` answers runs with no source page), so a Repurpose never replaces the
+  last Generate's result on the page.
+- **The export names a piece for its page** (`GccArtifactExportService.FromPage`): "email/{name}-from-pillar.json".
+- **Short pieces saved by Generate before 2026-10-12** are pages of the project with no page above them. No run deletes
+  them.
 
 **The brief, as a writer is given it.** Each pillar, blog and tool page call prints the brief once. A choice the form stores
 as a code (`in_market`, `commercial_investigation`) is put into words by `BriefChoiceWords`, the one place every prompt reads.

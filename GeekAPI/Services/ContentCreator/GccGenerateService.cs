@@ -230,9 +230,10 @@ public partial class GccGenerateService
     /// always the generic fallback inside GenerateStartingContentAsync; LinkedInDocument has zero
     /// content-type-specific treatment; EmailNewsletter/EmailStoryNurture/EmailTransactional all
     /// currently produce cold-outreach-shaped content regardless of which is selected -- not a thin
-    /// version of the right thing, the wrong thing. Email-cold-outreach, Social, Ads, and standalone
-    /// Image prompt are not in this set -- cold outreach is the one email variant genuinely
-    /// implemented, and Social/Ads/Image prompt were never flagged as broken.
+    /// version of the right thing, the wrong thing. Standalone Image prompt is not in this set: it
+    /// was never flagged as broken. Email-cold-outreach, Social and Ads are not in it either, and are
+    /// not disabled: they are written by Repurpose from an approved page (<see cref="GccRepurpose"/>),
+    /// and a Generate asked for one is refused there, naming Repurpose.
     /// Normalized by stripping hyphens/spaces/slashes and lowercasing, so "tech-article"/"techArticle"
     /// and "PDF / LinkedIn document"/"linkedin-document" both match one entry each.
     /// </summary>
@@ -1233,73 +1234,6 @@ public partial class GccGenerateService
         string? StylePreset,
         string? Notes);
 
-    public async Task<string> GenerateRepurposePackAsync(
-        string sourceJson,
-        IReadOnlyList<string> channels,
-        ContentGeneratorProvider provider,
-        CancellationToken ct)
-    {
-        if (channels.Count == 0)
-            throw new InvalidOperationException("At least one channel required for pack.");
-
-        // Plan §7: one LLM call for chosen channels (not one call per post).
-        var llm = GetLlm(provider);
-        var channelList = string.Join(", ", channels);
-        var brief =
-            $"Produce ONE pack JSON for ONLY these channel slots (one variant object per slot, same order): {channelList}. " +
-            "Shape: { \"variants\": [ { \"channel\": string, \"title\": string, \"headline\": string|null, \"body\": string, \"cta\": string|null, \"hashtags\": string[]|null } ] }. " +
-            "Reply with valid JSON only.\nSource content:\n" + sourceJson;
-        var request = new ChatCompletionRequest(
-            Messages:
-            [
-                new ChatMessage(ChatRole.System, "You write marketing channel packs as strict JSON only."),
-                new ChatMessage(ChatRole.User, brief),
-            ],
-            Temperature: 0.4);
-        var result = await llm.CompleteAsync(request, ct);
-
-        var pack = LlmResponseJsonParser.Parse<JsonElement>(
-            result.Content ?? string.Empty,
-            "the repurpose request",
-            "social/ads pack",
-            static element =>
-                element.ValueKind == JsonValueKind.Object
-                && element.TryGetProperty("variants", out var variants)
-                && variants.ValueKind == JsonValueKind.Array
-                && variants.GetArrayLength() > 0
-                    ? null
-                    : "the reply carried no non-empty variants array");
-        return pack.GetRawText();
-    }
-
-    public static IReadOnlyList<PackVariant> ParsePackVariants(string packJson)
-    {
-        using var doc = JsonDocument.Parse(packJson);
-        var list = new List<PackVariant>();
-        foreach (var el in doc.RootElement.GetProperty("variants").EnumerateArray())
-        {
-            var channel = el.TryGetProperty("channel", out var c) ? c.GetString() ?? "" : "";
-            var title = el.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
-            var body = el.TryGetProperty("body", out var b) ? b.GetString() ?? "" : "";
-            var headline = el.TryGetProperty("headline", out var h) ? h.GetString() : null;
-            var cta = el.TryGetProperty("cta", out var ct) ? ct.GetString() : null;
-            if (string.IsNullOrWhiteSpace(channel) || string.IsNullOrWhiteSpace(body))
-                throw new InvalidOperationException("Social/ads pack variant missing channel or body.");
-            list.Add(new PackVariant(channel.Trim(), title.Trim(), headline, body.Trim(), cta));
-        }
-
-        if (list.Count == 0)
-            throw new InvalidOperationException("Social/ads pack has no variants.");
-        return list;
-    }
-
-    public sealed record PackVariant(
-        string Channel,
-        string Title,
-        string? Headline,
-        string Body,
-        string? Cta);
-
     /// <summary>
     /// CWV2 tool page: body + ToolMetadataDraft + SoftwareApplication JSON-LD
     /// (same contract as ToolPageGenerator.GenerateOneToolAsync).
@@ -2014,26 +1948,6 @@ public partial class GccGenerateService
             + $"core capability signal (features or citable claims) {(hasCapabilitySignal ? "present" : "missing")}";
     }
 
-    /// <summary>Legacy alias — prefer <see cref="GenerateToolPageAsync"/>. Every caller that has a
-    /// create in scope must pass it through, same as the primary generate path -- omitting it here
-    /// was silently reopening the exact ungrounded-tool-page gap Stage 2 closed.</summary>
-    public async Task<(string Name, ContentDocument Document, string? MetaDescription, string? Summary)> GenerateToolAsync(
-        string toolName,
-        string? brief,
-        string? sourceContext,
-        ContentGeneratorProvider provider,
-        CancellationToken ct,
-        GccCreateDto? create = null)
-    {
-        var tool = await GenerateToolPageAsync(
-            toolName, brief, sourceContext, "marketing", null, provider, ct, create: create);
-        return (tool.Name, tool.Document, tool.Metadata.MetaDescription, tool.Metadata.Summary);
-    }
-
-    /// <summary>Serialize a CWV2 ContentDocument for legacy GCC artifact storage.</summary>
-    public static string SerializeDocument(ContentDocument document) =>
-        JsonSerializer.Serialize(document, CwDocumentJson);
-
     /// <summary>
     /// Attaches an <c>imagePrompt</c> field to a flat, short-form body JSON object (email/social —
     /// no <see cref="Section"/> to merge into the way pillar/blog's per-H2 prompts do). Pure and
@@ -2582,12 +2496,20 @@ public partial class GccGenerateService
     private static string? ShortFormFraming(GccCreateDto create) =>
         GccNicheFramingReader.ForCategory(create.BriefJson)?.ShortFormGuidance();
 
-    // Copied from content-writer-v2 with Site Analyzer grounding integrated
-    public async Task<string> GenerateEmailAsync(
+    /// <summary>
+    /// A cold-outreach email written from one approved page of the project (<see cref="GccRepurpose"/>).
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-10-12 this was a Generate type, written from the Brief with no page in front of the
+    /// writer. It is handed the page whole, and from the Brief what it was handed before: the reader,
+    /// the voice and the operator's statement of the problem. No research and no site outline: the page
+    /// already used them. A figure the page does not state refuses the email; nothing is written again.
+    /// </remarks>
+    public async Task<string> RepurposeEmailAsync(
         GccCreateDto create,
+        GccRepurposeSource source,
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
-        string? mustMentionBlock,
         CancellationToken ct)
     {
         var llm = GetLlm(provider);
@@ -2609,8 +2531,7 @@ public partial class GccGenerateService
             .AppendLine(groundingBlock);
         if (ShortFormFraming(create) is { } framing)
             user.AppendLine().AppendLine(framing);
-        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
-            user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
+        user.AppendLine().AppendLine(GccRepurpose.SourceBlock(source, "email"));
 
         var request = new ChatCompletionRequest(
             Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
@@ -2631,17 +2552,25 @@ public partial class GccGenerateService
                 : string.IsNullOrWhiteSpace(r.Body) ? "the reply carried no body"
                 : string.IsNullOrWhiteSpace(r.CtaLabel) ? "the reply carried no ctaLabel"
                 : null);
+
+        if (GccRepurpose.FigureRefusal("email", [email.Subject, email.Body, email.CtaLabel], source) is { } figures)
+            throw new InvalidOperationException(figures);
+
         return JsonSerializer.Serialize(email, JsonOpts);
     }
 
     private sealed record ColdEmailReply(string? Subject, string? Body, string? CtaLabel);
 
-    public async Task<string> GenerateSocialPostAsync(
+    /// <summary>
+    /// A social post or an ad for one platform, written from one approved page of the project
+    /// (<see cref="GccRepurpose"/>). See <see cref="RepurposeEmailAsync"/> for what it is handed.
+    /// </summary>
+    public async Task<string> RepurposeSocialPostAsync(
         GccCreateDto create,
         string platform,
+        GccRepurposeSource source,
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
-        string? mustMentionBlock,
         CancellationToken ct)
     {
         var llm = GetLlm(provider);
@@ -2670,14 +2599,14 @@ public partial class GccGenerateService
             .AppendLine("JSON rules: one string value for text. Use \\n for line breaks.")
             .ToString();
 
+        var piece = GccRepurpose.PieceName(platform);
         var user = new StringBuilder()
             .AppendLine(briefBlock)
             .AppendLine()
             .AppendLine(groundingBlock);
         if (ShortFormFraming(create) is { } framing)
             user.AppendLine().AppendLine(framing);
-        if (!string.IsNullOrWhiteSpace(mustMentionBlock))
-            user.AppendLine().AppendLine("Must mention:").AppendLine(mustMentionBlock);
+        user.AppendLine().AppendLine(GccRepurpose.SourceBlock(source, piece));
 
         var request = new ChatCompletionRequest(
             Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
@@ -2686,12 +2615,16 @@ public partial class GccGenerateService
 
         var result = await llm.CompleteAsync(request, ct);
 
-        // Stored as this code wrote it from the model's text field; see GenerateEmailAsync.
+        // Stored as this code wrote it from the model's text field; see RepurposeEmailAsync.
         var post = LlmResponseJsonParser.Parse<SocialPostReply>(
             result.Content ?? string.Empty,
             $"the {platform} page",
             "social post",
             static r => string.IsNullOrWhiteSpace(r.Text) ? "the reply carried no text" : null);
+
+        if (GccRepurpose.FigureRefusal(piece, [post.Text], source) is { } figures)
+            throw new InvalidOperationException(figures);
+
         return JsonSerializer.Serialize(post, JsonOpts);
     }
 

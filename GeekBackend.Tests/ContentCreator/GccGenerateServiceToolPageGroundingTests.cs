@@ -284,9 +284,8 @@ public class GccGenerateServiceToolPageGroundingTests
     [Fact]
     public async Task WithNoCreateContextTheLegacyUngroundedPathStillWorks()
     {
-        // GenerateToolAsync (the legacy alias) and any other caller that never passes `create`
-        // must keep working exactly as before -- this method's new fail-closed gate only applies
-        // once a create is actually in play.
+        // A caller that never passes `create` (the Workflow product's tool page) must keep working
+        // exactly as before -- this method's fail-closed gate only applies once a create is in play.
         var provider = new ScriptedProvider();
         var partner = GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider));
         var service = Build(provider, partner);

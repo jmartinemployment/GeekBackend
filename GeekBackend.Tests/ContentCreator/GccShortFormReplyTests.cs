@@ -9,7 +9,7 @@ namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// What is stored for an email, a social post and an image prompt is what this code wrote from the model's fields, never
-/// the model's text. <c>GenerateEmailAsync</c> and <c>GenerateSocialPostAsync</c> returned the reply trimmed and
+/// the model's text. The email and social writers returned the reply trimmed and
 /// unparsed (a fence was removed only when the reply began with one), so a malformed reply was saved as the page's body;
 /// <c>GenerateImagePromptJsonAsync</c> wrapped any reply that was not JSON as the <c>prompt</c> with a canned style and
 /// called it a success. A reply that cannot be read is refused instead.
@@ -26,12 +26,17 @@ public sealed class GccShortFormReplyTests
         return GccGenerateServiceImagePromptTests.Build(provider);
     }
 
+    /// <summary>The approved page a short piece is written from: a pillar that states one figure.</summary>
+    private static readonly GccRepurposeSource Page = new(
+        Guid.NewGuid(), "pillar", "Automated approval workflows", "Automated Approval Workflows: A Guide",
+        "Why approvals stall\n\nAn invoice waits four days for a signature. Teams that route by rule cut approval time by 60%.");
+
     private static Task<string> Email(string reply) =>
-        Service(reply, out _).GenerateEmailAsync(Create(), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+        Service(reply, out _).RepurposeEmailAsync(Create(), Page, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
     private static Task<string> Social(string reply, string platform = "linkedin") =>
-        Service(reply, out _).GenerateSocialPostAsync(
-            Create(), platform, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+        Service(reply, out _).RepurposeSocialPostAsync(
+            Create(), platform, Page, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
     private static Task<string> ImagePrompt(string reply) =>
         Service(reply, out _).GenerateImagePromptJsonAsync(
@@ -193,28 +198,74 @@ public sealed class GccShortFormReplyTests
     }
 
     private static string TwoSectionDocument() =>
-        GccGenerateService.SerializeDocument(new GeekAPI.Services.Workflow.Domain.Entities.ContentDocument(
-            Lede: new GeekAPI.Services.Workflow.Domain.Entities.Section("h2", "Intro", [], null, []),
-            Sections:
-            [
-                new GeekAPI.Services.Workflow.Domain.Entities.Section("h2", "Overview", [], null, []),
-                new GeekAPI.Services.Workflow.Domain.Entities.Section("h2", "Details", [], null, []),
-            ]));
+        JsonSerializer.Serialize(
+            new GeekAPI.Services.Workflow.Domain.Entities.ContentDocument(
+                Lede: new GeekAPI.Services.Workflow.Domain.Entities.Section("h2", "Intro", [], null, []),
+                Sections:
+                [
+                    new GeekAPI.Services.Workflow.Domain.Entities.Section("h2", "Overview", [], null, []),
+                    new GeekAPI.Services.Workflow.Domain.Entities.Section("h2", "Details", [], null, []),
+                ]),
+            GccDocumentJson.Options);
 
-    // ---- the repurpose pack ----------------------------------------------------------------------
+    // ---- written from a page ---------------------------------------------------------------------
+
+    /// <summary>
+    /// A short piece is written from an approved page (Jeff, 2026-10-12: short content types "ARE DERIVED
+    /// OR REPURPOSED FROM EXISTING CONTENT"). The writer is handed the page whole, and what the Brief
+    /// already gave a short piece; until then it was handed the Brief alone.
+    /// </summary>
+    [Theory]
+    [InlineData("email")]
+    [InlineData("linkedin")]
+    public async Task The_writer_of_a_short_piece_is_handed_the_page_it_is_written_from(string piece)
+    {
+        var service = Service(
+            piece == "email" ? """{"subject":"Hello","body":"The body.","ctaLabel":"Read more"}""" : """{"text":"A post."}""",
+            out var provider);
+
+        if (piece == "email")
+            await service.RepurposeEmailAsync(Create(), Page, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
+        else
+            await service.RepurposeSocialPostAsync(Create(), piece, Page, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
+
+        var sent = Assert.Single(provider.Requests).Messages[1].Content;
+        Assert.Contains("IS WRITTEN FROM ===", sent, StringComparison.Ordinal);
+        Assert.Contains("An approved pillar page of this publisher's: \"Automated Approval Workflows: A Guide\".", sent, StringComparison.Ordinal);
+        Assert.Contains(Page.Text, sent, StringComparison.Ordinal);
+        Assert.Contains("a figure is written exactly as the page", sent, StringComparison.Ordinal);
+        // And what a short piece was already handed from the Brief's side of the request.
+        Assert.Contains("Topic: Automated approval workflows", sent, StringComparison.Ordinal);
+    }
 
     [Fact]
-    public async Task A_repurpose_pack_is_read_through_the_same_parser_and_needs_variants()
+    public async Task A_figure_the_page_states_may_be_stated_and_one_it_does_not_refuses_the_piece()
     {
-        var packed = await Service("```json\n{\"variants\":[{\"channel\":\"LinkedIn\",\"body\":\"b\"}]}\n```", out _)
-            .GenerateRepurposePackAsync("{}", ["LinkedIn"], ContentGeneratorProvider.OpenAi, CancellationToken.None);
+        // The page's own figure, in the email and in the post.
+        await Email("""{"subject":"Cut approval time by 60%","body":"Rule-based routing cut approval time by 60%.","ctaLabel":"Read more"}""");
+        await Social("""{"text":"Teams that route by rule cut approval time by 60%."}""");
 
-        using var doc = JsonDocument.Parse(packed);
-        Assert.Equal(1, doc.RootElement.GetProperty("variants").GetArrayLength());
+        var email = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Email("""{"subject":"Hello","body":"Customers save $12,000 a year and cut approval time by 60%.","ctaLabel":"Read more"}"""));
+        Assert.Equal(
+            "Refused: the email states a figure the page it was written from does not: $12,000. Nothing was saved for it.",
+            email.Message);
 
-        var ex = await Assert.ThrowsAsync<ContentGenerationException>(() =>
-            Service("""{"variants":[]}""", out _)
-                .GenerateRepurposePackAsync("{}", ["LinkedIn"], ContentGeneratorProvider.OpenAi, CancellationToken.None));
-        Assert.Contains("the reply carried no non-empty variants array", ex.Message, StringComparison.Ordinal);
+        var post = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Social("""{"text":"Approvals run 75% faster and cost 40% less."}"""));
+        Assert.Equal(
+            "Refused: the LinkedIn post states figures the page it was written from does not: 75%, 40%. Nothing was saved for it.",
+            post.Message);
+    }
+
+    [Fact]
+    public async Task A_piece_is_asked_for_once_and_a_refused_one_is_not_written_again()
+    {
+        var service = Service("""{"text":"Approvals run 75% faster."}""", out var provider);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RepurposeSocialPostAsync(
+            Create(), "linkedin", Page, null, ContentGeneratorProvider.OpenAi, CancellationToken.None));
+
+        Assert.Single(provider.Requests);
     }
 }

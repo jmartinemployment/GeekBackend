@@ -141,6 +141,48 @@ public sealed class GccProjectDraftsTests
         Assert.Equal(3, archive.Entries.Select(e => e.FullName).Distinct().Count());
     }
 
+    /// <summary>
+    /// A piece written from a page carries its page's name, and a project's pillar and blog are both
+    /// named for the keyword. Each piece's file says which page it came from, where numbering them
+    /// would leave two emails with nothing saying which was the pillar's.
+    /// </summary>
+    [Fact]
+    public async Task A_piece_written_from_a_page_is_exported_under_a_name_that_says_which_page()
+    {
+        var projectId = Guid.NewGuid();
+        var create = Guid.NewGuid();
+        var at = new DateTime(2026, 10, 12, 0, 0, 0, DateTimeKind.Utc);
+        var pillar = Artifact(create, "pillar", "Accounts Payable", at);
+        var blog = Artifact(create, "blog", "Accounts Payable", at.AddMinutes(1));
+        var tool = Artifact(create, "tool", "Ramp", at.AddMinutes(2));
+        var pillarEmail = Artifact(create, "email-cold-outreach", "Accounts Payable", at.AddMinutes(3)) with { ParentArtifactId = pillar.Id };
+        var blogEmail = Artifact(create, "email-cold-outreach", "Accounts Payable", at.AddMinutes(4)) with { ParentArtifactId = blog.Id };
+        var toolAd = Artifact(create, "ads", "Ramp", at.AddMinutes(5)) with { ParentArtifactId = tool.Id };
+        var repo = new HttpGccRepository(
+            new HttpClient(new Repository(projectId, [pillar, blog, tool, pillarEmail, blogEmail, toolAd]))
+            {
+                BaseAddress = new Uri("http://repo.test/"),
+            },
+            NullLogger<HttpGccRepository>.Instance);
+        var export = new GccArtifactExportService(
+            repo, Options.Create(new CompanyProfileOptions()), NullLogger<GccArtifactExportService>.Instance);
+
+        var documents = await export.ExportProjectAsync(projectId, CancellationToken.None);
+
+        Assert.Equal(
+            [
+                "ads/ramp-from-tool.json",
+                "email/accounts-payable-from-blog.json",
+                "email/accounts-payable-from-pillar.json",
+                "tools/ramp.json",
+                "blog/accounts-payable.json",
+                "use-cases/accounts-payable.json",
+            ],
+            documents.Select(d => d.FileName));
+        Assert.Equal(blogEmail.Id.ToString(), documents[1].Content);
+        Assert.Equal(pillarEmail.Id.ToString(), documents[2].Content);
+    }
+
     private sealed class Repository(Guid projectId, IReadOnlyList<GccArtifactDto> artifacts) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)

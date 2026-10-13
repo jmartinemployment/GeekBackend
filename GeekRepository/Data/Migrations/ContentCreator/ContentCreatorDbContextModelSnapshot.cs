@@ -909,6 +909,10 @@ namespace GeekRepository.Data.Migrations.ContentCreator
                         .HasColumnType("text")
                         .HasColumnName("result_json");
 
+                    b.Property<Guid?>("SourcePageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_page_id");
+
                     b.Property<DateTime>("StartedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("started_at");

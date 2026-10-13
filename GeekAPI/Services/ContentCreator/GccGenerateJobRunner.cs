@@ -74,6 +74,26 @@ public sealed class GccGenerateJobRunner
         return job;
     }
 
+    /// <summary>
+    /// Start a Repurpose whose row GeekRepository has already written as running: the short pieces in
+    /// <paramref name="outputTypes"/>, written from <paramref name="source"/> and saved under it. It is
+    /// a run like a Generate, on the same hub, with the same record, finished ready or failed.
+    /// </summary>
+    public GccJob StartRepurpose(
+        GccGenerateJobDto row,
+        GccCreateDto view,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        IReadOnlyList<string> outputTypes,
+        GccRepurposeSource source,
+        string ownerUserId)
+    {
+        var job = _jobs.Create("generate", row.CreateId, ownerUserId, row.Id, row.ProjectId);
+        _ = PushJobAsync(job.Id);
+        _ = Task.Run(() => RunAsync(job.Id, view, section, provider, outputTypes, mustMentionBlock: null, row, source: source));
+        return job;
+    }
+
     private async Task RunAsync(
         Guid jobId,
         GccCreateDto create,
@@ -82,7 +102,9 @@ public sealed class GccGenerateJobRunner
         IReadOnlyList<string>? outputTypes,
         string? mustMentionBlock,
         GccGenerateJobDto? row,
-        IReadOnlyList<string>? toolPartners = null)
+        IReadOnlyList<string>? toolPartners = null,
+        // The page a Repurpose writes from. Null is a Generate.
+        GccRepurposeSource? source = null)
     {
         // A new scope, because the request's scoped services (repository, generate service,
         // coordinator) are disposed the moment the 202 is written. Opened inside the try, so a scope
@@ -112,6 +134,10 @@ public sealed class GccGenerateJobRunner
                     toolPartners = toolPartners ?? [],
                     briefRevisionId = row.BriefRevisionId,
                     topic = create.Topic,
+                    // A Repurpose says which page it is written from, and how much of it there is.
+                    repurposeOf = source is null
+                        ? null
+                        : new { pageId = source.PageId, type = source.Type, name = source.Name, title = source.Title, characters = source.Text.Length },
                 });
             }
 
@@ -119,17 +145,26 @@ public sealed class GccGenerateJobRunner
             // 202 returns, so passing it here would abort generation instantly and leave a job
             // stuck "running" with nothing to show for it -- the silent-failure shape this whole
             // change exists to remove.
-            var result = await coordinator.RunGenerateAsync(
-                repo, gen, create, section, provider, outputTypes, mustMentionBlock,
-                CancellationToken.None,
-                onTypeOutcome: (contentType, produced, error) =>
-                    BestEffortAsync(jobId, "type outcome", () => _notifier.PushTypeAsync(jobId, contentType, produced, error)),
-                onReadiness: (contentType, partners) =>
-                    BestEffortAsync(jobId, "pre-flight", () => _notifier.PushPreflightAsync(jobId, contentType, partners)),
-                onTypeWarning: (contentType, warning) =>
-                    BestEffortAsync(jobId, "warning", () => _notifier.PushWarningAsync(jobId, contentType, warning)),
-                briefRevision: briefRevision,
-                toolPartners: toolPartners);
+            var result = source is null
+                ? await coordinator.RunGenerateAsync(
+                    repo, gen, create, section, provider, outputTypes, mustMentionBlock,
+                    CancellationToken.None,
+                    onTypeOutcome: (contentType, produced, error) =>
+                        BestEffortAsync(jobId, "type outcome", () => _notifier.PushTypeAsync(jobId, contentType, produced, error)),
+                    onReadiness: (contentType, partners) =>
+                        BestEffortAsync(jobId, "pre-flight", () => _notifier.PushPreflightAsync(jobId, contentType, partners)),
+                    onTypeWarning: (contentType, warning) =>
+                        BestEffortAsync(jobId, "warning", () => _notifier.PushWarningAsync(jobId, contentType, warning)),
+                    briefRevision: briefRevision,
+                    toolPartners: toolPartners)
+                : await coordinator.RunRepurposeAsync(
+                    repo, gen, create, section, provider, outputTypes, source,
+                    CancellationToken.None,
+                    onTypeOutcome: (contentType, produced, error) =>
+                        BestEffortAsync(jobId, "type outcome", () => _notifier.PushTypeAsync(jobId, contentType, produced, error)),
+                    onTypeWarning: (contentType, warning) =>
+                        BestEffortAsync(jobId, "warning", () => _notifier.PushWarningAsync(jobId, contentType, warning)),
+                    briefRevision: briefRevision);
 
             _jobs.Complete(jobId, result);
             if (GccRunLog.Current is { } completed)

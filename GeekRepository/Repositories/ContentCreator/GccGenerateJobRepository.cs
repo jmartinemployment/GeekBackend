@@ -24,13 +24,29 @@ public class GccGenerateJobRepository : IGccGenerateJobRepository
     }
 
     /// <remarks>
+    /// <para>
     /// Newest by when it started. A project has at most one running run (the partial unique index),
     /// and a run cannot start while another is going, so the newest is the running one whenever one is.
+    /// </para>
+    /// <para>
+    /// Generate runs only. A Repurpose is a run on the project too and holds the same lock, but it is
+    /// read by its page (<see cref="GetLatestForPageAsync"/>): returned here, it would take the place
+    /// of the last Generate's result on the page that shows what that run left unwritten.
+    /// </para>
     /// </remarks>
     public async Task<GccGenerateJobDto?> GetLatestForProjectAsync(Guid projectId, CancellationToken ct = default)
     {
         var job = await _db.GccGenerateJobs.AsNoTracking()
-            .Where(j => j.ProjectId == projectId)
+            .Where(j => j.ProjectId == projectId && j.SourcePageId == null)
+            .OrderByDescending(j => j.StartedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        return job is null ? null : await MapAsync(job, ct);
+    }
+
+    public async Task<GccGenerateJobDto?> GetLatestForPageAsync(Guid projectId, Guid pageId, CancellationToken ct = default)
+    {
+        var job = await _db.GccGenerateJobs.AsNoTracking()
+            .Where(j => j.ProjectId == projectId && j.SourcePageId == pageId)
             .OrderByDescending(j => j.StartedAtUtc)
             .FirstOrDefaultAsync(ct);
         return job is null ? null : await MapAsync(job, ct);
@@ -114,6 +130,14 @@ public class GccGenerateJobRepository : IGccGenerateJobRepository
         if (await RunningAsync(project.Id, ct) is { } running)
             return GccGenerateJobStartResult.Running(await MapAsync(running, ct));
 
+        // A Repurpose is written from a page of this project: one of its own pages, not a piece under one.
+        if (command.SourcePageId is Guid sourcePage
+            && !await _db.GccArtifacts.AnyAsync(
+                a => a.Id == sourcePage && a.ProjectId == project.Id && a.ParentArtifactId == null, ct))
+        {
+            return GccGenerateJobStartResult.NoSourcePage();
+        }
+
         Guid createId;
         if (command.CreateId is Guid given)
         {
@@ -147,6 +171,7 @@ public class GccGenerateJobRepository : IGccGenerateJobRepository
             OwnerUserId = command.OwnerUserId.ToString(),
             RequestedTypes = command.RequestedTypes.ToList(),
             Provider = command.Provider,
+            SourcePageId = command.SourcePageId,
             Status = GccGenerateJobStatuses.Running,
             StartedAtUtc = DateTime.UtcNow,
         };
@@ -247,5 +272,6 @@ public class GccGenerateJobRepository : IGccGenerateJobRepository
             job.ResultJson,
             job.Error,
             job.StartedAtUtc,
-            job.FinishedAtUtc);
+            job.FinishedAtUtc,
+            job.SourcePageId);
 }

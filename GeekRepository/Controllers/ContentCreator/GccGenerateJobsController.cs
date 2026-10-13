@@ -25,11 +25,19 @@ public class GccGenerateJobsController : ControllerBase
         return job is null ? NotFound() : Ok(job);
     }
 
-    /// <summary>The project's newest run, running or ended. 404 when the project has never run.</summary>
+    /// <summary>The project's newest Generate, running or ended. 404 when the project has never run one.</summary>
     [HttpGet("~/repo/content-creator/projects/{projectId:guid}/generate-jobs/latest")]
     public async Task<ActionResult<GccGenerateJobDto>> GetLatestForProject(Guid projectId, CancellationToken ct)
     {
         var job = await _jobs.GetLatestForProjectAsync(projectId, ct);
+        return job is null ? NotFound() : Ok(job);
+    }
+
+    /// <summary>The newest Repurpose of one page, running or ended. 404 when the page has never been repurposed.</summary>
+    [HttpGet("~/repo/content-creator/projects/{projectId:guid}/pages/{pageId:guid}/generate-jobs/latest")]
+    public async Task<ActionResult<GccGenerateJobDto>> GetLatestForPage(Guid projectId, Guid pageId, CancellationToken ct)
+    {
+        var job = await _jobs.GetLatestForPageAsync(projectId, pageId, ct);
         return job is null ? NotFound() : Ok(job);
     }
 

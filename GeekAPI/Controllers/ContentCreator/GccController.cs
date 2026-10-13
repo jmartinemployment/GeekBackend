@@ -691,121 +691,9 @@ public class GccController : ControllerBase
         return Ok(new { artifact, @event = evt });
     }
 
-    // Disabled 2026-09-22 (Jeff): Repurpose never called ValidateSiteSectionGate, so every type it
-    // produces -- including aiTool -- generated without the Project Site crawl requirement
-    // creates/{id}/generate enforces unconditionally for everything else. RepurposeInternal is kept
-    // rather than deleted so it can be re-enabled once it carries the same gate; only the route itself
-    // is disabled. It no longer derives a blog or a technical article: both were written through
-    // Revise, which was removed on 2026-10-10 (Jeff), and their two request flags went with them.
-    // Kept on Jeff's word the same day, with nothing calling it: "We have many disabled Content Types
-    // that we may want to utilize repurpose."
-    [HttpPost("versions/{id:guid}/repurpose")]
-    public Task<ActionResult<object>> Repurpose(Guid id, [FromBody] MixRequest? request, CancellationToken ct) =>
-        Task.FromResult<ActionResult<object>>(StatusCode(403,
-            "Repurpose is disabled -- it does not enforce the Project Site grounding gate that "
-            + "creates/{id}/generate requires for every content type. Use Generate instead."));
-
-    private async Task<ActionResult<object>> RepurposeInternal(Guid id, MixRequest? request, CancellationToken ct)
-    {
-        request ??= new MixRequest(0, 0, 0, 0, 0, 0, null, null, false, null);
-        var version = await _repo.GetVersionAsync(id, ct);
-        if (version is null) return NotFound();
-        var artifact = await _repo.GetArtifactAsync(version.ArtifactId, ct);
-        if (artifact is null) return NotFound();
-        if (!string.Equals(artifact.Status, "approved", StringComparison.OrdinalIgnoreCase))
-            return BadRequest("Content approval required before Repurpose");
-
-        if (!TryParseProvider(request?.Provider, out var provider, out var err))
-            return BadRequest(err);
-
-        var createId = artifact.CreateId;
-        var create = await _repo.GetCreateAsync(createId, ct);
-        var created = new List<object>();
-
-        var packChannels = new List<string>();
-        if ((request?.LinkedInCount ?? 0) > 0) packChannels.Add("LinkedIn");
-        if ((request?.XCount ?? 0) > 0) packChannels.Add("X");
-        if ((request?.InstagramCount ?? 0) > 0) packChannels.Add("Instagram");
-        if ((request?.MetaAdsCount ?? 0) > 0) packChannels.Add("MetaAds");
-        if ((request?.GoogleAdsCount ?? 0) > 0) packChannels.Add("GoogleAds");
-
-        try
-        {
-            if (packChannels.Count > 0)
-            {
-                var packJson = await _gen.GenerateRepurposePackAsync(version.BodyDocumentJson, packChannels, provider, ct);
-                var packArtifact = await _repo.CreateArtifactAsync(
-                    new CreateGccArtifactCommand(createId, "socialPack", "Repurpose pack"), ct);
-                var packVersion = await _repo.CreateVersionAsync(
-                    new CreateGccArtifactVersionCommand(packArtifact.Id, packJson), ct);
-                created.Add(new { artifact = packArtifact, version = packVersion });
-            }
-
-            var emailCount = request?.EmailCount ?? 0;
-            for (var i = 0; i < emailCount; i++)
-            {
-                var emailBody = await _gen.GenerateRepurposePackAsync(
-                    version.BodyDocumentJson,
-                    new[] { "Email" },
-                    provider,
-                    ct);
-                var emailArtifact = await _repo.CreateArtifactAsync(
-                    new CreateGccArtifactCommand(createId, "email", $"Email {i + 1}"), ct);
-                var emailVersion = await _repo.CreateVersionAsync(
-                    new CreateGccArtifactVersionCommand(emailArtifact.Id, emailBody), ct);
-                created.Add(new { artifact = emailArtifact, version = emailVersion });
-            }
-
-            if (request?.ImagePrompts == true)
-            {
-                var promptJson = await _gen.GenerateImagePromptJsonAsync(
-                    artifact.Name,
-                    null,
-                    version.BodyDocumentJson,
-                    provider,
-                    ct);
-                var promptArtifact = await _repo.CreateArtifactAsync(
-                    new CreateGccArtifactCommand(createId, "imagePrompt", $"{artifact.Name} — Image prompt"), ct);
-                var promptVersion = await _repo.CreateVersionAsync(
-                    new CreateGccArtifactVersionCommand(promptArtifact.Id, promptJson), ct);
-                created.Add(new { artifact = promptArtifact, version = promptVersion });
-            }
-
-            var toolNames = request?.AiToolNames?.Where(n => !string.IsNullOrWhiteSpace(n)).Select(n => n.Trim()).Distinct().ToList()
-                ?? new List<string>();
-            if (toolNames.Count > 0)
-            {
-                foreach (var name in toolNames)
-                {
-                    var (toolName, document, _, _) = await _gen.GenerateToolAsync(
-                        name,
-                        request?.AiToolBrief,
-                        version.BodyDocumentJson,
-                        provider,
-                        ct,
-                        create);
-                    var toolArtifact = await _repo.CreateArtifactAsync(
-                        new CreateGccArtifactCommand(createId, "aiTool", toolName), ct);
-                    var toolVersion = await _repo.CreateVersionAsync(
-                        new CreateGccArtifactVersionCommand(
-                            toolArtifact.Id,
-                            GccGenerateService.SerializeDocument(document)), ct);
-                    created.Add(new { artifact = toolArtifact, version = toolVersion });
-                }
-            }
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "Repurpose failed");
-            return StatusCode(502, "LLM provider request failed");
-        }
-
-        return Ok(new { created });
-    }
+    // Repurpose is on the project: POST projects/{id}/pages/{pageId}/repurpose
+    // (GccProjectsController), beside Generate and behind the same two gates. This controller has no
+    // route for it.
 
     [HttpPost("image-prompts/generate")]
     public async Task<ActionResult<object>> GenerateImagePrompt([FromBody] ImagePromptRequest request, CancellationToken ct)
@@ -1096,36 +984,6 @@ public class GccController : ControllerBase
         error = $"Unknown provider '{raw}'. Valid: {string.Join(", ", Enum.GetNames<ContentGeneratorProvider>())}.";
         return false;
     }
-    private static List<string> BuildPackChannels(SocialPackRequest request)
-    {
-        var channels = new List<string>();
-        void Add(string name, int count)
-        {
-            for (var i = 0; i < Math.Max(0, count); i++)
-                channels.Add(name);
-        }
-
-        Add("Facebook", request.FacebookCount);
-        Add("LinkedIn", request.LinkedInCount);
-        Add("X", request.XCount);
-        Add("Instagram", request.InstagramCount);
-        Add("MetaAds", request.MetaAdsCount);
-        Add("GoogleAds", request.GoogleAdsCount);
-        return channels;
-    }
-
-
-    private static string FormatPackBody(GccGenerateService.PackVariant v)
-    {
-        var sb = new System.Text.StringBuilder();
-        if (!string.IsNullOrWhiteSpace(v.Headline))
-            sb.AppendLine(v.Headline);
-        sb.AppendLine(v.Body);
-        if (!string.IsNullOrWhiteSpace(v.Cta))
-            sb.AppendLine(v.Cta);
-        return sb.ToString().Trim();
-    }
-
     private static string? TruncateMeta(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
@@ -1156,17 +1014,6 @@ public class GccController : ControllerBase
         IReadOnlyList<string>? OutputTypes = null,
         bool AcknowledgeStaleGrounding = false);
     public sealed record ApproveRequest(string? Notes);
-    public sealed record MixRequest(
-        int EmailCount,
-        int LinkedInCount,
-        int XCount,
-        int InstagramCount,
-        int MetaAdsCount,
-        int GoogleAdsCount,
-        IReadOnlyList<string>? AiToolNames,
-        string? AiToolBrief,
-        bool ImagePrompts,
-        string? Provider);
     public sealed record ToolGenerateRequest(
         IReadOnlyList<string>? ToolNames,
         string? Brief,
@@ -1195,13 +1042,5 @@ public class GccController : ControllerBase
         IReadOnlyList<string>? ToolNames,
         string Brief,
         string? Provider);
-    public sealed record SocialPackRequest(
-        int FacebookCount = 0,
-        int LinkedInCount = 0,
-        int XCount = 0,
-        int InstagramCount = 0,
-        int MetaAdsCount = 0,
-        int GoogleAdsCount = 0,
-        string? Provider = null);
     public sealed record ContentApprovalRequest(bool Approved = true);
 }

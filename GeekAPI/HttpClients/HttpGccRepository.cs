@@ -484,6 +484,31 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     }
 
     /// <summary>
+    /// Delete the pieces of these types written from one page of the project, with their content. What
+    /// a Repurpose does before it writes anything. Null when the project has no such page.
+    /// </summary>
+    public async Task<GccPiecesDeleteResult?> DeletePagePiecesAsync(
+        Guid projectId, Guid pageId, IReadOnlyList<string> types, CancellationToken ct = default)
+    {
+        var query = string.Join("&", types.Select(t => $"type={Uri.EscapeDataString(t.Trim())}"));
+        var path = $"repo/content-creator/projects/{projectId}/pages/{pageId}/pieces?{query}";
+        var res = await _http.DeleteAsync(path, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccPiecesDeleteResult>(await res.Content.ReadAsStringAsync(ct), JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
+    /// <summary>The newest Repurpose of one page of the project, or null when it has never been repurposed.</summary>
+    public async Task<GccGenerateJobDto?> GetLatestRepurposeJobAsync(Guid projectId, Guid pageId, CancellationToken ct = default)
+    {
+        var res = await _http.GetAsync($"repo/content-creator/projects/{projectId}/pages/{pageId}/generate-jobs/latest", ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccGenerateJobDto>(await res.Content.ReadAsStringAsync(ct), JsonOpts);
+    }
+
+    /// <summary>
     /// Save every piece of one Generate to the project's pages, in one write: the content of the page
     /// that exists is replaced, a new page is created where none does. Null when the project does not
     /// exist; a refusal is carried in the result and means nothing was written.

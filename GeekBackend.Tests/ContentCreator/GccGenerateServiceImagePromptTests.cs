@@ -68,13 +68,15 @@ public class GccGenerateServiceImagePromptTests
         new GccToolPageFanOutFixture.FakeExtractionBank());
 
     private static string TwoSectionDocumentJson() =>
-        GccGenerateService.SerializeDocument(new ContentDocument(
-            Lede: new Section("h2", "Intro", [], null, []),
-            Sections:
-            [
-                new Section("h2", "Overview", [], null, []),
-                new Section("h2", "Details", [], null, []),
-            ]));
+        JsonSerializer.Serialize(
+            new ContentDocument(
+                Lede: new Section("h2", "Intro", [], null, []),
+                Sections:
+                [
+                    new Section("h2", "Overview", [], null, []),
+                    new Section("h2", "Details", [], null, []),
+                ]),
+            GccDocumentJson.Options);
 
     [Fact]
     public async Task HeroAndPerSectionPromptsAreMergedIntoTheDocumentPositionally()

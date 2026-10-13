@@ -6,7 +6,11 @@ namespace GeekApplication.Models.ContentCreator;
 /// <param name="Type">The content type: pillar, blog, tool.</param>
 /// <param name="Name">The page's name: the keyword for a pillar or a blog, the product for a tool page.
 /// With <paramref name="Type"/> it says which page of the project this is.</param>
-public sealed record GccGeneratedPiece(string Type, string Name, string BodyDocumentJson, string? MetadataJson = null);
+/// <param name="ParentPageId">Null for a page of the project. For a piece a Repurpose wrote from a page --
+/// an email, a social post, an ad -- the page it was written from: the piece is saved under that page,
+/// one of each type and name, and goes when the page does.</param>
+public sealed record GccGeneratedPiece(
+    string Type, string Name, string BodyDocumentJson, string? MetadataJson = null, Guid? ParentPageId = null);
 
 /// <summary>Every piece of one Generate, saved together or not at all.</summary>
 /// <param name="CreateId">The create a page that does not exist yet is stored under. Drafts are keyed by
@@ -25,6 +29,14 @@ public sealed record GccSavedPieceDto(GccArtifactDto Artifact, GccArtifactVersio
 public sealed record GccPagesDeleteResult(bool ProjectNotFound, int Pages, int DerivedPages)
 {
     public static GccPagesDeleteResult Missing() => new(true, 0, 0);
+}
+
+/// <summary>What deleting the pieces written from one page removed.</summary>
+/// <param name="PageNotFound">The project has no such page: nothing was deleted.</param>
+/// <param name="Pieces">The pieces of the named types under that page that were deleted, with their content.</param>
+public sealed record GccPiecesDeleteResult(bool PageNotFound, int Pieces)
+{
+    public static GccPiecesDeleteResult Missing() => new(true, 0);
 }
 
 /// <summary>A run's pieces saved, or why none of them was. Nothing is written on a refusal.</summary>

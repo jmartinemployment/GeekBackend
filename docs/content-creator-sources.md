@@ -48,7 +48,9 @@ Generate, so the draft fits the site.
      (it stopped at 24 headings and 40 blocks of text, each cut at 600 characters).
    - **This site already covers this topic** (4,800): the site structure matched to the keyword. Its subtopics are
      compulsory ("all of which this piece must cover"). A subtopic that lists tools is left out. *Not verified: what it
-     listed for the 2026-10-07 run.*
+     listed for the 2026-10-07 run.* An email and a social post were handed it too until 2026-10-12. A short piece is
+     now written by Repurpose from one approved page and is handed no source but that page: none of these three
+     blocks, no partner research and no competitor research.
    - **Already published on this site, do not write these again** (21,200): the 8 best-matching passages of your own
      pages. It told the writer not to restate them and never to contradict them. Every page returned is shown since
      2026-10-12; five were.

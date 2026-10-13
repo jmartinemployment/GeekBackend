@@ -297,6 +297,12 @@ public class GccGenerateJob
     public List<string> RequestedTypes { get; set; } = [];
     public string Provider { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Null for a Generate. For a Repurpose, the page its pieces were written from. No foreign key:
+    /// the row is the record of a run, and it stays when the page is written again or deleted.
+    /// </summary>
+    public Guid? SourcePageId { get; set; }
+
     /// <summary>running | ready | failed. The database carries the same list.</summary>
     public string Status { get; set; } = "running";
 

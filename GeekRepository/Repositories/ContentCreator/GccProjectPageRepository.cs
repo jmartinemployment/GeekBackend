@@ -27,6 +27,15 @@ namespace GeekRepository.Repositories.ContentCreator;
 /// the run names, which must be the project's.
 /// </para>
 /// <para>
+/// <b>A piece written from a page is saved under it</b> (2026-10-12). An email, a social post or an ad
+/// that a Repurpose wrote from a pillar, a blog or a tool page names that page
+/// (<see cref="GccGeneratedPiece.ParentPageId"/>). It is one of the page's pieces, found among them by
+/// type and name as a page is found among the project's, and replaced the same way. It is not one of
+/// the project's pages: the one-page rule and a Generate's delete do not see it, and it goes when its
+/// page is written again or deleted. The database holds this rule too, one piece of a type and name
+/// under a page, by unique index.
+/// </para>
+/// <para>
 /// <b>All or nothing</b> (A12). GeekAPI wrote each piece with two calls -- the draft, then its
 /// version -- one piece after another, so a failure on the fourth tool page left three saved and a
 /// run reported as failed. Every row of a run, and every deletion it entails, is one unit of work
@@ -60,7 +69,7 @@ public class GccProjectPageRepository : IGccProjectPageRepository
         // A run writes each page once. Two pieces for one page would make the second the page's
         // content and the first text nobody asked for.
         var twice = command.Pieces
-            .GroupBy(PageKey, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(p => $"{p.ParentPageId}\u001f{PageKey(p)}", StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(g => g.Count() > 1);
         if (twice is not null)
         {
@@ -77,15 +86,33 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                 + "of this project's, so a new page cannot be stored under it.");
         }
 
-        var pages = await _db.GccArtifacts
-            .Where(a => a.ProjectId == projectId && a.ParentArtifactId == null)
-            .ToListAsync(ct);
+        // The project's own pages, and the pieces already under any page this run writes a piece from.
+        var all = await _db.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync(ct);
+        var pages = all.Where(a => a.ParentArtifactId == null).ToList();
+
+        // A piece is written from one of this project's pages. One that names anything else -- a page
+        // of another project, a page deleted while the run wrote, a piece under a page -- has nowhere
+        // to be saved, and nothing of the run is.
+        var orphan = command.Pieces.FirstOrDefault(p =>
+            p.ParentPageId is Guid parent && !pages.Any(a => a.Id == parent));
+        if (orphan is not null)
+        {
+            return GccGeneratedPiecesSaveResult.Refused(
+                $"None of the {command.Pieces.Count} piece(s) was saved: the {orphan.Type.Trim()} "
+                + $"'{orphan.Name.Trim()}' was written from page {orphan.ParentPageId}, which is not one of "
+                + "this project's pages any more.");
+        }
+
         var now = DateTime.UtcNow;
         var saved = new List<(GccArtifact Page, GccArtifactVersion Version, bool NewPage)>(command.Pieces.Count);
 
         foreach (var piece in command.Pieces)
         {
-            var same = pages.Where(a => string.Equals(PageKey(a), PageKey(piece), StringComparison.OrdinalIgnoreCase)).ToList();
+            // Among the project's pages, or among the pieces under the page this one was written from.
+            var same = all
+                .Where(a => a.ParentArtifactId == piece.ParentPageId
+                    && string.Equals(PageKey(a), PageKey(piece), StringComparison.OrdinalIgnoreCase))
+                .ToList();
             if (same.Count > 1)
             {
                 // The database forbids this; if it is seen, nothing is guessed about which page to write.
@@ -93,8 +120,11 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                 // deletion; a refusal writes nothing, so those marks go too.
                 _db.ChangeTracker.Clear();
                 return GccGeneratedPiecesSaveResult.Refused(
-                    $"None of the {command.Pieces.Count} piece(s) was saved: the project has {same.Count} "
-                    + $"{piece.Type.Trim()} pages named '{piece.Name.Trim()}', and a page is one.");
+                    piece.ParentPageId is null
+                        ? $"None of the {command.Pieces.Count} piece(s) was saved: the project has {same.Count} "
+                            + $"{piece.Type.Trim()} pages named '{piece.Name.Trim()}', and a page is one."
+                        : $"None of the {command.Pieces.Count} piece(s) was saved: page {piece.ParentPageId} has "
+                            + $"{same.Count} {piece.Type.Trim()} pieces named '{piece.Name.Trim()}', and a piece is one.");
             }
 
             GccArtifact page;
@@ -104,6 +134,7 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                 {
                     ProjectId = projectId,
                     CreateId = command.CreateId,
+                    ParentArtifactId = piece.ParentPageId,
                     Type = piece.Type.Trim(),
                     Name = piece.Name.Trim(),
                     Status = "draft",
@@ -111,7 +142,7 @@ public class GccProjectPageRepository : IGccProjectPageRepository
                     UpdatedAtUtc = now,
                 };
                 _db.GccArtifacts.Add(page);
-                pages.Add(page);
+                all.Add(page);
             }
             else
             {
@@ -215,6 +246,39 @@ public class GccProjectPageRepository : IGccProjectPageRepository
         await _db.SaveChangesAsync(ct);
 
         return new GccPagesDeleteResult(false, pages.Count, derived.Count);
+    }
+
+    /// <summary>
+    /// The pieces of these types written from one page, deleted with their content. The page stands.
+    /// </summary>
+    /// <remarks>
+    /// What a Repurpose does before it writes anything, for the reason a Generate deletes its pages
+    /// first: a piece that is then refused must not leave the last run's piece to be read as this one's.
+    /// </remarks>
+    public async Task<GccPiecesDeleteResult> DeletePiecesAsync(
+        Guid projectId, Guid pageId, IReadOnlyList<string> types, CancellationToken ct = default)
+    {
+        var isPage = await _db.GccArtifacts.AnyAsync(
+            a => a.Id == pageId && a.ProjectId == projectId && a.ParentArtifactId == null, ct);
+        if (!isPage) return GccPiecesDeleteResult.Missing();
+
+        var wanted = types
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (wanted.Count == 0) return new GccPiecesDeleteResult(false, 0);
+
+        var under = await _db.GccArtifacts
+            .Where(a => a.ProjectId == projectId && a.ParentArtifactId == pageId)
+            .ToListAsync(ct);
+        var pieces = under.Where(a => wanted.Contains(a.Type.Trim())).ToList();
+        if (pieces.Count == 0) return new GccPiecesDeleteResult(false, 0);
+
+        foreach (var piece in pieces) await GccArtifactVersionRepository.RemoveContentAsync(_db, piece.Id, ct);
+        _db.GccArtifacts.RemoveRange(pieces);
+        await _db.SaveChangesAsync(ct);
+
+        return new GccPiecesDeleteResult(false, pieces.Count);
     }
 
     // The unit separator cannot occur in a type or a name, so two different pages never share a key.

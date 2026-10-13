@@ -120,19 +120,21 @@ public class GccProjectsController : ControllerBase
         if (project is null) return NotFound();
 
         var job = await _repo.GetLatestGenerateJobAsync(id, ct);
-        return Ok(new LatestGenerateResponse(job is null
-            ? null
-            : new GenerateRunView(
-                job.Id,
-                job.Status,
-                job.RequestedTypes,
-                job.Provider,
-                job.StartedAtUtc,
-                job.FinishedAtUtc,
-                job.BriefRevisionSavedAtUtc,
-                job.ResultJson,
-                job.Error)));
+        return Ok(new LatestGenerateResponse(job is null ? null : RunView(job)));
     }
+
+    private static GenerateRunView RunView(GccGenerateJobDto job) =>
+        new(
+            job.Id,
+            job.Status,
+            job.RequestedTypes,
+            job.Provider,
+            job.StartedAtUtc,
+            job.FinishedAtUtc,
+            job.BriefRevisionSavedAtUtc,
+            job.ResultJson,
+            job.Error,
+            job.SourcePageId);
 
     /// <summary>
     /// The project's drafts as a zip of standalone pages, foldered by content type with image prompts
@@ -396,40 +398,10 @@ public class GccProjectsController : ControllerBase
                 return BadRequest($"tools must name this project's declared partners; not declared: {string.Join(", ", notDeclared)}.");
         }
 
-        // The declared URLs were validated when they were entered. Asked once more here, before the
-        // run starts and before anything is spent, in case the index has lost one since.
-        var declared = await _declaredUrls.ForGenerateAsync(project, ct);
-        if (declared.Refusal is { } unusable) return Conflict(unusable);
-
-        // The run is written from the crawl that was just checked. The project stores which crawl of
-        // its site it is grounded on, and re-crawling the site deletes the earlier one -- so a project
-        // nobody re-saved pointed at a crawl that no longer existed, the check above passed on the new
-        // crawl, and the run searched the dead one and was "written without it" (2026-10-05). Partners
-        // and competitors are resolved from their URLs on every run; the site is too.
-        if (declared.SiteRunId is not Guid siteRun)
-            return Conflict("The index did not say which crawl of the project site it holds. Nothing was started — try again.");
-        if (project.ProjectSiteRunId != siteRun)
-        {
-            var repointed = await _repo.SetProjectSiteRunAsync(new SetGccProjectSiteRunCommand(id, actor, siteRun), ct);
-            if (repointed.NotFound) return NotFound();
-            if (repointed.Stale || repointed.Project is null)
-                return Conflict("The project changed while its site crawl was being brought up to date. "
-                    + "Nothing was started — generate again.");
-            project = repointed.Project;
-        }
-
-        var backing = await _repo.GetProjectBackingCreateAsync(id, ct);
-        var view = ProjectView(project, backing?.Id ?? Guid.Empty, ownerUserId, requested[0], backing);
-        var section = GccGenerateService.ParseSiteSection(view.SiteSectionJson);
-        try
-        {
-            GccGenerateService.ValidateSiteSectionGate(view.ProjectSiteRunId, section);
-            GccGenerateService.ValidateBriefRequired(view);
-        }
-        catch (InvalidOperationException ex)
-        {
-            return BadRequest(ex.Message);
-        }
+        var gate = await GateAsync(id, project, actor, ownerUserId, requested[0], ct);
+        if (gate.Refusal is not null) return gate.Refusal;
+        project = gate.Project;
+        var (backing, view, section) = (gate.Backing, gate.View, gate.Section);
 
         // Before the run row exists: the keyword and site run it reads are the project's, and anything
         // that fails here must fail with nothing started.
@@ -439,22 +411,9 @@ public class GccProjectsController : ControllerBase
             new StartGccGenerateJobCommand(
                 Guid.NewGuid(), id, backing?.Id, project.Version, ownerUserId, requested, provider.ToString()),
             ct);
-        if (started.ProjectNotFound) return NotFound();
-        if (started.AlreadyRunning is { } running)
-            return Conflict(
-                $"A Generate is already running on this project (job {running.Id}, started "
-                + $"{running.StartedAtUtc:u} for {string.Join(", ", running.RequestedTypes)}). "
-                + "Nothing was started -- wait for it to finish.");
-        if (started.StaleBrief)
-            return Conflict("The brief was saved again after this page loaded it. Nothing was started -- "
-                + "reload and generate again, so the run uses the brief on screen.");
-        if (started.NoSavedBrief)
-            return BadRequest("brief required: save the brief before generating.");
-        if (started.CreateNotOnProject || started.Job is null)
-            return Conflict("The project's drafts changed while this run was being started. Nothing was "
-                + "started -- generate again.");
+        if (NotStarted(started, "generate") is { } notStarted) return notStarted;
 
-        var row = started.Job;
+        var row = started.Job!;
         var writeUnder = backing is not null && backing.Id == row.CreateId
             ? view
             : ProjectView(project, row.CreateId, ownerUserId, requested[0], backing: null);
@@ -463,6 +422,161 @@ public class GccProjectsController : ControllerBase
             toolPartners: toolPartners.Count > 0 ? toolPartners : null);
 
         return Accepted(new { jobId = job.Id, projectId = id, status = job.Status });
+    }
+
+    /// <summary>
+    /// Repurpose: write short pieces (an email, a social post, an ad) from one approved page of the
+    /// project and save them under it (<see cref="GccRepurpose"/>). 202 with the job; progress on the
+    /// hub and a record on the run log, exactly as a Generate.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The one way a short piece is written (Jeff, 2026-10-12). It runs behind the same two gates as a
+    /// Generate -- the project's site is crawled and the brief is complete -- which is what the route
+    /// it replaces never did, and it holds the project's one running place, so a Generate cannot
+    /// delete the page while a piece is being written from it.
+    /// </para>
+    /// <para>
+    /// Refusals: 404 no project, or no such page on it; 400 no keyword, a type that is not a short
+    /// piece, a page that is not an approved pillar, blog or tool page or has no text, an incomplete
+    /// brief, a missing site crawl, a bad provider; 409 a run already running on the project, named;
+    /// 409 the brief was saved again after this request read it. Every refusal writes nothing.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:guid}/pages/{pageId:guid}/repurpose")]
+    public async Task<IActionResult> Repurpose(
+        Guid id, Guid pageId, [FromBody] RepurposeRequest? request, CancellationToken ct)
+    {
+        var actor = CurrentSubject();
+        if (actor is null) return Unauthorized();
+        if (!Guid.TryParse(actor, out var ownerUserId))
+            return BadRequest("The token's subject is not a user id, so the run cannot be attributed.");
+
+        var project = await _repo.GetProjectAsync(id, ct);
+        if (project is null) return NotFound();
+        if (string.IsNullOrWhiteSpace(project.Topic))
+            return BadRequest("keyword required: save the brief with a keyword before a Repurpose.");
+
+        if (!GccController.TryParseProvider(request?.Provider, out var provider, out var providerError))
+            return BadRequest(providerError);
+
+        var requested = GccGenerationCoordinator.NormalizeRequestedTypes(request?.OutputTypes);
+        if (GccRepurpose.TypesRefusal(requested) is { } typeRefusal) return BadRequest(typeRefusal);
+
+        // The page, read before anything else is asked: what it is decides whether there is a run at all.
+        var page = await _repo.GetArtifactAsync(pageId, ct);
+        if (page is null || page.ProjectId != id) return NotFound();
+        var written = (await _repo.ListVersionsAsync(pageId, ct)).FirstOrDefault();
+        var (source, sourceRefusal) = GccRepurpose.SourceOf(page, written?.BodyDocumentJson);
+        if (source is null) return BadRequest(sourceRefusal);
+
+        var gate = await GateAsync(id, project, actor, ownerUserId, requested[0], ct);
+        if (gate.Refusal is not null) return gate.Refusal;
+        project = gate.Project;
+
+        var started = await _repo.StartGenerateJobAsync(
+            new StartGccGenerateJobCommand(
+                Guid.NewGuid(), id, gate.Backing?.Id, project.Version, ownerUserId, requested, provider.ToString(), pageId),
+            ct);
+        if (NotStarted(started, "repurpose") is { } notStarted) return notStarted;
+
+        var row = started.Job!;
+        var writeUnder = gate.Backing is not null && gate.Backing.Id == row.CreateId
+            ? gate.View
+            : ProjectView(project, row.CreateId, ownerUserId, requested[0], backing: null);
+        var job = _generateRunner.StartRepurpose(row, writeUnder, gate.Section, provider, requested, source, actor);
+
+        return Accepted(new { jobId = job.Id, projectId = id, pageId, status = job.Status });
+    }
+
+    /// <summary>
+    /// The newest Repurpose of one page: the one going now, or the last to end. <c>run</c> is null when
+    /// the page has never been repurposed. What the page reads when it opens, as
+    /// <see cref="LatestGenerate"/> is for a Generate; the two are read apart so a Repurpose never takes
+    /// the place of the last Generate's result.
+    /// </summary>
+    [HttpGet("{id:guid}/pages/{pageId:guid}/repurpose/latest")]
+    public async Task<IActionResult> LatestRepurpose(Guid id, Guid pageId, CancellationToken ct)
+    {
+        var project = await _repo.GetProjectAsync(id, ct);
+        if (project is null) return NotFound();
+
+        var job = await _repo.GetLatestRepurposeJobAsync(id, pageId, ct);
+        return Ok(new LatestGenerateResponse(job is null ? null : RunView(job)));
+    }
+
+    /// <summary>
+    /// The two gates every run on a project passes before its row is written: the project's site is
+    /// crawled and indexed, and the brief is complete. One definition for Generate and Repurpose, so
+    /// neither can be started past a gate the other is held to.
+    /// </summary>
+    /// <returns>A refusal, with nothing started; or the project as it now stands (its site run brought
+    /// up to date), the create its drafts are stored under, and the create the run reads.</returns>
+    private async Task<(IActionResult? Refusal, GccProjectDto Project, GccCreateDto? Backing, GccCreateDto View, SiteSectionContextDto? Section)>
+        GateAsync(Guid id, GccProjectDto project, string actor, Guid ownerUserId, string firstRequestedType, CancellationToken ct)
+    {
+        (IActionResult?, GccProjectDto, GccCreateDto?, GccCreateDto, SiteSectionContextDto?) Refuse(IActionResult why) =>
+            (why, project, null, null!, null);
+
+        // The declared URLs were validated when they were entered. Asked once more here, before the
+        // run starts and before anything is spent, in case the index has lost one since.
+        var declared = await _declaredUrls.ForGenerateAsync(project, ct);
+        if (declared.Refusal is { } unusable) return Refuse(Conflict(unusable));
+
+        // The run is written from the crawl that was just checked. The project stores which crawl of
+        // its site it is grounded on, and re-crawling the site deletes the earlier one -- so a project
+        // nobody re-saved pointed at a crawl that no longer existed, the check above passed on the new
+        // crawl, and the run searched the dead one and was "written without it" (2026-10-05). Partners
+        // and competitors are resolved from their URLs on every run; the site is too.
+        if (declared.SiteRunId is not Guid siteRun)
+            return Refuse(Conflict("The index did not say which crawl of the project site it holds. Nothing was started — try again."));
+        if (project.ProjectSiteRunId != siteRun)
+        {
+            var repointed = await _repo.SetProjectSiteRunAsync(new SetGccProjectSiteRunCommand(id, actor, siteRun), ct);
+            if (repointed.NotFound) return Refuse(NotFound());
+            if (repointed.Stale || repointed.Project is null)
+                return Refuse(Conflict("The project changed while its site crawl was being brought up to date. "
+                    + "Nothing was started — try again."));
+            project = repointed.Project;
+        }
+
+        var backing = await _repo.GetProjectBackingCreateAsync(id, ct);
+        var view = ProjectView(project, backing?.Id ?? Guid.Empty, ownerUserId, firstRequestedType, backing);
+        var section = GccGenerateService.ParseSiteSection(view.SiteSectionJson);
+        try
+        {
+            GccGenerateService.ValidateSiteSectionGate(view.ProjectSiteRunId, section);
+            GccGenerateService.ValidateBriefRequired(view);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Refuse(BadRequest(ex.Message));
+        }
+
+        return (null, project, backing, view, section);
+    }
+
+    /// <summary>What a run that GeekRepository did not start is answered with, or null when it started.</summary>
+    /// <param name="what">"generate" or "repurpose", for the wording.</param>
+    private IActionResult? NotStarted(GccGenerateJobStartResult started, string what)
+    {
+        if (started.ProjectNotFound) return NotFound();
+        if (started.AlreadyRunning is { } running)
+            return Conflict(
+                $"{(running.SourcePageId is null ? "A Generate" : "A Repurpose")} is already running on this project "
+                + $"(job {running.Id}, started {running.StartedAtUtc:u} for {string.Join(", ", running.RequestedTypes)}). "
+                + "Nothing was started -- wait for it to finish.");
+        if (started.StaleBrief)
+            return Conflict("The brief was saved again after this page loaded it. Nothing was started -- "
+                + $"reload and {what} again, so the run uses the brief on screen.");
+        if (started.NoSavedBrief)
+            return BadRequest($"brief required: save the brief before a {what}.");
+        if (started.SourcePageNotOnProject)
+            return NotFound("The page is no longer one of this project's pages. Nothing was started.");
+        if (started.CreateNotOnProject || started.Job is null)
+            return Conflict("The project's drafts changed while this run was being started. Nothing was "
+                + $"started -- {what} again.");
+        return null;
     }
 
     /// <summary>
@@ -793,7 +907,7 @@ public class GccProjectsController : ControllerBase
     /// is a null inside it rather than an empty response.</summary>
     public sealed record LatestGenerateResponse(GenerateRunView? Run);
 
-    /// <summary>A Generate as the page is shown it.</summary>
+    /// <summary>A Generate or a Repurpose as the page is shown it.</summary>
     /// <param name="JobId">What the page joins on the hub to follow a run that is still going.</param>
     /// <param name="Status">running | ready | failed.</param>
     /// <param name="ResultJson">What an ended run recorded: what it saved, what it refused by name, the
@@ -807,7 +921,12 @@ public class GccProjectsController : ControllerBase
         DateTime? FinishedAtUtc,
         DateTime BriefRevisionSavedAtUtc,
         string? ResultJson,
-        string? Error);
+        string? Error,
+        // The page a Repurpose was written from; null on a Generate.
+        Guid? SourcePageId = null);
+
+    /// <summary>What the browser sends to Repurpose a page: the short pieces to write from it.</summary>
+    public sealed record RepurposeRequest(IReadOnlyList<string>? OutputTypes, string? Provider);
 
     /// <summary>What the browser sends to Generate. AcknowledgeStaleGrounding is accepted for the
     /// contract's shape; Generate has no staleness gate that can fire (see GccController).</summary>

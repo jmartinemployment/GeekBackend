@@ -364,6 +364,201 @@ public sealed class GccProjectPageRepositoryTests
         Assert.DoesNotContain(await read.GccArtifacts.ToListAsync(), a => a.Id == ramp || a.Id == dext);
     }
 
+    // ---- a piece written from a page ----------------------------------------------------------------
+
+    private static GccGeneratedPiece PieceFrom(Guid page, string type, string name, string body = "{}") =>
+        new(type, name, body, """{"generatedByProvider":"OpenAi"}""", page);
+
+    private static async Task<Guid> SavePage(
+        DbContextOptions<ContentCreatorDbContext> options, Guid projectId, Guid createId, string type, string name)
+    {
+        await using var db = new ContentCreatorDbContext(options);
+        var saved = await new GccProjectPageRepository(db).SaveGeneratedAsync(
+            projectId, new SaveGccGeneratedPiecesCommand(createId, [Piece(type, name, "the page")]));
+        return saved.Saved![0].Artifact.Id;
+    }
+
+    [Fact]
+    public async Task A_piece_written_from_a_page_is_saved_under_it_and_is_not_one_of_the_projects_pages()
+    {
+        var (options, projectId, createId) = await Seed();
+        var pillar = await SavePage(options, projectId, createId, "pillar", "AP: Approvals");
+        var blog = await SavePage(options, projectId, createId, "blog", "AP: Approvals");
+
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var result = await new GccProjectPageRepository(db).SaveGeneratedAsync(
+                projectId,
+                new SaveGccGeneratedPiecesCommand(
+                    createId,
+                    [
+                        PieceFrom(pillar, "email-cold-outreach", "AP: Approvals", "the pillar's email"),
+                        PieceFrom(pillar, "social", "AP: Approvals", "the pillar's post"),
+                        // The same type and name under another page is another piece.
+                        PieceFrom(blog, "social", "AP: Approvals", "the blog's post"),
+                    ]));
+
+            Assert.Null(result.Refusal);
+            var saved = Assert.IsAssignableFrom<IReadOnlyList<GccSavedPieceDto>>(result.Saved);
+            Assert.Equal([pillar, pillar, blog], saved.Select(s => s.Artifact.ParentArtifactId!.Value));
+            Assert.All(saved, s => Assert.True(s.NewPage));
+            Assert.All(saved, s => Assert.Equal(projectId, s.Artifact.ProjectId));
+            Assert.All(saved, s => Assert.Equal("draft", s.Artifact.Status));
+        }
+
+        // A Generate that writes a social post of the project's own is a page of the project, and
+        // neither piece is taken for it.
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var own = await new GccProjectPageRepository(db).SaveGeneratedAsync(
+                projectId, new SaveGccGeneratedPiecesCommand(createId, [Piece("social", "AP: Approvals", "the project's own")]));
+            Assert.True(own.Saved![0].NewPage);
+            Assert.Null(own.Saved[0].Artifact.ParentArtifactId);
+        }
+
+        await using var verify = new ContentCreatorDbContext(options);
+        Assert.Equal(6, await verify.GccArtifacts.CountAsync());
+        Assert.Equal(3, await verify.GccArtifacts.CountAsync(a => a.ParentArtifactId == null));
+        Assert.Equal(
+            ["the blog's post", "the pillar's email", "the pillar's post"],
+            (await verify.GccArtifactVersions
+                .Where(v => verify.GccArtifacts.Any(a => a.Id == v.ArtifactId && a.ParentArtifactId != null))
+                .Select(v => v.BodyJson).ToListAsync()).Order());
+    }
+
+    [Fact]
+    public async Task A_second_repurpose_replaces_the_piece_under_the_page_and_keeps_nothing_older()
+    {
+        var (options, projectId, createId) = await Seed();
+        var pillar = await SavePage(options, projectId, createId, "pillar", "AP: Approvals");
+
+        Guid pieceId;
+        await using (var first = new ContentCreatorDbContext(options))
+        {
+            var saved = await new GccProjectPageRepository(first).SaveGeneratedAsync(
+                projectId, new SaveGccGeneratedPiecesCommand(createId, [PieceFrom(pillar, "social", "AP: Approvals", "first")]));
+            pieceId = saved.Saved![0].Artifact.Id;
+            await new GccArtifactRepository(first).UpdateStatusAsync(pieceId, "approved");
+        }
+
+        await using (var second = new ContentCreatorDbContext(options))
+        {
+            var saved = await new GccProjectPageRepository(second).SaveGeneratedAsync(
+                projectId, new SaveGccGeneratedPiecesCommand(createId, [PieceFrom(pillar, " Social ", "ap: approvals", "second")]));
+
+            Assert.Null(saved.Refusal);
+            Assert.False(saved.Saved![0].NewPage);
+            Assert.Equal(pieceId, saved.Saved[0].Artifact.Id);
+            Assert.Equal(pillar, saved.Saved[0].Artifact.ParentArtifactId);
+            // New text nobody has approved.
+            Assert.Equal("draft", saved.Saved[0].Artifact.Status);
+        }
+
+        await using var verify = new ContentCreatorDbContext(options);
+        Assert.Equal(2, await verify.GccArtifacts.CountAsync());
+        Assert.Equal("second", (await verify.GccArtifactVersions.SingleAsync(v => v.ArtifactId == pieceId)).BodyJson);
+    }
+
+    [Fact]
+    public async Task A_piece_written_from_a_page_that_is_not_the_projects_saves_nothing_of_the_run()
+    {
+        var (options, projectId, createId) = await Seed();
+        var pillar = await SavePage(options, projectId, createId, "pillar", "AP: Approvals");
+        Guid piece;
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            piece = (await new GccProjectPageRepository(db).SaveGeneratedAsync(
+                projectId, new SaveGccGeneratedPiecesCommand(createId, [PieceFrom(pillar, "social", "AP: Approvals")])))
+                .Saved![0].Artifact.Id;
+        }
+
+        // A page that is gone, and a piece under a page: neither is a page a piece can be saved under.
+        foreach (var source in new[] { Guid.NewGuid(), piece })
+        {
+            await using var db = new ContentCreatorDbContext(options);
+            var refused = await new GccProjectPageRepository(db).SaveGeneratedAsync(
+                projectId,
+                new SaveGccGeneratedPiecesCommand(
+                    createId,
+                    [PieceFrom(pillar, "email-cold-outreach", "AP: Approvals"), PieceFrom(source, "ads", "AP: Approvals")]));
+
+            Assert.Null(refused.Saved);
+            Assert.Contains("is not one of this project's pages any more", refused.Refusal, StringComparison.Ordinal);
+        }
+
+        await using var verify = new ContentCreatorDbContext(options);
+        Assert.Equal(2, await verify.GccArtifacts.CountAsync());
+    }
+
+    [Fact]
+    public async Task Deleting_a_pages_pieces_of_some_types_leaves_the_page_its_other_pieces_and_every_other_pages()
+    {
+        var (options, projectId, createId) = await Seed();
+        var pillar = await SavePage(options, projectId, createId, "pillar", "AP: Approvals");
+        var blog = await SavePage(options, projectId, createId, "blog", "AP: Approvals");
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            await new GccProjectPageRepository(db).SaveGeneratedAsync(
+                projectId,
+                new SaveGccGeneratedPiecesCommand(
+                    createId,
+                    [
+                        PieceFrom(pillar, "email-cold-outreach", "AP: Approvals"),
+                        PieceFrom(pillar, "social", "AP: Approvals"),
+                        PieceFrom(pillar, "ads", "AP: Approvals"),
+                        PieceFrom(blog, "social", "AP: Approvals"),
+                        Piece("social", "AP: Approvals"),
+                    ]));
+        }
+
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var pages = new GccProjectPageRepository(db);
+            var deleted = await pages.DeletePiecesAsync(projectId, pillar, [" Social ", "ADS"]);
+            Assert.Equal(new GccPiecesDeleteResult(false, 2), deleted);
+            // Nothing of those types left under it: nothing more to delete, and not an error.
+            Assert.Equal(new GccPiecesDeleteResult(false, 0), await pages.DeletePiecesAsync(projectId, pillar, ["social"]));
+            // No such page on this project; a piece is not a page.
+            Assert.True((await pages.DeletePiecesAsync(projectId, Guid.NewGuid(), ["social"])).PageNotFound);
+            Assert.True((await pages.DeletePiecesAsync(Guid.NewGuid(), pillar, ["social"])).PageNotFound);
+        }
+
+        await using var verify = new ContentCreatorDbContext(options);
+        var left = await verify.GccArtifacts.ToListAsync();
+        Assert.Equal(
+            ["blog", "email-cold-outreach", "pillar", "social", "social"],
+            left.Select(a => a.Type).Order());
+        Assert.Equal("email-cold-outreach", Assert.Single(left, a => a.ParentArtifactId == pillar).Type);
+        Assert.Single(left, a => a.ParentArtifactId == blog);
+        Assert.Equal(left.Count, await verify.GccArtifactVersions.CountAsync());
+    }
+
+    [Fact]
+    public async Task Deleting_a_page_as_a_generate_does_deletes_the_pieces_written_from_it()
+    {
+        var (options, projectId, createId) = await Seed();
+        var pillar = await SavePage(options, projectId, createId, "pillar", "AP: Approvals");
+        var blog = await SavePage(options, projectId, createId, "blog", "AP: Approvals");
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            await new GccProjectPageRepository(db).SaveGeneratedAsync(
+                projectId,
+                new SaveGccGeneratedPiecesCommand(
+                    createId, [PieceFrom(pillar, "social", "AP: Approvals"), PieceFrom(blog, "social", "AP: Approvals")]));
+        }
+
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var deleted = await new GccProjectPageRepository(db).DeletePagesAsync(projectId, ["pillar"]);
+            Assert.Equal(new GccPagesDeleteResult(false, 1, 1), deleted);
+        }
+
+        await using var verify = new ContentCreatorDbContext(options);
+        var left = await verify.GccArtifacts.ToListAsync();
+        Assert.Equal(["blog", "social"], left.Select(a => a.Type).Order());
+        Assert.Equal(blog, Assert.Single(left, a => a.ParentArtifactId != null).ParentArtifactId);
+    }
+
     [Fact]
     public async Task The_projects_draft_list_says_when_each_page_was_last_written_and_lists_the_newest_first()
     {

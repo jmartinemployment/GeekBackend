@@ -73,8 +73,10 @@ the Plan agent. `CLAUDE.md` section 2 forbids repair until Jeff changes that sec
 - **Guards:** `GccDraftGuard` has `Pillar`, `Blog` and `Tool` entry points; `Pillar` and `Blog` share one body.
   `GuardInputsFor` and `GuardedDraftAsync` are one instance method each, shared by all three types.
 - **Tests:** 14 test files construct `GccGenerateService` (8 directly, 6 through `GccToolPageFanOutFixture`); 34 reference
-  `ContentPromptBuilder`; 16 reference the guards. No test instantiates the coordinator or calls `RunGenerateAsync`.
-  `GenerateBlogBodyAsync`, `GenerateEmailAsync` and `GenerateSocialPostAsync` have no direct test calls.
+  `ContentPromptBuilder`; 16 reference the guards. Since 2026-10-12 two test files instantiate the coordinator
+  (`BriefFieldReachTests` calls `RunGenerateAsync`, `GccRepurposeRunTests` calls `RunRepurposeAsync`); none did before.
+  `GenerateBlogBodyAsync` has no direct test call. (The email and social writers this line also named are gone:
+  since 2026-10-12 a short piece is written by Repurpose from an approved page, and its writers are tested.)
 
 ## 5. Where today's code goes
 
@@ -101,9 +103,9 @@ the Plan agent. `CLAUDE.md` section 2 forbids repair until Jeff changes that sec
    `ValidateImagePromptRequiresLongForm` and `ToDisplayType`, `ValidAudienceDetails`, `ExtractBriefAudienceAngle`,
    `SerializeAnalysisPayload`, `ParseAnalysisPayload`, `DeserializeGaps`, `DeserializeSitePages`,
    `TryBuildSectionContext`, `BuildEvidence`, `HierarchyMatchDto`, `ToolsByHeading`, `ToolExtractDiag`,
-   `ParsePackVariants`, `PackVariant`, `BuildToolResearchExtractionPrompt`, the disabled Repurpose path
-   (`RepurposeInternal`, `GenerateRepurposePackAsync`, `GenerateToolAsync`, `SerializeDocument`'s caller) and the generic-blog
-   tail of `GenerateStartingContentAsync`. Jeff's yes first.
+   `BuildToolResearchExtractionPrompt` and the generic-blog tail of `GenerateStartingContentAsync`. Jeff's yes first.
+   (The switched-off Repurpose route and the pack writer behind it, which this list also named, were deleted on
+   2026-10-12 when Repurpose was rebuilt on the project: `plans/use-everything.md`, step 4.)
 1. **Gate, now: Jeff runs Pillar alone on the current code** and sends the Run log events:
    `SELECT at, kind, piece, payload_json FROM content_creator.gcc_generate_job_events WHERE at >= '<run start>' AND kind IN ('verdict','outcome','settled','fault','failure','warning','completed') ORDER BY job_id, seq;`
    Nothing below starts before this.

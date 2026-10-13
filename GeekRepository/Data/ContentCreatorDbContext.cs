@@ -409,6 +409,7 @@ public class ContentCreatorDbContext : DbContext
             entity.Property(j => j.OwnerUserId).HasColumnName("owner_user_id").IsRequired().HasMaxLength(256);
             entity.Property(j => j.RequestedTypes).HasColumnName("requested_types").IsRequired().HasColumnType("text[]");
             entity.Property(j => j.Provider).HasColumnName("provider").IsRequired().HasMaxLength(32);
+            entity.Property(j => j.SourcePageId).HasColumnName("source_page_id");
             entity.Property(j => j.Status).HasColumnName("status").IsRequired().HasMaxLength(16);
             entity.Property(j => j.ResultJson).HasColumnName("result_json").HasColumnType("text");
             entity.Property(j => j.Error).HasColumnName("error").HasColumnType("text");

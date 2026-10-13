@@ -10,9 +10,9 @@ committed on `main`. Nothing is pushed, and nothing is fixed until a run of your
 | 1 | Research Organization's fixed numbers go, requests are counted against what the model accepts, OpenAI's limit figures on the run log | Built, committed, not pushed |
 | 2 | The Brief boxes (Part 1) and the hints on the form | Built, committed in both repositories, not pushed |
 | 3 | Nothing is cut by a count (Part 2) | Built, committed, not pushed |
-| 4 | Repurpose, GeekBackend | Not started |
+| 4 | Repurpose, GeekBackend | Built, committed, not pushed. **Must not be pushed without step 5**: until the form changes, ticking "Email — cold outreach", "Social" or "Ads" on Generate is refused |
 | 5 | Repurpose, the form | Not started |
-| 6 | The record | Not started. `AGENTS.md`, the specification and the sources document already say what steps 1, 2 and 3 changed |
+| 6 | The record | Not started. `AGENTS.md`, the specification and the sources document already say what steps 1 to 4 changed |
 
 **Step 1, as built. What differs from what this plan said is marked.**
 - Research is no longer cut at 350,000 characters or to 40,000 for each partner. Every opening and
@@ -156,6 +156,62 @@ committed on `main`. Nothing is pushed, and nothing is fixed until a run of your
 - **What the next run lists because of this step:** nothing I can name before it runs. Every writer
   is handed about twice what it was, a tool page is handed competitor pages for the first time, and
   an opening is handed what the questions found.
+
+**Step 4, as built. What differs from what this plan said is marked.**
+- **A short piece is written by Repurpose, from one approved page, and nowhere else.** A Generate
+  asked for one is refused before anything starts: "'social' is written by Repurpose from an
+  approved pillar, blog or tool page, not by Generate. Nothing was generated."
+- **The route is on the project, beside Generate, which this plan did not say:**
+  `POST api/geek-content-creator/projects/{id}/pages/{pageId}/repurpose`, with the pieces to write.
+  This plan had the old route start the job. The old route took a version and no project, so it
+  could not be held to the project's gates; it is deleted with the writer behind it.
+- **The same two gates as Generate, in one piece of code both routes call:** the project's site is
+  crawled, and the Brief is complete. A Repurpose and a Generate also share the project's one
+  running place, so a Generate cannot delete a page while a piece is being written from it.
+- **What it is written from:** a pillar, a blog or a tool page of the project that is approved and
+  has text. Anything else is refused with nothing started, in these words: "approve the page before
+  Repurpose", "this is a piece written from one", "this page is a ...", "the page has no text to
+  write from".
+- **What the writer is handed:** the page, whole, and from the Brief what a short piece was already
+  handed (the reader, the voice, the problem). **No longer handed, which this plan did not say:**
+  the block "This site already covers this topic" (your site's structure matched to the keyword,
+  with the subtopics a page must cover). The page was held to it; a piece makes one idea's case.
+- **Size, counted as OpenAI counts:** a piece from a 3,000-word page with a complete Brief is about
+  3,750 tokens, in made-up text of that length. Each piece is followed by its image prompt request,
+  as before. Three pieces from one page cost a few cents on GPT-4.1.
+- **The check:** a figure in the piece must be in the page. A piece that states another is refused
+  and not written again; the other pieces are kept. When every piece is refused the run fails and
+  says why for each.
+- **Delete first:** the page's pieces of the types asked for are deleted before a word is written,
+  as a Generate deletes its pages.
+- **Where a piece is saved:** under its page, carrying the page's name, one of each type for a page.
+  A second of the same is refused by an index. Writing the page again, or deleting it, deletes its
+  pieces, which the repository already did.
+- **The run is recorded like a Generate,** with the page it was written from. A page's newest
+  Repurpose is read at `GET .../pages/{pageId}/repurpose/latest`. **The project's newest Generate
+  no longer answers with a Repurpose,** so the last Generate's list of gaps stays on the page.
+- **Six more types are Repurpose types, which this plan did not list:** `linkedin`, `x`, `instagram`,
+  `facebook`, `metaads` and `googleads`. Generate wrote each as its own post; the form offers none of
+  them. They are refused on Generate with the three.
+- **The export names a piece for its page:** "email/accounts-payable-from-pillar.json". A pillar and
+  a blog are both named for the keyword, so their two emails would otherwise be one file name and a
+  "-2". Found while building.
+- **Deleted:** the old route and its request shapes, the writer that made a pack of posts from a
+  page, the writer that made a tool page from a page, and a document serializer nothing else called.
+- **The migration** (`APieceIsSavedUnderItsPage`) adds one column to the run table and one index to
+  the pages table. It deletes nothing. No row can break the index: every call that has ever created
+  a page, in every version of GeekAPI, was read, and none saved a piece under a page.
+  **Not run against a real database here** (no Postgres on this machine); checked against the model
+  with EF and read as the SQL it generates. It runs when GeekRepository starts after the push.
+- **Short pieces saved by earlier Generate runs stay** as pages of the project. No run deletes them
+  now, since Generate no longer takes those types. Step 5 looks at how the form shows them.
+- Tests: 2,139 unit and 44 integration pass. The route is tested for an approved page, a page not
+  approved, a project whose site is not crawled, an incomplete Brief, a page of another project, a
+  type that is not a short piece, a piece as the source, a run already going, and the page's newest
+  Repurpose read back. A run is tested through the real writers for delete-first, the figure
+  refusal with the others kept, every piece refused, and a second Repurpose replacing the first.
+- **What the next run lists because of this step:** a Generate lists nothing new. A Repurpose lists
+  one line for each piece refused for a figure.
 
 It replaces the earlier plan of the same day (one research block per content type), deleted on
 your word: this plan drops its 40,000 for each partner and does not include its rewrite.
@@ -356,8 +412,8 @@ Also in this part:
 - Short pieces saved by earlier runs stay until you delete them.
 - The old route also made a tool page and an image prompt from a page. A tool page is written from
   its partner's crawl, and "Image prompt" has its own place on Generate, so those two branches are
-  deleted with the old writer (`GenerateToolAsync`, `GenerateRepurposePackAsync`). On 2026-10-10 you
-  said to keep Repurpose: this keeps it and removes those two branches. Say if either should stay.
+  deleted with the old writer. On 2026-10-10 you said to keep Repurpose: this keeps it and removes
+  those two branches. Say if either should stay.
 - Comparison, Alternatives and Listicle, which you named for Repurpose later, are not in this plan.
   The route takes a list of types, so they are added to it, not built beside it.
 
@@ -448,21 +504,31 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
 - `GccPublisherProfileResolver.cs`: the home page whole. `Guardrail/GccCurrencyGrammar.cs`
   (`ForeignAmountsInstruction`): every amount.
 
-**Part 3**
-- `GccController.cs:694-808`: the route validates and starts a job through `GccGenerateJobRunner`;
-  `RepurposeInternal`, `MixRequest`, `FormatPackBody` and `BuildPackChannels` are deleted.
-- `GccGenerationCoordinator.cs`: the email and social arms of `GenerateOneAsync` (`:611`, `:621`)
-  take the source page; `ValidateRequestedTypes` refuses the three without one; `DeleteOldPagesAsync`
-  deletes that page's pieces of the asked types and nothing else; `PersistAllAsync` saves under the
-  page; the comment at `:266-279` is corrected.
-- `GccGenerateService.cs`: `GenerateEmailAsync` and `GenerateSocialPostAsync` (`:2368-2478`) take
-  the page's text, read with `GccBodyEnvelope.Read` and `ContentDocumentText`; the pack writer and
-  its helpers (`:1124-1189`) and `GenerateToolAsync` (`:1824`) are deleted. The figure check is
-  `Guardrail/GccFigureGrammar`.
-- GeekRepository: `GccGeneratedPiece` gains the page a piece derives from;
-  `GccProjectPageRepository.SaveGeneratedAsync` and the delete take it; a migration adds one piece
-  for a page, type and name, as an index created by SQL like
-  `ux_gcc_artifacts_one_page_per_type_and_name`.
+**Part 3, GeekBackend (step 4, built)**
+- `GccRepurpose.cs` (new): which types are short pieces, what a Generate and a Repurpose are refused
+  with (`GenerateRefusal`, `TypesRefusal`), the page as a Repurpose reads it or why it cannot be
+  written from (`SourceOf`), the page as the writer is shown it (`SourceBlock`), what a piece is
+  called (`PieceName`), and the figure check (`FigureRefusal`, on `Guardrail/GccFigureGrammar`).
+- `Controllers/ContentCreator/GccProjectsController.cs`: `Repurpose` and `LatestRepurpose`; `GateAsync`
+  and `NotStarted`, the two gates and the start's refusals, called by Generate and Repurpose alike.
+  `GccController.cs` has no Repurpose route.
+- `GccGenerateJobRunner.StartRepurpose`; `GccGenerationCoordinator.RunRepurposeAsync` (delete first,
+  each piece on its own, one save under the page); `ValidateRequestedTypes` refuses a short piece;
+  `PersistAllAsync` takes the page a run's pieces are saved under.
+- `GccGenerateService.cs`: `RepurposeEmailAsync` and `RepurposeSocialPostAsync`, the only writers of
+  a short piece.
+- `GccArtifactExportService.cs`: `FromPage`, the end of a piece's file name.
+- `HttpClients/HttpGccRepository.cs`: `DeletePagePiecesAsync`, `GetLatestRepurposeJobAsync`.
+- GeekRepository: `GccGeneratedPiece.ParentPageId`; `GccProjectPageRepository.SaveGeneratedAsync`
+  saves a piece under its page and refuses one whose page is not the project's;
+  `DeletePiecesAsync`; `GccGenerateJob.SourcePageId` (`source_page_id`), with
+  `GccGenerateJobRepository.StartAsync` refusing a page that is not the project's,
+  `GetLatestForProjectAsync` answering Generate runs only and `GetLatestForPageAsync`; migration
+  `20261012233000_APieceIsSavedUnderItsPage` (the column, and the index
+  `ux_gcc_artifacts_one_piece_per_page_type_and_name`, created by SQL like
+  `ux_gcc_artifacts_one_page_per_type_and_name`).
+
+**Part 3, the form (step 5, not built)**
 - content-creator-v2: `src/lib/content-types.ts` (the three leave Generate's list; their tabs
   stay), `ProjectContentWorkspace.tsx` ("Approve & export", and the line under Generate's list that
   says how many pieces are deleted with a ticked page), `src/services/gcc-api.ts` (the call, and
@@ -470,7 +536,7 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
 
 ## Verification
 
-- After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,102 after step 3),
+- After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,139 after step 4),
   `dotnet test GeekBackend.IntegrationTests` (44); the form's tests (55 after step 2) for its
   commits.
 - The counter was checked against the 40 requests of the 08:17 UTC run of 2026-10-07 whose sizes
@@ -496,7 +562,10 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
   so in an opening or a body request, and `NothingIsCutByACountTests` for each count by name.
 - Repurpose: tests through the real route for an approved page, a page not approved, a project with
   no crawled site, a figure the page does not hold, and a second Repurpose replacing the first; the
-  repository's tests for saving and deleting a page's pieces.
+  repository's tests for saving and deleting a page's pieces. Built in step 4:
+  `GccProjectRepurposeRouteTests` (the route), `GccRepurposeRunTests` (a run through the real
+  writers, with the size of a request counted), `GccShortFormReplyTests` (the writers and the figure
+  check), `GccProjectPageRepositoryTests` and `GccGenerateJobRepositoryTests` (the repository).
 - Your run, read from its log: the model and OpenAI's limit for it; two problem searches for each partner with its own "Core
   pain point"; "The tool's remedy" lines in each tool body request; every competitor page that came
   back, and any with no outline named (`left-out`); "Found for:" under each passage; each request's

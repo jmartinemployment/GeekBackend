@@ -58,4 +58,23 @@ public class GccProjectPagesController : ControllerBase
         var result = await _pages.DeletePagesAsync(projectId, types, named ? names : null, ct);
         return result.ProjectNotFound ? NotFound() : Ok(result);
     }
+
+    /// <summary>
+    /// The pieces of the named types written from one page, deleted with their content. What a Repurpose
+    /// does first. 404 when the project has no such page; no types is a bad request, not a delete of
+    /// every piece.
+    /// </summary>
+    [HttpDelete("pages/{pageId:guid}/pieces")]
+    public async Task<ActionResult<GccPiecesDeleteResult>> DeletePieces(
+        Guid projectId,
+        Guid pageId,
+        [FromQuery(Name = "type")] string[] types,
+        CancellationToken ct)
+    {
+        if (types is null || types.Length == 0 || types.Any(string.IsNullOrWhiteSpace))
+            return BadRequest("Name the types of piece to delete; nothing is deleted without them.");
+
+        var result = await _pages.DeletePiecesAsync(projectId, pageId, types, ct);
+        return result.PageNotFound ? NotFound() : Ok(result);
+    }
 }
