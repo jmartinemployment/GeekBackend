@@ -119,4 +119,20 @@ public sealed record ContentTypePromptContext(
     /// heading, how it opens and the figures it cited, so it does not make the same points again. Null on
     /// the first call and on any single-call body.
     /// </summary>
-    IReadOnlyList<Section>? WrittenSoFar = null);
+    IReadOnlyList<Section>? WrittenSoFar = null,
+    /// <summary>
+    /// The project's partner tools, as the writer is told to spell them and in the project's order
+    /// (<see cref="GeekAPI.Services.ContentCreator.GccRequiredToolMentions.For"/>). A deck has a slide
+    /// for each, so its outline is made from this list. Null for the types whose outline does not
+    /// depend on which partners the project has.
+    /// </summary>
+    IReadOnlyList<string>? Partners = null,
+    /// <summary>
+    /// What the operator entered on the brief for each partner, as the block every page about the
+    /// partners is told (<see cref="GeekAPI.Services.ContentCreator.GccPartnerAnswers.Instruction"/>),
+    /// or null when the brief holds nothing under any partner. A deck's prompts add it to both of
+    /// their requests and word each partner's slide by whether it is there, so a slide is never sent
+    /// to a block its request does not carry. The pillar and the blog are handed the same block in
+    /// their evidence by their writer and leave this null.
+    /// </summary>
+    string? PartnerAnswers = null);

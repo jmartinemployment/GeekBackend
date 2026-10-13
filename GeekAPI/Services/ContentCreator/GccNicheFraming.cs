@@ -148,6 +148,30 @@ public sealed record GccNicheFraming(
             "single idea, in your own words and never verbatim, and leave the rest out:");
 
     /// <summary>
+    /// How the framing is headed wherever it is printed whole. A slide told to build on it is sent
+    /// here by this name (<c>LinkedInDocumentPrompts</c>), so the two are one string.
+    /// </summary>
+    public const string FramingHeading = "THE OPERATOR'S OWN FRAMING OF THIS PROBLEM";
+
+    /// <summary>How the line that carries the operator's answer begins, for the same reason.</summary>
+    public const string AnswerLabel = "What answers it";
+
+    /// <summary>
+    /// The three parts for a deck of slides ("PDF / LinkedIn document"), or null when there is nothing
+    /// to say.
+    /// </summary>
+    /// <remarks>
+    /// The same framing the pages argue. A page is told to cover every failure in its prose; a slide is
+    /// two to four short lines, so a deck is shown every failure and told to build on the ones that
+    /// cost the reader most, as a short piece is told to build on one
+    /// (<see cref="ShortFormGuidance"/>). Nothing is left out of what the writer is shown.
+    /// </remarks>
+    public string? DeckGuidance() =>
+        Render("Where it goes wrong. A slide is a few short lines, so the deck does not list every one of " +
+            "these: the slide on what goes wrong today is built on the ones that cost this reader most, in " +
+            "your own words and never verbatim, and it names no failure that is not here:");
+
+    /// <summary>
     /// The problem alone, for the call that writes a page's hook. Null when the operator stated none.
     /// </summary>
     /// <remarks>
@@ -213,7 +237,7 @@ public sealed record GccNicheFraming(
         }
 
         var sb = new StringBuilder();
-        sb.Append("THE OPERATOR'S OWN FRAMING OF THIS PROBLEM -- argue from it, never cite it. ");
+        sb.Append(FramingHeading).Append(" -- argue from it, never cite it. ");
         sb.Append("It is the publisher's position, not retrieved evidence: do not attribute any of it ");
         sb.Append("to a source, and do not present it as something a vendor said.");
 
@@ -241,7 +265,7 @@ public sealed record GccNicheFraming(
         if (!string.IsNullOrWhiteSpace(AutomationToPitch))
         {
             sb.AppendLine();
-            sb.Append("What answers it: ").Append(AutomationToPitch.Trim());
+            sb.Append(AnswerLabel).Append(": ").Append(AutomationToPitch.Trim());
         }
 
         return sb.ToString();

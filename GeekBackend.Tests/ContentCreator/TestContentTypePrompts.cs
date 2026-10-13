@@ -18,6 +18,7 @@ internal static class TestContentTypePrompts
             new PillarPrompts(prompts),
             new BlogPrompts(prompts),
             new ToolPrompts(prompts),
+            new LinkedInDocumentPrompts(prompts),
         ]);
     }
 }

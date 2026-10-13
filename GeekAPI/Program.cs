@@ -130,13 +130,17 @@ builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccGenerationCoordina
 // tool page uses, run early so "can this partner answer it" is known before a draft is paid for.
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.GccAngleQuoteProbe>();
 // One prompt set per content type, resolved by registry -- see
-// content-creator-v2/plans/prompts-per-content-type.md. Pillar, Blog and Tool only for now.
+// content-creator-v2/plans/prompts-per-content-type.md. Pillar, Blog and Tool, and the deck
+// ("PDF / LinkedIn document", plans/enable-pdf.md), whose set is registered ahead of its writer:
+// a type is written only when the generate service has a case for it and it is off the disabled list.
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePrompts,
     GeekAPI.Services.ContentCreator.ContentTypes.PillarPrompts>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePrompts,
     GeekAPI.Services.ContentCreator.ContentTypes.BlogPrompts>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePrompts,
     GeekAPI.Services.ContentCreator.ContentTypes.ToolPrompts>();
+builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePrompts,
+    GeekAPI.Services.ContentCreator.ContentTypes.LinkedInDocumentPrompts>();
 builder.Services.AddScoped<GeekAPI.Services.ContentCreator.ContentTypes.IContentTypePromptRegistry,
     GeekAPI.Services.ContentCreator.ContentTypes.ContentTypePromptRegistry>();
 builder.Services.AddSingleton<GeekAPI.Services.ContentCreator.GccGenerateNotifier>();

@@ -1,8 +1,9 @@
 # Enable "PDF / LinkedIn document"
 
 **Written 2026-10-13. Status: approved the same day ("execute your plan to turn on PDF, Social and
-Email"). Nothing is built yet. The type stays "(disabled)" on Generate's "Content type" list until
-step 5 ships. The four decisions at the end are settled, as written there.**
+Email"). Step 1 of six is built and committed on `main`, not pushed; see "As built" at the end. The
+type stays "(disabled)" on Generate's "Content type" list until step 5 ships, and until step 4 a
+request for it is still refused. The four decisions at the end are settled, as written there.**
 
 Jeff, 2026-10-13: *"Create a plan to enable PDF."*
 
@@ -163,7 +164,7 @@ and the research is billed as repeated. Nearly all of it is the research, sent w
 
 | # | What | Done when |
 |---|---|---|
-| 1 | The prompt set: `ContentTypes/LinkedInDocumentPrompts.cs`, its outline, the cover-and-post reply shape, registered in `Program.cs` and in the tests' registry (`TestContentTypePrompts.cs`) | A five-partner Brief gives nine slides in the order above; a Brief with one partner gives the refusal |
+| 1 | **Built 2026-10-13.** The prompt set: `ContentTypes/LinkedInDocumentPrompts.cs`, its outline, the cover-and-post reply shape, registered in `Program.cs` and in the tests' registry (`TestContentTypePrompts.cs`) | A five-partner Brief gives nine slides in the order above; a Brief with one partner gives the refusal |
 | 2 | The writer and the checks: `Writers/GccGenerateService.LinkedInDocument.cs`, `GccDraftGuard.LinkedInDocument`, the case in `GenerateOneAsync`, the deck's numbers in `ContentLengthTargets` | A deck is written through the real writer with a stand-in model; one test for each check; `BriefFieldReachTests` gains the deck and fails if a Brief box reaches none of its requests; each request's size is counted and written in this plan |
 | 3 | The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the two files |
 | 4 | Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
@@ -193,3 +194,74 @@ The form is pushed after GeekAPI: the other order offers a type the server refus
    year in revenue. *Jeff, 2026-10-13: "Yes, under $1M". The free Community licence is used.*
 
 Say so if any of the first three should be different; each is a small change before step 3 or 4.
+
+## As built
+
+### Step 1, 2026-10-13: what a deck is before it is written
+
+Not pushed. Nothing a run does has changed: the type is still on GeekAPI's disabled list, and the
+prompt set is registered ahead of a writer that does not exist yet.
+
+**Files.** `GccLinkedInDocument.cs` (the slide list, the refusal, the two replies and their readers,
+the slide's place in the page's document), `ContentTypes/LinkedInDocumentPrompts.cs` (the prompt
+set), `Writers/ContentPromptBuilder.LinkedInDocument.cs` (the wording of the two requests), the
+deck's numbers in `ContentLengthTargets`, `GccNicheFraming.DeckGuidance`,
+`GccPublisherPositions.DeckApproachSlotGuidance`. Tests: `LinkedInDocumentPromptsTests`, 33 of them.
+2,248 unit and 44 integration tests pass.
+
+**The slide list is made by code from the project's partners,** never by the writer:
+`GccLinkedInDocument.Slides`. Five partners give the cover, the problem, the five in the project's
+order, the approach, what to do next. `PartnerRefusal` says why a project with one partner, none or
+nine cannot have a deck, with the count and the names.
+
+**Your own skills set what a slide and the post are asked to be.** I had written the wording from
+scratch and then found your `social` skill covers LinkedIn document posts
+(`references/carousel-frameworks.md`) and `post-writer` covers the post. What they require and where
+it now is:
+
+| Your skill says | In the requests |
+|---|---|
+| Slide 1 is the thumbnail: it has to stop the scroll with nothing behind it | The cover is told exactly that |
+| One idea a slide; a deck is not an article cut into squares | Both requests |
+| A count promised on the cover is exactly delivered | "it has 5 slides on partner tools ... Say 5 or say no count" |
+| Claims and numbers are real, no invented stats | No figure that is not in the evidence, no customer, no case study, on the cover, the slides and the post |
+| The post above the document is a second hook, its own post, never "see attached" | The post is told so, and not to repeat the cover's words |
+| "Keep posts between 150 and 300 words" (`post-writer`) | The post is asked for 150 to 300 words. This plan had given it no length |
+| The final slide has one call to action, not three | The last slide is the booking words and your questions, built by code: one action |
+| One visual template for every interior slide; text legible at thumbnail size, about 28pt at 1080 wide at the least | **For step 3, the renderer.** Written here so it is built to them |
+
+The deck's order (a cover, the problem, one slide a partner, the approach, one call to action) is
+this plan's and was not changed. It is that reference's numbered-list shape, with its last slide's
+two jobs, the summing up and the call to action, on two slides.
+
+**Where step 1 differs from what this plan said:**
+
+1. **A slide's reply is a title and its lines, as strings,** not the section shape a page's body
+   returns. Code makes the page's document from them (`CoverSection`, `SlideSection`). The writer has
+   no paragraph, no nesting, no quotation and no link it could return. A reply with another number
+   of slides than were assigned is refused, never fitted: a slide belongs to the partner its place
+   gives it.
+2. **The deck's numbers went into `ContentLengthTargets` now,** not in step 2: the requests state
+   them.
+3. **"The deck 300 to 750 words" is not asked for and will not be checked.** The slide numbers
+   cannot reach 300 for a small deck: two partners are four written slides, and with every title and
+   line at its longest that is about 330 words with the cover and the last slide, about 200 as a
+   writer would write them. The slide numbers are the deck's size; the checks table above never had
+   a row for a word count.
+4. **The reply reservations are 1,024 tokens for the cover and the post and 2,048 for the slides,**
+   sized to what each reply can hold (about 450 and about 1,200). A reservation is what a reply
+   that ends in blanks can cost, as two did on 2026-10-13.
+5. **Neither request carries the pages' block of tools to name and link.** A deck carries no link,
+   and its partners are named by its own slide list.
+6. **The subject's keyword is given with a line saying a deck is not written to it.** A deck is not
+   scored for search.
+
+**For step 2, found while building this:**
+
+- A count on the cover ("5 tools") must not be read as a figure the evidence does not hold: the
+  number of partner slides goes into what the figure check reads for a deck.
+- The deck's requests print the brief through the same builder as a page, which also prints the
+  Brief's "Length" band when one is set. A deck has no length band until step 5 gives the form one,
+  so the writer's context for a deck carries none.
+- The two requests without any research are about 3,000 and 3,400 tokens (a five-partner Brief of a
+  few lines). The research is the rest, and is measured in step 2 through the real writer.

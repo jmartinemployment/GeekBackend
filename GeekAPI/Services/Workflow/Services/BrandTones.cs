@@ -67,6 +67,13 @@ public static class BrandTones
 
     public static string ForLinkedIn() => FormatForChannel(LinkedInTone);
 
+    /// <summary>
+    /// The LinkedIn channel's own line, without the shared voice above it: for a request that already
+    /// carries the shared voice in its system message and writes a LinkedIn post beside something else
+    /// (a deck's cover and the post it is attached to).
+    /// </summary>
+    public static string LinkedInChannelLine => $"Channel mode ({LinkedInTone.Label}): {LinkedInTone.PromptGuidance}";
+
     public static string ForFacebook() => FormatForChannel(FacebookTone);
 
     /// <summary>Maps a social platform name to the matching channel voice block.</summary>

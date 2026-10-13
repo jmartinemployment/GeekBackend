@@ -110,5 +110,39 @@ public static class ContentLengthTargets
 
     public static string EmailColdOutreachRangeLabel =>
         $"{EmailColdOutreachMinWords}–{EmailColdOutreachMaxWords}";
+
+    // PDF / LinkedIn document: a deck of slides, one a page (plans/enable-pdf.md). A slide is a title
+    // and a few short lines, so the deck's numbers are slides, lines and words a line. It has no
+    // word range of its own: the number of slides follows from the number of partners, and a slide
+    // holds what its numbers allow.
+
+    /// <summary>The fewest partners a deck is written for. One partner is a tool page, not a deck about the partners.</summary>
+    public const int LinkedInDocumentMinPartners = 2;
+
+    /// <summary>The most partners a deck is written for: eight partner slides and four besides are twelve.</summary>
+    public const int LinkedInDocumentMaxPartners = 8;
+
+    /// <summary>The slides a deck has besides its partners': the cover, the problem, the approach, what to do next.</summary>
+    public const int LinkedInDocumentSlidesBesidesPartners = 4;
+
+    public const int LinkedInDocumentMinSlides = LinkedInDocumentMinPartners + LinkedInDocumentSlidesBesidesPartners;
+    public const int LinkedInDocumentMaxSlides = LinkedInDocumentMaxPartners + LinkedInDocumentSlidesBesidesPartners;
+
+    /// <summary>The most words a slide's title runs to, the cover's included.</summary>
+    public const int LinkedInDocumentTitleMaxWords = 10;
+
+    public const int LinkedInDocumentMinLines = 2;
+    public const int LinkedInDocumentMaxLines = 4;
+
+    /// <summary>The most words one line of a slide runs to.</summary>
+    public const int LinkedInDocumentLineMaxWords = 14;
+
+    /// <summary>The most words the one line under the cover's title runs to.</summary>
+    public const int LinkedInDocumentCoverLineMaxWords = 20;
+
+    // The LinkedIn post a deck is attached to. Jeff's "post-writer" skill: "Keep posts between 150
+    // and 300 words unless the user requests otherwise."
+    public const int LinkedInDocumentPostMinWords = 150;
+    public const int LinkedInDocumentPostMaxWords = 300;
 }
 

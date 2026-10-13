@@ -33,6 +33,15 @@ public static class GccPublisherPositions
         + "this page's subject. That is the method this page describes, not a generic one and not a vendor's.";
 
     /// <summary>
+    /// The same guidance for the slide of a deck that says how the pieces fit
+    /// ("PDF / LinkedIn document"): a slide is a few short lines, so the method's stages are its lines.
+    /// </summary>
+    public const string DeckApproachSlotGuidance =
+        "Where THE PUBLISHER'S OWN POSITIONS states how the publisher works, a methodology, a process or "
+        + "stages, this slide's lines are that method's stages, in order, in your own words. That is the "
+        + "method this deck describes, not a generic one and not a vendor's.";
+
+    /// <summary>
     /// The block, or an empty string when the research carries no positions. A tool the project does
     /// not list -- a partner of another project, named on the site as one the publisher implements --
     /// reads as "another tool", since this page may not name it (the 16:52 run of 2026-10-06: the blog

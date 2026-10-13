@@ -233,6 +233,42 @@ public interface IContentPromptBuilder
         string? metaDescription,
         string contentTypeLabel);
 
+    /// <summary>
+    /// "PDF / LinkedIn document": the deck's cover and the LinkedIn post the document is attached to,
+    /// one request. The reply is a title, a line and the post, as strings
+    /// (<c>GccLinkedInDocument.CoverAndPostReply</c>).
+    /// </summary>
+    /// <param name="slides">Every slide of the deck, in order, each as the one line that says what it
+    /// is for. Shown for context: this request writes the first.</param>
+    /// <param name="partnerSlides">How many of them are a partner tool's, so a count on the cover is
+    /// the deck's own.</param>
+    /// <param name="operatorsFraming">The operator's framing of the problem, worded for a deck
+    /// (<c>GccNicheFraming.DeckGuidance</c>). Null prints nothing.</param>
+    /// <param name="evidenceBlock">The page's research, and what the operator entered for each partner.</param>
+    ChatCompletionRequest BuildLinkedInDocumentCoverPrompt(
+        ProjectGenerationContext context,
+        IReadOnlyList<string> slides,
+        int partnerSlides,
+        string? operatorsFraming = null,
+        string? evidenceBlock = null);
+
+    /// <summary>
+    /// "PDF / LinkedIn document": every slide between the cover and the last, one request. The reply
+    /// is each slide's title and lines, as strings (<c>GccLinkedInDocument.SlidesReply</c>). The last
+    /// slide is built by code and is not asked for.
+    /// </summary>
+    /// <param name="slides">The slides this request writes, in order, as obligations: the writer
+    /// names each.</param>
+    /// <param name="slideCount">How many slides the whole deck has, the cover and the last included.</param>
+    /// <param name="cover">The cover already written, so the slides continue it and none repeats it.</param>
+    ChatCompletionRequest BuildLinkedInDocumentSlidesPrompt(
+        ProjectGenerationContext context,
+        IReadOnlyList<SectionSlot> slides,
+        int slideCount,
+        string? operatorsFraming = null,
+        string? evidenceBlock = null,
+        GccLinkedInDocument.CoverReply? cover = null);
+
 }
 
 // Partial: the pillar-only prompt builders and JSON contracts live in
