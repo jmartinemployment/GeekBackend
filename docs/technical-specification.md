@@ -203,7 +203,7 @@ no short piece is unchanged.
 - **Not built:** a piece written by Generate from a tool page (that is Repurpose's), and the six per-channel types on the
   form's list, which GeekAPI takes by the same rule.
 
-**A "PDF / LinkedIn document", end to end** (2026-10-13; `plans/enable-pdf.md`; committed, not pushed, not seen in a real
+**A "PDF / LinkedIn document", end to end** (2026-10-13; `plans/enable-pdf.md`; pushed 2026-10-13, not seen in a real
 run). Jeff: *"execute your plan to turn on PDF, Social and Email"*. A deck of 6 to 12 slides and the LinkedIn post that
 carries it, written from the Brief and the research like the Pillar and not from a page.
 1. **The slides are fixed by code** (`GccLinkedInDocument.Slides`): the cover, the problem, one slide for each partner in

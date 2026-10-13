@@ -1,10 +1,11 @@
 # Enable "PDF / LinkedIn document"
 
 **Written 2026-10-13. Status: approved the same day ("execute your plan to turn on PDF, Social and
-Email"). Steps 1 to 5 of six are built and committed on `main` in both repositories, and **nothing
-of it is pushed**; see "As built" at the end, which also lists where the build differs from this
-plan. Until the push the live screen still shows the type as "(disabled)" and the live GeekAPI
-still refuses it. Step 6 is your proof run. The four decisions at the end are settled, as written there, but for where the links go.**
+Email"). Steps 1 to 5 of six are built and pushed on 2026-10-13, on Jeff's word ("commit & push"):
+GeekBackend `b9573b9` first (GeekRepository up at 22:12 UTC, GeekAPI at 22:13), then
+content-creator-v2 `8107cfd` (pushed at 22:14, its Vercel build ready minutes later). See "As built" at the end, which also lists
+where the build differs from this plan. The live screen offers the type and the live GeekAPI takes
+it. No real run has written a deck: step 6 is your proof run. The four decisions at the end are settled, as written there, but for where the links go.**
 
 Jeff, 2026-10-13: *"Create a plan to enable PDF."*
 
@@ -183,8 +184,8 @@ do, so a real run should come in under this; its `evidence` events are the real 
 | 1 | **Built 2026-10-13.** The prompt set: `ContentTypes/LinkedInDocumentPrompts.cs`, its outline, the cover-and-post reply shape, registered in `Program.cs` and in the tests' registry (`TestContentTypePrompts.cs`) | A five-partner Brief gives nine slides in the order above; a Brief with one partner gives the refusal |
 | 2 | **Built 2026-10-13.** The writer and the checks: `Writers/GccGenerateService.LinkedInDocument.cs`, `GccDraftGuard.LinkedInDocument`, the case in `GenerateOneAsync`, the deck's numbers in `ContentLengthTargets` | A deck is written through the real writer with a stand-in model; one test for each check; `BriefFieldReachTests` gains the deck and fails if a Brief box reaches none of its requests; each request's size is counted and written in this plan |
 | 3 | **Built 2026-10-13.** The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the PDF, the post and the first comment |
-| 4 | **Built 2026-10-13, not pushed.** Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
-| 5 | **Built 2026-10-13, not pushed.** The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides and the first comment under the post; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser, which waits for the push |
+| 4 | **Built and pushed 2026-10-13.** Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
+| 5 | **Built and pushed 2026-10-13.** The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides and the first comment under the post; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser, which waits for the push |
 | 6 | The proof | Jeff runs one Generate with "PDF / LinkedIn document" alone and reads the PDF: every partner on its slide, no link inside, every figure in the evidence, the booking words on the last page, a post that reads as a LinkedIn post |
 
 The form is pushed after GeekAPI: the other order offers a type the server refuses.
@@ -216,8 +217,8 @@ Say so if any of the first three should be different; each is a small change bef
 
 ### Step 1, 2026-10-13: what a deck is before it is written
 
-Not pushed. Nothing a run does has changed: the type is still on GeekAPI's disabled list, and the
-prompt set is registered ahead of a writer that does not exist yet.
+Pushed 2026-10-13 with the other steps. On its own this step changed nothing a run does: the type
+stayed on GeekAPI's disabled list until step 4, and the prompt set was registered ahead of its writer.
 
 **Files.** `GccLinkedInDocument.cs` (the slide list, the refusal, the two replies and their readers,
 the slide's place in the page's document), `ContentTypes/LinkedInDocumentPrompts.cs` (the prompt
@@ -285,8 +286,8 @@ two jobs, the summing up and the call to action, on two slides.
 
 ### Step 2, 2026-10-13: the writer and the checks
 
-Not pushed. Nothing a run does has changed: the type is still on GeekAPI's disabled list, so a
-request for it is refused before it reaches the writer. 2,287 unit and 44 integration tests pass.
+Pushed 2026-10-13 with the other steps. On its own this step changed nothing a run does: the type
+stayed on GeekAPI's disabled list until step 4. 2,287 unit and 44 integration tests passed.
 
 **Files.** `Writers/GccGenerateService.LinkedInDocument.cs` (the writer),
 `Guardrail/GccDraftGuard.LinkedInDocument.cs` (the checks), `GccLinkedInDocument.cs` (the last slide,
@@ -345,8 +346,8 @@ test drives them.
 
 ### Step 3, 2026-10-13: the PDF, its download and the export
 
-Not pushed. Nothing a run does has changed: the type is still on GeekAPI's disabled list. 2,314 unit
-and 48 integration tests pass.
+Pushed 2026-10-13 with the other steps. On its own this step changed nothing a run does: the type
+stayed on GeekAPI's disabled list until step 4. 2,314 unit and 48 integration tests passed.
 
 **Files.** `GccLinkedInDocumentPdfRenderer.cs` (the PDF), `GccLinkedInDocument.ReadSaved` (a saved
 page read as a deck), `GccArtifactExportService` (`DeckPdfAsync`, the deck's files in the export),
@@ -407,8 +408,8 @@ needs). It has not been run on Railway; the first deck there is the proof.
 
 ### Step 4, 2026-10-13: GeekAPI's gate is open
 
-Committed, not pushed. Until it is pushed nothing a run does has changed. 2,333 unit and 48
-integration tests pass.
+Pushed 2026-10-13 (GeekRepository up at 22:12 UTC, GeekAPI at 22:13). No Generate and no crawl was
+running. 2,333 unit and 48 integration tests pass.
 
 **What changed.** "PDF / LinkedIn document" is off GeekAPI's disabled list, so a Generate asked for
 it is run. The route answers 400, before a run exists, for a project with fewer than two partner
@@ -447,11 +448,11 @@ since the other order offers a type the server refuses.
 
 ### Step 5, 2026-10-13: the form
 
-Committed in content-creator-v2, not pushed. 89 tests pass, `tsc` is clean, `eslint` has no error,
+Pushed 2026-10-13 (content-creator-v2 `8107cfd`), after GeekAPI was up. 89 tests pass, `tsc` is clean, `eslint` has no error,
 and the production build holds the new wording whole (checked in the built files, because on
 2026-10-13 the build dropped a space the tests kept).
 
-**What you will see once it is pushed.**
+**What the screen shows.**
 - Generate's "Content type" list: "PDF / LinkedIn document" can be ticked, with no "(disabled)".
 - Its tab, "PDF / LinkedIn document": each slide as "Slide 3 of 9 · Ramp" with its title and its
   lines; under the slides "The LinkedIn post"; under the post "The first comment", with the line
@@ -480,5 +481,9 @@ own text.
 
 **Deleted:** the second list of content types in `src/lib/config.ts`. Nothing read it.
 
-**Not done until the push:** reading the live screen's exact words in the browser.
+**Read on the live screen after the push** (2026-10-13, the project "Tax Compliance & Regulations:
+Multi-State Sales Tax Nexus"): "PDF / LinkedIn document" is on Generate's "Content type" list with no
+"(disabled)" and can be ticked. Its tab stands between "Ads" and "Image prompts" and reads "No PDF /
+LinkedIn document yet for this project. Pick it as an output type, then Generate above." The slides,
+the post, the first comment and "Download PDF" cannot be read on the live screen until a deck exists.
 
