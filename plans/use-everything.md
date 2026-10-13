@@ -1,7 +1,8 @@
 # Use everything: the Brief, the research, and Repurpose for the short types
 
-**Status:** approved 2026-10-12 ("execute your plan"). Steps 1, 2 and 3 of six are built and
-committed on `main`. Nothing is pushed, and nothing is fixed until a run of yours says so.
+**Status:** approved 2026-10-12 ("execute your plan"). All six steps are built and committed on
+`main`, in GeekBackend and in content-creator-v2. Nothing is pushed, and nothing is fixed until a
+run of yours says so.
 
 ## Where the work stands
 
@@ -10,9 +11,21 @@ committed on `main`. Nothing is pushed, and nothing is fixed until a run of your
 | 1 | Research Organization's fixed numbers go, requests are counted against what the model accepts, OpenAI's limit figures on the run log | Built, committed, not pushed |
 | 2 | The Brief boxes (Part 1) and the hints on the form | Built, committed in both repositories, not pushed |
 | 3 | Nothing is cut by a count (Part 2) | Built, committed, not pushed |
-| 4 | Repurpose, GeekBackend | Built, committed, not pushed. **Must not be pushed without step 5**: until the form changes, ticking "Email — cold outreach", "Social" or "Ads" on Generate is refused |
-| 5 | Repurpose, the form | Not started |
-| 6 | The record | Not started. `AGENTS.md`, the specification and the sources document already say what steps 1 to 4 changed |
+| 4 | Repurpose, GeekBackend | Built, committed, not pushed. **Pushed together with step 5, never alone**: until the form changes, ticking "Email — cold outreach", "Social" or "Ads" on Generate is refused |
+| 5 | Repurpose, the form | Built, committed in content-creator-v2 (`a55dc9c`), not pushed. **Pushed together with step 4, never alone**: until GeekAPI has the route, every approved page says it could not read whether a Repurpose has run from it |
+| 6 | The record | Done. `AGENTS.md`, the specification and the sources document were written with each step. Checked at the end: every name they cite for Repurpose is in the code, the specification's test counts are today's, and its note that the request counter was not built is corrected |
+
+**Before anything is pushed.** Four things, the first two yours:
+1. **Tell me what GeekAPI's `LlmProviders__OpenAi__ExtractionModel` and
+   `LlmProviders__OpenAi__UtilityModel` name on Railway, or that they are not set.** A run is now
+   refused before anything is deleted when any of its three models is not a `gpt-4.1` or `gpt-4o`
+   model. I have not read them: listing the variables shows the keys. "Writing model" set to
+   Anthropic is refused for the same reason.
+2. **Hold Generate and crawls while Railway deploys.** A push to GeekBackend restarts GeekAPI and
+   GeekRepository; I check both logs for a run or a crawl first.
+3. GeekBackend and the form go out together (steps 4 and 5).
+4. The migration for a piece saved under its page runs when GeekRepository starts. It has not run
+   against a real database.
 
 **Step 1, as built. What differs from what this plan said is marked.**
 - Research is no longer cut at 350,000 characters or to 40,000 for each partner. Every opening and
@@ -204,7 +217,7 @@ committed on `main`. Nothing is pushed, and nothing is fixed until a run of your
   **Not run against a real database here** (no Postgres on this machine); checked against the model
   with EF and read as the SQL it generates. It runs when GeekRepository starts after the push.
 - **Short pieces saved by earlier Generate runs stay** as pages of the project. No run deletes them
-  now, since Generate no longer takes those types. Step 5 looks at how the form shows them.
+  now, since Generate no longer takes those types. Step 5 says how the form shows them.
 - Tests: 2,139 unit and 44 integration pass. The route is tested for an approved page, a page not
   approved, a project whose site is not crawled, an incomplete Brief, a page of another project, a
   type that is not a short piece, a piece as the source, a run already going, and the page's newest
@@ -212,6 +225,56 @@ committed on `main`. Nothing is pushed, and nothing is fixed until a run of your
   refusal with the others kept, every piece refused, and a second Repurpose replacing the first.
 - **What the next run lists because of this step:** a Generate lists nothing new. A Repurpose lists
   one line for each piece refused for a figure.
+
+**Step 5, as built. What differs from what this plan said is marked.**
+- **Generate's "Content type" list no longer offers "Email — cold outreach", "Social" or "Ads".**
+  A line under the list says they are not written by Generate and where they are. Their tabs under
+  Output stay.
+- **"Repurpose" is a section under "Approve & export"** on a pillar, a blog and a tool page, and
+  not under a piece. A page that is not approved says "Approve this page first" and offers nothing
+  to press. An approved page has the three to tick under "Write from this page", and the
+  "Repurpose" button. A piece the page already has is marked "replaces the one written" with its
+  time.
+- **The button waits on what Generate waits on:** a saved, complete brief and a crawled site. The
+  server holds the gates; the page says the ones it can already see, in the same words as Generate.
+- **A Repurpose reports under its own page,** not in Generate's report, so the last Generate's "Not
+  written" and "Written with a gap" stay where they are. The pieces not written are listed as "Not
+  written", with "Run log" when something was refused.
+- **When it ends the page stays on the page the pieces were written from, which this plan did not
+  say.** They are listed there under "Written from this page", each a button that opens it.
+- **A page's newest Repurpose is read when the approved page is opened, which this plan did not
+  say,** so what it refused is still there after a reload.
+- **A piece says where it came from:** "Written from the Pillar" (or "the Blog", or "the Tool page
+  “Ramp”") in its heading line, with the way back. Where a tab holds several pieces each button says
+  its page ("From the Pillar"), a pillar's email and a blog's both being named for the keyword.
+- **A tab of the three with nothing in it** says the piece is written from an approved page with
+  Repurpose, where it said to tick it on Generate.
+- **The line under Generate's list** when a ticked page has pieces: "Writing the Pillar again
+  deletes the 3 pieces Repurpose wrote from it." When tool pages are ticked for some partners only,
+  it says the rule and no number: which pages that run writes is the server's to say.
+- **An email is drawn as its subject, its body and its button text; a post or an ad as its text.**
+  All as text. Until now an email drew its body alone, read as markup, and a post showed as raw data.
+- **A piece's image prompt is on the "Image prompts" tab, which this plan did not say.** It was
+  written, paid for, and listed there as "carries no image prompts". The tab says which page a
+  piece came from.
+- **A line the server said is shown without any identifier in it, on a Generate and on a Repurpose,
+  which this plan did not say.** A second run is refused by naming the first with its job id, and
+  that id was put on the page, which shows no id but the project's and the labelled Run ID.
+- **Not built, and said on the page's own terms:** a Repurpose going on a page that is not the one
+  open is not shown as running; pressing Generate or Repurpose then is refused by the server, which
+  names it. The six per-channel types GeekAPI also takes are not offered. (The form's commit message
+  says three; it is six.)
+- **Short pieces saved by earlier Generate runs** stay in their tabs under their own names, with no
+  "Written from" and no Repurpose under them. The app has no control that deletes a page, so they
+  stay until a run or a one-time delete removes them. Say if you want them deleted.
+- **Deleted:** the request type for the old Repurpose route, which nothing called.
+- Tests: 63 pass (55 before). The workspace is rendered against a GeekAPI answered from fixtures
+  for: the three not on Generate's list; an approved page with its pieces, its last Repurpose read
+  back and a Repurpose pressed (the request it sends, and the server's refusal shown without the
+  id); a page not approved; pieces named for their page; and the line under Generate's list.
+  **No test follows a run over the live connection,** for a Repurpose or for a Generate: the form
+  has no stand-in for it. That part is seen first in your run.
+- **Not seen on a live screen.** The change is not deployed until it is pushed.
 
 It replaces the earlier plan of the same day (one research block per content type), deleted on
 your word: this plan drops its 40,000 for each partner and does not include its rewrite.
@@ -528,16 +591,27 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
   `ux_gcc_artifacts_one_piece_per_page_type_and_name`, created by SQL like
   `ux_gcc_artifacts_one_page_per_type_and_name`).
 
-**Part 3, the form (step 5, not built)**
-- content-creator-v2: `src/lib/content-types.ts` (the three leave Generate's list; their tabs
-  stay), `ProjectContentWorkspace.tsx` ("Approve & export", and the line under Generate's list that
-  says how many pieces are deleted with a ticked page), `src/services/gcc-api.ts` (the call, and
-  `renderArtifactBody`), `src/lib/types.ts` (`RepurposeMixRequest` deleted).
+**Part 3, the form (step 5, built)**
+- content-creator-v2, `src/lib/content-creator/repurpose.ts`: which types Repurpose writes, which
+  pages it writes from, a page's pieces and a piece's page, what each is called on screen, the line
+  under Generate's list, and a page's last Repurpose in words.
+- `src/components/content-creator/ProjectContentWorkspace.tsx`: the "Repurpose" section and its
+  report (`RepurposeRunReport`), `runRepurpose`, `resumePageRepurpose`, the run's kind on the one
+  connection (`runKindRef`), the picker without the three, the piece labels and "Written from".
+- `src/services/gcc-api.ts`: `repurposePage`, `getLatestPageRepurpose`, and an email and a post
+  drawn as text in `renderArtifactBody`.
+- `src/lib/content-creator/image-prompts.ts`: a short piece's one prompt.
+- `src/lib/content-creator/run-display.ts`: `withoutIds`, used by every line a run puts on the page.
+- `src/lib/content-types.ts` and `generated-content-set.ts`: comments only; the three are not
+  disabled, so their tabs stay, and the picker leaves them out by `isRepurposeType`.
+- `src/lib/types.ts`: the old route's request type deleted.
+- Tests: `src/repurpose-on-screen.test.tsx`, `repurpose.test.ts`, `render-artifact-body.test.ts`,
+  `image-prompts.test.ts`.
 
 ## Verification
 
 - After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,139 after step 4),
-  `dotnet test GeekBackend.IntegrationTests` (44); the form's tests (55 after step 2) for its
+  `dotnet test GeekBackend.IntegrationTests` (44); the form's tests (63 after step 5) for its
   commits.
 - The counter was checked against the 40 requests of the 08:17 UTC run of 2026-10-07 whose sizes
   OpenAI reported, and one of them is kept as a test. GPT-4o and GPT-4.1 count tokens the same way.

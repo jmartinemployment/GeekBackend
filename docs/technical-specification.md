@@ -195,7 +195,34 @@ Ads were ticked on Generate and written from the Brief alone, with no page in fr
   last Generate's result on the page.
 - **The export names a piece for its page** (`GccArtifactExportService.FromPage`): "email/{name}-from-pillar.json".
 - **Short pieces saved by Generate before 2026-10-12** are pages of the project with no page above them. No run deletes
-  them.
+  them, and the form has no control that deletes a page.
+
+**Repurpose on the form** (content-creator-v2, 2026-10-12; `src/lib/content-creator/repurpose.ts`,
+`ProjectContentWorkspace.tsx`).
+- **Generate's "Content type" list does not offer the three.** The picker leaves out what `isRepurposeType` names and
+  says under the list where they are written. They are not in the disabled list, so their tabs under Output stay.
+- **"Repurpose" is a section under "Approve & export"** on a pillar, a blog or a tool page (`isRepurposeSource`), not on a
+  piece. Not approved: it says to approve the page and offers nothing to press. Approved: the three to tick, and a button
+  behind what Generate's waits on (a saved, complete brief and a crawled site). The server holds the gates.
+- **One hub connection follows either kind of run**, and which kind is in `runKindRef`: a Repurpose is a job of kind
+  "generate" on the hub. Its lines, refusals and gaps go to the page's own report (`RepurposeReport`), never to the
+  Generate's, so the last Generate's "Not written" and "Written with a gap" stay on the page. When it ends the page stays
+  on the page the pieces were written from.
+- **A page's newest Repurpose is read when the approved page is opened** (`getLatestPageRepurpose`), as the project's
+  newest Generate is read when the workspace opens. A Repurpose going on a page that is not the one open is not shown as
+  running; the server refuses a second run and names the first.
+- **A piece says its page:** "Written from the Pillar" in its heading line with the way back, and "From the Pillar" on
+  its button where a tab holds several (`sourceLabel`, `pieceButtonLabel`). A piece carries its page's name, and a pillar
+  and a blog are both named for the keyword.
+- **Under Generate's list, one line says how many pieces go with a ticked page** (`deletedPiecesLine`). With tool pages
+  ticked for some partners only it says the rule and no number.
+- **An email is drawn as its subject, body and button text and a post or an ad as its text**, escaped, never read as
+  markup (`renderArtifactBody`). A piece's one image prompt is listed on the "Image prompts" tab (`imagePromptsFor`).
+- **Every line a run puts on the page passes `withoutIds`** (`run-display.ts`): the server refuses a second run by naming
+  the first with its job id, and the page shows no identifier but the project's and the labelled Run ID.
+- **Not offered:** the six per-channel types the route also takes.
+- **Tests:** `src/repurpose-on-screen.test.tsx` renders the workspace against a GeekAPI answered from fixtures. Nothing in
+  the form's tests follows a run over the hub, for a Repurpose or a Generate.
 
 **The brief, as a writer is given it.** Each pillar, blog and tool page call prints the brief once. A choice the form stores
 as a code (`in_market`, `commercial_investigation`) is put into words by `BriefChoiceWords`, the one place every prompt reads.
@@ -478,10 +505,12 @@ SMTP_*.
 
 ## 13. Build, test and delivery
 
-- **Tests:** `dotnet test GEEKBACKEND.slnx`. GeekBackend.Tests: xUnit, 1,972 tests at this HEAD (theory rows included), using
-  EphemeralMongo and EF InMemory with scripted model providers, so they prove wiring and the checks and nothing about model
-  behaviour. IntegrationTests (33 tests) need `TEST_DATABASE_URL` and run the app through `WebApplicationFactory`.
-  content-creator-v2: `node --test`, 14 tests plus a CI of typecheck, lint and build.
+- **Tests:** `dotnet test GEEKBACKEND.slnx`. GeekBackend.Tests: xUnit, 2,139 tests on 2026-10-12 (theory rows included;
+  1,972 on 2026-10-07), using EphemeralMongo and EF InMemory with scripted model providers, so they prove wiring and the
+  checks and nothing about model behaviour. IntegrationTests (44 tests; 33 on 2026-10-07) need `TEST_DATABASE_URL` and run
+  the app through `WebApplicationFactory`. content-creator-v2: `node --test`, 63 tests on 2026-10-12 (14 on 2026-10-07),
+  plus a CI of typecheck, lint and build. The form's tests render pages against a GeekAPI answered from fixtures; none
+  follows a run over the hub.
 - **CI:** the only GeekBackend workflow is `geek-crawler-playwright.yml` (daily and manual). There is no build or deploy CI;
   Railway deploys on push to `main`, and a push restarts the API, which ends a running Generate.
 - **Not in the repo:** a Railway healthcheck path and start commands for GeekAPI (**not determined**).
@@ -513,6 +542,18 @@ None has occurred (GeekAPI's Railway log back to 2026-10-05 holds none). GPT-4.1
 **The suggestion on file, from an outside review of 2026-10-12, in case one does occur:** (1) hold a request at
 `LlmConcurrencyGate` while the tokens sent in the last minute plus its own would pass the limit, with the limit read from
 OpenAI's `x-ratelimit-limit-tokens`, `x-ratelimit-remaining-tokens` and `x-ratelimit-reset-tokens` reply headers and the
-request's size counted before it is sent (that count is not built; `plans/use-everything.md`); or (2) on a 429 only, wait the
+request's size counted before it is sent (the count is built since 2026-10-12, `GccRequestSize`, and OpenAI's three
+figures are on each request's `call` event; the hold is not built); or (2) on a 429 only, wait the
 time OpenAI's reply names and send the same request again, doubling the wait on each further refusal. The second is a retry,
 and the standing rule is no retries (Jeff, 2026-10-06), so it needs his word.
+
+**Built on 2026-10-12 and not yet seen in a real run** (`plans/use-everything.md`): the one limit on a request being what its
+model accepts; both statements of a problem searched and every box of the niche framing reaching its page; nothing a search
+returned cut by a count; and Repurpose, in GeekAPI and on the form. Three things about them are known and open:
+- **The migration `APieceIsSavedUnderItsPage` has not run against a real Postgres.** It adds one column and one index and
+  deletes nothing, and runs when GeekRepository first starts with it.
+- **A run whose model `OpenAiModelLimits` does not list is refused before anything is deleted,** and that reads the writing
+  model, `ExtractionModel` and `UtilityModel` alike; a run with the Anthropic provider is refused for the same reason. What
+  those two settings name on Railway was not read (listing the variables shows the keys).
+- **A short piece saved by Generate before 2026-10-12** is a page of the project that no run deletes and the form cannot
+  delete.
