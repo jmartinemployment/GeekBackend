@@ -270,20 +270,6 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
         return options;
     }
 
-    /// <summary>
-    /// Ceiling on the estimated tokens one page contributes to a research prompt.
-    ///
-    /// <para>
-    /// <see cref="GccPartnerResearchCaps.MaxParagraphsPerPage"/> caps how many chunks reach the
-    /// prompt, not how large they are. Eighty chunks each carrying a 2,000-char body plus a
-    /// 2,000-char expanded parent block is roughly 80k tokens from a single URL, and a burst query
-    /// run stacks several URLs into one context window. <c>MaxCharsPerPage</c> does not apply on
-    /// this path -- it guards the HTML extractors, not RAG chunks -- so this is the only size
-    /// bound between an expanded parent/child payload and the model.
-    /// </para>
-    /// </summary>
-    private const int PromptResearchTokenCeiling = 16000;
-
     private readonly HttpClient _http;
     private readonly ILogger<HttpGeekCrawlerRagClient> _logger;
     private readonly bool _enabled;
@@ -640,7 +626,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
             var dto = await response.Content.ReadFromJsonAsync<QueryResponseDto>(JsonOpts, ct)
                 .ConfigureAwait(false);
-            var pages = MapChunksToQuoteable(dto?.Chunks, anchorToolLookup, _logger);
+            var pages = MapChunksToQuoteable(dto?.Chunks, anchorToolLookup);
             return new GeekCrawlerRagQueryResult
             {
                 RunId = runId,
@@ -851,8 +837,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
     internal static IReadOnlyList<GccQuoteablePage> MapChunksToQuoteable(
         IReadOnlyList<ChunkDto>? chunks,
-        IReadOnlyDictionary<string, string>? anchorToolLookup = null,
-        ILogger? logger = null)
+        IReadOnlyDictionary<string, string>? anchorToolLookup = null)
     {
         if (chunks is null || chunks.Count == 0)
             return [];
@@ -878,26 +863,17 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             var title = group.Select(c => c.Title).FirstOrDefault(t => !string.IsNullOrWhiteSpace(t))
                         ?? url;
 
-            // Keep the best chunks, then restore reading order among the ones kept.
+            // Every passage the search returned for this page, in the order they are read on it.
             //
-            // This sorted by ChunkIndex and took the first N, so the cap was a guarantee that
-            // top-of-page content survived: navigation, language selectors, hero taglines, cookie
-            // notices. The dense, substantive blocks further down the page were evicted by position
-            // -- the "top-k returns footers and boilerplate" failure, arriving here rather than at
-            // retrieval.
-            //
-            // Retrieval Score is what actually orders this. QualityScore stands first as a
-            // cross-page safety boundary, but within one URL's chunks it is a constant: the indexer
-            // scores a page once and stamps every chunk of it with that one value, so the sort is
-            // stable on a constant key and Score alone decides which chunks survive the cap. That
-            // is the intended outcome -- vector similarity beating position is the whole fix -- but
-            // it is not index-time quality scoring doing the work, and reading it that way points
-            // the next tuning attempt at a knob that cannot turn.
+            // Nothing is cut here by a count (Jeff, 2026-10-12: "STOP NOT USING DATA, EVEN IF THAT MEANS
+            // IT COSTS MORE"). Until then three numbers of this method's own stood between a search and
+            // a writer: a page kept eighty passages at most, a page's passages stopped at an estimated
+            // 16,000 tokens, and each passage and the section around it were cut at 2,000 characters,
+            // where the index's own passages run to 2,600. They were sized for a model that accepted
+            // 128,000 tokens. What a request carries is limited where the request is built and counted
+            // (GccGenerateService.RequestThatFitsAsync), by what its model accepts and nothing else.
             var kept = group
                 .Where(c => !string.IsNullOrWhiteSpace(c.Text))
-                .OrderByDescending(c => c.QualityScore ?? double.MinValue)
-                .ThenByDescending(c => c.Score)
-                .Take(GccPartnerResearchCaps.MaxParagraphsPerPage)
                 .OrderBy(c => c.ChunkIndex)
                 .ToList();
 
@@ -912,45 +888,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
                 }
             }
 
-            // Token ceiling, applied in reading order so a truncated page keeps its opening
-            // chunks rather than an arbitrary slice. Estimated at the standard English
-            // approximation of 4 characters per token, plus a flat 50 for the markup RenderChunk
-            // wraps each chunk in: the section header, the entity line, the anchor line.
             var paragraphs = new List<string>();
             // In step with paragraphs: what the search scored each one, for the run's record.
             var scores = new List<GccPassageScore>();
-            int accumulatedTokens = 0;
             foreach (var chunk in kept)
             {
-                // Weighed against the capped lengths, not the raw ones. RenderChunk truncates the
-                // body and the expanded parent to MaxParagraphChars before either reaches the
-                // prompt, so a 40k-char chunk costs the model exactly what a 2k one costs.
-                // Measuring the raw string taxes the budget for characters nothing ever sends and
-                // evicts chunks that fit.
-                var isChild = string.Equals(chunk.ChunkRole, "child", StringComparison.OrdinalIgnoreCase);
-                int chunkWeight =
-                    Math.Min(chunk.Text?.Length ?? 0, GccPartnerResearchCaps.MaxParagraphChars) / 4;
-                int parentWeight = isChild && !string.IsNullOrWhiteSpace(chunk.ParentText)
-                    ? Math.Min(chunk.ParentText.Length, GccPartnerResearchCaps.MaxParagraphChars) / 4
-                    : 0;
-
-                int trueChunkWeight = chunkWeight + parentWeight + 50;
-                if (accumulatedTokens + trueChunkWeight > PromptResearchTokenCeiling)
-                {
-                    logger?.LogWarning(
-                        "Research token threshold reached for {Url}: {Accumulated} estimated tokens "
-                        + "across {Rendered} chunks, next chunk needs {Next}, ceiling is {Ceiling}. "
-                        + "Dropping the remaining {Dropped} chunks for this page.",
-                        url,
-                        accumulatedTokens,
-                        paragraphs.Count,
-                        trueChunkWeight,
-                        PromptResearchTokenCeiling,
-                        kept.Count - paragraphs.Count);
-                    break;
-                }
-
-                accumulatedTokens += trueChunkWeight;
                 var rendered = RenderChunk(chunk);
                 if (!string.IsNullOrWhiteSpace(rendered))
                 {
@@ -964,7 +906,7 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
 
             pages.Add(new GccQuoteablePage(
                 Url: url,
-                Title: Truncate(title!, GccPartnerResearchCaps.MaxTitleChars),
+                Title: title!,
                 Headings: [],
                 Paragraphs: paragraphs,
                 PageId: group.Select(c => c.PageId).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id)),
@@ -1094,10 +1036,11 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             body.AppendLine($"Target Entity Match: {chunk.EntityName!.Trim()}");
         }
 
-        var text = Truncate(chunk.Text!, GccPartnerResearchCaps.MaxParagraphChars);
+        // The passage and the section around it, whole: neither is cut at a length (2026-10-12).
+        var text = chunk.Text!;
         var isChild = string.Equals(chunk.ChunkRole, "child", StringComparison.OrdinalIgnoreCase);
         var context = isChild && !string.IsNullOrWhiteSpace(chunk.ParentText)
-            ? Truncate(chunk.ParentText!.Trim(), GccPartnerResearchCaps.MaxParagraphChars)
+            ? chunk.ParentText!.Trim()
             : null;
         if (context is not null && !string.Equals(context, text.Trim(), StringComparison.Ordinal))
         {
@@ -1114,7 +1057,6 @@ public sealed class HttpGeekCrawlerRagClient : IGeekCrawlerRagClient
             .Where(label => !string.IsNullOrWhiteSpace(label))
             .Select(label => label!.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(GccPartnerResearchCaps.MaxAnchorsPerChunk)
             .ToList();
         if (anchors.Count > 0)
         {

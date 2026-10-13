@@ -155,8 +155,18 @@ public static class GccHeadingProvenanceGuard
     /// A kind with nothing behind it is said to be empty rather than omitted: a writer that cannot see
     /// "paa: none available" guesses that one exists.
     /// </para>
+    /// <para>
+    /// <b>Every value is listed</b> (2026-10-12). Each kind stopped at its first forty, under a line
+    /// saying nothing else resolves, which was untrue of the forty-first. A competitor's headings are
+    /// the exception and are not listed here at all: the request shows them, every one, under
+    /// COMPETITOR HEADING STRUCTURE, and this list sends the writer there. Listed here as well they
+    /// were the first forty headings of the first competitor's crawl, which were not the headings of
+    /// the pages the writer was shown.
+    /// </para>
     /// </remarks>
-    public static string LicensedValues(GccHeadingProvenanceEvidence evidence)
+    /// <param name="competitorHeadingsShown">Whether the request shows competitor heading outlines.
+    /// When it shows none, no competitor heading can be cited, whatever the crawls hold.</param>
+    public static string LicensedValues(GccHeadingProvenanceEvidence evidence, bool competitorHeadingsShown = false)
     {
         var sb = new StringBuilder();
         sb.AppendLine("=== THE ONLY VALUES THAT LICENSE A HEADING ===");
@@ -166,7 +176,17 @@ public static class GccHeadingProvenanceGuard
         Append(sb, "plan", ["(always allowed -- the heading the outline assigned)"]);
         Append(sb, "brief", evidence.PopulatedBriefFields);
         Append(sb, "paa", evidence.PaaQuestions);
-        Append(sb, "competitor", evidence.CompetitorHeadings);
+        if (competitorHeadingsShown && evidence.CompetitorHeadings.Count > 0)
+        {
+            sb.AppendLine(
+                "  competitor: any heading listed under COMPETITOR HEADING STRUCTURE, copied exactly, "
+                + "without its \"(hN)\" marker.");
+        }
+        else
+        {
+            Append(sb, "competitor", []);
+        }
+
         Append(sb, "site", evidence.SiteSubtopics);
         Append(sb, "evidence", evidence.RetrievedEvidence);
         sb.AppendLine(
@@ -177,14 +197,11 @@ public static class GccHeadingProvenanceGuard
 
     private static void Append(StringBuilder sb, string kind, IEnumerable<string> values)
     {
-        var listed = values.Where(v => !string.IsNullOrWhiteSpace(v)).Take(MaxListedPerKind).ToList();
+        var listed = values.Where(v => !string.IsNullOrWhiteSpace(v)).ToList();
         sb.AppendLine(listed.Count == 0
             ? $"  {kind}: none available -- this kind cannot license anything on this page."
             : $"  {kind}: " + string.Join(" | ", listed.Select(v => $"\"{v}\"")));
     }
-
-    /// <summary>Enough to choose from without making the list the largest part of the prompt.</summary>
-    private const int MaxListedPerKind = 40;
 
     private static bool IsLicensed(string? provenance, GccHeadingProvenanceEvidence evidence)
     {

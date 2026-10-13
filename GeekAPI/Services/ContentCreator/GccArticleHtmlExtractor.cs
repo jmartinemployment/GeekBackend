@@ -10,11 +10,11 @@ namespace GeekAPI.Services.ContentCreator;
 /// </summary>
 public static class GccArticleHtmlExtractor
 {
-    // The GccResearchCaps-capped Extract(url, html) overload was deleted 2026-09-29 with its only
-    // caller, GccController's Wiki/.edu/.gov upload path. It is not kept as a test baseline: dead
-    // code that still reads as live is what made three people conclude the writer ignored RAG, and
-    // an hour was spent on this file's leftovers before that was settled.
-    // GccResearchCaps still bounds what BuildResearchBlock renders per page.
+    // A second Extract(url, html) overload, with tighter per-page limits of its own, was deleted
+    // 2026-09-29 with its only caller, GccController's Wiki/.edu/.gov upload path. It is not kept as
+    // a test baseline: dead code that still reads as live is what made three people conclude the
+    // writer ignored RAG, and an hour was spent on this file's leftovers before that was settled.
+    // Those limits were deleted on 2026-10-12: the research block prints every passage of a page.
 
     /// <summary>
     /// Partner-tool page extract: higher per-field caps and an optional total character budget

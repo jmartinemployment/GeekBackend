@@ -198,12 +198,11 @@ public sealed class HttpGeekCrawlerRagClientTests
     }
 
     /// <summary>
-    /// The label is what reaches the writer -- deduplicated, and capped at
-    /// <see cref="GccPartnerResearchCaps.MaxAnchorsPerChunk"/> so a nav-heavy page cannot spend the
-    /// prompt on its own menu.
+    /// The label is what reaches the writer -- deduplicated, and every one of them. Until 2026-10-12
+    /// the first eight were listed and the rest left out by count.
     /// </summary>
     [Fact]
-    public void MapChunksToQuoteable_rendersAnchorLabels_dedupedAndCapped()
+    public void MapChunksToQuoteable_rendersEveryAnchorLabel_deduped()
     {
         var anchors = new List<HttpGeekCrawlerRagClient.GeekCrawlerRagAnchorDto>
         {
@@ -212,7 +211,7 @@ public sealed class HttpGeekCrawlerRagClientTests
             new() { Label = null, Href = "/no-label" },
             new() { Label = "   ", Href = "/blank" },
         };
-        for (var i = 0; i < GccPartnerResearchCaps.MaxAnchorsPerChunk + 3; i++)
+        for (var i = 0; i < 11; i++)
             anchors.Add(new() { Label = $"Tool {i}", Href = $"/tool/{i}" });
 
         var pages = HttpGeekCrawlerRagClient.MapChunksToQuoteable(
@@ -237,7 +236,8 @@ public sealed class HttpGeekCrawlerRagClientTests
         var labels = line["Linked from this section:".Length..]
             .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
-        Assert.Equal(GccPartnerResearchCaps.MaxAnchorsPerChunk, labels.Length);
+        Assert.Equal(12, labels.Length);
+        Assert.Equal("Tool 10", labels[^1]);
         Assert.Equal("Pricing", labels[0]);
         Assert.DoesNotContain("pricing", labels[1..]);
         Assert.DoesNotContain(labels, l => string.IsNullOrWhiteSpace(l));

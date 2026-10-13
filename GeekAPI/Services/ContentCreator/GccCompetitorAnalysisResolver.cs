@@ -52,12 +52,29 @@ public sealed class GccCompetitorAnalysisResolver(
 {
 
     /// <summary>
+    /// One read of a project's competitor crawls for everything a run writes. The pillar, the blog and
+    /// each tool page all ask (a tool page since 2026-10-12), in the same scope and at the same time,
+    /// and each read pages through every competitor's whole crawl.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Lazy<Task<IReadOnlyList<GccCompetitorPageAnalysis>>>>
+        _read = new();
+
+    /// <summary>
     /// Analyzes every indexed competitor page for a project. Pages whose crawl was never indexed,
     /// or whose HTML is empty, are skipped and logged — never a reason to fail the whole analysis;
     /// a partial competitor set is still real evidence, unlike a partial write.
     /// </summary>
-    public async Task<IReadOnlyList<GccCompetitorPageAnalysis>> ResolveAsync(
-        Guid projectId, CancellationToken ct = default)
+    /// <remarks>
+    /// Read once for a project in this scope, which is one run: the pages a run writes ask for the
+    /// same crawls, and what one of them is told the competitors' outlines are is what the others are.
+    /// </remarks>
+    public Task<IReadOnlyList<GccCompetitorPageAnalysis>> ResolveAsync(
+        Guid projectId, CancellationToken ct = default) =>
+        _read.GetOrAdd(
+            projectId,
+            id => new Lazy<Task<IReadOnlyList<GccCompetitorPageAnalysis>>>(() => ReadAsync(id, ct))).Value;
+
+    private async Task<IReadOnlyList<GccCompetitorPageAnalysis>> ReadAsync(Guid projectId, CancellationToken ct)
     {
         var project = await projects.GetProjectAsync(projectId, ct);
         if (project is null || project.CompetitorUrls.Count == 0)

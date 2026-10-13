@@ -4,6 +4,7 @@ using System.Text.Json.Nodes;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.ContentCreator.Partner;
+using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Domain.Entities;
 using GeekAPI.Services.Workflow.Domain.Enums;
 using GeekAPI.Services.Workflow.Providers;
@@ -295,7 +296,10 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         Status: "draft", CreatedAtUtc: At, UpdatedAtUtc: At, ProjectId: projectId);
 
     private static GccGenerateService Build(
-        IContentGenerationProvider provider, GccPartnerExtractionService extraction, GccProjectDto? project) => new(
+        IContentGenerationProvider provider,
+        GccPartnerExtractionService extraction,
+        GccProjectDto? project,
+        GccCompetitorAnalysisResolver? competitors = null) => new(
         new ContentPromptBuilder(),
         TestContentTypePrompts.Registry(),
         new FakeProviderFactory(provider),
@@ -304,7 +308,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         new ArticleSchemaBuilder(new SoftwareApplicationSchemaBuilder()),
         Options.Create(new CompanyProfileOptions()),
         NullLogger<GccGenerateService>.Instance,
-        GccCompetitorAnalysisResolverTests.Build(
+        competitors ?? GccCompetitorAnalysisResolverTests.Build(
             new GccCompetitorAnalysisResolverTests.FakeProjects(null),
             new GccCompetitorAnalysisResolverTests.FakePages(),
             new GccCompetitorAnalysisResolverTests.FakeRag()),
@@ -360,8 +364,14 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// made with the page it saved as the last entry.
     /// </summary>
     /// <param name="model">The model the page's requests are sent to, which decides what one may carry.</param>
+    /// <param name="competitors">The project's competitor crawls, for a test of what a page is shown of
+    /// them; none when not given, as on a project that declares no competitor.</param>
     private static async Task<IReadOnlyList<(string Label, string Text)>> WriteAsync(
-        string page, string briefJson, string? pageResearch = null, string model = "gpt-4.1")
+        string page,
+        string briefJson,
+        string? pageResearch = null,
+        string model = "gpt-4.1",
+        Func<GccCompetitorAnalysisResolver>? competitors = null)
     {
         var provider = new Recorder(page, model);
         var plain = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), null);
@@ -371,7 +381,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         var project = new GccProjectDto(
             ProjectId, CreateId, "Acme", null, null, "active", null, null, null,
             PartnerUrls, [], new DateOnly(2026, 10, 10), null, null, null, null, null, At, At);
-        var forProject = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), project);
+        var forProject = Build(
+            provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), project, competitors?.Invoke());
         string saved;
         switch (page)
         {
@@ -407,7 +418,9 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                     Integrations = [new PartnerIntegrationItem("QuickBooks Online", "accounting", null, null)],
                     Faqs = [new PartnerFaqItem("Is it secure?", "Yes, access is role based.", null)],
                 };
-                var service = Build(provider, GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction), project);
+                var service = Build(
+                    provider, GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction), project,
+                    competitors?.Invoke());
                 var toolName = GccRequiredToolMentions.AnchorLookup(briefJson, PartnerUrls).Values.Single();
                 // What the fan-out does for each partner: the tool branch of the one dispatcher, told the product.
                 saved = await service.GenerateStartingContentAsync(
@@ -613,10 +626,15 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         var filler = string.Join(' ', Enumerable.Range(0, 480).Select(n => $"item{(n * 7919) % 10007}"));
         var passages = Enumerable.Range(0, 130).Select(i => $"Passage {i:000} of the partner's research. {filler}").ToList();
         var (calls, recorded) = await WriteWithResearchAsync(page, passages, model: "gpt-4o");
+        // What the searches for the operator's questions found is part of the page's research too
+        // (2026-10-12): each on a page of its own here, one passage each.
+        var questionPassages = QuestionPassages(page);
+        Assert.NotEmpty(questionPassages);
+        var all = 130 + questionPassages.Count;
 
         // Once for the page: how its research divides by label.
         var labels = JsonDocument.Parse(Assert.Single(recorded, e => e.Kind == "evidence-labels").PayloadJson).RootElement;
-        Assert.Equal(130, labels.GetProperty("passages").GetInt32());
+        Assert.Equal(all, labels.GetProperty("passages").GetInt32());
         Assert.Equal(65, labels.GetProperty("byLabel").GetProperty(GccResearchLabel.FitPriceAndLimits).GetInt32());
 
         // Once for each request that carries the research: the opening, which is request 0, then the body's.
@@ -626,15 +644,17 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         Assert.Equal(bodyRequests, body.Count);
         var opening = Assert.Single(calls, c => c.Label == "opening");
 
-        static int PassageOf(JsonElement listed) =>
-            int.Parse(listed.GetProperty("url").GetString()!.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
+        static string UrlOf(JsonElement listed) => listed.GetProperty("url").GetString()!;
+        static bool IsOfTheBriefsSearches(string url) => url.Contains("/research/", StringComparison.Ordinal);
+        static int PassageOf(string url) =>
+            int.Parse(url.Split('/')[^1], System.Globalization.CultureInfo.InvariantCulture);
 
         var carriedByThePage = new HashSet<int>();
         foreach (var record in evidence)
         {
             Assert.False(record.GetProperty("whole").GetBoolean());
             Assert.Equal(bodyRequests, record.GetProperty("of").GetInt32());
-            Assert.Equal(130, record.GetProperty("research").GetProperty("passages").GetInt32());
+            Assert.Equal(all, record.GetProperty("research").GetProperty("passages").GetInt32());
 
             // Counted before it was sent: with everything it is over what the model accepts, and as sent
             // it is not, the room reserved for its reply included.
@@ -645,11 +665,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             Assert.InRange(size.GetProperty("withReply").GetInt32(), 1, 128_000);
             Assert.InRange(record.GetProperty("carried").GetProperty("chars").GetInt32(), 1, record.GetProperty("room").GetInt32());
 
-            var chosen = record.GetProperty("chosen").EnumerateArray().Select(PassageOf).ToList();
-            var leftOut = record.GetProperty("leftOut").EnumerateArray().Select(PassageOf).ToList();
+            var chosenUrls = record.GetProperty("chosen").EnumerateArray().Select(UrlOf).ToList();
+            var leftOutUrls = record.GetProperty("leftOut").EnumerateArray().Select(UrlOf).ToList();
+            var chosen = chosenUrls.Where(IsOfTheBriefsSearches).Select(PassageOf).ToList();
+            var leftOut = leftOutUrls.Where(IsOfTheBriefsSearches).Select(PassageOf).ToList();
             Assert.NotEmpty(chosen);
             Assert.NotEmpty(leftOut);
-            Assert.Equal(130, chosen.Count + leftOut.Count);
+            Assert.Equal(all, chosenUrls.Count + leftOutUrls.Count);
 
             // The request carries the passages its record lists as chosen, none it lists as left out,
             // and is told that what it has is a part.
@@ -657,6 +679,13 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             var text = call == 0 ? opening.Text : body[call - 1].Text;
             Assert.All(chosen, i => Assert.Contains(passages[i], text, StringComparison.Ordinal));
             Assert.All(leftOut, i => Assert.DoesNotContain(passages[i], text, StringComparison.Ordinal));
+            // What a question's search found is chosen from like any other passage, and is in the
+            // request exactly when the record says so.
+            Assert.All(questionPassages, found =>
+            {
+                Assert.Contains(found.Url, chosenUrls.Concat(leftOutUrls));
+                Assert.Equal(chosenUrls.Contains(found.Url), text.Contains($"- {found.Passage}", StringComparison.Ordinal));
+            });
             Assert.Contains(GccGenerateService.ResearchIsAPartNote, text, StringComparison.Ordinal);
             carriedByThePage.UnionWith(chosen);
         }
@@ -789,6 +818,179 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError));
         }
     }
+
+    // ---- nothing is cut by a count ------------------------------------------------------------------
+
+    private const int PassagesOnThePartnersPage = 9;
+    private const int CompetitorPages = 7;
+    private const int OwnSitePages = 7;
+
+    private static string PartnerPassage(int n) => $"Partner Widget passage {n:00}, on the page with more than six.";
+
+    // A competitor's name is kept out of what a writer reads, so none of this text carries the host's.
+    private static string CompetitorPassage(int page, int n) => $"The other vendor's page {page:00} states point {n:00} of its own.";
+
+    private static string OwnSitePassage(int page, int n) => $"Our published page {page:00} covers matter {n:00} already.";
+
+    private static string CompetitorHeading(int page, int n) => $"Other vendor outline {page:00} heading {n:00}";
+
+    /// <summary>
+    /// Research that every count the blocks used to cut by would cut: a partner page of nine passages
+    /// (six were printed), seven competitor pages of seven passages (five pages of six), seven of the
+    /// publisher's own pages of seven passages (five of six), and what the question searches found.
+    /// </summary>
+    private static string ResearchPastEveryOldCount(string page)
+    {
+        var questions = GccResearchFetchService.Deserialize(page == "tool" ? ToolResearch() : PageFaqResearch.For(CompleteBrief))!;
+        return GccResearchFetchService.Serialize(questions with
+        {
+            Quoteables =
+            [
+                new GccQuoteablePage(
+                    $"https://{Host}/long", "Partner Widget", [],
+                    [.. Enumerable.Range(1, PassagesOnThePartnersPage).Select(PartnerPassage)],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+                // A page on the partner's help address is the partner's, on a tool page as on the others.
+                new GccQuoteablePage(
+                    $"https://help.{Host}/setup", "Partner Widget help", [],
+                    ["Partner Widget help: setup takes one afternoon."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            ],
+            CompetitorQuoteables =
+            [
+                .. Enumerable.Range(1, CompetitorPages).Select(c => new GccQuoteablePage(
+                    $"https://contender.test/page-{c:00}", $"Other vendor page {c:00}", [],
+                    [.. Enumerable.Range(1, 7).Select(n => CompetitorPassage(c, n))],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk)),
+            ],
+            SiteQuoteables =
+            [
+                .. Enumerable.Range(1, OwnSitePages).Select(o => new GccQuoteablePage(
+                    $"https://acme.test/published-{o:00}", $"Published {o:00}", [],
+                    [.. Enumerable.Range(1, 7).Select(n => OwnSitePassage(o, n))],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk)),
+            ],
+            PublisherPositions =
+            [
+                new GccPublisherPosition("The Methodology", ["We map the close before we automate it."], "https://acme.test/"),
+            ],
+        });
+    }
+
+    /// <summary>
+    /// The competitor's crawl: an outline of thirty headings for each page the search returned (twenty-five
+    /// were printed), and one for a page no search returned.
+    /// </summary>
+    private static GccCompetitorAnalysisResolver CompetitorCrawl() => GccCompetitorAnalysisResolverTests.Build(
+        new GccCompetitorAnalysisResolverTests.FakeProjects(GccCompetitorAnalysisResolverTests.Project("https://contender.test")),
+        new GccCompetitorAnalysisResolverTests.FakePages(
+        [
+            .. Enumerable.Range(1, CompetitorPages).Select(c => GccCompetitorAnalysisResolverTests.BlockPage(
+                $"https://contender.test/page-{c:00}",
+                [.. Enumerable.Range(1, 30).Select(n => GccCompetitorAnalysisResolverTests.Heading(2, CompetitorHeading(c, n)))])),
+            GccCompetitorAnalysisResolverTests.BlockPage(
+                "https://contender.test/never-returned",
+                GccCompetitorAnalysisResolverTests.Heading(2, "An outline no search returned")),
+        ]),
+        new GccCompetitorAnalysisResolverTests.FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://contender.test", "contender.test", true, Guid.NewGuid().ToString())]));
+
+    /// <summary>
+    /// Nothing a search brought back is left out of a request for a count (Jeff, 2026-10-12: "STOP NOT
+    /// USING DATA, EVEN IF THAT MEANS IT COSTS MORE"). Written through the real writers, with research
+    /// past every count the blocks used to cut by: a page's passages past its sixth, competitor pages
+    /// past the fifth, the publisher's own pages past the fifth, outline headings past the twenty-fifth,
+    /// and what the searches for the operator's questions found, which reached no body request at all.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task Nothing_a_search_brought_back_is_left_out_of_a_request_for_a_count(string page)
+    {
+        var calls = await WriteAsync(page, CompleteBrief, ResearchPastEveryOldCount(page), competitors: CompetitorCrawl);
+
+        var opening = Assert.Single(calls, c => c.Label == "opening").Text;
+        var body = calls.Where(c => c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(body);
+        var questionPassages = QuestionPassages(page);
+        Assert.NotEmpty(questionPassages);
+
+        // The opening and every body request: every passage of the partner's page, the partner's help
+        // page, and what the question searches found.
+        foreach (var text in body.Select(b => b.Text).Append(opening))
+        {
+            Assert.All(Enumerable.Range(1, PassagesOnThePartnersPage), n => Assert.Contains($"- {PartnerPassage(n)}", text, StringComparison.Ordinal));
+            Assert.Contains("- Partner Widget help: setup takes one afternoon.", text, StringComparison.Ordinal);
+            Assert.All(questionPassages, found => Assert.Contains($"- {found.Passage}", text, StringComparison.Ordinal));
+            // The publisher's positions: in a tool page's opening too, since 2026-10-12.
+            Assert.Contains("We map the close before we automate it.", text, StringComparison.Ordinal);
+        }
+
+        // Every body request: every competitor page and every one of the publisher's own, every passage
+        // of each, and the outline of each competitor page the search returned, every heading of it.
+        foreach (var (_, text) in body)
+        {
+            for (var c = 1; c <= CompetitorPages; c++)
+            {
+                Assert.Contains($"[Competitor page {c}: ", text, StringComparison.Ordinal);
+                Assert.Contains($"[Competitor page {c}]", text, StringComparison.Ordinal);
+                Assert.All(Enumerable.Range(1, 7), n => Assert.Contains($"- {CompetitorPassage(c, n)}", text, StringComparison.Ordinal));
+                Assert.All(Enumerable.Range(1, 30), n => Assert.Contains($"- {CompetitorHeading(c, n)} (h2)", text, StringComparison.Ordinal));
+            }
+
+            for (var o = 1; o <= OwnSitePages; o++)
+            {
+                Assert.All(Enumerable.Range(1, 7), n => Assert.Contains($"- {OwnSitePassage(o, n)}", text, StringComparison.Ordinal));
+            }
+
+            // Not the outline of a page no search returned: that is the rest of a competitor's site.
+            Assert.DoesNotContain("An outline no search returned", text, StringComparison.Ordinal);
+            // A competitor's address is never shown.
+            Assert.DoesNotContain("contender", text, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // A pillar and a blog tag a heading drawn from a competitor's outline; a tool page tags nothing
+        // and is not told to.
+        Assert.All(body, b => Assert.Equal(page != "tool", b.Text.Contains("\"competitor:<exact heading text>\"", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// Each passage tells the writer which of the operator's searches found it, in a pillar's, a blog's
+    /// and a tool page's opening and body alike: a question's passage says it was found for that question.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task A_passage_found_for_a_question_says_so_in_the_opening_and_in_every_body_request(string page)
+    {
+        var calls = await WriteAsync(page, CompleteBrief, ResearchPastEveryOldCount(page));
+        var question = GccResearchFetchService.Deserialize(ResearchPastEveryOldCount(page))!.FaqEvidence![0];
+        var passage = Assert.Single(question.Pages[0].Paragraphs);
+
+        var requests = calls.Where(c =>
+            c.Label == "opening" || c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal)).ToList();
+        Assert.InRange(requests.Count, 2, int.MaxValue);
+        foreach (var (_, text) in requests)
+        {
+            var lines = text.Split('\n').Select(line => line.TrimEnd('\r')).ToList();
+            var listed = Assert.Single(lines, line => line.EndsWith($". The question: {question.Question}", StringComparison.Ordinal));
+            var number = listed.Trim().Split('.')[0];
+            var at = lines.IndexOf($"- {passage}");
+            Assert.InRange(at, 0, lines.Count - 2);
+            Assert.Equal($"  {GccGenerateService.FoundForLabel} {number}", lines[at + 1]);
+        }
+    }
+
+    /// <summary>What the searches for the operator's questions found for <paramref name="page"/>, a page and its one passage each.</summary>
+    private static IReadOnlyList<(string Url, string Passage)> QuestionPassages(string page) =>
+    [
+        .. (GccResearchFetchService.Deserialize(page == "tool" ? ToolResearch() : PageFaqResearch.For(CompleteBrief))!.FaqEvidence ?? [])
+            .SelectMany(found => found.Pages)
+            .Select(found => (found.Url, Assert.Single(found.Paragraphs)))
+            .Distinct(),
+    ];
 
     /// <summary>
     /// A pillar, a blog or a tool page written through its real writer for the partner, with
@@ -1029,8 +1231,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             toneOfVoice => opening | People Also Ask | every body call | title and outline
             eeatSignals => opening | People Also Ask | every body call | title and outline
             lengthBand => opening | People Also Ask | every body call | title and outline
-            paaQuestions => People Also Ask | every body call | the saved page
-            blogFaqQuestions => nothing
+            paaQuestions => opening | People Also Ask | every body call | the saved page
+            blogFaqQuestions => opening | every body call
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => the saved page
             # The first level is the department in the page's address, and one that is not a department
@@ -1077,8 +1279,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             toneOfVoice => title and outline | opening | FAQ | every body call
             eeatSignals => title and outline | opening | FAQ | every body call
             lengthBand => title and outline | opening | FAQ | every body call
-            paaQuestions => every body call
-            blogFaqQuestions => FAQ | the saved page
+            paaQuestions => opening | every body call
+            blogFaqQuestions => opening | FAQ | every body call | the saved page
             briefVersion => nothing
             nicheFraming.taxonomyPath, first level => the saved page
             nicheFraming.taxonomyPath, later levels => nothing

@@ -240,10 +240,12 @@ this file's leftovers before anyone established the writer does use RAG.
 
 So, deleted:
 
-- `GccArticleHtmlExtractor.Extract(url, html)` — the `GccResearchCaps`-capped overload,
-  with its only caller. Its four test call sites moved to `ExtractPartnerPage`; the
-  uncapped assertion now compares against `GccResearchCaps.MaxParagraphsPerPage`
-  directly rather than against a capped sibling that had to exist to be compared to.
+- `GccArticleHtmlExtractor.Extract(url, html)` — the overload capped by the block's own
+  per-page limits, with its only caller. Its four test call sites moved to
+  `ExtractPartnerPage`; the uncapped assertion compared against that limit directly
+  rather than against a capped sibling that had to exist to be compared to. (Those
+  per-page limits were themselves deleted on 2026-10-12: nothing a search returned is
+  cut by a count.)
 - `DeleteKeywordSource`'s quoteable filter — it matched an uploaded-file URL prefix
   that nothing can produce. The SERP page and source-row removal stay; they are live.
 - Every remaining `upload://` literal, fixtures and comments included. **Zero
@@ -283,11 +285,12 @@ should license.
 `ContentTypePromptContext.EvidenceBlock` already existed — the lede context simply
 never set it.
 
-**The token budget question, answered: no slice is needed.** The block is bounded
-twice before it reaches any prompt — `PromptResearchTokenCeiling` (16,000) caps what
-retrieval puts into `ResearchJson` at all, and `GccResearchCaps` caps headings and
-paragraphs per page at render. It is then the *same* block the body prompt already
-carries, and the lede prompt's system text is shorter than the body's. If the body
+**The token budget question, answered: no slice is needed.** On 2026-09-29 the block was
+bounded twice before it reached any prompt — a 16,000-token ceiling on what retrieval put
+into `ResearchJson` for a page, and a cap on headings and paragraphs per page at render.
+(Both were deleted on 2026-10-12; a request is now counted against what its model accepts,
+`GccGenerateService.RequestThatFitsAsync`.) It is then the *same* block the body prompt
+already carries, and the lede prompt's system text is shorter than the body's. If the body
 fits, the lede fits.
 
 **The research half only, and not for the reason I first gave.** I argued the

@@ -44,9 +44,6 @@ public sealed class GccPartnerExtractionService(
             TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
         };
 
-    private const int MaxParagraphsPerPage = 40;
-    private const int MaxParagraphChars = 1_200;
-
     private const string SystemPrompt = """
         You extract structured product intelligence about a PARTNER from one crawled web page.
 
@@ -424,7 +421,7 @@ public sealed class GccPartnerExtractionService(
         }
     }
 
-    private static string BuildUserPrompt(GccQuoteablePage page, IReadOnlyList<string>? partnerToolNames)
+    internal static string BuildUserPrompt(GccQuoteablePage page, IReadOnlyList<string>? partnerToolNames)
     {
         var body = new StringBuilder();
         body.Append("URL: ").AppendLine(page.Url);
@@ -435,25 +432,27 @@ public sealed class GccPartnerExtractionService(
         if (partnerToolNames is { Count: > 0 })
         {
             body.Append("Partner product names in scope: ")
-                .AppendLine(string.Join(", ", partnerToolNames.Take(12)));
+                .AppendLine(string.Join(", ", partnerToolNames));
         }
 
         if (page.Headings.Count > 0)
         {
             body.AppendLine().AppendLine("Headings:");
-            foreach (var h in page.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+            foreach (var h in page.Headings)
                 body.Append("  H").Append(h.Level).Append(": ").AppendLine(h.Text);
         }
 
+        // Every passage of the page, whole (2026-10-12). Until then the partner data was read from a
+        // page's first forty passages, each cut at 1,200 characters, where a passage averaged 1,300:
+        // the end of most passages was never read for a price, a limit or an integration.
         var paragraphs = page.Paragraphs
             .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Take(MaxParagraphsPerPage)
             .ToList();
         if (paragraphs.Count == 0 && page.Headings.Count == 0) return "";
 
         body.AppendLine().AppendLine("Page text:");
         foreach (var p in paragraphs)
-            body.AppendLine(p.Length > MaxParagraphChars ? p[..MaxParagraphChars] : p);
+            body.AppendLine(p);
 
         return body.ToString();
     }

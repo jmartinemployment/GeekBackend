@@ -29,10 +29,11 @@ public sealed class GccPublisherProfileResolver(
     IGccCrawlPageReader pages,
     ILogger<GccPublisherProfileResolver> logger)
 {
-    /// <summary>Enough of the home page to carry the framework and the proof points, not the whole site.</summary>
-    private const int MaxHeadings = 24;
-    private const int MaxParagraphs = 40;
-    private const int MaxParagraphChars = 600;
+    // The home page is read whole: every heading and every block of text outside the roster, each
+    // in full (2026-10-12; Jeff: "STOP NOT USING DATA, EVEN IF THAT MEANS IT COSTS MORE"). Until then
+    // it stopped at the page's 24th heading and 40th block and cut a block at 600 characters, so what
+    // a longer home page says lower down -- the offer, the figures, the service area -- reached no
+    // writer.
 
     /// <summary>A roster's label is a line ("Top 5 Automated Approval Workflow Tools:"), not prose that
     /// happens to say "best" and "tools" somewhere. Longer than this is never taken for one.</summary>
@@ -111,9 +112,8 @@ public sealed class GccPublisherProfileResolver(
 
                 if (inRoster) continue;
 
-                if (isHeading && headings.Count < MaxHeadings) headings.Add(text);
-                else if (paragraphs.Count < MaxParagraphs)
-                    paragraphs.Add(text.Length > MaxParagraphChars ? text[..MaxParagraphChars] : text);
+                if (isHeading) headings.Add(text);
+                else paragraphs.Add(text);
             }
         }
         else if (!string.IsNullOrWhiteSpace(home.ContentHtml))
@@ -135,7 +135,6 @@ public sealed class GccPublisherProfileResolver(
 
     private static void CollectHeadings(GccHeadingNode node, List<string> into)
     {
-        if (into.Count >= MaxHeadings) return;
         // A roster's heading takes its subtree with it: the headings under it are the tools.
         if (!string.IsNullOrWhiteSpace(node.HeadingText) && IsRosterLabel(node.HeadingText.Trim())) return;
         if (!string.IsNullOrWhiteSpace(node.HeadingText)) into.Add(node.HeadingText.Trim());

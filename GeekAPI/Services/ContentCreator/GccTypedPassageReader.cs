@@ -35,7 +35,11 @@ namespace GeekAPI.Services.ContentCreator;
 /// </remarks>
 public sealed class GccTypedPassageReader(IGccCrawlPageReader pages)
 {
-    /// <summary>The repository route caps seeds at 32.</summary>
+    /// <summary>
+    /// The repository route takes 32 addresses a read. Every page is read, 32 at a time: until
+    /// 2026-10-12 the pages past the first 32 were not read at all, so no sentence of theirs could be
+    /// quoted.
+    /// </summary>
     private const int MaxSeedsPerRead = 32;
 
     public async Task<IReadOnlyList<GccGroundedPassage>> ReadAsync(
@@ -48,17 +52,19 @@ public sealed class GccTypedPassageReader(IGccCrawlPageReader pages)
             return [];
         }
 
-        var urls = retrieved.Select(page => page.Url).Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(MaxSeedsPerRead).ToList();
-        var crawled = await pages.ListPagesBySeedsAsync(runId, urls, ct);
+        var urls = retrieved.Select(page => page.Url).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         var byUrl = new Dictionary<string, GeekCrawlerPageDto>(StringComparer.OrdinalIgnoreCase);
-        foreach (var page in crawled)
+        for (var start = 0; start < urls.Count; start += MaxSeedsPerRead)
         {
-            byUrl.TryAdd(page.Url, page);
-            if (!string.IsNullOrWhiteSpace(page.FinalUrl))
+            var group = urls.GetRange(start, Math.Min(MaxSeedsPerRead, urls.Count - start));
+            foreach (var page in await pages.ListPagesBySeedsAsync(runId, group, ct))
             {
-                byUrl.TryAdd(page.FinalUrl, page);
+                byUrl.TryAdd(page.Url, page);
+                if (!string.IsNullOrWhiteSpace(page.FinalUrl))
+                {
+                    byUrl.TryAdd(page.FinalUrl, page);
+                }
             }
         }
 

@@ -22,6 +22,13 @@ the dormant V2 pipeline and the 2026-10-01 state; that document was deleted on 2
 Retrieval happens once per Generate (`GccGroundingResolver`), is held in the running job's memory, and is not stored.
 The searches return what matches the keyword best, so **a missing result cannot prove a missing topic**.
 
+**Since 2026-10-12 nothing a search returned is cut by a count** (`plans/use-everything.md`, step 3). Every page a
+search returned is shown, with every passage and every heading; the sizes below are of 2026-10-07, when a page showed
+its first six passages and eight headings and five competitor pages and five of the site's own were shown. The one
+limit on a request is what its model accepts. Each partner passage ends with "Found for:" and the numbers of the
+searches that found it, listed once in the operator's words. A tool page is shown the competitor blocks and the
+"already published" block as a pillar and a blog are.
+
 ## Project site
 
 **Entered:** the project's Site URL. **Original purpose** (`CONTENT_CREATOR_PLAN.md` section 6, "Site Analyzer: gaps +
@@ -37,12 +44,14 @@ Generate, so the draft fits the site.
    frontend still offers a gap picker.*
 2. **Three blocks still reach the writer** (sizes from the 2026-10-07 pillar call):
    - **The publisher's own positions** (12,800 characters): the home page's framework, figures and offer, so the page
-     is consistent with them.
+     is consistent with them. A tool page's hook carries them too since 2026-10-12, and the home page is read whole
+     (it stopped at 24 headings and 40 blocks of text, each cut at 600 characters).
    - **This site already covers this topic** (4,800): the site structure matched to the keyword. Its subtopics are
      compulsory ("all of which this piece must cover"). A subtopic that lists tools is left out. *Not verified: what it
      listed for the 2026-10-07 run.*
    - **Already published on this site, do not write these again** (21,200): the 8 best-matching passages of your own
-     pages. It told the writer not to restate them and never to contradict them.
+     pages. It told the writer not to restate them and never to contradict them. Every page returned is shown since
+     2026-10-12; five were.
 
 **Known conflict (Jeff, 2026-10-07).** The "already published" block interferes with rewrites. On 2026-10-07 it listed
 the earlier published version of the page being rewritten, so the writer was told not to repeat, and not to contradict,
@@ -64,7 +73,13 @@ grounded, cited claims about those tools (pricing, integrations, proof points) a
 - A pillar or blog should name every partner (a reported gap when one is missing), and never names a tool the project
   does not list.
 - Per partner, pages are extracted into a structured record (features, pricing, FAQs, quotable spans). The extraction is
-  stored in the database, keyed by the partner and its pages, and reused.
+  stored in the database, keyed by the partner and its pages, and reused. Since 2026-10-12 it reads every passage of a
+  page whole (40 passages cut at 1,200 characters were read), and quotable sentences are read from every page a
+  partner returned (the first 32 were).
+- What the searches for the operator's questions found on a partner's site is part of that partner's research since
+  2026-10-12: in the opening and every body request of the pillar and the blog (every partner's) and of that partner's
+  tool page. Until then it reached the question requests alone.
+- A page on a partner's help or documentation address is that partner's, on a tool page as on the pillar and blog.
 - In the 2026-10-07 pillar call the partner evidence was 105 passages from 105 pages: Bill 19 (49,000 characters),
   Ramp 23 (43,500), ApprovalMax 20 (38,200), Stampli 23 (32,300), Melio 20 (21,700). The retrieval asks for up to 32
   per site.
@@ -83,11 +98,16 @@ not shown), "Accounts payable best practices and process guide for 2027" and a N
 from an AP-automation vendor, Zone & Co. The prompt itself says they "were retrieved because they rank, not because
 they are good".
 
-**Today, two blocks reach the writer**
-- **Competitor heading structure** (5,600 characters): "a checklist of what a reader expects covered". A section may
-  be tagged `competitor:<exact heading>`, which licenses it as a gap worth covering. Reusing the competitor's heading as
-  the section's own is refused.
-- **Competitor research** (9,600 characters): "find what they have not said"; never quoted, cited, linked or named.
+**Today, two blocks reach the writer** (a pillar, a blog and, since 2026-10-12, a tool page)
+- **Competitor heading structure** (5,600 characters on 2026-10-07): "a checklist of what a reader expects covered".
+  A section of a pillar or a blog may be tagged `competitor:<exact heading>`, which licenses it as a gap worth
+  covering. Reusing the competitor's heading as the section's own is refused. Since 2026-10-12 it is the outline of
+  each competitor page the search returned, every heading, under the number that page has in the competitor research
+  (`GccCompetitorOutlines`); until then it was the first five pages of the first competitor's crawl, 25 headings each,
+  whatever those pages were. A returned page with no outline is named on the run log.
+- **Competitor research** (9,600 characters on 2026-10-07): "find what they have not said"; never quoted, cited,
+  linked or named. Every page the competitor searches returned is shown since 2026-10-12; five were. When a request is
+  over what its model accepts, all but five (one from each competitor in turn) give way before any partner research.
   Competitor hosts and host-derived names are replaced with "a competitor" and a numbered label
   (`GccCompetitorNames`), but on 2026-10-07 the name "Zone & Co" appeared unredacted inside the passage text. *Not
   investigated.*

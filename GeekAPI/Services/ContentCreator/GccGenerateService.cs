@@ -330,6 +330,26 @@ public partial class GccGenerateService
     /// evidence <c>GccGroundingResolver</c> resolves and merges into <c>ResearchJson</c> that
     /// pillar/blog never read back out.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Nothing is cut by a count</b> (Jeff, 2026-10-12: "STOP NOT USING DATA, EVEN IF THAT MEANS IT
+    /// COSTS MORE"). Until then a page printed its first six passages and its first eight headings,
+    /// whatever the searches had brought back; on the 15:29 UTC run of 2026-10-12 one page held nineteen.
+    /// Every passage and every heading of every page is printed, and the one thing that can make a
+    /// request carry less is what its model accepts (<see cref="RequestThatFitsAsync"/>).
+    /// </para>
+    /// <para>
+    /// <b>The pages are the page's research</b> (<see cref="GccPageResearch.PagesOf"/>): what the
+    /// brief's searches found, with what the searches for the operator's questions found on the same
+    /// crawls added, each passage once.
+    /// </para>
+    /// <para>
+    /// <b>Each passage says what it was found for.</b> Which search found which passage was recorded
+    /// from 2026-10-11 and shown to no writer. The searches are listed once, numbered, in the
+    /// operator's own words, and each passage ends with the numbers of the ones that found it
+    /// (<see cref="FoundForLabel"/>).
+    /// </para>
+    /// </remarks>
     /// <param name="carried">
     /// The passages this request carries, by page and place on it, when its research was chosen for it
     /// (<see cref="GccResearchPerRequest"/>); null for all of the research, which is what every request
@@ -342,8 +362,16 @@ public partial class GccGenerateService
     {
         var sb = new StringBuilder();
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
-        if (research?.Quoteables is { Count: > 0 })
+        var pages = GccPageResearch.PagesOf(research);
+        if (pages.Count > 0)
         {
+            // The searches the page's passages were found by, each once, numbered in the order they are
+            // first met in all of the research. A request sent a part of the research carries the same
+            // list under the same numbers: a search is one number on every request of a page, and the
+            // list is the operator's own statements, which every request is told whatever it carries.
+            // Research no search is known to have found has no list, and is told of no such line.
+            var searches = GccPageResearch.SearchesOf(pages);
+
             sb.AppendLine("=== QUOTEABLE RESEARCH (partner/tool evidence) ===");
             // Attribution is the requirement, not a nicety: drafts previously named partners and
             // tools with capabilities nobody could source. Every claim about a partner or tool must
@@ -362,6 +390,12 @@ public partial class GccGenerateService
             sb.AppendLine("  Target Entity Match: <name> the partner tool that passage's own links point at.");
             sb.AppendLine("  Context: / Specific detail: the surrounding block, then the matched sentence.");
             sb.AppendLine("  Linked from this section:   the link text under that heading.");
+            if (searches.Count > 0)
+            {
+                sb.AppendLine($"  {FoundForLabel} <numbers>         which of the searches listed under \"{SearchesHeading}\"");
+                sb.AppendLine("                              found that passage.");
+            }
+
             sb.AppendLine();
             sb.AppendLine("What they mean for what you write:");
             sb.AppendLine("- Section: is the feature or business category the passage belongs to. A claim");
@@ -374,6 +408,15 @@ public partial class GccGenerateService
             sb.AppendLine("  claims, and they are not evidence about any other product.");
             sb.AppendLine("- Context: is background for the sentence under Specific detail:. Quote the");
             sb.AppendLine("  detail; use the context to get it right, not as a second claim.");
+            if (searches.Count > 0)
+            {
+                sb.AppendLine($"- {FoundForLabel} says why the passage is here: it is what that site answered when it");
+                sb.AppendLine("  was searched with the operator's own statement of a problem, a failure, a remedy or");
+                sb.AppendLine("  a question. Use a passage where the piece deals with what it was found for. The");
+                sb.AppendLine("  statement is the operator's note and never a claim about the product: say of a");
+                sb.AppendLine("  product only what the passage itself states.");
+            }
+
             sb.AppendLine();
             sb.AppendLine("Rules for this block, and they are not optional:");
             sb.AppendLine("1. Any claim about a partner, tool or product must come from a passage below,");
@@ -407,27 +450,34 @@ public partial class GccGenerateService
                 sb.AppendLine();
             }
 
-            // Every quoteable is read (per-page heading/paragraph trimming below still bounds
-            // prompt size).
-            for (var i = 0; i < research.Quoteables.Count; i++)
+            if (searches.Count > 0)
             {
-                var q = research.Quoteables[i];
+                sb.AppendLine($"{SearchesHeading} Each partner's own site was searched with the operator's own words,");
+                sb.AppendLine($"and each passage below ends with \"{FoundForLabel}\" and the numbers of the searches that found it:");
+                for (var number = 0; number < searches.Count; number++)
+                    sb.AppendLine($"  {number + 1}. {DescribeSearch(searches[number])}");
+                sb.AppendLine();
+            }
+
+            // Every page, every heading and every passage: nothing here is cut by a count.
+            for (var i = 0; i < pages.Count; i++)
+            {
+                var q = pages[i];
                 if (carried is not null)
                 {
                     // A request's own choice: the page's lines as they are printed whole, with only the
                     // passages chosen for it, which is what GccResearchSelector.CharsOf counts. A page
                     // read back with no passages has none to choose and is keyed as the selector keys it.
                     if (q?.Paragraphs is null) continue;
-                    var chosen = q.Paragraphs
-                        .Take(GccResearchCaps.MaxParagraphsPerPage)
-                        .Where((_, position) => carried.Contains((q.Url ?? string.Empty, position)))
+                    var chosen = Enumerable.Range(0, q.Paragraphs.Count)
+                        .Where(position => carried.Contains((q.Url ?? string.Empty, position)))
                         .ToList();
                     if (chosen.Count == 0) continue;
                     sb.AppendLine($"{q.Title} ({q.Url})");
-                    foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+                    foreach (var h in q.Headings ?? [])
                         sb.AppendLine($"- H{h.Level}: {h.Text}");
-                    foreach (var p in chosen)
-                        sb.AppendLine($"- {p}");
+                    foreach (var position in chosen)
+                        AppendPassage(sb, q, position, searches);
                     sb.AppendLine();
                     continue;
                 }
@@ -441,11 +491,13 @@ public partial class GccGenerateService
                 // the model as an operator upload -- which the lines above define as plain prose
                 // carrying none of the structure labels. Evidence was being discredited by a test
                 // for a case that no longer exists.
+                // Read back from stored JSON, a page or its passages can be missing: it is printed as it is.
+                if (q is null) continue;
                 sb.AppendLine($"{q.Title} ({q.Url})");
-                foreach (var h in q.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+                foreach (var h in q.Headings ?? [])
                     sb.AppendLine($"- H{h.Level}: {h.Text}");
-                foreach (var p in q.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
-                    sb.AppendLine($"- {p}");
+                for (var position = 0; position < (q.Paragraphs?.Count ?? 0); position++)
+                    AppendPassage(sb, q, position, searches);
                 sb.AppendLine();
             }
         }
@@ -484,6 +536,65 @@ public partial class GccGenerateService
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>The words a passage's last line begins with: the numbers after them are the searches that found it.</summary>
+    internal const string FoundForLabel = "Found for:";
+
+    /// <summary>The heading of the numbered list of searches in the research block.</summary>
+    internal const string SearchesHeading = "WHAT THE PASSAGES WERE FOUND FOR.";
+
+    /// <summary>
+    /// One passage as the research block prints it: its text, then the searches that found it by their
+    /// numbers in the block's list. A passage no search is known to have found has no such line.
+    /// </summary>
+    private static void AppendPassage(
+        StringBuilder sb, GccQuoteablePage page, int position, IReadOnlyList<GccPassageSearch> searches)
+    {
+        sb.AppendLine($"- {page.Paragraphs[position]}");
+        var numbers = FoundForNumbers(page, position, searches);
+        if (numbers.Length > 0) sb.AppendLine($"  {FoundForLabel} {numbers}");
+    }
+
+    /// <summary>The numbers, in the block's list, of the searches that found a passage; empty when none is known.</summary>
+    internal static string FoundForNumbers(
+        GccQuoteablePage page, int position, IReadOnlyList<GccPassageSearch> searches)
+    {
+        var numbers = new List<int>();
+        foreach (var search in page.SearchesThatFound(position))
+        {
+            for (var number = 0; number < searches.Count; number++)
+            {
+                if (!searches[number].Equals(search)) continue;
+                if (!numbers.Contains(number + 1)) numbers.Add(number + 1);
+                break;
+            }
+        }
+
+        numbers.Sort();
+        return string.Join(", ", numbers);
+    }
+
+    /// <summary>
+    /// A search as the block's list states it, in the operator's own words: the problem, the failure a
+    /// row names (with the remedy the site was searched with, when the row has one), a remedy alone,
+    /// the project's keyword, or one of the operator's questions.
+    /// </summary>
+    internal static string DescribeSearch(GccPassageSearch search)
+    {
+        var asked = (search.Asked ?? string.Empty).Trim();
+        var failure = (search.Failure ?? string.Empty).Trim();
+        return search.Kind switch
+        {
+            GccPassageSearch.KindProblem => $"The problem: {asked}",
+            GccPassageSearch.KindRow when failure.Length > 0
+                && !string.Equals(failure, asked, StringComparison.OrdinalIgnoreCase)
+                => $"Where it goes wrong: {failure} -- searched with the remedy noted: {asked}",
+            GccPassageSearch.KindRow when failure.Length > 0 => $"Where it goes wrong: {failure}",
+            GccPassageSearch.KindRow => $"A remedy noted: {asked}",
+            GccPassageSearch.KindQuestion => $"The question: {asked}",
+            _ => $"The keyword: {asked}",
+        };
     }
 
     /// <summary>
@@ -1250,9 +1361,18 @@ public partial class GccGenerateService
             .Where(o => !string.IsNullOrWhiteSpace(o))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        if (partnerOrigins.Count == 1)
+        // A page on the partner's help or documentation address is in this partner's pages since
+        // 2026-10-12 (GccPartnerToolSlices). It is the partner's evidence and not the product's domain:
+        // an address under another one here is left out, so "help.partner.com" beside "partner.com"
+        // is still one domain and not an ambiguity.
+        var partnerDomains = partnerOrigins
+            .Where(origin => !partnerOrigins.Any(other =>
+                GccRequiredToolMentions.HostKeyOf(origin).EndsWith(
+                    "." + GccRequiredToolMentions.HostKeyOf(other), StringComparison.Ordinal)))
+            .ToList();
+        if (partnerDomains.Count == 1)
         {
-            app = app with { Url = partnerOrigins[0] };
+            app = app with { Url = partnerDomains[0] };
         }
 
         var partnerExtraction = extraction ?? (partnerPages.Count == 0
@@ -1429,12 +1549,45 @@ public partial class GccGenerateService
         // The site's tools that are not this project's partners stay out of what this page reads too,
         // as they do for the pillar and the blog. None on the orchestrator's create-less path.
         IReadOnlyList<string> toolUnlisted = create is null ? [] : (await PartnerToolsAsync(create, ct)).Unlisted;
+
+        // What the body reads beside its partner's research: the publisher's positions, the competitor
+        // pages the searches returned with the heading outline of each, and the site's own coverage.
+        // The body's evidence is the research block AND these, never one in place of the other.
+        //
+        // The heading outlines are new here (2026-10-12). One of this page's sections is "how a buyer
+        // should judge this product -- fit, pricing, and the adjacent approaches they are also
+        // weighing", and it was written with the competitors' text and no sight of how their pages
+        // are laid out. A tool page tags no heading, so the block is worded without the tag rule.
+        //
+        // With every competitor page, or with the first few when a request is more than its model
+        // accepts with all of them (RequestThatFitsAsync).
+        IReadOnlyList<GccCompetitorPageAnalysis> toolCompetitorAnalyses =
+            create is null ? [] : await ResolveCompetitorAnalysesAsync(create, ct);
+        if (create is not null)
+        {
+            await RecordCompetitorPagesWithoutOutlineAsync($"the tool page '{name}'", create, toolCompetitorAnalyses);
+        }
+
+        string ToolCompetitorBlock(bool everyCompetitorPage) => create is null
+            ? string.Empty
+            : string.Join(
+                Environment.NewLine,
+                new[]
+                    {
+                        BuildPublisherPositionsBlock(create, toolUnlisted),
+                        BuildCompetitorHeadingBlock(
+                            toolCompetitorAnalyses, toolResearch?.CompetitorQuoteables, everyCompetitorPage, tagged: false),
+                        BuildCompetitorResearchBlock(create, everyCompetitorPage),
+                        BuildOwnSiteCoverageBlock(create, toolUnlisted),
+                    }
+                    .Where(b => b.Length > 0));
+        var toolCompetitorBlock = ToolCompetitorBlock(everyCompetitorPage: true);
+
         var toolForeignAmounts = Guardrail.GccCurrencyGrammar.ForeignAmountsInstruction(string.Join(
             Environment.NewLine,
             toolOutlineCtx.EvidenceBlock ?? string.Empty,
             Guardrail.GccJsonEvidence.TextOf(extractedToolResearchJson),
-            create is null ? string.Empty : BuildCompetitorResearchBlock(create),
-            create is null ? string.Empty : BuildOwnSiteCoverageBlock(create, toolUnlisted)));
+            toolCompetitorBlock));
         // What each request of this page carries of its partner's research: all of it while the request
         // is within what its model accepts, and otherwise what is chosen for the room it has, the
         // opening first (RequestThatFitsAsync), as for the pillar and the blog. A tool page's sections
@@ -1442,17 +1595,24 @@ public partial class GccGenerateService
         // orchestrator's create-less path, which has no research to count.
         var toolPageResearch = create is null
             ? null
-            : new GccResearchPerRequest(toolResearch?.Quoteables, toolPartnerUrls);
+            : new GccResearchPerRequest(GccPageResearch.PagesOf(toolResearch), toolPartnerUrls);
         if (toolPageResearch is not null)
         {
             await GccRunLog.RecordIfAnyAsync("evidence-labels", toolPageResearch.LabelsRecord());
         }
 
         var toolOutline = toolType.OutlineFor(toolOutlineCtx);
+        // The hook is handed the publisher's positions after its research, as the pillar's and the
+        // blog's openings are (2026-10-12). Until then a tool page's opening was the one opening
+        // written without what the publisher states on its own site.
         var toolLedeCtx = toolOutlineCtx with
         {
             Metadata = pillarMeta,
-            EvidenceBlock = WithForeignAmountsNamed(toolOutlineCtx.EvidenceBlock, toolForeignAmounts),
+            EvidenceBlock = WithForeignAmountsNamed(
+                create is null
+                    ? toolOutlineCtx.EvidenceBlock
+                    : WithPublisherPositions(toolOutlineCtx.EvidenceBlock ?? string.Empty, create, toolUnlisted),
+                toolForeignAmounts),
         };
         var ledeResult = await llm.CompleteAsync(
             toolPageResearch is null || create is null
@@ -1464,11 +1624,14 @@ public partial class GccGenerateService
                     $"Tool page '{name}' opening",
                     call: 0,
                     of: (toolOutline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
-                    carried => toolType.Lede(carried is null
+                    // The opening shows no competitor page, so only its partner's research can give way.
+                    carries => toolType.Lede(carries.Passages is null
                         ? toolLedeCtx
                         : toolLedeCtx with
                         {
-                            EvidenceBlock = WithForeignAmountsNamed(BuildResearchBlock(create, carried), toolForeignAmounts),
+                            EvidenceBlock = WithForeignAmountsNamed(
+                                WithPublisherPositions(BuildResearchBlock(create, carries.Passages), create, toolUnlisted),
+                                toolForeignAmounts),
                         })),
             ct);
         var (toolLede, _) = LlmResponseJsonParser.ParseLede(ledeResult.Content, $"tool page '{name}' lede");
@@ -1492,21 +1655,6 @@ public partial class GccGenerateService
         // ReadTypedPassagesAsync already paid for these on every generate and nothing read them
         // (GccGroundingOutcome.PartnerPassages had no consumer in the solution).
         var quoteCandidates = GccQuoteCandidates.From(passages ?? []);
-
-        // The body's evidence is the research block AND the competitor/own-site blocks, never one in
-        // place of the other. The body writer took a single block that replaced the context's, and
-        // its callers passed the competitor/own-site text -- so the QUOTEABLE RESEARCH block set on
-        // toolOutlineCtx reached the lede and was overwritten before every body call. The tool body,
-        // the one type that must quote a partner, was written without the retrieved passages.
-        // The tool page had no competitor evidence at all, while one of its sections is
-        // "how a buyer should judge this product -- fit, pricing, and the adjacent approaches they
-        // are also weighing". It was writing that section with no idea what the alternatives say.
-        var toolCompetitorBlock = create is null
-            ? string.Empty
-            : string.Join(
-                Environment.NewLine,
-                new[] { BuildPublisherPositionsBlock(create, toolUnlisted), BuildCompetitorResearchBlock(create), BuildOwnSiteCoverageBlock(create, toolUnlisted) }
-                    .Where(b => b.Length > 0));
 
         // FAQ, additional to the body's own word-count target, not part of it (Jeff, 2026-09-22).
         // Sourced only from the partner FAQ pairs the extraction read off the partner's pages --
@@ -1636,11 +1784,11 @@ public partial class GccGenerateService
         // Scoped to `create is not null` (no candidates, no quotation check), the same boundary the
         // partner-grounding refusal above draws. The legacy no-create path has no partner evidence at
         // all, so requiring a partner quote there would be requiring an invented one.
-        // What each FAQ question's search found is evidence the writer is shown -- in the FAQ call, and
-        // in no other block. The page's figure and currency checks read the evidence the writer was
-        // shown, so these passages are part of it: without them an answer that takes "within 45
-        // minutes" from its own passage refuses the whole page for stating a figure that appears in
-        // none of its evidence.
+        // What each FAQ question's search found is evidence the writer is shown: in the FAQ call and,
+        // since 2026-10-12, in the page's opening and body among its partner's research. The page's
+        // figure and currency checks read the evidence the writer was shown, so these passages are part
+        // of it: without them an answer that takes "within 45 minutes" from its own passage refuses
+        // the whole page for stating a figure that appears in none of its evidence.
         var toolFaqEvidenceText = string.Join(
             Environment.NewLine,
             toolFaqQuestions
@@ -1684,16 +1832,23 @@ public partial class GccGenerateService
                 $"Tool page '{name}'",
                 ct,
                 callsUnderFloor,
-                // Each request is counted before it is sent, and carries what is chosen for it only
-                // when all of the partner's research is more than its model accepts. Only the research
-                // differs: the competitor and own-site blocks are whole in every request.
+                // Each request is counted before it is sent. Only when all of it is more than its model
+                // accepts does something give way: the competitor pages beyond the first few, then the
+                // partner passages not chosen for it. The publisher's positions and the site's own
+                // coverage are whole in every request.
                 toolPageResearch,
                 create is null
                     ? null
-                    : carried => string.Join(
+                    : carries => string.Join(
                         Environment.NewLine,
-                        new[] { BuildResearchBlock(create, carried), toolCompetitorBlock, toolForeignAmounts }
-                            .Where(b => !string.IsNullOrWhiteSpace(b))));
+                        new[]
+                            {
+                                BuildResearchBlock(create, carries.Passages),
+                                ToolCompetitorBlock(carries.EveryCompetitorPage),
+                                toolForeignAmounts,
+                            }
+                            .Where(b => !string.IsNullOrWhiteSpace(b))),
+                create is null ? null : CompetitorPagesThatGiveWay(create));
 
             // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a
             // live run lost AvidXchange's page to a shortened span with an ellipsis added. Snapping
@@ -2602,6 +2757,12 @@ public partial class GccGenerateService
         var partnerUrls = await PartnerUrlsForAsync(create, ct);
         var evidence = BuildProvenanceEvidence(create, competitorAnalyses, mustMentionBlock, partnerUrls);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted);
+        await RecordCompetitorPagesWithoutOutlineAsync("the blog", create, competitorAnalyses);
+        // Whether a request of this page shows any competitor outline: the list of what licenses a
+        // heading sends the writer to them, and says there is none when there is none to be sent to.
+        var competitorHeadingsShown = GccCompetitorOutlines
+            .For(GccResearchFetchService.Deserialize(create.ResearchJson)?.CompetitorQuoteables, competitorAnalyses)
+            .Any(outline => outline is not null);
         // Metadata first, because everything downstream needs what it produces. The title has to
         // exist before the lede is written or the hook just restates it, and the section outline is
         // what the body is actually written against.
@@ -2653,7 +2814,7 @@ public partial class GccGenerateService
         // opening first (RequestThatFitsAsync). How the research divides by label goes on the run's
         // record once, before any request's count.
         var blogResearch = new GccResearchPerRequest(
-            GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls);
+            GccPageResearch.PagesOf(GccResearchFetchService.Deserialize(create.ResearchJson)), partnerUrls);
         await GccRunLog.RecordIfAnyAsync("evidence-labels", blogResearch.LabelsRecord());
         var ledeResult = await llm.CompleteAsync(
             await RequestThatFitsAsync(
@@ -2664,12 +2825,13 @@ public partial class GccGenerateService
                 "Blog opening",
                 call: 0,
                 of: (blogOutline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
-                carried => blogType.Lede(carried is null
+                // The opening shows no competitor page, so only its partner research can give way.
+                carries => blogType.Lede(carries.Passages is null
                     ? blogPromptCtx
                     : blogPromptCtx with
                     {
                         EvidenceBlock = WithForeignAmountsNamed(
-                            WithPublisherPositions(BuildResearchBlock(create, carried), create, partnerTools.Unlisted),
+                            WithPublisherPositions(BuildResearchBlock(create, carries.Passages), create, partnerTools.Unlisted),
                             blogForeignAmounts),
                     })),
             ct);
@@ -2682,23 +2844,24 @@ public partial class GccGenerateService
         // The valid tags are stated up front: with no retry to name them after a refusal, the first
         // attempt has to be told what resolves.
         //
-        // A body request's evidence, with all of the research or with the passages chosen for it. Only
-        // the research differs: the publisher's positions, the competitor blocks, the site's own
-        // coverage, the partners to name and the heading sources are whole in every request.
-        string BlogEvidenceWith(IReadOnlySet<(string Url, int Position)>? carried) => string.Join(
+        // A body request's evidence, with all of the research or with what gave way left out of it: the
+        // competitor pages beyond the first few, then the partner passages not chosen for it. The
+        // publisher's positions, the site's own coverage, the partners to name and the heading sources
+        // are whole in every request.
+        string BlogEvidenceWith(GccRequestCarries carries) => string.Join(
             Environment.NewLine,
             new[]
                 {
-                    carried is null
+                    carries.IsEverything
                         ? evidenceBlock
-                        : BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted, carried),
+                        : BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted, carries),
                     blogToolInstruction,
-                    GccHeadingProvenanceGuard.LicensedValues(evidence),
+                    GccHeadingProvenanceGuard.LicensedValues(evidence, competitorHeadingsShown),
                 }
                 .Where(b => !string.IsNullOrWhiteSpace(b)));
-        // All of the research: what a request carries when nothing is chosen for it, and what the
-        // page's checks read whatever a request carried.
-        var blogEvidence = BlogEvidenceWith(null);
+        // All of the research: what a request carries when nothing gives way, and what the page's
+        // checks read whatever a request carried.
+        var blogEvidence = BlogEvidenceWith(GccRequestCarries.Everything);
 
         // The blog's FAQ, from the brief's own questions (2026-10-08: the pillar had its People Also
         // Ask and the blog had nothing). Written before the body like the pillar's, in calls of eight
@@ -2756,7 +2919,8 @@ public partial class GccGenerateService
                 // Each request is counted before it is sent, and carries what is chosen for it only
                 // when all of the research is more than its model accepts.
                 blogResearch,
-                carried => WithForeignAmountsNamed(BlogEvidenceWith(carried), blogForeignAmounts));
+                carries => WithForeignAmountsNamed(BlogEvidenceWith(carries), blogForeignAmounts),
+                CompetitorPagesThatGiveWay(create));
             // The keyword's shortenings put back on the opening and the body as written, then the links,
             // the closing and the FAQ, none of which is remapped.
             var (blogOpening, blogBody) = await RemapKeywordAsync(
@@ -2825,16 +2989,18 @@ public partial class GccGenerateService
     /// Tools the publisher's site lists that are not this project's partners. An own-site page about
     /// one of them is left out of the block, and the names are redacted from the rest of it.
     /// </param>
-    /// <param name="carried">The passages of partner research this request carries, or null for all of
-    /// it (<see cref="BuildResearchBlock"/>). Everything else in the block is whole in every request.</param>
+    /// <param name="carries">What of the page's research this request carries
+    /// (<see cref="GccRequestCarries"/>): all of it unless that is more than the request's model
+    /// accepts. Everything else in the block is whole in every request.</param>
     private static string BuildEvidenceBlock(
         GccCreateDto create,
         IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses,
         IReadOnlyList<string> unlistedTools,
-        IReadOnlySet<(string Url, int Position)>? carried = null)
+        GccRequestCarries? carries = null)
     {
+        carries ??= GccRequestCarries.Everything;
         var sb = new StringBuilder();
-        var researchBlock = BuildResearchBlock(create, carried);
+        var researchBlock = BuildResearchBlock(create, carries.Passages);
         if (researchBlock.Length > 0)
             sb.AppendLine(researchBlock);
 
@@ -2844,11 +3010,14 @@ public partial class GccGenerateService
         if (positionsBlock.Length > 0)
             sb.AppendLine(positionsBlock);
 
-        var competitorBlock = BuildCompetitorHeadingBlock(competitorAnalyses);
+        var competitorBlock = BuildCompetitorHeadingBlock(
+            competitorAnalyses,
+            GccResearchFetchService.Deserialize(create.ResearchJson)?.CompetitorQuoteables,
+            carries.EveryCompetitorPage);
         if (competitorBlock.Length > 0)
             sb.AppendLine(competitorBlock);
 
-        var competitorResearch = BuildCompetitorResearchBlock(create);
+        var competitorResearch = BuildCompetitorResearchBlock(create, carries.EveryCompetitorPage);
         if (competitorResearch.Length > 0)
             sb.AppendLine(competitorResearch);
 
@@ -2919,12 +3088,14 @@ public partial class GccGenerateService
         sb.AppendLine("   offer, those are the ones that hold.");
         sb.AppendLine();
 
-        foreach (var page in pages.Take(MaxCompetitorPagesInPrompt))
+        // Every page the search of the publisher's own site returned, whole. Until 2026-10-12 the first
+        // five were printed, each cut to eight headings and six passages.
+        foreach (var page in pages)
         {
             sb.AppendLine($"[{page.Title}] ({page.Url})");
-            foreach (var h in page.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+            foreach (var h in page.Headings ?? [])
                 sb.AppendLine($"- H{h.Level}: {GccCompetitorNames.Redact(h.Text, names, GccCompetitorNames.AnotherTool)}");
-            foreach (var para in page.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
+            foreach (var para in page.Paragraphs ?? [])
                 sb.AppendLine($"- {GccCompetitorNames.Redact(para, names, GccCompetitorNames.AnotherTool)}");
             sb.AppendLine();
         }
@@ -2949,7 +3120,12 @@ public partial class GccGenerateService
     /// is, and you cannot be differentiated from a claim you were never shown.
     /// </para>
     /// </remarks>
-    internal static string BuildCompetitorResearchBlock(GccCreateDto create)
+    /// <param name="allPages">
+    /// False for a request that is more than its model accepts with every competitor page in it: it
+    /// then shows the ones <see cref="GccCompetitorOutlines.Shown"/> keeps, under the numbers they have
+    /// in the whole list, so a page is the same number in every request and in the heading block.
+    /// </param>
+    internal static string BuildCompetitorResearchBlock(GccCreateDto create, bool allPages = true)
     {
         var research = GccResearchFetchService.Deserialize(create.ResearchJson);
         var pages = research?.CompetitorQuoteables;
@@ -2971,17 +3147,21 @@ public partial class GccGenerateService
         sb.AppendLine("   Read them as what a reader has already seen, never as a standard to match.");
         sb.AppendLine();
 
-        // Their identity stays out of the text the writer reads -- see GccCompetitorNames.
-        var shown = pages.Take(MaxCompetitorPagesInPrompt).ToList();
-        var names = GccCompetitorNames.FromUrls(shown.Select(p => p.Url));
-        var n = 0;
-        foreach (var page in shown)
+        // Every page the competitor searches returned, whole (2026-10-12). Until then the first five of
+        // them were printed, which on a project of five competitors at eight pages each was five pages
+        // of the first competitor and none of the other four.
+        //
+        // Their identity stays out of the text the writer reads -- see GccCompetitorNames. Every
+        // competitor's name is redacted whichever pages are shown: a page of one names another.
+        var shown = GccCompetitorOutlines.Shown(pages, allPages);
+        var names = GccCompetitorNames.FromUrls(pages.Select(p => p?.Url));
+        for (var index = 0; index < pages.Count; index++)
         {
-            n++;
-            sb.AppendLine($"[Competitor page {n}: {GccCompetitorNames.Redact(page.Title ?? string.Empty, names)}]");
-            foreach (var h in page.Headings.Take(GccResearchCaps.MaxHeadingsPerPage))
+            if (!shown.Contains(index) || pages[index] is not { } page) continue;
+            sb.AppendLine($"[Competitor page {index + 1}: {GccCompetitorNames.Redact(page.Title ?? string.Empty, names)}]");
+            foreach (var h in page.Headings ?? [])
                 sb.AppendLine($"- H{h.Level}: {GccCompetitorNames.Redact(h.Text, names)}");
-            foreach (var para in page.Paragraphs.Take(GccResearchCaps.MaxParagraphsPerPage))
+            foreach (var para in page.Paragraphs ?? [])
                 sb.AppendLine($"- {GccCompetitorNames.Redact(para, names)}");
             sb.AppendLine();
         }
@@ -2989,47 +3169,80 @@ public partial class GccGenerateService
         return sb.ToString().TrimEnd();
     }
 
-    private const int MaxCompetitorPagesInPrompt = 5;
-    private const int MaxCompetitorHeadingsPerPage = 25;
-
     /// <summary>
-    /// Stage 2: competitor headings, resolved but never shown to the model that writes pillar/blog
-    /// bodies (<see cref="GccCompetitorAnalysisResolver"/>'s own doc comment named this as its own
-    /// deferred consumer). Rendered flat with level markers so the model can draw a genuine
-    /// content-gap subsection from one, then tag it "competitor:&lt;exact heading text&gt;".
+    /// The heading outline of each competitor page the searches returned, every heading of it, flat
+    /// with level markers. For a pillar or a blog a subsection drawn from one is tagged
+    /// "competitor:&lt;exact heading text&gt;"; a tool page carries no heading tags and is shown the
+    /// outlines for what a reader expects covered, with no word of a tag.
     /// </summary>
-    private static string BuildCompetitorHeadingBlock(IReadOnlyList<GccCompetitorPageAnalysis> analyses)
+    /// <remarks>
+    /// <para>
+    /// Until 2026-10-12 this printed the first five entries of <paramref name="analyses"/>, which is
+    /// every page of every competitor's crawl in crawl order, each cut at twenty-five headings: the
+    /// first five pages of the first competitor's crawl, whatever they were, and not the pages whose
+    /// passages the writer was shown. It prints the outlines of the pages the competitor searches
+    /// returned (<see cref="GccCompetitorOutlines.For"/>), under the same numbers the competitor
+    /// research block gives those pages, and every heading.
+    /// </para>
+    /// <para>
+    /// <see cref="BuildProvenanceEvidence"/> still reads every outline of every crawled page, so a
+    /// tag is checked against exactly what it was before; the pages shown are among those.
+    /// </para>
+    /// </remarks>
+    /// <param name="returned">The competitor pages the searches returned (<c>CompetitorQuoteables</c>).</param>
+    /// <param name="allPages">False for a request that is over what its model accepts: the pages
+    /// <see cref="GccCompetitorOutlines.Shown"/> keeps, as in the competitor research block.</param>
+    /// <param name="tagged">Whether the piece tags its headings with their sources: a pillar and a
+    /// blog do, a tool page does not.</param>
+    internal static string BuildCompetitorHeadingBlock(
+        IReadOnlyList<GccCompetitorPageAnalysis> analyses,
+        IReadOnlyList<GccQuoteablePage>? returned,
+        bool allPages = true,
+        bool tagged = true)
     {
-        if (analyses.Count == 0)
+        var outlines = GccCompetitorOutlines.For(returned, analyses);
+        var shown = GccCompetitorOutlines.Shown(returned, allPages);
+        if (!Enumerable.Range(0, outlines.Count).Any(index => shown.Contains(index) && outlines[index] is not null))
             return string.Empty;
 
         var sb = new StringBuilder();
         sb.AppendLine("=== COMPETITOR HEADING STRUCTURE (for content-gap awareness) ===");
-        sb.AppendLine("Real heading outlines from indexed competitor pages. They show what a reader expects to");
-        sb.AppendLine("find covered -- they do not show what to call it. Draw a subsection from one when it fills");
-        sb.AppendLine("a real gap this article should cover, then write your own heading for it and tag it");
-        sb.AppendLine("\"competitor:<exact heading text>\", the text only, not the \"(hN)\" level marker");
-        sb.AppendLine("(see provenance rules). Reusing the cited heading as your own is rejected outright, and");
-        sb.AppendLine("copying competitor prose is never acceptable.");
+        if (tagged)
+        {
+            sb.AppendLine("Real heading outlines from indexed competitor pages. They show what a reader expects to");
+            sb.AppendLine("find covered -- they do not show what to call it. Draw a subsection from one when it fills");
+            sb.AppendLine("a real gap this article should cover, then write your own heading for it and tag it");
+            sb.AppendLine("\"competitor:<exact heading text>\", the text only, not the \"(hN)\" level marker");
+            sb.AppendLine("(see provenance rules). Reusing the cited heading as your own is rejected outright, and");
+            sb.AppendLine("copying competitor prose is never acceptable.");
+        }
+        else
+        {
+            sb.AppendLine("Real heading outlines from indexed competitor pages. They show what a reader expects to");
+            sb.AppendLine("find covered -- they do not show what to call it. Where one names something a buyer of");
+            sb.AppendLine("this product would look for and this page's sections do not yet cover, cover it from");
+            sb.AppendLine("this product's own evidence, under a heading of your own. Never reuse a heading from");
+            sb.AppendLine("here as your own, and never copy competitor prose.");
+        }
+
         sb.AppendLine("These pages were indexed because they rank, not because they are well written. Most are");
         sb.AppendLine("thin local SEO pages. Read them as a checklist of what a reader expects covered -- never");
         sb.AppendLine("as an example of how to cover it, and never as a standard to match.");
+        sb.AppendLine("A page here has the number it has under COMPETITOR RESEARCH, where its text is.");
         sb.AppendLine();
         // The URL and the competitor's name stay out of the text the writer reads; the heading text is
         // redacted with the same names BuildProvenanceEvidence uses, so a tag written from what is
         // shown here still matches the lookup set. See GccCompetitorNames.
-        var shown = analyses.Take(MaxCompetitorPagesInPrompt).ToList();
         var names = CompetitorNamesOf(analyses);
-        var n = 0;
-        foreach (var page in shown)
+        for (var index = 0; index < outlines.Count; index++)
         {
-            n++;
-            sb.AppendLine($"[Competitor page {n}]");
+            if (!shown.Contains(index) || outlines[index] is not { } page) continue;
+            sb.AppendLine($"[Competitor page {index + 1}]");
             var flat = new List<(string Text, int Level)>();
             FlattenCompetitorHeadings(page.Headings, flat);
             // The level is a parenthetical, not a prefix -- "competitor:<exact heading text>" must
             // not have to guess whether "H2: " counts as part of the heading it's quoting.
-            foreach (var h in flat.Take(MaxCompetitorHeadingsPerPage))
+            foreach (var h in flat)
                 sb.AppendLine($"- {GccCompetitorNames.Redact(h.Text, names)} (h{h.Level})");
             sb.AppendLine();
         }
@@ -3482,6 +3695,33 @@ public partial class GccGenerateService
     private static readonly IReadOnlySet<(string Url, int Position)> NoPassages = new HashSet<(string Url, int Position)>();
 
     /// <summary>
+    /// The competitor pages a request of this create leaves out when it cannot show them all, by
+    /// address: what <see cref="RequestThatFitsAsync"/> puts on the run's record when they give way.
+    /// </summary>
+    private static IReadOnlyList<string> CompetitorPagesThatGiveWay(GccCreateDto create) =>
+        GccCompetitorOutlines.GivenWay(GccResearchFetchService.Deserialize(create.ResearchJson)?.CompetitorQuoteables);
+
+    /// <summary>
+    /// The competitor pages the searches returned that the crawl holds no heading outline for, put on
+    /// the run's record by address. The writer is shown each such page's text and no outline for it;
+    /// a page passed over in silence would read as a page with nothing on it.
+    /// </summary>
+    private static async Task RecordCompetitorPagesWithoutOutlineAsync(
+        string label, GccCreateDto create, IReadOnlyList<GccCompetitorPageAnalysis> competitorAnalyses)
+    {
+        var missing = GccCompetitorOutlines.WithoutOutline(
+            GccResearchFetchService.Deserialize(create.ResearchJson)?.CompetitorQuoteables, competitorAnalyses);
+        if (missing.Count == 0) return;
+        await GccRunLog.RecordIfAnyAsync("left-out", new
+        {
+            label,
+            pages = missing
+                .Select(url => new { url, why = "no heading outline in the competitor crawl for this address; its text is shown" })
+                .ToList(),
+        });
+    }
+
+    /// <summary>
     /// How many times a choice is made smaller before the request is refused. Passages differ in how
     /// many tokens their characters are, so a choice sized from the research's average can come out a
     /// little over; each further choice is given a twentieth less room. No model is called.
@@ -3490,9 +3730,9 @@ public partial class GccGenerateService
 
     /// <summary>
     /// The request to send for one opening or one body request of a page: built with all of the page's
-    /// partner research when that is within what the request's model accepts, and otherwise with the
-    /// passages chosen for the room it has. Its size and what it carries go on the run's record before
-    /// it is sent.
+    /// research when that is within what the request's model accepts, and otherwise with what has to
+    /// give way left out, the competitor pages first and then the partner passages chosen for the room
+    /// it has. Its size and what it carries go on the run's record before it is sent.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -3502,11 +3742,15 @@ public partial class GccGenerateService
     /// Within it, everything is sent and nothing is chosen.
     /// </para>
     /// <para>
-    /// Over it, the room for partner research is what the model accepts less the reply's reservation
-    /// and less the request built with no partner research at all, turned into characters at the rate
-    /// this page's own research counts at. <see cref="GccResearchSelector"/> shares that room between
-    /// the partners. A request that is over with no partner research in it has nothing here that can
-    /// give way, and is refused before it is paid for.
+    /// <b>Over it, in this order.</b> First the competitor pages beyond the first few give way, each
+    /// with its outline (<see cref="GccCompetitorOutlines"/>): they are read for difference and never
+    /// cited, and the partners are what the page is about. If the request is then within the limit it
+    /// is sent with all of the partner research. If not, the room for partner research is what the
+    /// model accepts less the reply's reservation and less the request built with no partner research
+    /// at all, turned into characters at the rate this page's own research counts at, and
+    /// <see cref="GccResearchSelector"/> shares that room between the partners. A request that is over
+    /// with no partner research in it has nothing here that can give way, and is refused before it is
+    /// paid for.
     /// </para>
     /// <para>
     /// A model with no known limit refuses here too, as it does where the request would be sent
@@ -3515,8 +3759,12 @@ public partial class GccGenerateService
     /// </remarks>
     /// <param name="labels">The labels of the sections the request writes; they decide the order a
     /// partner's passages are taken in when not all of them fit.</param>
-    /// <param name="build">The request with only the passages given, or with all of the research for
-    /// null: everything else in it is what every request of the page carries.</param>
+    /// <param name="build">The request with what it is given to carry
+    /// (<see cref="GccRequestCarries"/>): everything else in it is what every request of the page
+    /// carries.</param>
+    /// <param name="competitorPagesThatGiveWay">The competitor pages the request leaves out when it
+    /// cannot show them all, by address, for the run's record; null or empty for a request that shows
+    /// no competitor page, which is every opening.</param>
     internal static async Task<ChatCompletionRequest> RequestThatFitsAsync(
         IContentGenerationProvider llm,
         GccResearchPerRequest research,
@@ -3524,9 +3772,10 @@ public partial class GccGenerateService
         string request,
         int call,
         int of,
-        Func<IReadOnlySet<(string Url, int Position)>?, ChatCompletionRequest> build)
+        Func<GccRequestCarries, ChatCompletionRequest> build,
+        IReadOnlyList<string>? competitorPagesThatGiveWay = null)
     {
-        var everything = build(null);
+        var everything = build(GccRequestCarries.Everything);
         var model = llm.ModelFor(everything);
         if (OpenAiModelLimits.RequestTokensFor(model) is not { } accepts)
         {
@@ -3543,9 +3792,31 @@ public partial class GccGenerateService
             return everything;
         }
 
-        var withNone = GccRequestSize.TokensOf(build(NoPassages));
+        // Over. The competitor pages give way before any partner research does.
+        var competitorsGiveWay = competitorPagesThatGiveWay is { Count: > 0 };
+        if (competitorsGiveWay)
+        {
+            var fewer = build(new GccRequestCarries(Passages: null, EveryCompetitorPage: false));
+            var fewerTokens = GccRequestSize.TokensOf(fewer);
+            if (fewerTokens + fewer.MaxOutputTokens <= accepts)
+            {
+                var allPartners = research.Send(
+                    research.Choose(labels, room: null), request, call, of,
+                    new GccRequestCount(model, accepts, fewer.MaxOutputTokens, fewerTokens, withEverything),
+                    competitorPagesThatGiveWay);
+                await GccRunLog.RecordIfAnyAsync("evidence", allPartners.Record);
+                return fewer;
+            }
+        }
+
+        var everyCompetitorPage = !competitorsGiveWay;
+        var leftOut = competitorsGiveWay ? competitorPagesThatGiveWay : null;
+        var withAllPartners = competitorsGiveWay
+            ? GccRequestSize.TokensOf(build(new GccRequestCarries(Passages: null, everyCompetitorPage)))
+            : withEverything;
+        var withNone = GccRequestSize.TokensOf(build(new GccRequestCarries(NoPassages, everyCompetitorPage)));
         var roomTokens = accepts - everything.MaxOutputTokens - withNone;
-        var researchTokens = withEverything - withNone;
+        var researchTokens = withAllPartners - withNone;
         if (roomTokens <= 0 || researchTokens <= 0)
         {
             throw new InvalidOperationException(
@@ -3558,13 +3829,14 @@ public partial class GccGenerateService
         for (var fitting = 0; fitting < MaxFittings && room > 0; fitting++)
         {
             var selection = research.Choose(labels, room);
-            var chosen = build(GccResearchPerRequest.CarriedOf(selection));
+            var chosen = build(new GccRequestCarries(GccResearchPerRequest.CarriedOf(selection), everyCompetitorPage));
             var tokens = GccRequestSize.TokensOf(chosen);
             if (tokens + chosen.MaxOutputTokens <= accepts)
             {
                 var part = research.Send(
                     selection, request, call, of,
-                    new GccRequestCount(model, accepts, chosen.MaxOutputTokens, tokens, withEverything));
+                    new GccRequestCount(model, accepts, chosen.MaxOutputTokens, tokens, withEverything),
+                    leftOut);
                 await GccRunLog.RecordIfAnyAsync("evidence", part.Record);
                 return chosen;
             }
@@ -3748,13 +4020,15 @@ public partial class GccGenerateService
         string label,
         CancellationToken ct,
         List<string>? callsUnderFloor = null,
-        // The page's partner research, and a request's evidence with only the passages given. With
+        // The page's partner research, and a request's evidence with what it is given to carry. With
         // both, each request is counted before it is sent and carries all of the research unless that
         // is more than its model accepts (RequestThatFitsAsync). Without them the request carries
         // promptCtx's evidence as it is and is not counted here: the orchestrator's tool page, which
         // has no research.
         GccResearchPerRequest? research = null,
-        Func<IReadOnlySet<(string Url, int Position)>, string?>? evidenceWith = null)
+        Func<GccRequestCarries, string?>? evidenceWith = null,
+        // The competitor pages a request leaves out when it cannot show them all, for the run's record.
+        IReadOnlyList<string>? competitorPagesThatGiveWay = null)
     {
         var written = new List<Section>();
         // The keyword the page is scored against: the one its prompts name and the SEO report counts.
@@ -3784,8 +4058,9 @@ public partial class GccGenerateService
                     batchLabel,
                     i / SectionsPerBatch + 1,
                     (outline.Count + SectionsPerBatch - 1) / SectionsPerBatch,
-                    carried => type.Body(
-                        carried is null ? batchCtx : batchCtx with { EvidenceBlock = evidenceWith(carried) }));
+                    carries => type.Body(
+                        carries.IsEverything ? batchCtx : batchCtx with { EvidenceBlock = evidenceWith(carries) }),
+                    competitorPagesThatGiveWay);
             var sections = await WriteBatchAsync(llm, request, batchLabel, outline.Count, ct);
 
             // What the batch owes of its page, measured the moment it comes back: its words.

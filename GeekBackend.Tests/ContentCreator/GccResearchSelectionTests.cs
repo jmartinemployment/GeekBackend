@@ -576,7 +576,8 @@ public class GccResearchSelectionTests
     [Fact]
     public void The_passages_are_the_ones_the_research_block_prints_and_cost_what_it_prints()
     {
-        // Seven passages on the page: the block prints a page's first six, and so does this.
+        // Seven passages on the page: the block prints every one, and so does this. Until 2026-10-12
+        // both stopped at a page's first six.
         var first = new GccQuoteablePage(
             "https://partner.test/a", "First page", [new HeadingDto(2, "A heading")],
             ["One.", "Two.", "Three.", "Four.", "Five.", "Six.", "Seven."],
@@ -590,8 +591,9 @@ public class GccResearchSelectionTests
 
         var passages = GccResearchSelector.PassagesOf([first, second]);
 
-        Assert.Equal(8, passages.Count);
-        Assert.DoesNotContain(passages, passage => passage.Url == first.Url && passage.Position == 6);
+        Assert.Equal(9, passages.Count);
+        Assert.Contains(passages, passage => passage.Url == first.Url && passage.Position == 6);
+        Assert.Contains("- Seven.", GccGenerateService.BuildResearchBlock(With(first)), StringComparison.Ordinal);
         Assert.All(passages, passage => Assert.Equal("partner.test", passage.Host));
         // What the second page adds to the block a writer is sent is what it is counted as here.
         var withBoth = GccGenerateService.BuildResearchBlock(With(first, second)).Length;

@@ -64,6 +64,12 @@ public partial class GccGenerateService
         var partnerUrls = await PartnerUrlsForAsync(create, ct);
         var evidence = BuildProvenanceEvidence(create, competitorAnalyses, mustMentionBlock, partnerUrls);
         var evidenceBlock = BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted);
+        await RecordCompetitorPagesWithoutOutlineAsync("the pillar", create, competitorAnalyses);
+        // Whether a request of this page shows any competitor outline: the list of what licenses a
+        // heading sends the writer to them, and says there is none when there is none to be sent to.
+        var competitorHeadingsShown = GccCompetitorOutlines
+            .For(GccResearchFetchService.Deserialize(create.ResearchJson)?.CompetitorQuoteables, competitorAnalyses)
+            .Any(outline => outline is not null);
         // Prompts come from the type's own set, not from a switch over a flat builder -- see
         // content-creator-v2/plans/prompts-per-content-type.md.
         var pillarType = RequireType("pillar");
@@ -107,7 +113,7 @@ public partial class GccGenerateService
         // opening first (RequestThatFitsAsync). How the research divides by label goes on the run's
         // record once, before any request's count.
         var pillarResearch = new GccResearchPerRequest(
-            GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables, partnerUrls);
+            GccPageResearch.PagesOf(GccResearchFetchService.Deserialize(create.ResearchJson)), partnerUrls);
         await GccRunLog.RecordIfAnyAsync("evidence-labels", pillarResearch.LabelsRecord());
         // BuildPillarLedePrompt asks for LedeAndIntroductionJsonContract -- {"lede": {...},
         // "introduction": {...}} -- so it must be read with ParseLedeAndIntroduction, the way
@@ -123,12 +129,13 @@ public partial class GccGenerateService
                 "Pillar opening",
                 call: 0,
                 of: (pillarOutline.Count - 1 + SectionsPerBatch - 1) / SectionsPerBatch,
-                carried => pillarType.Lede(carried is null
+                // The opening shows no competitor page, so only its partner research can give way.
+                carries => pillarType.Lede(carries.Passages is null
                     ? pillarPromptCtx
                     : pillarPromptCtx with
                     {
                         EvidenceBlock = WithForeignAmountsNamed(
-                            WithPublisherPositions(BuildResearchBlock(create, carried), create, partnerTools.Unlisted),
+                            WithPublisherPositions(BuildResearchBlock(create, carries.Passages), create, partnerTools.Unlisted),
                             pillarForeignAmounts),
                     })),
             ct);
@@ -142,23 +149,24 @@ public partial class GccGenerateService
         // The valid tags are stated up front: with no retry to name them after a refusal, the first
         // attempt has to be told what resolves.
         //
-        // A body request's evidence, with all of the research or with the passages chosen for it. Only
-        // the research differs: the publisher's positions, the competitor blocks, the site's own
-        // coverage, the partners to name and the heading sources are whole in every request.
-        string PillarEvidenceWith(IReadOnlySet<(string Url, int Position)>? carried) => string.Join(
+        // A body request's evidence, with all of the research or with what gave way left out of it: the
+        // competitor pages beyond the first few, then the partner passages not chosen for it. The
+        // publisher's positions, the site's own coverage, the partners to name and the heading sources
+        // are whole in every request.
+        string PillarEvidenceWith(GccRequestCarries carries) => string.Join(
             Environment.NewLine,
             new[]
                 {
-                    carried is null
+                    carries.IsEverything
                         ? evidenceBlock
-                        : BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted, carried),
+                        : BuildEvidenceBlock(create, competitorAnalyses, partnerTools.Unlisted, carries),
                     toolInstruction,
-                    GccHeadingProvenanceGuard.LicensedValues(evidence),
+                    GccHeadingProvenanceGuard.LicensedValues(evidence, competitorHeadingsShown),
                 }
                 .Where(b => !string.IsNullOrWhiteSpace(b)));
-        // All of the research: what a request carries when nothing is chosen for it, and what the
-        // page's checks read whatever a request carried.
-        var pillarEvidence = PillarEvidenceWith(null);
+        // All of the research: what a request carries when nothing gives way, and what the page's
+        // checks read whatever a request carried.
+        var pillarEvidence = PillarEvidenceWith(GccRequestCarries.Everything);
 
 
         // The People Also Ask section, written before the body and carried onto the draft. It depends
@@ -236,7 +244,8 @@ public partial class GccGenerateService
                 // Each request is counted before it is sent, and carries what is chosen for it only
                 // when all of the research is more than its model accepts.
                 pillarResearch,
-                carried => WithForeignAmountsNamed(PillarEvidenceWith(carried), pillarForeignAmounts));
+                carries => WithForeignAmountsNamed(PillarEvidenceWith(carries), pillarForeignAmounts),
+                CompetitorPagesThatGiveWay(create));
             // The keyword's shortenings put back on the opening and the body as written, then partner
             // tool pages on the body alone, then the page's own closing, then the section written
             // outside the outline: neither of the last two can carry a tool link, and neither is remapped.

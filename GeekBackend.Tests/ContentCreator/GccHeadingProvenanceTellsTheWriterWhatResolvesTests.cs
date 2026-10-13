@@ -38,6 +38,43 @@ public class GccHeadingProvenanceTellsTheWriterWhatResolvesTests
         Assert.Contains("competitor: none available", text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Every value of a kind is listed. Each kind stopped at its first forty until 2026-10-12, under a
+    /// line saying nothing else resolves.
+    /// </summary>
+    [Fact]
+    public void Every_value_of_a_kind_is_listed_however_many_there_are()
+    {
+        var titles = Enumerable.Range(1, 55).Select(n => $"Page title {n:00}").ToList();
+        var text = GccHeadingProvenanceGuard.LicensedValues(Evidence() with
+        {
+            RetrievedEvidence = new HashSet<string>(titles, StringComparer.OrdinalIgnoreCase),
+        });
+
+        Assert.All(titles, title => Assert.Contains($"\"{title}\"", text, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A competitor's headings are not listed here a second time: the writer is sent to the outlines
+    /// the request shows, and told there is none to cite when the request shows none.
+    /// </summary>
+    [Fact]
+    public void A_competitor_heading_is_cited_from_the_outlines_shown_and_from_nowhere_when_none_is_shown()
+    {
+        var evidence = Evidence() with
+        {
+            CompetitorHeadings = new HashSet<string>(["Enterprise Rollout Timeline"], StringComparer.OrdinalIgnoreCase),
+        };
+
+        var shown = GccHeadingProvenanceGuard.LicensedValues(evidence, competitorHeadingsShown: true);
+        Assert.Contains("competitor: any heading listed under COMPETITOR HEADING STRUCTURE", shown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Enterprise Rollout Timeline", shown, StringComparison.Ordinal);
+
+        var notShown = GccHeadingProvenanceGuard.LicensedValues(evidence, competitorHeadingsShown: false);
+        Assert.Contains("competitor: none available", notShown, StringComparison.Ordinal);
+        Assert.DoesNotContain("Enterprise Rollout Timeline", notShown, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void The_instructions_own_brief_example_is_a_tag_that_can_resolve()
     {

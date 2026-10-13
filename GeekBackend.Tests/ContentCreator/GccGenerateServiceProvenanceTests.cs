@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekAPI.Services.ContentCreator;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Workflow.Domain.Enums;
@@ -166,6 +167,18 @@ public class GccGenerateServiceProvenanceTests
         Assert.Contains("Overview", json);
     }
 
+    /// <summary>The research of a create whose competitor search returned these pages, one passage each.</summary>
+    private static string ResearchWithCompetitorPages(params string[] urls) =>
+        GccResearchFetchService.Serialize(new GccResearchDocument(null, [])
+        {
+            CompetitorQuoteables =
+            [
+                .. urls.Select(url => new GccQuoteablePage(
+                    url, "A page", [], ["What this page says of rollouts."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk)),
+            ],
+        });
+
     [Fact]
     public async Task CompetitorHeadingReachesThePromptAndLicensesAMatchingTag()
     {
@@ -174,10 +187,16 @@ public class GccGenerateServiceProvenanceTests
         var rag = new GccCompetitorAnalysisResolverTests.FakeRag(
             hosts: [new GeekCrawlerRagHostIndex("https://competitor.test", "competitor.test", true, Guid.NewGuid().ToString())]);
         var pages = new GccCompetitorAnalysisResolverTests.FakePages(
-            [GccCompetitorAnalysisResolverTests.BlockPage(
-                "https://competitor.test/pricing",
-                GccCompetitorAnalysisResolverTests.Heading(1, "Pricing"),
-                GccCompetitorAnalysisResolverTests.Heading(2, "Enterprise Rollout Timeline"))]);
+            [
+                GccCompetitorAnalysisResolverTests.BlockPage(
+                    "https://competitor.test/pricing",
+                    GccCompetitorAnalysisResolverTests.Heading(1, "Pricing"),
+                    GccCompetitorAnalysisResolverTests.Heading(2, "Enterprise Rollout Timeline")),
+                // A page of the competitor's crawl that no search returned: its outline is not shown.
+                GccCompetitorAnalysisResolverTests.BlockPage(
+                    "https://competitor.test/about",
+                    GccCompetitorAnalysisResolverTests.Heading(1, "Our Founders")),
+            ]);
         var project = GccCompetitorAnalysisResolverTests.Project("https://competitor.test");
         var resolver = GccCompetitorAnalysisResolverTests.Build(
             new GccCompetitorAnalysisResolverTests.FakeProjects(project), pages, rag);
@@ -188,7 +207,20 @@ public class GccGenerateServiceProvenanceTests
             metadata: ArticleMetadataJson,
             body: """{"sections":[{"tag":"h2","heading":"What a staged rollout costs in week one","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"How long the first site really takes","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Enterprise Rollout Timeline"}]}]}""");
         var service = Build(provider, resolver);
-        var create = Create(projectId: project.Id);
+        // The search returned the pricing page under an address that differs from its outline's by the
+        // scheme, a leading www., case and a trailing slash, and a page the crawl holds no outline for.
+        var create = Create(
+            researchJson: ResearchWithCompetitorPages("http://WWW.competitor.test/Pricing/", "https://competitor.test/blog/post"),
+            projectId: project.Id);
+        var recorded = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(
+            Guid.NewGuid(),
+            (events, _) =>
+            {
+                lock (recorded) recorded.AddRange(events);
+                return Task.CompletedTask;
+            },
+            NullLogger.Instance);
 
         var json = await service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 
@@ -199,9 +231,55 @@ public class GccGenerateServiceProvenanceTests
         // the prompt had printed beside the rule not to (GccCompetitorNames).
         var bodyRequest = provider.Requests[1];
         var systemMessage = bodyRequest.Messages.First(m => m.Role == ChatRole.User).Content;
-        Assert.Contains("Enterprise Rollout Timeline", systemMessage, StringComparison.Ordinal);
+        Assert.Contains("- Enterprise Rollout Timeline (h2)", systemMessage, StringComparison.Ordinal);
         Assert.Contains("[Competitor page 1]", systemMessage, StringComparison.Ordinal);
         Assert.DoesNotContain("competitor.test", systemMessage, StringComparison.OrdinalIgnoreCase);
+        // The writer is sent to the outlines for what licenses a competitor tag, and they are not listed twice.
+        Assert.Contains("competitor: any heading listed under COMPETITOR HEADING STRUCTURE", systemMessage, StringComparison.Ordinal);
+        Assert.Equal(1, systemMessage.Split("Enterprise Rollout Timeline").Length - 1);
+        // The outline of a page no search returned is not shown, though its headings would still license a tag.
+        Assert.DoesNotContain("Our Founders", systemMessage, StringComparison.Ordinal);
+        // The returned page with no outline is shown for its text, has no outline, and is on the run's record.
+        Assert.Contains("[Competitor page 2: A page]", systemMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("[Competitor page 2]", systemMessage, StringComparison.Ordinal);
+        var leftOut = JsonDocument.Parse(Assert.Single(recorded, e => e.Kind == "left-out").PayloadJson).RootElement;
+        Assert.Equal("the pillar", leftOut.GetProperty("label").GetString());
+        var missing = Assert.Single(leftOut.GetProperty("pages").EnumerateArray());
+        Assert.Equal("https://competitor.test/blog/post", missing.GetProperty("url").GetString());
+        Assert.Contains("no heading outline", missing.GetProperty("why").GetString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A competitor's crawl with outlines and a search that returned none of its pages shows the writer
+    /// no outline, and says no competitor heading can be cited. Until 2026-10-12 the first five pages of
+    /// the crawl were shown whatever the search returned.
+    /// </summary>
+    [Fact]
+    public async Task WithNoCompetitorPageReturnedNoOutlineIsShownAndNoneCanBeCited()
+    {
+        var rag = new GccCompetitorAnalysisResolverTests.FakeRag(
+            hosts: [new GeekCrawlerRagHostIndex("https://competitor.test", "competitor.test", true, Guid.NewGuid().ToString())]);
+        var pages = new GccCompetitorAnalysisResolverTests.FakePages(
+            [GccCompetitorAnalysisResolverTests.BlockPage(
+                "https://competitor.test/pricing",
+                GccCompetitorAnalysisResolverTests.Heading(1, "Pricing"),
+                GccCompetitorAnalysisResolverTests.Heading(2, "Enterprise Rollout Timeline"))]);
+        var project = GccCompetitorAnalysisResolverTests.Project("https://competitor.test");
+        var resolver = GccCompetitorAnalysisResolverTests.Build(
+            new GccCompetitorAnalysisResolverTests.FakeProjects(project), pages, rag);
+        var provider = new ScriptedProvider(
+            lede: LedeJson,
+            imagePrompts: ImagePromptsJson,
+            metadata: ArticleMetadataJson,
+            body: """{"sections":[{"tag":"h2","heading":"Overview","paragraphs":[],"href":null,"provenance":"plan","children":[]}]}""");
+
+        await Build(provider, resolver).GeneratePillarBodyAsync(
+            Create(projectId: project.Id), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        var body = provider.Requests[1].Messages.First(m => m.Role == ChatRole.User).Content;
+        Assert.DoesNotContain("COMPETITOR HEADING STRUCTURE (for content-gap awareness)", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Enterprise Rollout Timeline", body, StringComparison.Ordinal);
+        Assert.Contains("competitor: none available", body, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -229,7 +307,8 @@ public class GccGenerateServiceProvenanceTests
             metadata: ArticleMetadataJson,
             body: """{"sections":[{"tag":"h2","heading":"Where global payables go wrong","paragraphs":[],"href":null,"provenance":"plan","children":[{"tag":"h3","heading":"Paying suppliers in other currencies","paragraphs":[],"href":null,"children":[],"provenance":"competitor:Why a competitor for Global Payables"}]}]}""");
         var service = Build(provider, resolver);
-        var create = Create(projectId: project.Id);
+        var create = Create(
+            researchJson: ResearchWithCompetitorPages("https://tipalti.com/ap-automation"), projectId: project.Id);
 
         var json = await service.GeneratePillarBodyAsync(create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
 

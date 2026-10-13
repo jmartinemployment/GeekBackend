@@ -1,8 +1,9 @@
 namespace GeekApplication.Models.ContentCreator;
 
 /// <summary>
-/// Persisted research on a Content Creator create. Quoteables and SerpPages are unlimited
-/// (per-page heading/paragraph/organic trimming below bounds prompt size, not a total-file cap).
+/// Persisted research on a Content Creator create. Nothing in it is cut by a count: every page, every
+/// passage and every heading a search brought back is kept, and what a request carries of it is
+/// limited only by what the request's model accepts.
 /// </summary>
 public sealed record GccResearchDocument(
     GccSerpIndex? SerpIndex,
@@ -45,10 +46,11 @@ public sealed record GccResearchDocument(
     /// <summary>
     /// What a search of a partner's crawl found for one of the operator's questions, one entry per
     /// search: that partner's tool page's FAQ questions, and the pillar's People Also Ask and the
-    /// blog's FAQ, which are searched for in every partner's crawl. Kept apart from
-    /// <see cref="Quoteables"/>: these passages answer a question, the shared list is what every page
-    /// is written from, and joining them would change what the pillar, the blog and the tool body are
-    /// given.
+    /// blog's FAQ, which are searched for in every partner's crawl. Filed apart from
+    /// <see cref="Quoteables"/> because a question's call answers from its own search alone, and
+    /// because the partner data and the quotable sentences are read from the brief's searches. A
+    /// page's opening and body carry both: the passages here join the page's research, each once
+    /// (<c>GccPageResearch.PagesOf</c>).
     ///
     /// <para>
     /// An entry with no pages is a search that found nothing. A question with no entry was never
@@ -83,8 +85,8 @@ public sealed record GccPassageScore(double Score, double? Reranked = null);
 
 /// <summary>
 /// One search of a crawl, as it is kept on a page it found a passage on: what kind of search it was and
-/// what it asked. For choosing which passages a request carries and for the run's record; never printed
-/// to a writer.
+/// what it asked. For choosing which passages a request carries, for the run's record, and for the
+/// line under each passage that tells a writer what the passage was found for.
 /// </summary>
 /// <remarks>
 /// A partner's crawl is searched with the brief: the problem, then one search per row of failure and
@@ -94,7 +96,8 @@ public sealed record GccPassageScore(double Score, double? Reranked = null);
 /// <param name="Kind">
 /// <see cref="KindProblem"/> for the brief's statement of the problem, <see cref="KindRow"/> for one of
 /// its rows of failure and remedy, <see cref="KindKeyword"/> for the project's keyword, which is what a
-/// crawl is asked when the brief says nothing of it.
+/// crawl is asked when the brief says nothing of it, <see cref="KindQuestion"/> for one of the
+/// operator's questions (a tool page's FAQ, the pillar's People Also Ask, the blog's FAQ).
 /// </param>
 /// <param name="Asked">What the meaning half of the search was sent.</param>
 /// <param name="Failure">For a row, the failure the operator entered on it; null when the row has none.</param>
@@ -104,6 +107,7 @@ public sealed record GccPassageSearch(string Kind, string Asked, string? Failure
     public const string KindProblem = "problem";
     public const string KindRow = "row";
     public const string KindKeyword = "keyword";
+    public const string KindQuestion = "question";
 }
 
 /// <summary>One position the publisher states on their own site: a named section and its text.</summary>
@@ -220,39 +224,19 @@ public sealed record GccQuoteablePage(
     }
 }
 
-public static class GccResearchCaps
-{
-    public const int MaxQuoteables = 3;
-    public const int MaxHeadingsPerPage = 8;
-    public const int MaxParagraphsPerPage = 6;
-    public const int MaxHeadingChars = 200;
-    public const int MaxParagraphChars = 500;
-    public const int MaxTitleChars = 300;
-    public const int MaxOrganicTitleChars = 200;
-    public const int MaxPaaChars = 300;
-    public const int MaxRelatedChars = 200;
-}
-
 /// <summary>
-/// Caps for auto-fetched partner/tool destination pages on v2 Generate.
-/// Much higher than upload research caps — keep a full usable page extract, not a blurb.
+/// Settings for reading partner pages. The per-page limits here (headings, passages, the length of
+/// one, the length of a title, characters a page) bound what <c>GccArticleHtmlExtractor</c> takes out
+/// of a fetched page's layout, and nothing else: no search result is cut by them. Until 2026-10-12
+/// three of them also cut what a search of the index returned (eighty passages a page, 2,000
+/// characters a passage, 300 a title); what a request carries of a search's results is limited only
+/// by what its model accepts.
 /// </summary>
 public static class GccPartnerResearchCaps
 {
     public const int MaxHeadingsPerPage = 60;
     public const int MaxParagraphsPerPage = 80;
     public const int MaxHeadingChars = 300;
-    /// <summary>
-    /// Per-paragraph cap applied to a chunk's body and, for a child chunk, to its expanded parent
-    /// block.
-    ///
-    /// <para>
-    /// Load-bearing beyond truncation: <c>HttpGeekCrawlerRagClient.MapChunksToQuoteable</c>
-    /// estimates a chunk's prompt cost against this cap rather than against its raw string, so
-    /// that the estimate matches what <c>RenderChunk</c> actually emits. Raising it raises the
-    /// measured cost of every chunk and therefore lowers how many survive the token ceiling.
-    /// </para>
-    /// </summary>
     public const int MaxParagraphChars = 2000;
     public const int MaxTitleChars = 300;
     /// <summary>
@@ -267,23 +251,9 @@ public static class GccPartnerResearchCaps
     /// </summary>
     public const double MinChunkQuality = 0.55;
     /// <summary>
-    /// Anchors rendered beneath a chunk. They tell the writer which products a section links to,
-    /// which is worth a few lines -- a whole navigation menu is not.
-    /// </summary>
-    public const int MaxAnchorsPerChunk = 8;
-    /// <summary>
-    /// Soft stop once cleaned title+headings+paragraphs reach this many chars.
-    ///
-    /// <para>
-    /// Cross-reference, because the value coincides with a limit it has nothing to do with: the
-    /// downstream RAG chunk/retrieval path runs its own independent budget, <c>
-    /// HttpGeekCrawlerRagClient.PromptResearchTokenCeiling</c> -- 16,000 *tokens* per page, not
-    /// 16,000 chars, and it is never applied here. This constant bounds what the HTML extractors
-    /// (<c>GccArticleHtmlExtractor</c>, <c>GccV2ArticleHtmlExtractor</c>,
-    /// <c>GccV2TaskAgentPageHydrator</c>) scrape out of a page layout. Changing it moves chunk
-    /// density on the scrape path; it does not move what saturates the generation prompt's context
-    /// window, and raising it will not relieve a page the RAG path is truncating.
-    /// </para>
+    /// Soft stop once the cleaned title, headings and paragraphs of a fetched page reach this many
+    /// characters. It bounds what <c>GccArticleHtmlExtractor</c> takes out of a page layout and is
+    /// never applied to what a search of the index returns.
     /// </summary>
     public const int MaxCharsPerPage = 16_000;
     public const int MaxHtmlBytes = 2_000_000;

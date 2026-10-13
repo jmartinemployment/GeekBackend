@@ -54,9 +54,6 @@ public static partial class GccCurrencyGrammar
         return [.. found.OrderBy(m => m.Index)];
     }
 
-    /// <summary>How many amounts <see cref="ForeignAmountsInstruction"/> names. A prompt is not a ledger.</summary>
-    private const int MostAmountsNamed = 30;
-
     /// <summary>
     /// The amounts in a page's evidence that are not in US dollars, named for the writer before it
     /// writes. Null when the evidence carries none.
@@ -68,6 +65,11 @@ public static partial class GccCurrencyGrammar
     /// told so by name, wrote it again, and was refused: the page was lost to one sentence. Naming
     /// the amounts up front costs a line and means the first draft is written knowing which figures
     /// are not its to use. The check afterwards is unchanged.
+    /// <para>
+    /// Every such amount is named, each once (2026-10-12). Until then the first 30 were, so the 31st
+    /// was an amount the writer had not been told to leave alone and the check still refused the page
+    /// for.
+    /// </para>
     /// </remarks>
     public static string? ForeignAmountsInstruction(string? evidence)
     {
@@ -77,7 +79,6 @@ public static partial class GccCurrencyGrammar
                 ? m.Written
                 : $"{m.Written} ({m.Currency})")
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(MostAmountsNamed)
             .ToList();
         if (foreign.Count == 0) return null;
 

@@ -200,9 +200,9 @@ public sealed class GccGroundingResolver(
     /// carrying 181–231 crawled pages with 33–55 features each (Jeff's counts, 2026-10-01).
     /// </para>
     /// <para>
-    /// 32 because that is where the next ceiling already sits: <c>GccTypedPassageReader</c> reads at most
-    /// 32 pages back per run (the repository's by-seeds route caps there), so retrieving more partner
-    /// pages than that would hand the quote cutter spans with no typed blocks behind them.
+    /// 32 was chosen when <c>GccTypedPassageReader</c> read at most 32 pages back for a search (the
+    /// repository's by-seeds route takes that many addresses). It reads every page now, 32 at a time,
+    /// so this is how many passages are asked for and no longer a ceiling on what can be quoted.
     /// </para>
     /// </remarks>
     private const int PartnerTopK = 32;
@@ -587,10 +587,12 @@ public sealed class GccGroundingResolver(
                         pages.Add(page);
                     }
 
-                    // An FAQ question's passages are filed under the question and go no further: not
-                    // into the pool every writer reads, not into the quotable blocks, and not into the
-                    // count that decides whether this partner returned evidence. A search that found
-                    // nothing is still an entry, because that is what the tool page reports.
+                    // An FAQ question's passages are filed under the question: not into the pool the
+                    // partner data is read from, not into the quotable blocks, and not into the count
+                    // that decides whether this partner returned evidence. A page's opening and body
+                    // are given them beside the pool, each passage once (GccPageResearch.PagesOf). A
+                    // search that found nothing is still an entry, because that is what the tool page
+                    // reports.
                     if (question.FaqHost is { } faqHost)
                     {
                         faqEvidence!.Add(new GccFaqEvidence(faqHost, question.Need, pages, result.Retrieval));
@@ -795,7 +797,7 @@ public sealed class GccGroundingResolver(
     /// </para>
     /// <para>
     /// A passage the page already carries is not added twice, and the scores stay in step with the
-    /// passages. The typed read of a partner page is by address and takes the whole page, so it is
+    /// passages. A page takes every passage found on it: until 2026-10-12 it stopped at eighty. The typed read of a partner page is by address and takes the whole page, so it is
     /// made once, when the page is first seen, and needs nothing from here.
     /// </para>
     /// <para>
@@ -830,9 +832,6 @@ public sealed class GccGroundingResolver(
                 if (traced) foundAgain |= AddSearches(searches!, foundBy![heldAt], later.SearchesThatFound(i));
                 continue;
             }
-
-            // A full page takes no more passages. The rest are still read, for the ones it has.
-            if (paragraphs.Count >= GccPartnerResearchCaps.MaxParagraphsPerPage) continue;
 
             at[later.Paragraphs[i]] = paragraphs.Count;
             paragraphs.Add(later.Paragraphs[i]);

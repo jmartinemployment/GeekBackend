@@ -200,19 +200,36 @@ public class GccRequestThatFitsTests(ITestOutputHelper output)
             RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk))),
     ];
 
-    private static GccCreateDto CreateWith(IReadOnlyList<GccQuoteablePage> pages) => new(
+    private static GccCreateDto CreateWith(
+        IReadOnlyList<GccQuoteablePage> pages, IReadOnlyList<GccQuoteablePage>? competitorPages = null) => new(
         Id: Guid.NewGuid(), ClientId: Guid.NewGuid(), OwnerUserId: Guid.NewGuid(),
         StartingContentType: "pillar", Topic: "Topic", Notes: null, ProjectSiteRunId: null, SiteSectionJson: null,
-        BriefJson: null, ResearchJson: GccResearchFetchService.Serialize(new GccResearchDocument(null, pages)),
+        BriefJson: null,
+        ResearchJson: GccResearchFetchService.Serialize(
+            new GccResearchDocument(null, pages) { CompetitorQuoteables = competitorPages }),
         Status: "draft", CreatedAtUtc: DateTime.UtcNow, UpdatedAtUtc: DateTime.UtcNow);
 
-    /// <summary>A request as a writer builds it: fixed instructions, then the research block, whole or chosen.</summary>
-    private static Func<IReadOnlySet<(string Url, int Position)>?, ChatCompletionRequest> Builder(
+    /// <summary><paramref name="competitors"/> competitors with <paramref name="each"/> pages of one passage each, as their searches return them.</summary>
+    private static IReadOnlyList<GccQuoteablePage> CompetitorPages(int competitors, int each) =>
+    [
+        .. Enumerable.Range(0, competitors).SelectMany(competitor => Enumerable.Range(0, each).Select(i => new GccQuoteablePage(
+            $"https://contender{competitor}.test/{i}", $"Their page {i}", [], [$"What the other vendor says, page {i} of {competitor}. {Filler}"],
+            RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk))),
+    ];
+
+    /// <summary>
+    /// A request as a writer builds it: fixed instructions, then the research block, whole or chosen,
+    /// then the competitor pages the request shows.
+    /// </summary>
+    private static Func<GccRequestCarries, ChatCompletionRequest> Builder(
         GccCreateDto create, int reply = 8_192, string fixedText = "Write two sections.") =>
-        carried => new ChatCompletionRequest(
+        carries => new ChatCompletionRequest(
             [
                 new ChatMessage(ChatRole.System, "You write one page."),
-                new ChatMessage(ChatRole.User, $"{fixedText}\n{Marker}\n{GccGenerateService.BuildResearchBlock(create, carried)}"),
+                new ChatMessage(
+                    ChatRole.User,
+                    $"{fixedText}\n{Marker}\n{GccGenerateService.BuildResearchBlock(create, carries.Passages)}\n"
+                    + GccGenerateService.BuildCompetitorResearchBlock(create, carries.EveryCompetitorPage)),
             ],
             MaxOutputTokens: reply);
 
@@ -263,7 +280,7 @@ public class GccRequestThatFitsTests(ITestOutputHelper output)
             model, new GccResearchPerRequest(pages, null), [GccResearchLabel.Problem], "Pillar body sections 1-2", 1, 5, build);
 
         var sent = request.Messages[1].Content;
-        Assert.Equal(build(null).Messages[1].Content, sent);
+        Assert.Equal(build(GccRequestCarries.Everything).Messages[1].Content, sent);
         Assert.All(pages, page => Assert.Contains(page.Paragraphs[0], sent, StringComparison.Ordinal));
         Assert.DoesNotContain(GccGenerateService.ResearchIsAPartNote, sent, StringComparison.Ordinal);
 
@@ -294,7 +311,7 @@ public class GccRequestThatFitsTests(ITestOutputHelper output)
             new Model("gpt-4o"), research, [GccResearchLabel.Problem], "Pillar body sections 1-2", 1, 5, build);
 
         // With everything it is over; as sent, with the room reserved for its reply, it is not.
-        Assert.InRange(GccRequestSize.TokensOf(build(null)) + 8_192, 128_001, int.MaxValue);
+        Assert.InRange(GccRequestSize.TokensOf(build(GccRequestCarries.Everything)) + 8_192, 128_001, int.MaxValue);
         Assert.InRange(GccRequestSize.TokensOf(request) + request.MaxOutputTokens, 1, 128_000);
 
         var record = Evidence(recorded);
@@ -302,7 +319,7 @@ public class GccRequestThatFitsTests(ITestOutputHelper output)
         var size = record.GetProperty("request");
         Assert.Equal(128_000, size.GetProperty("accepts").GetInt32());
         Assert.Equal(GccRequestSize.TokensOf(request), size.GetProperty("tokens").GetInt32());
-        Assert.Equal(GccRequestSize.TokensOf(build(null)), size.GetProperty("withEverything").GetInt32());
+        Assert.Equal(GccRequestSize.TokensOf(build(GccRequestCarries.Everything)), size.GetProperty("withEverything").GetInt32());
 
         // Every passage is either in the request or named on the record as left out of it.
         var sent = request.Messages[1].Content;
@@ -322,6 +339,104 @@ public class GccRequestThatFitsTests(ITestOutputHelper output)
         Assert.Single(partners.Select(partner => partner.GetProperty("carried").GetProperty("passages").GetInt32()).Distinct());
         // Most of what the model has room for is filled.
         Assert.InRange(size.GetProperty("withReply").GetInt32(), 110_000, 128_000);
+    }
+
+    /// <summary>
+    /// Competitor pages give way before any partner research does. A request that is over what its
+    /// model accepts only because of them is sent all of its partner research and the first few
+    /// competitor pages, one from each competitor in turn, and the run's record names every page left out.
+    /// </summary>
+    [Fact]
+    public async Task Competitor_pages_give_way_first_and_the_partner_research_is_then_sent_whole()
+    {
+        // 50 partner passages, about 75,000 tokens, fit this model. 40 competitor pages, about 60,000
+        // more, do not fit beside them.
+        var pages = Pages(partners: 5, each: 10);
+        var competitorPages = CompetitorPages(competitors: 4, each: 10);
+        var create = CreateWith(pages, competitorPages);
+        var build = Builder(create);
+        var gaveWay = GccCompetitorOutlines.GivenWay(competitorPages);
+        Assert.Equal(35, gaveWay.Count);
+        var recorded = Recording();
+
+        var request = await GccGenerateService.RequestThatFitsAsync(
+            new Model("gpt-4o"), new GccResearchPerRequest(pages, null), [GccResearchLabel.Problem],
+            "Pillar body sections 1-2", 1, 5, build, gaveWay);
+
+        Assert.InRange(GccRequestSize.TokensOf(build(GccRequestCarries.Everything)) + 8_192, 128_001, int.MaxValue);
+        Assert.InRange(GccRequestSize.TokensOf(request) + request.MaxOutputTokens, 1, 128_000);
+
+        var sent = request.Messages[1].Content;
+        // Every partner passage, and nothing says the partner research is a part.
+        Assert.All(pages, page => Assert.Contains(page.Paragraphs[0], sent, StringComparison.Ordinal));
+        Assert.DoesNotContain(GccGenerateService.ResearchIsAPartNote, sent, StringComparison.Ordinal);
+        // Five competitor pages, taken from each competitor in turn; the other thirty-five are not in it.
+        var kept = competitorPages.Where(page => !gaveWay.Contains(page.Url)).ToList();
+        Assert.Equal(GccCompetitorOutlines.KeptWhenOver, kept.Count);
+        Assert.Equal(4, kept.Select(page => new Uri(page.Url).Host).Distinct().Count());
+        Assert.All(kept, page => Assert.Contains(page.Paragraphs[0], sent, StringComparison.Ordinal));
+        Assert.All(
+            competitorPages.Where(page => gaveWay.Contains(page.Url)),
+            page => Assert.DoesNotContain(page.Paragraphs[0], sent, StringComparison.Ordinal));
+
+        var record = Evidence(recorded);
+        Assert.True(record.GetProperty("whole").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, record.GetProperty("leftOut").ValueKind);
+        Assert.Equal(gaveWay, record.GetProperty("competitorPagesLeftOut").EnumerateArray().Select(url => url.GetString()!));
+        var size = record.GetProperty("request");
+        Assert.Equal(GccRequestSize.TokensOf(request), size.GetProperty("tokens").GetInt32());
+        Assert.Equal(GccRequestSize.TokensOf(build(GccRequestCarries.Everything)), size.GetProperty("withEverything").GetInt32());
+    }
+
+    /// <summary>
+    /// A request still over with the competitor pages given way has its partner research chosen for the
+    /// room that leaves, and its record lists both what gave way and what was not chosen.
+    /// </summary>
+    [Fact]
+    public async Task A_request_still_over_once_competitor_pages_give_way_has_its_partner_research_chosen_too()
+    {
+        var pages = Pages(partners: 5, each: 30);
+        var competitorPages = CompetitorPages(competitors: 4, each: 10);
+        var create = CreateWith(pages, competitorPages);
+        var gaveWay = GccCompetitorOutlines.GivenWay(competitorPages);
+        var recorded = Recording();
+
+        var request = await GccGenerateService.RequestThatFitsAsync(
+            new Model("gpt-4o"), new GccResearchPerRequest(pages, null), [GccResearchLabel.Problem],
+            "Pillar body sections 1-2", 1, 5, Builder(create), gaveWay);
+
+        Assert.InRange(GccRequestSize.TokensOf(request) + request.MaxOutputTokens, 1, 128_000);
+        var sent = request.Messages[1].Content;
+        Assert.Contains(GccGenerateService.ResearchIsAPartNote, sent, StringComparison.Ordinal);
+        Assert.All(
+            competitorPages.Where(page => gaveWay.Contains(page.Url)),
+            page => Assert.DoesNotContain(page.Paragraphs[0], sent, StringComparison.Ordinal));
+
+        var record = Evidence(recorded);
+        Assert.False(record.GetProperty("whole").GetBoolean());
+        Assert.NotEmpty(record.GetProperty("leftOut").EnumerateArray());
+        Assert.Equal(35, record.GetProperty("competitorPagesLeftOut").GetArrayLength());
+        // Every partner is still carried, as much of one as of another.
+        var partners = record.GetProperty("partners").EnumerateArray().ToList();
+        Assert.Equal(5, partners.Count);
+        Assert.Single(partners.Select(partner => partner.GetProperty("carried").GetProperty("passages").GetInt32()).Distinct());
+    }
+
+    /// <summary>A request that shows every competitor page says so by naming none as left out.</summary>
+    [Fact]
+    public async Task A_request_that_fits_with_every_competitor_page_names_none_as_left_out()
+    {
+        var pages = Pages(partners: 5, each: 10);
+        var competitorPages = CompetitorPages(competitors: 4, each: 10);
+        var create = CreateWith(pages, competitorPages);
+        var recorded = Recording();
+
+        var request = await GccGenerateService.RequestThatFitsAsync(
+            new Model("gpt-4.1"), new GccResearchPerRequest(pages, null), [GccResearchLabel.Problem],
+            "Pillar body sections 1-2", 1, 5, Builder(create), GccCompetitorOutlines.GivenWay(competitorPages));
+
+        Assert.All(competitorPages, page => Assert.Contains(page.Paragraphs[0], request.Messages[1].Content, StringComparison.Ordinal));
+        Assert.Equal(JsonValueKind.Null, Evidence(recorded).GetProperty("competitorPagesLeftOut").ValueKind);
     }
 
     [Fact]

@@ -509,18 +509,23 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Same(merged, GccGroundingResolver.WithLaterPassages(merged, later));
     }
 
+    /// <summary>
+    /// A page takes every passage found on it. Until 2026-10-12 it stopped at eighty, and a passage a
+    /// later search found on a page that already held eighty was searched for, returned and dropped.
+    /// </summary>
     [Fact]
-    public void A_full_page_takes_no_more_passages_and_still_learns_what_found_the_ones_it_has()
+    public void A_page_takes_every_passage_found_on_it_however_many_it_holds()
     {
-        var full = Enumerable.Range(1, GccPartnerResearchCaps.MaxParagraphsPerPage).Select(n => $"Passage {n}.").ToList();
-        var held = GccGroundingResolver.FoundBy(new GccQuoteablePage("https://tipalti.com/a/", "A", [], full), First);
+        var many = Enumerable.Range(1, 80).Select(n => $"Passage {n}.").ToList();
+        var held = GccGroundingResolver.FoundBy(new GccQuoteablePage("https://tipalti.com/a/", "A", [], many), First);
         var later = GccGroundingResolver.FoundBy(
-            new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["One too many.", full[^1]]), Second);
+            new GccQuoteablePage("https://tipalti.com/a/", "A", [], ["The eighty-first.", many[^1]]), Second);
 
         var merged = GccGroundingResolver.WithLaterPassages(held, later);
 
-        Assert.Equal(full, merged.Paragraphs);
-        Assert.Equal([First, Second], merged.SearchesThatFound(full.Count - 1));
+        Assert.Equal([.. many, "The eighty-first."], merged.Paragraphs);
+        Assert.Equal([Second], merged.SearchesThatFound(80));
+        Assert.Equal([First, Second], merged.SearchesThatFound(79));
         Assert.Equal([First], merged.SearchesThatFound(0));
     }
 
@@ -577,22 +582,60 @@ public class GccGroundingEvidenceQuestionsTests
         Assert.Empty(before.SearchesThatFound(0));
     }
 
+    /// <summary>
+    /// Each passage tells the writer what it was found for (2026-10-12): the searches are listed once,
+    /// in the operator's words, and a passage ends with the numbers of the ones that found it. The
+    /// kind of page the index marked it is still shown to no writer.
+    /// </summary>
     [Fact]
-    public void No_writer_is_shown_what_found_a_passage_or_the_kind_of_page_it_is_on()
+    public void A_writer_is_shown_what_each_passage_was_found_for_and_never_the_kind_of_page_it_is_on()
     {
         var plain = new GccQuoteablePage(
-            "https://tipalti.com/a/", "A", [], ["One passage.", "Another passage."],
+            "https://tipalti.com/a/", "A", [], ["One passage.", "Another passage.", "A third passage."],
             RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk);
-        var traced = GccGroundingResolver.FoundBy(plain with { Category = "pricing" }, Second);
+        // The first two passages found by the problem's search, the last two by a row's.
+        var traced = GccGroundingResolver.WithLaterPassages(
+            GccGroundingResolver.FoundBy(
+                plain with { Paragraphs = ["One passage.", "Another passage."], Category = "pricing" }, First),
+            GccGroundingResolver.FoundBy(plain with { Paragraphs = ["Another passage.", "A third passage."] }, Second));
         var project = Project("https://tipalti.com/");
         GccCreateDto With(GccQuoteablePage page) => Create(project.Id, Brief) with
         {
             ResearchJson = GccResearchFetchService.Serialize(new GccResearchDocument(null, [page])),
         };
 
-        Assert.Equal(GccGenerateService.BuildResearchBlock(With(plain)), GccGenerateService.BuildResearchBlock(With(traced)));
-        Assert.Contains("One passage.", GccGenerateService.BuildResearchBlock(With(traced)), StringComparison.Ordinal);
+        var block = GccGenerateService.BuildResearchBlock(With(traced));
+
+        // The searches once, numbered, each in the operator's own words.
+        Assert.Contains(GccGenerateService.SearchesHeading, block, StringComparison.Ordinal);
+        Assert.Contains($"  1. {GccGenerateService.DescribeSearch(First)}", block, StringComparison.Ordinal);
+        Assert.Contains($"  2. {GccGenerateService.DescribeSearch(Second)}", block, StringComparison.Ordinal);
+        // Each passage, then what found it.
+        var lines = block.Split(Environment.NewLine);
+        string After(string passage) => lines[Array.IndexOf(lines, $"- {passage}") + 1];
+        Assert.Equal($"  {GccGenerateService.FoundForLabel} 1", After("One passage."));
+        Assert.Equal($"  {GccGenerateService.FoundForLabel} 1, 2", After("Another passage."));
+        Assert.Equal($"  {GccGenerateService.FoundForLabel} 2", After("A third passage."));
+        // The kind of page changes nothing a writer reads.
+        Assert.Equal(block, GccGenerateService.BuildResearchBlock(With(traced with { Category = "careers" })));
+
+        // A page no search is known to have found says nothing of one, and lists none.
+        var untraced = GccGenerateService.BuildResearchBlock(With(plain));
+        Assert.DoesNotContain(GccGenerateService.SearchesHeading, untraced, StringComparison.Ordinal);
+        Assert.DoesNotContain($"  {GccGenerateService.FoundForLabel} ", untraced, StringComparison.Ordinal);
+        Assert.Contains("- A third passage.", untraced, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData(GccPassageSearch.KindProblem, "Invoices are approved by email.", null, "The problem: Invoices are approved by email.")]
+    [InlineData(GccPassageSearch.KindRow, "Routes each invoice by amount.", "Approvals stall.", "Where it goes wrong: Approvals stall. -- searched with the remedy noted: Routes each invoice by amount.")]
+    [InlineData(GccPassageSearch.KindRow, "Approvals stall.", "Approvals stall.", "Where it goes wrong: Approvals stall.")]
+    [InlineData(GccPassageSearch.KindRow, "Routes each invoice by amount.", null, "A remedy noted: Routes each invoice by amount.")]
+    [InlineData(GccPassageSearch.KindQuestion, "Does it sync with Xero?", null, "The question: Does it sync with Xero?")]
+    [InlineData(GccPassageSearch.KindKeyword, "invoice approval", null, "The keyword: invoice approval")]
+    public void A_search_is_stated_in_the_operators_words_by_what_kind_it_was(
+        string kind, string asked, string? failure, string stated) =>
+        Assert.Equal(stated, GccGenerateService.DescribeSearch(new GccPassageSearch(kind, asked, failure)));
 
     /// <summary>What BILL's crawl returned on 2026-10-10: its terms of service, a template stub, and a real page.</summary>
     private static IReadOnlyList<GccQuoteablePage> WithALegalPageAndAStub(int asked) =>

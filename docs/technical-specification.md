@@ -278,12 +278,50 @@ sized for a model of 128,000 tokens, and they cut research that fitted; a tool p
   its pillar's body requests were billed at the lower price for 66,432 of about 68,300 tokens from the second on, which
   a request with its own choice of research loses. In the classifier a word and its other forms count once, and "plan",
   "timeline", "results", "review", "faster" and "increased" are out of the lists.
-- **Still a page's first six passages and first eight headings.** `GccResearchSelector.PassagesOf` and
-  `BuildResearchBlock` both stop there (`GccResearchCaps`); that count, and the other counts that cut research, are the
-  next step of `plans/use-everything.md`.
-- **Only the partner research differs between requests.** The publisher's positions, the competitor blocks, the site's
-  own coverage, the partners to name, what each partner answers, the heading sources and the note on amounts not in
+- **Nothing a search returned is cut by a count** (2026-10-12, step 3 of `plans/use-everything.md`). Every page, every
+  passage of a page and every heading is printed: the partner research, the competitor research, the publisher's own
+  pages on the topic. Until then a page printed its first six passages and eight headings, and five competitor pages
+  and five of the publisher's own were shown. No count is applied where search results become a page either
+  (`HttpGeekCrawlerRagClient.MapChunksToQuoteable`, `RenderChunk`): a passage and the section around it are whole.
+  `NothingIsCutByACountTests` names each count that was removed and fails if it comes back.
+- **One list of a page's research** (`GccPageResearch.PagesOf`): what the body searches found and what the searches for
+  the operator's questions found, a page once and a passage once. The opening and every body request of a pillar and a
+  blog carry every partner's; a tool page's carry its own partner's. The question requests are unchanged.
+- **Each passage says what it was found for.** The page's searches are listed once, numbered, in the operator's words
+  (`GccGenerateService.SearchesHeading`, `DescribeSearch`), the same numbers in every request of the page, and each
+  passage ends with its numbers (`FoundForLabel`). The kind of page the index marked is still shown to no writer.
+- **Competitor heading structure is the outlines of the competitor pages the search returned**
+  (`GccCompetitorOutlines`), every heading, under the number the page has in the competitor research. The outlines are
+  read from every page of every competitor's crawl (`GccCompetitorAnalysisResolver`, once a run) and matched to the
+  returned pages by address (scheme, `www.`, a trailing slash, a fragment and case ignored). A returned page with no
+  outline is a `left-out` line on the run log. The check of a `competitor:` tag still reads every outline. A project
+  whose competitor search returns no page is shown no outline and told no competitor heading can be cited.
+- **A tool page is shown the competitor research, the competitor outlines and the publisher's pages on the topic** in
+  every body request, and the publisher's positions in its hook. It tags no heading, so its outline block carries no
+  tag rule.
+- **Competitor pages give way first.** A request over what its model accepts is built again with five competitor
+  pages, one from each competitor in turn (`GccCompetitorOutlines.KeptWhenOver`, `Shown`), each with its outline, and
+  only if that is still over is partner research chosen from. The pages left out are on the `evidence` event
+  (`competitorPagesLeftOut`).
+- **Otherwise only the partner research differs between requests.** The publisher's positions, the site's own
+  coverage, the partners to name, what each partner answers, the heading sources and the note on amounts not in
   dollars are whole in every request.
+- **Also read whole since step 3:** the publisher's home page (`GccPublisherProfileResolver`; it stopped at 24
+  headings and 40 blocks, each cut at 600 characters), every amount not in US dollars named for the writer
+  (`GccCurrencyGrammar.ForeignAmountsInstruction`; the first 30 were), every value a heading may be tagged with
+  (`GccHeadingProvenanceGuard.LicensedValues`; 40 of a kind were), and for the partner data request every heading and
+  passage of a page and every partner product name (`GccPartnerExtractionService.BuildUserPrompt`; 40 passages cut at
+  1,200 characters, eight headings and 12 names were). Quotable sentences are read from every page a partner returned
+  (`GccTypedPassageReader`, 32 a read); the list a tool page may quote from is still 40.
+- **Still counts, and why.** A search returns 8 passages, 3 for a question: that is how much is fetched. The partner
+  data request is not counted before it is sent; a page's passages are a few thousand tokens. A page found only by a
+  question search is not read for partner data or quotable sentences. The "Search results" lines of the research
+  block (12 titles, 15 questions) are fed by nothing.
+- **Size, measured** through the real writers on research of the 15:29 UTC run's shape with both problems searched
+  (364,000 characters of partner research, 150 question passages, 40 competitor pages with outlines, 8 of the
+  publisher's own), in made-up text: a pillar or blog body request about 157,000 tokens (165,000 with the reply's
+  reservation, 16% of GPT-4.1's 1,047,576), its opening about 127,000, a tool page body request about 61,000, its
+  opening about 31,500. A run of a pillar, a blog and five tool pages sends about 3.2 million tokens.
 - **The page's checks read all of the research.** Figures, money, quotations and headings are judged against what the
   search returned, not against what a request carried, so a page is not refused because a request was shown less.
 - **A request sent a part is told so in one line** (`GccGenerateService.ResearchIsAPartNote`): the passages are the ones

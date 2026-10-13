@@ -1,7 +1,7 @@
 # Use everything: the Brief, the research, and Repurpose for the short types
 
-**Status:** approved 2026-10-12 ("execute your plan"). Steps 1 and 2 of six are built and committed
-on `main`. Nothing is pushed, and nothing is fixed until a run of yours says so.
+**Status:** approved 2026-10-12 ("execute your plan"). Steps 1, 2 and 3 of six are built and
+committed on `main`. Nothing is pushed, and nothing is fixed until a run of yours says so.
 
 ## Where the work stands
 
@@ -9,10 +9,10 @@ on `main`. Nothing is pushed, and nothing is fixed until a run of yours says so.
 |---|---|---|
 | 1 | Research Organization's fixed numbers go, requests are counted against what the model accepts, OpenAI's limit figures on the run log | Built, committed, not pushed |
 | 2 | The Brief boxes (Part 1) and the hints on the form | Built, committed in both repositories, not pushed |
-| 3 | Nothing is cut by a count (Part 2) | Not started |
+| 3 | Nothing is cut by a count (Part 2) | Built, committed, not pushed |
 | 4 | Repurpose, GeekBackend | Not started |
 | 5 | Repurpose, the form | Not started |
-| 6 | The record | Not started. `AGENTS.md` and the specification already say what steps 1 and 2 changed |
+| 6 | The record | Not started. `AGENTS.md`, the specification and the sources document already say what steps 1, 2 and 3 changed |
 
 **Step 1, as built. What differs from what this plan said is marked.**
 - Research is no longer cut at 350,000 characters or to 40,000 for each partner. Every opening and
@@ -85,6 +85,78 @@ on `main`. Nothing is pushed, and nothing is fixed until a run of yours says so.
   page's five body requests each carry your failures and remedies where one did, and each partner
   with its own pain point brings up to eight more passages, so a line may appear or go.
 
+**Step 3, as built. What differs from what this plan said is marked.**
+- **Every page a search returned is shown, whole:** every competitor page (five were), every page of
+  your own site on the topic (five were), every passage of a page (six were) and every heading
+  (eight were).
+- **Competitor heading structure** is the outline of each competitor page the search returned, every
+  heading, under the same number that page has in the competitor research beside it. The first five
+  pages of the first competitor's crawl were shown before, 25 headings each. A returned page with no
+  outline is on the run log (`left-out`). **A project whose competitor search returns no page is now
+  shown no outline**, and the pillar and the blog are told no competitor heading can be cited.
+- **What the question searches found is in the body requests:** every partner's for the pillar and
+  the blog, its own partner's for a tool page. **Also in the opening, which this plan did not
+  say:** the opening and the body read one list of a page's research, so there is one list and not
+  two.
+- **Each passage says what it was found for.** The searches are listed once, numbered, in your own
+  words ("The problem: ...", "Where it goes wrong: ...", "A remedy noted: ...", "The question:
+  ..."), and each passage ends "Found for: 3, 7". **The checks read the same text, where this plan
+  said they would read it without those lines:** the check that a figure is in the evidence already
+  reads the whole Brief, so a second text would have changed nothing it accepts.
+- **A tool page** is handed the competitor research, the competitor outlines (with no heading-tag
+  rule, which a tool page does not have) and your site's pages on the topic in every body request,
+  and your positions in its hook. A page on a partner's help or documentation address is that
+  partner's.
+- **Partner data** is read from every passage of a page, whole. **Quotable sentences** are read from
+  every page a partner returned, 32 at a time. The list of 40 a tool page may quote from is unchanged.
+- **Counts this plan did not list, found while building, and removed:**
+  - where a search's results become a page: 80 passages a page, a stop at about 64,000 characters a
+    page, a cut of each passage and of the section around it at 2,000 characters, eight link labels
+    a passage, 300 characters of a title. The Library's own passage is at most about 700 tokens, so
+    the 2,000 cut the end of a full-length section and the others were rarely reached;
+  - the list a pillar and a blog are given of what a heading may be tagged with: 40 of each kind.
+    Every value is listed, and the competitor kind points at the outlines shown;
+  - your home page: its first 24 headings and 40 blocks of text, each cut at 600 characters. Read
+    whole;
+  - amounts not in US dollars named for the writer: the first 30. Every one is named;
+  - product names given to the partner data request: the first 12. Every one is given.
+- **Competitor pages give way first** when a request is over what its model accepts: all but five,
+  one from each competitor in turn, each with its outline, named on the run log
+  (`competitorPagesLeftOut`). Only if the request is still over is partner research chosen from.
+- **Left as they are, and why:**
+  - "Search results" titles and questions in the research block (12 and 15): nothing writes them.
+  - The page-fetch path with its own limits (`GccPartnerUrlResearchService.FetchAsync`): nothing
+    calls it.
+  - The short "Key site headings" and "Representative site copy" lines in the title-and-outline
+    request: a summary beside your home page, which the same request carries whole.
+  - Searches still return 8 passages, 3 for a question.
+- **Two things to know:**
+  - The partner data requests are larger and are not counted before they are sent. A page too long
+    for the model fails that page's read, as any failed read does; none is near it (a page's
+    passages are a few thousand tokens).
+  - A page found only by a question search is not read for partner data or for quotable sentences.
+- **Size, measured** through the real writers on research of the 15:29 UTC run's shape with both
+  problems searched (364,000 characters of partner research, 150 question passages, 40 competitor
+  pages with outlines of 30 headings, 8 of your own pages). Made-up text of the same length, so the
+  first real run's `evidence` lines are the real figures:
+
+  | Request | Tokens | With the reply's reservation | Of GPT-4.1's 1,047,576 |
+  |---|---|---|---|
+  | Pillar or blog, one body request | about 157,000 | about 165,000 | 16% |
+  | Pillar or blog, opening | about 127,000 | about 133,000 | 13% |
+  | Tool page, one body request | about 61,000 | about 70,000 | 7% |
+  | Tool page, opening | about 31,500 | about 33,500 | 3% |
+
+  A run of a pillar, a blog and five tool pages sends about 3.2 million tokens, where the 15:29 run
+  sent about 1.75 million. On GPT-4.1's prices that is about $4 if a page's later requests are billed
+  as repeats, and about $7 if none are.
+- Tests: 2,102 unit and 44 integration pass. A pillar, a blog and a tool page are written through
+  their real writers with research past every one of these counts, and
+  `NothingIsCutByACountTests` names each count and fails if it comes back.
+- **What the next run lists because of this step:** nothing I can name before it runs. Every writer
+  is handed about twice what it was, a tool page is handed competitor pages for the first time, and
+  an opening is handed what the questions found.
+
 It replaces the earlier plan of the same day (one research block per content type), deleted on
 your word: this plan drops its 40,000 for each partner and does not include its rewrite.
 
@@ -94,8 +166,8 @@ your word: this plan drops its 40,000 for each partner and does not include its 
   up. GPT-4.1 accepts 1,047,576 tokens in a request; GPT-4o accepted 128,000. I have not read the
   variable's value, because listing the variables would show the keys. The first request of your
   next run shows the model on its run log.
-- **Nothing is left out for size.** The largest request in this plan is about 161,000 tokens, 15%
-  of what GPT-4.1 accepts.
+- **Nothing is left out for size.** The largest request in this plan is about 165,000 tokens, 16%
+  of what GPT-4.1 accepts (measured in step 3; this said 161,000 and 15% when it was worked out).
 - **Passages found for the pillar's and the blog's questions now go into their body requests.**
   The only reason they did not was room.
 - **Competitor heading structure.** I had written "All shown". It is read from every page of every
@@ -223,7 +295,8 @@ A tool page's carry its own partner's. The two are never in one request together
 | Pillar or blog, one body request | 74,900 tokens | about 153,000 | about 161,000 | 15% |
 | Tool page, one body request | 41,300 tokens | about 76,000 | about 84,000 | 8% |
 
-Worked out from the run log, not measured. Not in the sum, because the log does not size them: an
+Worked out from the run log before step 3 was built; what step 3 measured is under "Step 3, as
+built" above (about 157,000 and 61,000). Not in the sum, because the log does not size them: an
 outline's headings past the 25th and a page's headings past the eighth, which add; and passages a
 second search returns that the request already has, which are printed once.
 
@@ -251,7 +324,8 @@ for one that writes more. GPT-4.1 allows a reply of 32,768.
 today. GPT-4.1 charges $2.00 a million for new text and $0.50 for repeated text; GPT-4o charged
 $2.50 and $1.25. Worked out, a run after this plan costs about what that run cost on GPT-4o,
 roughly $4. That assumes a tool page's later requests are billed as repeats the way the pillar's
-were; I read that from the log for the pillar and the blog only.
+were; I read that from the log for the pillar and the blog only. If none were billed as repeats it
+would be about $7.
 
 ## Part 3. Email, Social and Ads through Repurpose
 
@@ -345,28 +419,34 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
 - content-creator-v2 `brief-catalog.ts` (`partnerQuestions`) and `NicheFramingPanel.tsx`: the list
   of a tool's searches and the hints.
 
-**Part 2**
-- `GccGenerateService.cs`: the `Take(...)` at `:421-446` (research block), `:2858-2863` (your site)
-  and `:2911-2920` (competitor research) go.
-- `BuildCompetitorHeadingBlock` (`:2937`): the cut at 25 headings (`:2968`) goes. Its pages (`:2957`)
-  become the competitor pages the search returned (`CompetitorQuoteables`), matched by address to
-  the outlines `GccCompetitorAnalysisResolver.ResolveAsync` reads from every page of every
-  competitor's crawl. `BuildProvenanceEvidence` (`:3806`) still reads every outline, so a
-  `competitor:` tag is checked as it is today. The match is one comparison of two addresses
-  (`http`/`https`, `www.`, a trailing slash, `#...` and case ignored), written once and used
-  nowhere else for now. Which address the outline carries, the page's first or the one after a
-  redirect, is read before the match is written. A returned page with no outline is a `left-out`
-  line on the run log.
-- `BuildResearchBlock` (`:339`) prints "Found for:" from `GccQuoteablePage.SearchesThatFound`; the
-  text the checks read is built without it, so a figure in your note licenses nothing.
-- Pillar and blog: the passages `GccPageFaqEvidence.FoundFor` returns for the page's questions join
-  the body's research, each passage once. The checks already read them (`PageFaqEvidenceText`).
-- Tool page: `GccPartnerToolSlices.Bucket` (`:156`) uses `GccResearchSelector.PartnerOf`; the body's
-  evidence (`:1473`) gains the competitor heading block, worded without the heading-tag rule; the
-  hook gains `BuildPublisherPositionsBlock`; the partner's question passages
-  (`research.FaqEvidence`) join the body's research, each passage once.
-- `Partner/GccPartnerExtractionService.cs:47-48`: no cut at 1,200, no first 40.
-- `GccTypedPassageReader.cs:39`: read in groups of 32 until every page is read.
+**Part 2 (step 3, built)**
+- `GccPageResearch.cs` (new): `PagesOf`, the one list of a page's research (what the body searches
+  found and what the question searches found, a page once and a passage once), and `SearchesOf`.
+  `BuildResearchBlock` and `GccResearchPerRequest` both read it.
+- `GccGenerateService.cs`: `BuildResearchBlock` prints every heading and passage, the numbered list
+  of searches (`SearchesHeading`, `DescribeSearch`) and each passage's `FoundForLabel` line;
+  `BuildOwnSiteCoverageBlock` and `BuildCompetitorResearchBlock` print every page;
+  `BuildCompetitorHeadingBlock` prints the outlines of the returned pages;
+  `RecordCompetitorPagesWithoutOutlineAsync` puts a returned page with no outline on the run log;
+  `RequestThatFitsAsync` tries a request with competitor pages given way before it chooses partner
+  research (`GccRequestCarries`, `CompetitorPagesThatGiveWay`). `GenerateToolPageAsync` builds the
+  tool page's competitor block and hands its hook the positions.
+- `GccCompetitorOutlines.cs` (new): `AddressKey` (the one comparison of two addresses), `For`,
+  `WithoutOutline`, `Shown` and `GivenWay` (five kept, one from each competitor in turn).
+  `BuildProvenanceEvidence` still reads every outline, so a `competitor:` tag is checked as before.
+- `GccCompetitorAnalysisResolver.cs`: one read of a project's competitor crawls for a run, now that
+  each tool page asks too.
+- `GccHeadingProvenanceGuard.LicensedValues`: every value listed; the competitor kind points at the
+  outlines when they are shown.
+- `GccResearchSelector.cs`: `PassagesOf` counts every heading and passage and the "Found for" line.
+- `GeekCrawler/HttpGeekCrawlerRagClient.cs` (`MapChunksToQuoteable`, `RenderChunk`) and
+  `GccGroundingResolver.WithLaterPassages`: no count where search results become a page;
+  the class of per-page limits those read is deleted.
+- `GccPartnerToolSlices.Bucket` uses `GccResearchSelector.PartnerOf`.
+- `Partner/GccPartnerExtractionService.cs` (`BuildUserPrompt`): every heading, passage and product
+  name, whole. `GccTypedPassageReader.cs`: every page, 32 a read.
+- `GccPublisherProfileResolver.cs`: the home page whole. `Guardrail/GccCurrencyGrammar.cs`
+  (`ForeignAmountsInstruction`): every amount.
 
 **Part 3**
 - `GccController.cs:694-808`: the route validates and starts a job through `GccGenerateJobRunner`;
@@ -390,7 +470,7 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
 
 ## Verification
 
-- After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,064 after step 2),
+- After every commit: `dotnet build GeekAPI`, `dotnet test GeekBackend.Tests` (2,102 after step 3),
   `dotnet test GeekBackend.IntegrationTests` (44); the form's tests (55 after step 2) for its
   commits.
 - The counter was checked against the 40 requests of the 08:17 UTC run of 2026-10-07 whose sizes
@@ -411,13 +491,16 @@ Paths are under `GeekAPI/Services/ContentCreator/` unless they say otherwise.
   searches.
 - A test writes a pillar, a blog and a tool page through the real writers with more than six
   passages on a page and more than five competitor pages, and fails if one is missing from a request.
-  It also fails if the outline of a competitor page no search returned is printed.
+  It also fails if the outline of a competitor page no search returned is printed. Built in step 3
+  (`BriefFieldReachTests`), with a second that fails if a passage found for a question does not say
+  so in an opening or a body request, and `NothingIsCutByACountTests` for each count by name.
 - Repurpose: tests through the real route for an approved page, a page not approved, a project with
   no crawled site, a figure the page does not hold, and a second Repurpose replacing the first; the
   repository's tests for saving and deleting a page's pieces.
 - Your run, read from its log: the model and OpenAI's limit for it; two problem searches for each partner with its own "Core
   pain point"; "The tool's remedy" lines in each tool body request; every competitor page that came
-  back; each request's size, and nothing left out. Then a Repurpose from an approved page, read on
+  back, and any with no outline named (`left-out`); "Found for:" under each passage; each request's
+  size, and nothing left out. Then a Repurpose from an approved page, read on
   the screen.
 
 ## What the next run will list

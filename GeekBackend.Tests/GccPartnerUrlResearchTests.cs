@@ -160,7 +160,7 @@ public class GccPartnerUrlResearchTests
     }
 
     [Fact]
-    public void ExtractPartnerPage_keeps_far_more_than_upload_caps()
+    public void ExtractPartnerPage_keeps_every_paragraph_of_a_long_page()
     {
         var paragraphs = string.Concat(
             Enumerable.Range(1, 40).Select(i =>
@@ -169,10 +169,9 @@ public class GccPartnerUrlResearchTests
 
         var partner = GccArticleHtmlExtractor.ExtractPartnerPage("https://example.com/p", html);
 
-        // Against the cap itself, not against a capped sibling extract. The sibling was
-        // Extract(url, html), deleted 2026-09-29 with the upload path that called it; comparing to
-        // the constant states the property directly and needs no second overload to exist.
-        Assert.True(partner.Paragraphs.Count > GccResearchCaps.MaxParagraphsPerPage);
+        // Stated as the count itself. This compared against a second, tighter set of per-page limits
+        // (six passages a page), deleted on 2026-10-12 when the research block stopped cutting a page.
+        Assert.Equal(40, partner.Paragraphs.Count);
         Assert.False(GccArticleHtmlExtractor.IsEmpty(partner));
     }
 }

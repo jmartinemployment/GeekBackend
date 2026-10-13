@@ -37,12 +37,10 @@ internal static class GccPageFaqEvidence
     /// how many partners the project has or how long their passages run.
     /// </summary>
     /// <remarks>
-    /// A question brings three passages from each partner, and a passage is up to 2,000 characters
-    /// with up to 2,000 more of the section around it. Eight questions of a five-partner project is
-    /// 120 passages, about 180,000 characters as passages ran on 2026-10-10 and 510,000 at their
-    /// longest, which was all of the 128,000 tokens the model of that day accepted in one request
-    /// (what a model accepts is in <c>OpenAiModelLimits</c>). 200,000 characters is about 50,000
-    /// tokens at the four characters a token these prompts never fall below.
+    /// A question brings three passages from each partner, each with the section around it. Eight
+    /// questions of a five-partner project is 120 passages, about 180,000 characters as passages ran
+    /// on 2026-10-10 (what a model accepts is in <c>OpenAiModelLimits</c>). 200,000 characters is
+    /// about 50,000 tokens at the four characters a token these prompts never fall below.
     /// <para>
     /// This leaves nothing out: it decides how many requests a page's questions are spread over, and
     /// every question's passages are sent in one of them.

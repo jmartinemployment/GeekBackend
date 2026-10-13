@@ -65,6 +65,9 @@ public sealed record GccResearchSelection(
 /// <para>
 /// <b>When the research is more than the room, in the order the rules apply.</b>
 /// <list type="number">
+/// <item>Before any partner research is left out, the competitor pages beyond the first few are
+/// (<see cref="GccCompetitorOutlines"/>): they are read for difference and never cited, and the
+/// partners are what the page is about. This class is asked only if the request is still over.</item>
 /// <item>The room is shared between the partners equally, so no partner is crowded out: the page names
 /// every one and needs something to say about each. A partner with less research than its share is
 /// carried whole, and what it does not use is shared between the others.</item>
@@ -137,8 +140,9 @@ public static class GccResearchSelector
     }
 
     /// <summary>
-    /// The passages the research block prints, each with its labels: every page's first
-    /// <see cref="GccResearchCaps.MaxParagraphsPerPage"/>.
+    /// The passages the research block prints, each with its labels: every passage of every page.
+    /// Until 2026-10-12 this was a page's first six, as the block printed them; nothing is cut by a
+    /// count now, here or there.
     /// </summary>
     /// <param name="partnerUrls">The project's declared partners. A page on a partner's subdomain is
     /// that partner's (<see cref="PartnerOf"/>); with none given, a page's partner is its own host.</param>
@@ -154,6 +158,8 @@ public static class GccResearchSelector
                 .Where(partnerHost => partnerHost.Length > 0)
                 .Distinct(StringComparer.Ordinal),
         ];
+        // The searches as the research block numbers them, so a passage's last line is counted as printed.
+        var searches = GccPageResearch.SearchesOf(pages ?? []);
         foreach (var page in pages ?? [])
         {
             // Research is read back from stored JSON, where a field the record calls required can be
@@ -165,23 +171,28 @@ public static class GccResearchSelector
             // The page's own lines as GccGenerateService.BuildResearchBlock prints them: its title and
             // address, its headings, and the blank line after its passages.
             var pageChars = (page.Title?.Length ?? 0) + url.Length + 3 + line + line;
-            foreach (var heading in (page.Headings ?? []).Take(GccResearchCaps.MaxHeadingsPerPage))
+            foreach (var heading in page.Headings ?? [])
             {
                 pageChars += (heading?.Text?.Length ?? 0) + 6 + line;
             }
 
             var scored = page.Scores is not null && page.Scores.Count == page.Paragraphs.Count;
-            var printed = Math.Min(page.Paragraphs.Count, GccResearchCaps.MaxParagraphsPerPage);
-            for (var i = 0; i < printed; i++)
+            for (var i = 0; i < page.Paragraphs.Count; i++)
             {
+                // The passage's own line, and the line after it that says which searches found it.
+                var foundBy = page.SearchesThatFound(i).Count;
+                var numbers = GccGenerateService.FoundForNumbers(page, i, searches);
+                var foundForChars = numbers.Length == 0
+                    ? 0
+                    : 3 + GccGenerateService.FoundForLabel.Length + numbers.Length + line;
                 passages.Add(new GccResearchPassage(
                     host,
                     url,
                     i,
-                    (page.Paragraphs[i]?.Length ?? 0) + 2 + line,
+                    (page.Paragraphs[i]?.Length ?? 0) + 2 + line + foundForChars,
                     pageChars,
                     GccPassageClassifier.LabelsOf(page, i),
-                    page.SearchesThatFound(i).Count,
+                    foundBy,
                     scored ? page.Scores![i]?.Score ?? 0 : 0));
             }
         }
@@ -355,6 +366,25 @@ public static class GccResearchSelector
     }
 }
 
+/// <summary>
+/// What a request carries of the research that can give way when the request is more than its model
+/// accepts. Everything else in a request is whole in every request of the page.
+/// </summary>
+/// <param name="Passages">The passages of partner research it carries, by page and place on it; null
+/// for all of them.</param>
+/// <param name="EveryCompetitorPage">Whether it shows every competitor page the searches returned,
+/// each with its outline. False is the first thing that gives way: the request then shows the ones
+/// <see cref="GccCompetitorOutlines.Shown"/> keeps.</param>
+public sealed record GccRequestCarries(
+    IReadOnlySet<(string Url, int Position)>? Passages, bool EveryCompetitorPage = true)
+{
+    /// <summary>All of the research: what every request carries unless that is more than its model accepts.</summary>
+    public static readonly GccRequestCarries Everything = new(Passages: null);
+
+    /// <summary>Whether nothing was left out of the request.</summary>
+    public bool IsEverything => Passages is null && EveryCompetitorPage;
+}
+
 /// <summary>What one request carries of its page's partner research.</summary>
 /// <param name="Record">The run's record of it: the request's size, what the research holds, what the
 /// request carries, partner by partner, and each passage chosen and left out.</param>
@@ -402,7 +432,8 @@ public sealed class GccResearchPerRequest
     private readonly IReadOnlyList<GccResearchPassage> _passages;
     private readonly Dictionary<(string Url, int Position), int> _shown = [];
 
-    /// <param name="partnerPages">The page's partner research, as its research block prints it.</param>
+    /// <param name="partnerPages">The page's partner research, as its research block prints it
+    /// (<see cref="GccPageResearch.PagesOf"/>).</param>
     /// <param name="partnerUrls">The project's declared partners, by which a page is one partner's.</param>
     public GccResearchPerRequest(IReadOnlyList<GccQuoteablePage>? partnerPages, IReadOnlyList<string>? partnerUrls) =>
         _passages = GccResearchSelector.PassagesOf(partnerPages, partnerUrls);
@@ -473,8 +504,15 @@ public sealed class GccResearchPerRequest
     /// <param name="call">Which body request it is, from one; zero for the page's opening.</param>
     /// <param name="of">How many body requests the page has.</param>
     /// <param name="count">The request's size as counted before it is sent, when it was counted.</param>
+    /// <param name="competitorPagesLeftOut">The competitor pages the request does not show, by address,
+    /// when it was over what its model accepts with all of them; null when it shows every one.</param>
     public GccRequestResearch Send(
-        GccResearchSelection selection, string request, int call, int of, GccRequestCount? count = null)
+        GccResearchSelection selection,
+        string request,
+        int call,
+        int of,
+        GccRequestCount? count = null,
+        IReadOnlyList<string>? competitorPagesLeftOut = null)
     {
         foreach (var chosen in selection.Chosen)
         {
@@ -505,6 +543,9 @@ public sealed class GccResearchPerRequest
                     withReply = count.Tokens + count.Reply,
                     withEverything = count.WithEverything,
                 },
+            // The competitor pages that gave way, each with its outline, by address. They go before any
+            // partner research does; null when the request shows every one.
+            competitorPagesLeftOut,
             // The room the choice was made for, in characters as printed; null when everything fits.
             room = selection.Room,
             research = Size(_passages),

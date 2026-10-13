@@ -83,8 +83,18 @@ public static class GccPartnerToolSlices
         var names = GccRequiredToolMentions.AnchorLookup(create.BriefJson, partnerUrls);
         var pooled = GccResearchFetchService.Deserialize(create.ResearchJson)?.Quoteables ?? [];
 
-        var pagesByHost = Bucket(pooled, page => page.Url);
-        var passagesByHost = Bucket(partnerPassages, passage => passage.Url);
+        // A page on a partner's help or documentation address ("help.partner.com") is that partner's
+        // (GccResearchSelector.PartnerOf, the rule the pillar and the blog count a partner's research
+        // by). Bucketed by its own host it belonged to no declared partner and reached no tool page.
+        IReadOnlyList<string> partnerHosts =
+        [
+            .. partnerUrls
+                .Select(GccRequiredToolMentions.HostKeyOf)
+                .Where(host => host.Length > 0)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        var pagesByHost = Bucket(pooled, page => page.Url, partnerHosts);
+        var passagesByHost = Bucket(partnerPassages, passage => passage.Url, partnerHosts);
 
         var slices = new List<GccPartnerToolSlice>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -154,12 +164,12 @@ public static class GccPartnerToolSlices
     }
 
     private static Dictionary<string, List<T>> Bucket<T>(
-        IReadOnlyList<T> items, Func<T, string?> urlOf)
+        IReadOnlyList<T> items, Func<T, string?> urlOf, IReadOnlyList<string> partnerHosts)
     {
         var buckets = new Dictionary<string, List<T>>(StringComparer.OrdinalIgnoreCase);
         foreach (var item in items)
         {
-            var host = GccRequiredToolMentions.HostKeyOf(urlOf(item));
+            var host = GccResearchSelector.PartnerOf(urlOf(item), partnerHosts);
             if (host.Length == 0) continue;
             if (!buckets.TryGetValue(host, out var bucket))
             {
