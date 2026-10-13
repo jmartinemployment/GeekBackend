@@ -24,7 +24,6 @@ public class GccDraftGuardTests
         IReadOnlyList<string>? requiredTools = null,
         IReadOnlyList<GccQuoteCandidate>? candidates = null,
         int appended = 0,
-        IReadOnlyList<string>? unlistedTools = null,
         int? pageFloorWords = null,
         string? keyword = null) =>
         new(
@@ -38,7 +37,6 @@ public class GccDraftGuardTests
             appended,
             ToolBasePath: "/tools",
             ToolPaths: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { RampToolPage },
-            UnlistedTools: unlistedTools,
             Keyword: keyword,
             PageFloorWords: pageFloorWords);
 
@@ -63,6 +61,30 @@ public class GccDraftGuardTests
     }
 
     private static string Words(int count) => string.Join(' ', Enumerable.Repeat("word", count));
+
+    /// <summary>
+    /// The deletion and the check read a figure the same way: a page the made-up number's sentence was
+    /// taken out of passes the check that would have refused it, and what could not be taken out (one
+    /// of the page's own sections left with nothing) is still refused.
+    /// </summary>
+    [Fact]
+    public void A_page_a_made_up_numbers_sentence_was_taken_out_of_passes_the_check_that_refused_it()
+    {
+        const string evidence = "Texas has a $500,000 threshold.";
+        const string madeUp = "If you sell 1,000 units in Texas you could miss the trigger.";
+        var doc = Doc(Body("Thresholds", Text($"Texas has a $500,000 threshold. {madeUp} Plan for it.")));
+        var bare = Doc(Body("Thresholds", Text(madeUp)));
+
+        Assert.Contains("numbers", Failed(GccDraftGuard.Pillar(doc, Inputs(numberEvidence: evidence))));
+
+        var cleaned = GccInventedFigures.Remove(doc, evidence).Document;
+        Assert.DoesNotContain("numbers", Failed(GccDraftGuard.Pillar(cleaned, Inputs(numberEvidence: evidence))));
+        Assert.DoesNotContain("numbers", Failed(GccDraftGuard.Blog(cleaned, Inputs(numberEvidence: evidence))));
+        Assert.DoesNotContain("numbers", Failed(GccDraftGuard.Tool(cleaned, Inputs(numberEvidence: evidence))));
+
+        var left = GccInventedFigures.Remove(bare, evidence).Document;
+        Assert.Contains("numbers", Failed(GccDraftGuard.Pillar(left, Inputs(numberEvidence: evidence))));
+    }
 
     [Fact]
     public void A_page_under_its_floor_ships_and_says_how_many_words_it_has_and_how_many_its_score_needs()
@@ -326,17 +348,19 @@ public class GccDraftGuardTests
         Assert.Contains(href, finding.Detail, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// No check reads a page for a tool that is not one of the project's partners (Jeff, 2026-10-13:
+    /// "You are removing this stupid rule?"). The check that did refused a pillar and a blog that day
+    /// for naming Stripe, which the operator's own Brief names.
+    /// </summary>
     [Fact]
-    public void A_pillar_or_blog_that_names_a_tool_the_project_does_not_list_is_refused()
+    public void A_pillar_or_blog_that_names_a_tool_the_project_does_not_list_is_neither_refused_nor_listed_for_it()
     {
         var doc = Doc(Body("Choosing", Text("With tools like ApprovalMax, Melio, and Ramp, teams tailor workflows.")));
-        var inputs = Inputs(requiredTools: ["ApprovalMax", "Ramp"], unlistedTools: ["Melio", "Plooto"]);
+        var inputs = Inputs(requiredTools: ["ApprovalMax", "Ramp"]);
 
-        var pillar = Assert.Single(GccDraftGuard.Pillar(doc, inputs).Findings, f => f.Check == "unlisted-tools");
-        Assert.True(pillar.Refuses);
-        Assert.Contains("Melio", pillar.Detail, StringComparison.Ordinal);
-        Assert.DoesNotContain("Plooto", pillar.Detail, StringComparison.Ordinal);
-        Assert.Contains("unlisted-tools", Failed(GccDraftGuard.Blog(doc, inputs)));
+        Assert.DoesNotContain(GccDraftGuard.Pillar(doc, inputs).Findings, f => f.Detail.Contains("Melio", StringComparison.Ordinal));
+        Assert.DoesNotContain(GccDraftGuard.Blog(doc, inputs).Findings, f => f.Detail.Contains("Melio", StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -396,17 +420,6 @@ public class GccDraftGuardTests
         Assert.Contains("\"asking yourself\", \"if these questions\"", finding.Detail, StringComparison.Ordinal);
         Assert.Contains("questions-quiz", Failed(GccDraftGuard.Tool(quiz, Inputs(requiredTools: []))));
         Assert.DoesNotContain("questions-quiz", Failed(GccDraftGuard.Pillar(booking, Inputs())));
-    }
-
-    [Fact]
-    public void Naming_only_listed_partners_is_not_an_unlisted_tool_finding()
-    {
-        // "Billing" is not the tool "Bill": names are matched as whole words, as the site writes them.
-        var doc = Doc(Body("Choosing", Text("ApprovalMax and Ramp cut billing delays.")));
-
-        var verdict = GccDraftGuard.Pillar(doc, Inputs(requiredTools: ["ApprovalMax", "Ramp"], unlistedTools: ["Bill", "Melio"]));
-
-        Assert.DoesNotContain("unlisted-tools", Failed(verdict));
     }
 
     [Fact]

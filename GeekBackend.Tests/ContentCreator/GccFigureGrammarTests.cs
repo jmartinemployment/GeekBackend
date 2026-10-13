@@ -23,6 +23,9 @@ public class GccFigureGrammarTests
     [InlineData("Teams process 3,000 a month.", "3000")]
     [InlineData("Over 250 firms use it.", "250")]
     [InlineData("Founded in 2019, it now serves accountants.", "2019")]
+    // Not the list's name: no capital, and a word that only ends like one.
+    [InlineData("It paid back a fortune 500 times over.", "500")]
+    [InlineData("MisFortune 500 was the batch that failed.", "500")]
     public void A_figure_is_found_with_its_value(string text, string value)
     {
         var figures = GccFigureGrammar.Find(text);
@@ -38,6 +41,11 @@ public class GccFigureGrammarTests
     [InlineData("Read the vendor's own page (Melio, 2025).")]
     [InlineData("It runs on v2.1 of the API, or version 3.4, or build 1.2.3.")]
     [InlineData("There are 3 ways to do it, and two partners do it well.")]
+    // The name of a list of companies or of a market index, which counts nothing. The 17:47 UTC run of
+    // 2026-10-13 refused a tool page for the first of these.
+    [InlineData("It is not built for the Fortune 500 with dedicated tax teams.")]
+    [InlineData("Fortune 500 customers run it across every entity.")]
+    [InlineData("Its parent is listed on the S&P 500 and the Nasdaq-100.")]
     public void Not_a_figure(string text) =>
         Assert.Empty(GccFigureGrammar.Find(text));
 

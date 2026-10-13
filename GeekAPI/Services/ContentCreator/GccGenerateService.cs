@@ -1756,7 +1756,9 @@ public partial class GccGenerateService
             doc => Guardrail.GccDraftGuard.Tool(
                 doc, toolGuardInputs with { AppendedSections = toolFaqSection is null ? 0 : 1 }),
             toolOutlineCtx.Context.TargetKeyword,
-            page: $"Tool page '{name}'");
+            page: $"Tool page '{name}'",
+            type: "tool page",
+            numberEvidence: toolGuardInputs.NumberEvidence);
 
         // Per-H2 image prompts. Tool pages are long-form (a ten-section outline, equal to Pillar,
         // plus an optional FAQ section) and this is the revenue-critical content type. `section` is
@@ -2802,7 +2804,9 @@ public partial class GccGenerateService
 
         var (document, blogWarnings) = await GuardedDraftAsync(
             "the blog", WriteBlogDraftAsync, doc => Guardrail.GccDraftGuard.Blog(doc, blogGuardInputs),
-            blogPromptCtx.Context.TargetKeyword);
+            blogPromptCtx.Context.TargetKeyword,
+            type: "blog",
+            numberEvidence: blogGuardInputs.NumberEvidence);
 
         // Image prompts are attached here rather than by the caller, the way the tool page already
         // does it. The caller used to run them on the returned JSON, which only worked while this
@@ -3416,13 +3420,32 @@ public partial class GccGenerateService
         Func<Task<GccDraft>> write,
         Func<ContentDocument, Guardrail.GccGuardVerdict> guard,
         string? keyword = null,
-        string? page = null)
+        string? page = null,
+        string? type = null,
+        string? numberEvidence = null)
     {
         var draft = await write();
         // No em dash on the page (Jeff, 2026-10-13), taken out before anything reads the draft, so what
         // is checked is what is saved. A quotation keeps the source's own.
         var (withoutEmDashes, emDashesRemoved) = Guardrail.GccEmDash.Clean(draft.Document);
         draft = draft with { Document = withoutEmDashes };
+        // A sentence that states a figure the writer was shown nowhere is taken out, and the page is
+        // kept (Jeff, 2026-10-13: "Stop the sentence, not the pillar or blog?"). Before the check, which
+        // then reads the page as it will be saved and still refuses what could not be taken out.
+        var invented = Guardrail.GccInventedFigures.Remove(draft.Document, numberEvidence);
+        draft = draft with { Document = invented.Document };
+        if (invented.Sentences.Count > 0)
+        {
+            await GccRunLog.RecordIfAnyAsync("figures-removed", new
+            {
+                label,
+                sentences = invented.Sentences
+                    .Select(s => new { heading = s.Heading, figures = s.Figures, sentence = s.Sentence })
+                    .ToList(),
+                headings = invented.Headings,
+            });
+        }
+
         var verdict = guard(draft.Document);
         // The page's keyword count as its score will count it, on every page, passed or not.
         var counted = string.IsNullOrWhiteSpace(keyword)
@@ -3451,6 +3474,11 @@ public partial class GccGenerateService
         }
 
         var warnings = new List<string>();
+        if (invented.Sentences.Count > 0)
+        {
+            warnings.Add(Guardrail.GccInventedFigures.Line(type ?? "page", invented));
+        }
+
         foreach (var gap in verdict.Gaps)
         {
             warnings.Add(gap.Detail);
@@ -3535,15 +3563,16 @@ public partial class GccGenerateService
     /// generation context and the outline carry instruction numbers (word floors, "600-850 words"), and
     /// licensing a figure because the prompt said it licenses nothing (review, 2026-10-04).</param>
     /// <summary>
-    /// The tools a pillar or blog names: which it must name, which it links and where, and which it
-    /// must not name at all.
+    /// The tools a pillar or blog names: which it must name, which it links and where, and which of
+    /// the site's other tools are kept out of the site's own blocks it reads.
     /// </summary>
     /// <param name="Required">The partner tools the piece is obliged to name.</param>
     /// <param name="Linked">The declared partners, each with its tool page's path -- the only tool
     /// links the piece may carry.</param>
     /// <param name="Unlisted">Tools the publisher's own site lists under this keyword that are not this
-    /// project's partners. The writer can see them in the site's own prose; it is told not to use them,
-    /// and the guard refuses a draft that does.</param>
+    /// project's partners and that neither the Brief nor a partner's own pages name
+    /// (<see cref="GccRequiredToolMentions.Unlisted"/>). The site's own pages about them are left out of
+    /// what the piece reads. The writer is told nothing about them and no check reads the list.</param>
     /// <param name="Answers">What the operator's research says each partner answers
     /// (<see cref="GccPartnerAnswers"/>), or null when the brief holds no row under any partner.</param>
     /// <param name="FailuresAreUnderThePartners">Whether the failures the piece argues are the ones in
@@ -3557,8 +3586,8 @@ public partial class GccGenerateService
         bool FailuresAreUnderThePartners)
     {
         /// <summary>
-        /// What the writer is told: the names it must use, which failure each answers, then the names
-        /// it must not use.
+        /// What the writer is told: the names it must use, and which failure each answers. It is told of
+        /// no name it must not use.
         /// </summary>
         public string? Instruction
         {
@@ -3568,7 +3597,6 @@ public partial class GccGenerateService
                 {
                     GccRequiredToolMentions.Instruction(Required),
                     Answers,
-                    GccRequiredToolMentions.UnlistedInstruction(Unlisted),
                 }.Where(b => !string.IsNullOrWhiteSpace(b)).ToList();
                 return blocks.Count == 0 ? null : string.Join(Environment.NewLine, blocks);
             }
@@ -3577,7 +3605,8 @@ public partial class GccGenerateService
 
     /// <remarks>
     /// The site's own tool list is still read -- not to hand to the writer, which is how Melio and
-    /// Plooto reached a pillar whose project did not list them, but to know which names to keep out.
+    /// Plooto reached a pillar whose project did not list them, but to know which of the site's own
+    /// pages to leave out of what a piece reads.
     /// </remarks>
     /// <summary>
     /// The project's declared partners, each with the path its tool page is published at -- the only
@@ -3594,11 +3623,27 @@ public partial class GccGenerateService
         var linked = GccPartnerToolPages.For(create, partnerUrls, _company.ToolBaseUrl)
             .Select(page => new KnownCrawlTool(page.ProductName, Href: null, PublicPath: page.Path))
             .ToList();
-        var unlisted = (await _knownTools.ResolveAsync(create, ct))
-            .Select(tool => tool.Name)
-            .Where(name => !required.Any(partner => GccRequiredToolMentions.SameProduct(partner, name)))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        // The site's tools that are not this project's partners, less any the Brief or a partner's
+        // own pages name. They are kept out of the site's own blocks and nothing else: no writer is
+        // told of them and no check reads them.
+        var (unlisted, shown) = GccRequiredToolMentions.Unlisted(
+            (await _knownTools.ResolveAsync(create, ct)).Select(tool => tool.Name),
+            required,
+            string.Join(
+                Environment.NewLine,
+                Guardrail.GccJsonEvidence.TextOf(create.BriefJson),
+                create.Topic ?? string.Empty,
+                create.Notes ?? string.Empty),
+            BuildResearchBlock(create));
+        if (unlisted.Count > 0 || shown.Count > 0)
+        {
+            await GccRunLog.RecordIfAnyAsync("site-tools", new
+            {
+                keptOutOfTheSitesOwnBlocks = unlisted,
+                shown = shown.Select(tool => new { name = tool.Name, namedIn = tool.Where }).ToList(),
+            });
+        }
+
         return new PartnerTools(
             required,
             linked,
@@ -3891,7 +3936,6 @@ public partial class GccGenerateService
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Select(path => path!)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase),
-            UnlistedTools: partnerTools?.Unlisted ?? [],
             // The keyword the page is scored on: the one its prompts name and the SEO report counts.
             Keyword: context.TargetKeyword,
             // The floor the page is scored on: the SEO report's own, for this type.

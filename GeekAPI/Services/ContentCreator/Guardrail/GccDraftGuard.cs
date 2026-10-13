@@ -61,9 +61,6 @@ public sealed record GccGuardInputs(
     // link under the first must be one of the second: the project's declared partners, and no others.
     string? ToolBasePath = null,
     IReadOnlySet<string>? ToolPaths = null,
-    // Tools the publisher's site lists that are not this project's partners. A pillar or blog that
-    // names one is refused.
-    IReadOnlyList<string>? UnlistedTools = null,
     // The keyword the page is scored on. Null is the legacy path with no keyword, and no keyword check.
     string? Keyword = null,
     // The words the page's SEO score holds its type to (GccLongFormTypes.GetSeoLengthRules). Null is a
@@ -212,19 +209,10 @@ public static partial class GccDraftGuard
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
 
-        // "Tools like ApprovalMax, Melio, and Ramp" on a project whose partners do not include Melio
-        // (Jeff, 2026-10-05). The publisher's site lists more tools than a project has partners, and
-        // the writer reads that site.
-        var unlisted = GccRequiredToolMentions.Named(document, inputs.UnlistedTools ?? []);
-        if (unlisted.Count > 0)
-        {
-            var named = string.Join(", ", unlisted);
-            findings.Add(new GccGuardFinding(
-                "unlisted-tools",
-                $"{Capitalized(type)} names {named}, which this project does not list as a partner. A {type} "
-                + "names the project's partner tools and no other.",
-                Refuses: true));
-        }
+        // No page is refused, and none is listed, for naming a tool that is not one of the project's
+        // partners (Jeff, 2026-10-13: "You are removing this stupid rule?"). A check did both from
+        // 2026-10-05; that day's 17:47 UTC run lost its pillar and its blog to it for naming Stripe,
+        // which the operator's own Brief names. See GccRequiredToolMentions.Unlisted.
 
         var missing = GccRequiredToolMentions.Missing(document, inputs.RequiredTools);
         if (missing.Count > 0)

@@ -161,7 +161,7 @@ blog and tool have registered prompt sets.
      (389 tokens for "sections" today), so that part is near and not exact. A request of 370,000 characters takes about
      14 ms to count. Every request's count is on its `call` event (`countedTokens`, with `accepts`) beside OpenAI's
      `promptTokens`, so the counter is checked by every run.
-   - **Every question section is written from the answer the operator entered** (2026-10-13; built, not committed,
+   - **Every question section is written from the answer the operator entered** (2026-10-13; pushed in `293a456`,
      not seen in a real run). The three FAQ boxes of the Brief, "People Also Ask (direct entry, optional)", "Blog FAQ
      (optional)" and each tool's "Tool page FAQ", hold rows of a question and an answer, read by one reader
      (`GccFaqAnswers.Read`) and written by one writer (`GccGenerateService.WriteFaqInBatchesAsync`). A question is sent
@@ -417,9 +417,9 @@ keyword: the writer wrote "Automated Spreadsheet Data" two to four times on a to
 to restore on any of the five.
 
 **Checks (`GccDraftGuard`).** Refuse: names-product, quotation and one-quotation (tool), no-quotation (pillar, blog),
-tools-section, heading-provenance, unlisted-tools, links, link-text (a link may sit on 12 words at most), numbers, currency,
+tools-section, heading-provenance, links, link-text (a link may sit on 12 words at most), numbers, currency,
 questions-quiz. Report only: partner-mentions, closing-link, opening-links, blockquote-missing (tool), keyword-density
-(the page's keyword share outside the score's band), keyword-heading (no heading on the page carries the phrase),
+(the page's keyword share over the score's 2.5% ceiling; there is no minimum), keyword-heading (no heading on the page carries the phrase),
 keyword-heading-by-hand (a heading puts the phrase straight after "manual") and page-length (the page under its type's
 word floor, with the calls under their own floor listed after it; a page at its floor lists no call). Nothing is reported
 for a single call on a page that passes.
@@ -431,6 +431,32 @@ a small m or b is a scale only on an amount of money. Until then "200K+" license
 2026-10-12 (project "Tax Compliance & Regulations: Complex and Changing Laws") refused its blog for "200,000 hours saved",
 written out from Zamp's own "200K+ hours saved". What counts as a figure in a draft is unchanged, so a draft's own "200K+"
 is still not checked against anything. Not yet seen in a real run.
+
+**numbers does not read the name of a list as a figure** (2026-10-13, `GccFigureGrammar.IsNamedList`). The number that ends
+"Fortune 500", "S&P 500", "Russell 2000", "FTSE 100" or "Nasdaq-100", written with the name's capital and one space or a
+hyphen, is no figure. The 17:47 UTC run of 2026-10-13 refused TaxJar's tool page for "it is not built for the Fortune 500".
+Not yet seen in a real run.
+
+**A sentence that states a figure in none of the page's evidence is deleted, and the page is kept** (2026-10-13, on Jeff's
+word; `GccInventedFigures`, run in `GuardedDraftAsync` before the checks, on the pillar, the blog and the tool page). Until
+then one such figure refused the whole page: the 17:47 UTC run of 2026-10-13 lost its pillar, 8,053 words, for "If you sell
+1,000 units of a digital service in Texas ... you could miss a nexus trigger entirely", where three partner pages in the
+request gave Texas's threshold as $500,000 with no count of sales. What a figure is and what the evidence holds are read as
+the `numbers` check reads them, so a page that has been through the step passes that check. With the sentence go a
+paragraph or list item that was all that sentence, and a heading under another left with nothing under it (a question of the
+FAQ answered in that one sentence). Left for `numbers` to refuse, as before: a figure in a block quotation, and a sentence
+that is all the opening or all one of the page's own sections has under it. The run's list names each deleted sentence
+with its number and its heading; the run log has `figures-removed`. `currency` and Repurpose's own figure check are
+unchanged.
+
+**No check reads a page for a tool that is not a partner** (2026-10-13, on Jeff's word). From 2026-10-05 a pillar and a
+blog were told which of the publisher's tools not to name and were refused for naming one (`unlisted-tools`). The 17:47 UTC
+run of 2026-10-13 refused its pillar and its blog for naming Stripe, which the Brief named in a failure and two remedies and
+the partners' pages named 95 times as the payment system they connect to. The instruction and the check are deleted. A link
+to a tool that is not a partner is still impossible: the writer writes no link and code places one on a partner's name
+alone. The list survives as a filter on which of the site's own pages a piece is shown (`GccRequiredToolMentions.Unlisted`),
+leaving in any tool the Brief or a partner's research names; the run log's `site-tools` event lists both. What it gives
+up: a page may name any tool, a rival included, and nothing says so. Not yet seen in a real run.
 
 **Realtime.** SignalR hub `/hubs/workflow-realtime` (also `/hubs/gcc-v2-realtime` and `/hubs/geek-crawler-realtime`); a
 client calls `JoinGccGenerate(jobId)` and receives `GccGenerateEvent`, `GccGenerateTypeEvent`, `GccGeneratePreflightEvent`.
@@ -510,8 +536,9 @@ SMTP_*.
 
 ## 13. Build, test and delivery
 
-- **Tests:** `dotnet test GEEKBACKEND.slnx`. GeekBackend.Tests: xUnit, 2,170 tests on 2026-10-13 after the tests of the
-  removed question searches went (theory rows included; 2,151 earlier that day; 2,139 on 2026-10-12; 1,972 on 2026-10-07), using EphemeralMongo and EF InMemory with scripted model providers, so they prove wiring and the
+- **Tests:** `dotnet test GEEKBACKEND.slnx`. GeekBackend.Tests: xUnit, 2,198 tests on 2026-10-13 (2,170 before that
+  afternoon's tool-name, list-name and made-up-figure changes, after the tests of the removed question searches went; theory rows included;
+  2,151 earlier that day; 2,139 on 2026-10-12; 1,972 on 2026-10-07), using EphemeralMongo and EF InMemory with scripted model providers, so they prove wiring and the
   checks and nothing about model behaviour. IntegrationTests (44 tests; 33 on 2026-10-07) need `TEST_DATABASE_URL` and run
   the app through `WebApplicationFactory`. content-creator-v2: `node --test`, 83 tests on 2026-10-13 (63 on 2026-10-12; 14 on 2026-10-07),
   plus a CI of typecheck, lint and build. The form's tests render pages against a GeekAPI answered from fixtures; none
@@ -542,7 +569,7 @@ blank: 2,913 tabs after one of four answers, 2,481 spaces after five of eight. T
 two of its parts, and the model filled the rest of the reply with them. Both were requests for a page's questions section,
 and each refused its whole page (the blog; ADP's tool page). Since 2026-10-13 a questions request that fails leaves its
 questions out, says so in one line and keeps the page (`GccGenerateService.FaqRequestFailed`), and the failure's message
-says when the reply ended in blanks (`OpenAiCompatibleOutcome.BlankRunNote`); built, not committed, not seen in a real run.
+says when the reply ended in blanks (`OpenAiCompatibleOutcome.BlankRunNote`); pushed in `293a456`, not seen in a real run.
 Both were requests that had to decide which questions their passages answered; since the same day a questions request is
 handed the operator's answers and has no such decision to make.
 **Not handled:** the same reply to an opening or a body request still refuses that page, because half a page cannot be
@@ -550,12 +577,16 @@ saved and nothing is sent a second time (Jeff, 2026-10-06 and 2026-10-12). One m
 thing that would save the page; it was put to Jeff on 2026-10-13 and is his to decide. GeekAPI's Railway log holds no cut
 reply from 2026-10-06 until that run.
 
-**A page is two and a half times its floor on GPT-4.1** (the same run): 8,100 to 9,800 words against 3,000, because the
+**A sentence a page lost to a made-up figure may leave the text beside it reading oddly** (2026-10-13). Code deletes the
+sentence and rewrites nothing (section 7, **Checks**), so a sentence that leaned on it ("That is why...") stays as written.
+Each deleted sentence is named in the run's list with the heading it stood under. Not yet seen in a real run.
+
+**A page is two and a half times its floor on GPT-4.1** (the 13:16 UTC run of 2026-10-13): 8,100 to 9,800 words against 3,000, because the
 model writes the 500-700 words each of ten sections is asked, where the model before it stopped at about 650 a request of
 two. The keyword's share of the page fell with it (0.03% to 0.21% against 0.4%). Nothing was changed; the length is Jeff's
 to decide.
 
-**The keyword has no minimum share of a page** (2026-10-13; built, not committed, not seen in a real run). Until then
+**The keyword has no minimum share of a page** (2026-10-13; pushed in `293a456`, not seen in a real run). Until then
 the score's "Keyword density" check failed under 0.4% and the page was listed for it, on every real run from 2026-10-10.
 The figure was the code's own. Jeff's `seo-content-brief` skill says density is a stuffing heuristic, "not a Google
 percentage rule", and that the keyword is judged by where it is placed. On the 13:16 UTC run the minimum asked 33 to 39
@@ -570,7 +601,7 @@ in the title" and "Keyword in the meta description" beside "Keyword in lede" and
 by the score's own match), each on the run log's `placement` event. A pillar's and a blog's address is made from the title.
 Left: a tool page's address is its product, and no image is produced, so there is no alt text.
 
-**No em dash in what a writer produces** (2026-10-13, on Jeff's word; built, not committed, not seen in a real run).
+**No em dash in what a writer produces** (2026-10-13, on Jeff's word; pushed in `293a456`, not seen in a real run).
 `GccEmDash` holds the rule: the instruction, printed in the voice every channel shares (`BrandTones.SharedBaseGuidance`) and
 in the three requests that do not print it, and the code that takes out what a reply carries anyway, with a comma between
 words and nothing beside an existing mark. A page's document is read in `GuardedDraftAsync` before its checks; a title, a
@@ -578,7 +609,7 @@ meta description, a tool page's summaries, an email and a post are read where th
 block keep theirs. Counts are on the run log (`emDashesRemoved` on verdict, and `em-dash`). Request wording outside the shared
 voice still uses the character; the Workflow product has the instruction and no code step.
 
-**Built on 2026-10-13, not committed and not seen in a real run:** the FAQ written from the operator's answers (step 4
+**Pushed on 2026-10-13 (`293a456`; the form `007cd78`) and not seen in a real run:** the FAQ written from the operator's answers (step 4
 above), in GeekAPI and on the form, and a partner's not-written line leading with its type ("tool: Adp: ..."), which is
 why ADP was listed twice on the 13:16 UTC run. Two things to know:
 - **Every question saved before that day has no answer,** so each page that has questions lists one line saying so until

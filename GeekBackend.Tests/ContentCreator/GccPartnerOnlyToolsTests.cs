@@ -90,22 +90,13 @@ public sealed class GccPartnerOnlyToolsTests
         Assert.Equal("Ramp", link.Words);
     }
 
-    [Fact]
-    public void The_writer_is_told_which_tools_not_to_name()
-    {
-        var instruction = GccRequiredToolMentions.UnlistedInstruction(["Melio", "Plooto"])!;
-
-        Assert.StartsWith("TOOLS THIS PIECE DOES NOT NAME: Melio, Plooto.", instruction);
-        Assert.Null(GccRequiredToolMentions.UnlistedInstruction([]));
-    }
-
     /// <summary>
     /// The real pillar path. The site links Melio, Dext and Lightyear under the keyword; the project's
-    /// partners are Lightyear and Ramp. The writer is handed Lightyear and Ramp to name, and Melio and
-    /// Dext as names to leave out.
+    /// partners are Lightyear and Ramp. The writer is handed Lightyear and Ramp to name, and is told of
+    /// no tool it must leave out.
     /// </summary>
     [Fact]
-    public async Task A_pillar_is_handed_the_projects_partners_to_name_and_the_sites_other_tools_to_leave_out()
+    public async Task A_pillar_is_handed_the_projects_partners_to_name_and_is_told_of_no_tool_to_leave_out()
     {
         var project = Project("https://lightyear.cloud", "https://ramp.com");
         var create = Create(project.Id, GccKnownToolsResolverTests.RunId);
@@ -121,7 +112,7 @@ public sealed class GccPartnerOnlyToolsTests
             .Where(line => line.StartsWith("- ", StringComparison.Ordinal))
             .ToList();
         Assert.Equal(["- Lightyear", "- Ramp"], tools);
-        Assert.Contains("TOOLS THIS PIECE DOES NOT NAME: Melio, Dext.", prompt, StringComparison.Ordinal);
+        AssertNoRequestNamesAToolToLeaveOut(provider);
         Assert.DoesNotContain("public path", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("/tools/marketing/lightyear", prompt, StringComparison.Ordinal);
     }
@@ -174,6 +165,121 @@ public sealed class GccPartnerOnlyToolsTests
         Assert.DoesNotContain("link-text", checks);
         Assert.DoesNotContain("partner-mentions", checks);
     }
+
+    /// <summary>
+    /// Which of the site's tools are kept out of the site's own blocks a piece reads: not a partner,
+    /// and named by neither the Brief nor a partner's own pages.
+    /// </summary>
+    [Fact]
+    public void A_tool_the_brief_or_a_partners_own_pages_name_is_not_kept_out_of_what_a_piece_reads()
+    {
+        var (keptOut, shown) = GccRequiredToolMentions.Unlisted(
+            siteTools: ["Stripe", "Avalara", "Sovos", "Lightyear", "Bill", "stripe"],
+            required: ["Lightyear", "Ramp"],
+            briefText: "Fragmented billing: several subscription engines (like Stripe, PayPal, and Chargebee). A bill arrives late.",
+            partnerText: "Quaderno integrates directly with Stripe. Moving from Avalara takes an afternoon.");
+
+        // A partner is neither. "a bill arrives" does not name Bill. A name is listed once.
+        Assert.Equal(["Sovos", "Bill"], keptOut);
+        // The Brief is named first as where: it is the operator's own statement.
+        Assert.Equal(
+            [("Stripe", GccRequiredToolMentions.NamedInTheBrief), ("Avalara", GccRequiredToolMentions.NamedOnPartnerPages)],
+            shown);
+    }
+
+    /// <summary>
+    /// The real pillar path, as the 17:47 UTC run of 2026-10-13 met it: the site lists a tool under
+    /// the keyword that is not a partner, and the writer names it. The page is saved, whether the
+    /// Brief names the tool, a partner's page names it, or nothing the writer was handed does. No
+    /// request tells the writer to leave a tool out, and no check lists the name.
+    /// </summary>
+    [Theory]
+    [InlineData("Melio holds part of the payment data.")]
+    [InlineData("Lightyear connects to Stampli.")]
+    [InlineData("Dext reads the receipt.")]
+    public async Task A_pillar_that_names_a_tool_the_project_does_not_list_is_saved(string sentence)
+    {
+        var project = Project("https://lightyear.cloud", "https://ramp.com");
+        var create = Create(project.Id, GccKnownToolsResolverTests.RunId) with
+        {
+            BriefJson = """{"nicheFraming":{"coreProblem":"Payment data sits in several tools (like Melio and PayPal), and nobody reconciles them."}}""",
+            ResearchJson = Research(
+                partnerPassage: "Lightyear connects natively to Stampli and syncs every payment.",
+                competitorPassage: "Dext reads the receipt and codes it."),
+        };
+        var provider = new CapturingProvider(call => call == 0 ? NamingReply(sentence) : ScriptedBody.PlannedBatch(call));
+        var written = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, NullLogger.Instance);
+
+        var envelope = await Build(provider, project).GeneratePillarBodyAsync(
+            create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        Assert.Contains(sentence, envelope, StringComparison.Ordinal);
+        AssertNoRequestNamesAToolToLeaveOut(provider);
+        var verdict = Assert.Single(written, w => w.Kind == "verdict");
+        Assert.DoesNotContain("does not list as a partner", verdict.PayloadJson, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// What is kept out of the site's own blocks is on the run's record, with the tools shown after all
+    /// and where each was named: the Brief names Melio here, and nothing names Dext.
+    /// </summary>
+    [Fact]
+    public async Task The_sites_tools_kept_out_of_its_own_blocks_are_on_the_runs_record()
+    {
+        var project = Project("https://lightyear.cloud", "https://ramp.com");
+        var create = Create(project.Id, GccKnownToolsResolverTests.RunId) with
+        {
+            BriefJson = """{"nicheFraming":{"coreProblem":"Payment data sits in several tools (like Melio and PayPal), and nobody reconciles them."}}""",
+        };
+        var written = new List<GccGenerateJobEventWrite>();
+        GccRunLog.Begin(Guid.NewGuid(), (events, _) => { written.AddRange(events); return Task.CompletedTask; }, NullLogger.Instance);
+
+        await Build(new CapturingProvider(), project).GeneratePillarBodyAsync(
+            create, null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+
+        var record = Assert.Single(written, w => w.Kind == "site-tools");
+        using var payload = System.Text.Json.JsonDocument.Parse(record.PayloadJson);
+        Assert.Equal(
+            ["Dext"],
+            payload.RootElement.GetProperty("keptOutOfTheSitesOwnBlocks").EnumerateArray().Select(n => n.GetString()));
+        var kept = Assert.Single(payload.RootElement.GetProperty("shown").EnumerateArray());
+        Assert.Equal("Melio", kept.GetProperty("name").GetString());
+        Assert.Equal(GccRequiredToolMentions.NamedInTheBrief, kept.GetProperty("namedIn").GetString());
+    }
+
+    /// <summary>No request of a run tells the writer of a tool it must not name.</summary>
+    private static void AssertNoRequestNamesAToolToLeaveOut(CapturingProvider provider) =>
+        Assert.All(provider.Requests, request =>
+        {
+            var asked = string.Join("\n", request.Messages.Select(m => m.Content));
+            Assert.DoesNotContain("DOES NOT NAME", asked, StringComparison.Ordinal);
+            Assert.DoesNotContain("Do not name them", asked, StringComparison.Ordinal);
+        });
+
+    /// <summary>A first body reply that names both partners, as a pillar must, and then says <paramref name="sentence"/>.</summary>
+    private static string NamingReply(string sentence) =>
+        $$"""{"sections":[{"tag":"h2","heading":"Where the hours go","paragraphs":[{"type":"text","runs":[{"text":"Ramp codes the spend on capture, and Lightyear routes each invoice for approval. {{sentence}}"}]}],"href":null,"children":[],"provenance":"plan"}]}""";
+
+    /// <summary>A page of Lightyear's own, and when asked a competitor's page beside it.</summary>
+    private static string Research(string partnerPassage, string? competitorPassage = null) =>
+        GccResearchFetchService.Serialize(new GccResearchDocument(SerpIndex: null, Quoteables: []) with
+        {
+            Quoteables =
+            [
+                new GccQuoteablePage(
+                    "https://lightyear.cloud/integrations", "Lightyear integrations", [], [partnerPassage],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            ],
+            CompetitorQuoteables = competitorPassage is null
+                ? []
+                :
+                [
+                    new GccQuoteablePage(
+                        "https://contender.test/compare", "Other vendor compared", [], [competitorPassage],
+                        RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+                ],
+        });
 
     /// <summary>
     /// The whole pillar write step with ten body sections: five body calls, each on the run's record with

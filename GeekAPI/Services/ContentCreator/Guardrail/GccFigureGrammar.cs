@@ -80,7 +80,7 @@ public static partial class GccFigureGrammar
         void Add(Match m, Group value)
         {
             if (taken.Any(t => m.Index < t.End && t.Start < m.Index + m.Length)) return;
-            if (IsListNumeral(text, m.Index) || IsVersion(text, m.Index, m.Length)) return;
+            if (IsListNumeral(text, m.Index) || IsVersion(text, m.Index, m.Length) || IsNamedList(text, m.Index)) return;
             taken.Add((m.Index, m.Index + m.Length));
             found.Add(new GccFigure(m.Value.Trim(), m.Index, Normalize(value.Value)));
         }
@@ -167,6 +167,30 @@ public static partial class GccFigureGrammar
         }
 
         return before.TrimEnd().EndsWith("Step", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The lists of companies and the market indexes whose name ends in a number: "Fortune 500",
+    /// "S&amp;P 500", "Russell 2000", "FTSE 100", "Nasdaq 100".
+    /// </summary>
+    private static readonly string[] NamedLists = ["Fortune", "S&P", "Russell", "FTSE", "Nasdaq"];
+
+    /// <summary>
+    /// Whether the number at <paramref name="index"/> is the end of a list's name and not a figure.
+    /// </summary>
+    /// <remarks>
+    /// "Fortune 500" names a list of companies; it states no count of anything. The 17:47 UTC run of
+    /// 2026-10-13 refused TaxJar's tool page for "it is not built for the Fortune 500", the 500 being
+    /// in none of the evidence. The name is written with a capital and one space or a hyphen before
+    /// its number; "a fortune 500 times over" is still a figure.
+    /// </remarks>
+    private static bool IsNamedList(string text, int index)
+    {
+        if (index < 2 || text[index - 1] is not (' ' or '-' or '\u00A0')) return false;
+        var before = text[..(index - 1)];
+        return NamedLists.Any(name =>
+            before.EndsWith(name, StringComparison.Ordinal)
+            && (before.Length == name.Length || !char.IsLetterOrDigit(before[before.Length - name.Length - 1])));
     }
 
     /// <summary>"v2.1", "version 3.4", "1.2.3".</summary>

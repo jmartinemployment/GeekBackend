@@ -261,7 +261,9 @@ public partial class GccGenerateService
 
         var (document, pillarWarnings) = await GuardedDraftAsync(
             "the pillar", WritePillarDraftAsync, doc => Guardrail.GccDraftGuard.Pillar(doc, pillarGuardInputs),
-            pillarPromptCtx.Context.TargetKeyword);
+            pillarPromptCtx.Context.TargetKeyword,
+            type: "pillar",
+            numberEvidence: pillarGuardInputs.NumberEvidence);
 
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.

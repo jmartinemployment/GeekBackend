@@ -199,7 +199,10 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// Records every call under the name of what it writes, and answers by what was asked. The answer
     /// never depends on the brief, so two runs differ only in what the brief put into the prompts.
     /// </summary>
-    private sealed class Recorder(string page, string model = "gpt-4.1") : IContentGenerationProvider
+    /// <param name="firstBody">What the writer's first body reply is changed to, for a test of what the
+    /// page does with something a writer wrote; null for the reply as scripted.</param>
+    private sealed class Recorder(string page, string model = "gpt-4.1", Func<string, string>? firstBody = null)
+        : IContentGenerationProvider
     {
         private readonly List<(string Label, string Text)> calls = [];
         private int bodyCalls;
@@ -235,6 +238,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
                 var body = page == "tool"
                     ? ToolBodyBatches[Math.Min(n, ToolBodyBatches.Length - 1)]
                     : n < 1 ? FirstBatchJson : ScriptedBody.PlannedBatch(n);
+                if (n == 0 && firstBody is not null) body = firstBody(body);
                 return ("body call", body);
             }
 
@@ -386,9 +390,10 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
         string briefJson,
         string? pageResearch = null,
         string model = "gpt-4.1",
-        Func<GccCompetitorAnalysisResolver>? competitors = null)
+        Func<GccCompetitorAnalysisResolver>? competitors = null,
+        Func<string, string>? firstBody = null)
     {
-        var provider = new Recorder(page, model);
+        var provider = new Recorder(page, model, firstBody);
         var plain = Build(provider, GccPartnerExtractionFakes.NeverInvoked(new FakeProviderFactory(provider)), null);
         // The project the pages belong to, declaring the partner the brief's per-tool fields are entered
         // under. The pillar and the blog were written for no project until 2026-10-11, so nothing a
@@ -1575,6 +1580,51 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             .ToList();
 
         Assert.True(untold.Count == 0, $"The {page}'s requests not told: {string.Join(", ", untold)}.");
+    }
+
+    /// <summary>
+    /// A number the writer made up, through each page's real writer: the sentence that states it is
+    /// deleted, the sentences either side stay, the page is saved, and its lines name the sentence and
+    /// the heading it stood under.
+    /// </summary>
+    /// <remarks>
+    /// Jeff, 2026-10-13: "Stop the sentence, not the pillar or blog?" That day's 17:47 UTC run lost its
+    /// pillar, 8,053 words, to this sentence: the writer's own 1,000, where three partner pages in
+    /// front of it gave Texas's threshold as $500,000 with no count of sales. Until then one such
+    /// figure refused the page, and no test wrote a page through to see it lost.
+    /// </remarks>
+    [Theory]
+    [InlineData("pillar", "pillar", "written.")]
+    [InlineData("blog", "blog", "written.")]
+    [InlineData("tool", "tool page", "the manual pass.")]
+    public async Task A_sentence_with_a_number_the_writer_made_up_is_deleted_and_the_page_is_saved(
+        string page, string named, string before)
+    {
+        const string MadeUp = "If you sell 1,000 units of a digital service in Texas, you could miss a nexus trigger entirely.";
+        const string After = "The rest stands.";
+
+        var calls = await WriteAsync(
+            page, CompleteBrief, firstBody: body =>
+            {
+                Assert.Single(System.Text.RegularExpressions.Regex.Matches(body, System.Text.RegularExpressions.Regex.Escape(before)));
+                return body.Replace(before, $"{before} {MadeUp} {After}", StringComparison.Ordinal);
+            });
+
+        using var saved = System.Text.Json.JsonDocument.Parse(calls[^1].Text);
+        var body = saved.RootElement.GetProperty("body").GetRawText();
+        Assert.DoesNotContain("1,000", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("nexus trigger", body, StringComparison.Ordinal);
+        Assert.Contains($"{before} {After}", body, StringComparison.Ordinal);
+
+        var lines = saved.RootElement.GetProperty("warnings").EnumerateArray().Select(line => line.GetString() ?? string.Empty).ToList();
+        var line = Assert.Single(lines, l => l.Contains("was deleted", StringComparison.Ordinal));
+        Assert.Contains(
+            $"The {named}: 1 sentence was deleted because it states a number that is in neither the Brief nor the research: "
+            + $"\"{MadeUp}\" (1,000), under \"",
+            line,
+            StringComparison.Ordinal);
+        Assert.EndsWith("The rest of the page is as written.", line, StringComparison.Ordinal);
+        if (page == "tool") Assert.StartsWith("Tool page '", line, StringComparison.Ordinal);
     }
 
     /// <summary>

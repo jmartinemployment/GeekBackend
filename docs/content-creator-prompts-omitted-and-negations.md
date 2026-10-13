@@ -304,7 +304,7 @@ for ONLY these channel slots (one variant object per slot, same order): {channel
 These make up the `{evidence block}` in the prompts of `docs/content-creator-prompts-by-type.md`. They are
 built in `GccGenerateService` (`BuildEvidenceBlock`) and the classes named below, and joined in this order:
 research, publisher's positions, competitor headings, competitor research, own-site coverage, then (pillar
-and blog) the partner-tools block, the unlisted-tools line and the valid-provenance-values list; for the tool
+and blog) the partner-tools block and the valid-provenance-values list; for the tool
 page, the competitor block and the foreign amounts.
 
 ### B1. Partner tools (`GccRequiredToolMentions.Instruction`), pillar and blog
@@ -319,7 +319,11 @@ Weave each into a sentence where it genuinely belongs: what it does for this rea
 Name them all together, or one at a time -- never some of them. A sentence that names some of these tools and not the rest tells the reader the rest cannot do what it describes. Where a capability is shared, name every one of them in that sentence or name none by name; where it is one tool's, name that tool alone, with the evidence for it.
 ```
 
-### B2. Tools this project does not list (`GccRequiredToolMentions.UnlistedInstruction`)
+### B2. Tools this project does not list: removed 2026-10-13
+
+No request carries this block any more, and no check refuses a page for naming such a tool (Jeff, 2026-10-13, after
+that day's 17:47 UTC run lost its pillar and its blog for naming Stripe, which his own Brief names). The method that
+built it is deleted. What it printed until then:
 
 ```
 TOOLS THIS PIECE DOES NOT NAME: {names}.
@@ -752,7 +756,7 @@ Counted across the six generated prompts (the three types' ledes and bodies, sys
 - Name them all together, or one at a time -- never some of them.
 - A sentence that names some of these tools and not the rest tells the reader the rest cannot do what it describes.
 
-### content-creator-prompts-omitted-and-negations :: B2. Tools this project does not list (`GccRequiredToolMentions.UnlistedInstruction`)
+### content-creator-prompts-omitted-and-negations :: B2. Tools this project does not list (removed 2026-10-13; in no request)
 - TOOLS THIS PIECE DOES NOT NAME: {names}.
 - This site covers them elsewhere, but they are not this project's partners.
 - Do not name them and do not link them, anywhere in this piece.

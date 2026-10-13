@@ -8,7 +8,7 @@ listed. Repurpose has not been run.
 
 **Changed on 2026-10-13, on your word, and not in the steps below** ("FAQ's I have answers to
 questions that I am suppling. Add spot for answers on UI, and no longer query for answer
-passages."). Built in both repositories, not committed.
+passages."). Pushed the same day: GeekBackend `293a456`, content-creator-v2 `007cd78`.
 - No crawl is searched for an FAQ question. You enter each answer beside its question under "People
   Also Ask (direct entry, optional)", "Blog FAQ (optional)" and each tool's "Tool page FAQ", and the
   writer writes it in the Brief's voice, adding nothing.

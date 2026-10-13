@@ -216,34 +216,65 @@ public static class GccRequiredToolMentions
     /// <summary>Whether two names refer to the same product, ignoring spacing and punctuation.</summary>
     public static bool SameProduct(string a, string b) => Covers(a, b);
 
+    /// <summary>Where a name was found that keeps a site tool in what a piece reads: the operator's Brief.</summary>
+    internal const string NamedInTheBrief = "the Brief";
+
+    /// <summary>Where a name was found that keeps a site tool in what a piece reads: a partner's own pages.</summary>
+    internal const string NamedOnPartnerPages = "the partners' own pages";
+
     /// <summary>
-    /// The instruction naming the tools this piece must not name, or null when there are none.
+    /// The tools of the publisher's site that are kept out of the site's own blocks a piece reads,
+    /// and the ones that are shown after all, each with where the name was found.
     /// </summary>
     /// <remarks>
-    /// The publisher's own site lists tools that are not this project's partners, and the writer sees
-    /// that site's headings and prose, so the names are in front of it. Naming them here is what stops
-    /// "tools like ApprovalMax, Melio, and Ramp" on a project whose partners do not include Melio.
+    /// <para>
+    /// <b>This list refuses nothing and the writer is told nothing of it</b> (Jeff, 2026-10-13: "an
+    /// answer to a question names stripe, so what?", then "You are removing this stupid rule?"). From
+    /// 2026-10-05 a pillar and a blog were told "TOOLS THIS PIECE DOES NOT NAME" and refused for
+    /// naming one. The 17:47 UTC run of 2026-10-13 lost its pillar and its blog to that for naming
+    /// Stripe: the site lists Stripe under the topic, the Brief named it in a failure and two remedies
+    /// ("subscription engines (like Stripe, PayPal, and Chargebee)"), and the partners' pages named it
+    /// 95 times as the payment system they connect to. The instruction and the check are deleted. Do
+    /// not put either back.
+    /// </para>
+    /// <para>
+    /// <b>What is left is what a piece is shown of the site's own pages.</b> The site publishes a tool
+    /// page for each partner of every project. A page of the site's about a tool that is not this
+    /// project's partner is left out of the site's own blocks (<c>GccCompetitorNames</c>), so a pillar
+    /// is not handed another project's partners as its own subject. A tool <b>the operator's Brief
+    /// names or a partner's own pages name</b> is not kept out: the piece is handed that name already.
+    /// A competitor's pages keep nothing in.
+    /// </para>
+    /// <para>
+    /// A partner link still goes only to a partner's tool page: the writer writes no link and
+    /// <c>GccToolLinker</c> places one on a partner's name alone.
+    /// </para>
     /// </remarks>
-    public static string? UnlistedInstruction(IReadOnlyList<string> unlisted)
+    /// <param name="siteTools">The tools the publisher's site lists under the topic.</param>
+    /// <param name="required">The project's partner tools.</param>
+    /// <param name="briefText">The Brief as the text in it, with the topic and the notes.</param>
+    /// <param name="partnerText">The partners' research as the writer is shown it.</param>
+    public static (IReadOnlyList<string> KeptOut, IReadOnlyList<(string Name, string Where)> Shown) Unlisted(
+        IEnumerable<string> siteTools,
+        IReadOnlyList<string> required,
+        string? briefText,
+        string? partnerText)
     {
-        if (unlisted.Count == 0) return null;
+        var keptOut = new List<string>();
+        var shown = new List<(string Name, string Where)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tool in siteTools)
+        {
+            var name = (tool ?? string.Empty).Trim();
+            if (name.Length == 0 || !seen.Add(name)) continue;
+            if (required.Any(partner => SameProduct(partner, name))) continue;
 
-        return new StringBuilder()
-            .AppendLine($"TOOLS THIS PIECE DOES NOT NAME: {string.Join(", ", unlisted)}.")
-            .AppendLine(
-                "This site covers them elsewhere, but they are not this project's partners. Do not name them and " +
-                "do not link them, anywhere in this piece. The only tools this piece names are the partner " +
-                "tools listed above.")
-            .ToString();
-    }
+            if (NamesAsWord(briefText ?? string.Empty, name)) shown.Add((name, NamedInTheBrief));
+            else if (NamesAsWord(partnerText ?? string.Empty, name)) shown.Add((name, NamedOnPartnerPages));
+            else keptOut.Add(name);
+        }
 
-    /// <summary>The names in <paramref name="unlisted"/> that the document uses, as whole words.</summary>
-    public static IReadOnlyList<string> Named(ContentDocument document, IReadOnlyList<string> unlisted)
-    {
-        if (unlisted.Count == 0) return [];
-
-        var text = ContentDocumentText.Flatten(document);
-        return [.. unlisted.Where(name => NamesAsWord(text, name))];
+        return (keptOut, shown);
     }
 
     /// <summary>
