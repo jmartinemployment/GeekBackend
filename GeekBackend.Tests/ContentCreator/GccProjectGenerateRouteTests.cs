@@ -463,6 +463,10 @@ public sealed class GccProjectGenerateRouteTests
         /// <summary>The newest Repurpose of that page, or null when it has never been repurposed.</summary>
         public GccGenerateJobDto? LatestRepurpose { get; init; }
 
+        /// <summary>Everything the project holds, pages and pieces: what a Generate asked for a short
+        /// piece reads to see whether there is a Pillar or a Blog to write it from.</summary>
+        public IReadOnlyList<GccArtifactDto> Artifacts { get; init; } = [];
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var path = request.RequestUri!.AbsolutePath;
@@ -480,6 +484,8 @@ public sealed class GccProjectGenerateRouteTests
                     ? Array.Empty<GccArtifactVersionDto>()
                     : [new GccArtifactVersionDto(Guid.NewGuid(), Page.Id, 1, PageBody, null, 1, DateTime.UtcNow)]);
             }
+            if (request.Method == HttpMethod.Get && path.EndsWith("/artifacts"))
+                return Json(Artifacts);
             if (request.Method == HttpMethod.Get && path.StartsWith("/repo/content-creator/projects/"))
                 return project is null ? Status(HttpStatusCode.NotFound) : Json(project);
             if (request.Method == HttpMethod.Post && path == "/repo/content-creator/generate-jobs")

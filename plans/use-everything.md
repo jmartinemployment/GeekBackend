@@ -6,6 +6,13 @@ the 13:16 UTC run of 2026-10-13: every request carried all of its research and t
 exact; the blog and ADP's tool page were lost to a questions request, and five keyword lines were
 listed. Repurpose has not been run.
 
+**Changed 2026-10-13, on Jeff's word ("Add my Email, Social, and Ads, back to generate"):** the three
+are Generate types again, written from the project's Pillar; Repurpose stays as the way to write one
+again from one approved page. Plan and what was built: `plans/email-social-ads-on-generate.md`. Steps
+4 and 5 below are as they were built on 2026-10-12. Three things they say are no longer so, each
+marked where it stands: a Generate asked for a short piece is refused; Generate's list does not offer
+the three; no run deletes a short piece an older Generate saved.
+
 **Changed on 2026-10-13, on your word, and not in the steps below** ("FAQ's I have answers to
 questions that I am suppling. Add spot for answers on UI, and no longer query for answer
 passages."). Pushed the same day: GeekBackend `293a456`, content-creator-v2 `007cd78`.
@@ -185,7 +192,8 @@ passages."). Pushed the same day: GeekBackend `293a456`, content-creator-v2 `007
   an opening is handed what the questions found.
 
 **Step 4, as built. What differs from what this plan said is marked.**
-- **A short piece is written by Repurpose, from one approved page, and nowhere else.** A Generate
+- **A short piece is written by Repurpose, from one approved page, and nowhere else.** *(Until
+  2026-10-13: a Generate writes one from the project's Pillar.)* A Generate
   asked for one is refused before anything starts: "'social' is written by Repurpose from an
   approved pillar, blog or tool page, not by Generate. Nothing was generated."
 - **The route is on the project, beside Generate, which this plan did not say:**
@@ -231,7 +239,8 @@ passages."). Pushed the same day: GeekBackend `293a456`, content-creator-v2 `007
   **Not run against a real database here** (no Postgres on this machine); checked against the model
   with EF and read as the SQL it generates. It runs when GeekRepository starts after the push.
 - **Short pieces saved by earlier Generate runs stay** as pages of the project. No run deletes them
-  now, since Generate no longer takes those types. Step 5 says how the form shows them.
+  now, since Generate no longer takes those types. Step 5 says how the form shows them. *(Until
+  2026-10-13: a Generate asked for that type deletes every piece of it on the project first.)*
 - Tests: 2,139 unit and 44 integration pass. The route is tested for an approved page, a page not
   approved, a project whose site is not crawled, an incomplete Brief, a page of another project, a
   type that is not a short piece, a piece as the source, a run already going, and the page's newest
@@ -243,7 +252,7 @@ passages."). Pushed the same day: GeekBackend `293a456`, content-creator-v2 `007
 **Step 5, as built. What differs from what this plan said is marked.**
 - **Generate's "Content type" list no longer offers "Email — cold outreach", "Social" or "Ads".**
   A line under the list says they are not written by Generate and where they are. Their tabs under
-  Output stay.
+  Output stay. *(Until 2026-10-13: the list offers them and says they are written from the Pillar.)*
 - **"Repurpose" is a section under "Approve & export"** on a pillar, a blog and a tool page, and
   not under a piece. A page that is not approved says "Approve this page first" and offers nothing
   to press. An approved page has the three to tick under "Write from this page", and the
@@ -262,9 +271,11 @@ passages."). Pushed the same day: GeekBackend `293a456`, content-creator-v2 `007
   “Ramp”") in its heading line, with the way back. Where a tab holds several pieces each button says
   its page ("From the Pillar"), a pillar's email and a blog's both being named for the keyword.
 - **A tab of the three with nothing in it** says the piece is written from an approved page with
-  Repurpose, where it said to tick it on Generate.
+  Repurpose, where it said to tick it on Generate. *(Until 2026-10-13: it says to tick it under
+  "Content type" and Generate.)*
 - **The line under Generate's list** when a ticked page has pieces: "Writing the Pillar again
-  deletes the 3 pieces Repurpose wrote from it." When tool pages are ticked for some partners only,
+  deletes the 3 pieces Repurpose wrote from it." *(Since 2026-10-13: "...the 3 pieces written from
+  it.", and a ticked piece says how many of its type the project already has.)* When tool pages are ticked for some partners only,
   it says the rule and no number: which pages that run writes is the server's to say.
 - **An email is drawn as its subject, its body and its button text; a post or an ad as its text.**
   All as text. Until now an email drew its body alone, read as markup, and a post showed as raw data.

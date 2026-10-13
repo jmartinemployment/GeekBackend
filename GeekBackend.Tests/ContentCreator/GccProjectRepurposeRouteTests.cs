@@ -259,26 +259,85 @@ public sealed class GccProjectRepurposeRouteTests
         Assert.Contains("reload and repurpose again", conflict);
     }
 
-    // ---- Generate no longer writes a short piece ---------------------------------------------------
+    // ---- Generate writes a short piece again, from the project's Pillar ----------------------------
 
+    /// <summary>
+    /// Jeff, 2026-10-13: "Add my Email, Social, and Ads, back to generate". From 2026-10-12 a Generate
+    /// asked for one was refused, naming Repurpose. Ticked beside "Pillar", the run starts: the piece
+    /// is written from the Pillar that run writes.
+    /// </summary>
     [Theory]
     [InlineData("email-cold-outreach")]
     [InlineData("social")]
     [InlineData("ads")]
     [InlineData("linkedin")]
-    public async Task A_generate_asked_for_a_short_piece_is_refused_naming_repurpose(string type)
+    public async Task A_generate_asked_for_a_short_piece_beside_its_pillar_starts(string type)
     {
-        var project = GccProjectGenerateRouteTests.Project(GccProjectGenerateRouteTests.CompleteBrief, briefVersion: 1);
-        var repo = new Repo(project, backing: null);
+        var project = GccProjectGenerateRouteTests.Project(GccProjectGenerateRouteTests.CompleteBrief, briefVersion: 3);
+        var repo = new Repo(project, GccProjectGenerateRouteTests.Create(project.Id));
 
         var result = await GccProjectGenerateRouteTests.Controller(repo).Generate(
             project.Id, new ApiProjectsController.GenerateRequest(["pillar", type], "OpenAi"), CancellationToken.None);
 
+        Assert.IsType<AcceptedResult>(result);
+        var start = Assert.Single(repo.Starts);
+        Assert.Equal(["pillar", type], start.RequestedTypes);
+        // A Generate, not a Repurpose: it is written from no page chosen by the operator.
+        Assert.Null(start.SourcePageId);
+    }
+
+    /// <summary>Ticked alone, it is written from the Pillar the project already has, approved or not;
+    /// with no Pillar, from its Blog.</summary>
+    [Theory]
+    [InlineData("pillar", "draft")]
+    [InlineData("pillar", "approved")]
+    [InlineData("blog", "draft")]
+    public async Task A_generate_asked_for_a_short_piece_alone_starts_on_a_project_that_has_a_page_to_write_it_from(
+        string pageType, string status)
+    {
+        var project = GccProjectGenerateRouteTests.Project(GccProjectGenerateRouteTests.CompleteBrief, briefVersion: 3);
+        var repo = new Repo(project, GccProjectGenerateRouteTests.Create(project.Id))
+        {
+            Artifacts = [Page(project.Id) with { Type = pageType, Status = status }],
+        };
+
+        var result = await GccProjectGenerateRouteTests.Controller(repo).Generate(
+            project.Id, new ApiProjectsController.GenerateRequest(["email-cold-outreach"], "OpenAi"), CancellationToken.None);
+
+        Assert.IsType<AcceptedResult>(result);
+        Assert.Equal(["email-cold-outreach"], Assert.Single(repo.Starts).RequestedTypes);
+    }
+
+    /// <summary>
+    /// No Pillar and no Blog, and neither asked for: there is nothing to write the piece from, and the
+    /// request is answered before a run exists. A tool page is not what a Generate writes a piece from,
+    /// and a piece under a page, or one an older Generate saved, is not a page.
+    /// </summary>
+    [Fact]
+    public async Task A_generate_asked_for_a_short_piece_with_no_pillar_and_no_blog_is_refused_and_nothing_starts()
+    {
+        var project = GccProjectGenerateRouteTests.Project(GccProjectGenerateRouteTests.CompleteBrief, briefVersion: 3);
+        var toolPage = Page(project.Id) with { Type = "tool", Name = "Ramp" };
+        var repo = new Repo(project, GccProjectGenerateRouteTests.Create(project.Id))
+        {
+            Artifacts =
+            [
+                toolPage,
+                Page(project.Id) with { Type = "social", ParentArtifactId = toolPage.Id },
+                Page(project.Id) with { Type = "email-cold-outreach" },
+            ],
+        };
+
+        var result = await GccProjectGenerateRouteTests.Controller(repo).Generate(
+            project.Id, new ApiProjectsController.GenerateRequest(["tool", "email-cold-outreach", "social"], "OpenAi"),
+            CancellationToken.None);
+
         Assert.Equal(
-            $"Refused: '{type}' is written by Repurpose from an approved pillar, blog or tool page, not by Generate. "
-                + "Nothing was generated.",
+            "Refused: 'email-cold-outreach', 'social' are written from this project's Pillar, or from its Blog when it has "
+                + "no Pillar, and it has neither. Tick \"Pillar\" as well, or generate one first. Nothing was generated.",
             (string)Assert.IsType<BadRequestObjectResult>(result).Value!);
         Assert.Empty(repo.Starts);
+        Assert.Empty(repo.Writes);
     }
 
     // ---- the newest Repurpose of a page, read back -------------------------------------------------

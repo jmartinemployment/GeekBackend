@@ -499,6 +499,23 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
             ?? throw new InvalidOperationException($"Empty response from {path}");
     }
 
+    /// <summary>
+    /// Delete every piece of these types on the project, with its content, under a page or under none.
+    /// What a Generate that writes short pieces does before it writes anything. Null when the project
+    /// does not exist.
+    /// </summary>
+    public async Task<GccProjectPiecesDeleteResult?> DeleteProjectPiecesAsync(
+        Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default)
+    {
+        var query = string.Join("&", types.Select(t => $"type={Uri.EscapeDataString(t.Trim())}"));
+        var path = $"repo/content-creator/projects/{projectId}/pieces?{query}";
+        var res = await _http.DeleteAsync(path, ct);
+        if (res.StatusCode == System.Net.HttpStatusCode.NotFound) return null;
+        res.EnsureSuccessStatusCode();
+        return JsonSerializer.Deserialize<GccProjectPiecesDeleteResult>(await res.Content.ReadAsStringAsync(ct), JsonOpts)
+            ?? throw new InvalidOperationException($"Empty response from {path}");
+    }
+
     /// <summary>The newest Repurpose of one page of the project, or null when it has never been repurposed.</summary>
     public async Task<GccGenerateJobDto?> GetLatestRepurposeJobAsync(Guid projectId, Guid pageId, CancellationToken ct = default)
     {

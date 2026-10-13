@@ -201,7 +201,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     /// </summary>
     /// <param name="firstBody">What the writer's first body reply is changed to, for a test of what the
     /// page does with something a writer wrote; null for the reply as scripted.</param>
-    private sealed class Recorder(string page, string model = "gpt-4.1", Func<string, string>? firstBody = null)
+    internal sealed class Recorder(string page, string model = "gpt-4.1", Func<string, string>? firstBody = null)
         : IContentGenerationProvider
     {
         private readonly List<(string Label, string Text)> calls = [];
@@ -298,7 +298,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             });
     }
 
-    private sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory
+    internal sealed class FakeProviderFactory(IContentGenerationProvider provider) : IContentProviderFactory
     {
         public IContentGenerationProvider Get(LlmProviderType providerType) => provider;
         public IContentGenerationProvider GetDefault() => provider;
@@ -306,19 +306,19 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
 
     // ---- the pages ----------------------------------------------------------------------------------
 
-    private static readonly Guid CreateId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-    private static readonly Guid ProjectId = Guid.Parse("22222222-2222-2222-2222-222222222222");
-    private static readonly DateTime At = new(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc);
+    internal static readonly Guid CreateId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    internal static readonly Guid ProjectId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    internal static readonly DateTime At = new(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc);
     private static readonly string[] PartnerUrls = ["https://partner.test/"];
 
-    private static GccCreateDto Create(string type, string topic, string briefJson, string? researchJson, Guid? projectId) => new(
+    internal static GccCreateDto Create(string type, string topic, string briefJson, string? researchJson, Guid? projectId) => new(
         Id: CreateId, ClientId: CreateId, OwnerUserId: CreateId,
         StartingContentType: type, Topic: topic, Notes: null,
         // A site crawl id, which the dispatcher requires before it writes a tool page or an image prompt.
         ProjectSiteRunId: ProjectId, SiteSectionJson: null, BriefJson: briefJson, ResearchJson: researchJson,
         Status: "draft", CreatedAtUtc: At, UpdatedAtUtc: At, ProjectId: projectId);
 
-    private static GccGenerateService Build(
+    internal static GccGenerateService Build(
         IContentGenerationProvider provider,
         GccPartnerExtractionService extraction,
         GccProjectDto? project,

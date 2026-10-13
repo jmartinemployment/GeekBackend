@@ -189,10 +189,11 @@ public sealed class GccGenerationCoordinator
             return $"Refused: '{string.Join("', '", disabled)}' "
                 + "is disabled pending a written, approved resolve plan for its content-type quality.";
 
-        // A short piece is written from a page, by Repurpose, and never from the Brief alone
-        // (Jeff, 2026-10-12: short content types "ARE DERIVED OR REPURPOSED FROM EXISTING CONTENT").
-        // Until then Email, Social and Ads were Generate types.
-        return GccRepurpose.GenerateRefusal(requested);
+        // A short piece (an email, a social post, an ad) is a Generate type again (Jeff, 2026-10-13:
+        // "Add my Email, Social, and Ads, back to generate"). Whether the project has a page to write
+        // one from is not decided here: it needs the project's pages, and GccRepurpose.GenerateSourceOf
+        // is asked by the route before a run exists and by the run before anything is deleted.
+        return null;
     }
 
     public async Task<object> RunGenerateAsync(
@@ -230,6 +231,15 @@ public sealed class GccGenerationCoordinator
         // A model whose limit is not known is refused before the old pages go and before anything is
         // searched or paid for: no request to it could be counted against what it accepts.
         if (gen.ModelRefusal(provider) is { } unknownModel) throw new InvalidOperationException(unknownModel);
+
+        // A run asked for a short piece writes its pages first, then each piece from the project's
+        // Pillar (RunGenerateWithPiecesAsync). A run asked for none is everything below, unchanged.
+        if (requested.Any(GccRepurpose.IsShortType))
+        {
+            return await RunGenerateWithPiecesAsync(
+                repo, gen, create, section, provider, requested, mustMentionBlock, ct,
+                onTypeOutcome, onReadiness, onTypeWarning, briefRevision, toolPartners);
+        }
 
         // The old pages of every requested type go now, before a word is written (Jeff, 2026-10-06:
         // "delete should happen first"). A run that is then refused leaves the project with no page of
@@ -271,8 +281,11 @@ public sealed class GccGenerationCoordinator
             // calls once.
             //
             // That ruling is about this tangle, not about writing a short piece from a finished page.
-            // That is Repurpose (RunRepurposeAsync): a run of its own, started from an approved page,
-            // after this one. A Generate is refused a short piece (ValidateRequestedTypes).
+            // The pages of a run are still written independently of each other, here. A short piece
+            // (an email, a social post, an ad) is not one of them: it waits for its page, and is
+            // written from the Pillar once the pages are saved (RunGenerateWithPiecesAsync), or again
+            // from one approved page by a Repurpose (RunRepurposeAsync). No run with a short piece
+            // reaches this block.
             //
             // Parallel, not sequential: every call is genuinely independent (no shared mutable state,
             // nothing waits on another type's output), so awaiting them one at a time only summed
@@ -352,6 +365,321 @@ public sealed class GccGenerationCoordinator
     }
 
     /// <summary>
+    /// A Generate asked for at least one short piece (an email, a social post, an ad): its pages are
+    /// written and saved first, as a run with no piece writes them, and then each piece is written from
+    /// the project's Pillar and saved under it (<see cref="GccRepurpose.GenerateSourceOf"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Jeff, 2026-10-13: "Add my Email, Social, and Ads, back to generate and make them work from here";
+    /// asked what each is written from when ticked there, the project's Pillar. From 2026-10-12 a
+    /// Generate asked for one was refused and the only way to write one was a Repurpose from an
+    /// approved page; that is still there, and this is the same writer and the same check.
+    /// </para>
+    /// <para>
+    /// <b>The order, and why.</b>
+    /// (1) The page the pieces are written from is named, and a project with no Pillar and no Blog,
+    /// neither asked for, is refused before anything is deleted.
+    /// (2) Delete first: the old pages of the page types, and every piece of the asked types on the
+    /// project, under whichever page or under none, so the project ends the run with one of each.
+    /// (3) The pages are searched for and written. No page asked for: nothing is searched.
+    /// (4) The pages that wrote are saved. A run in which no page wrote does not end here: a piece is
+    /// still written from the Pillar the project already has.
+    /// (5) The page is read back as it was saved, each piece is written from it, and what wrote is
+    /// saved under it in one write.
+    /// (6) One result: pages and pieces, every refusal, every warning. The run fails only when nothing
+    /// at all wrote, and then it says why for each type.
+    /// </para>
+    /// <para>
+    /// <b>A Pillar asked for and refused takes its pieces with it.</b> They are refused naming the
+    /// Pillar and are not written from the Blog instead. A type's refusal is told to the page when the
+    /// run is known not to have failed, so a run that wrote nothing says each reason once, as its
+    /// failure, and not twice.
+    /// </para>
+    /// </remarks>
+    private async Task<object> RunGenerateWithPiecesAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        IReadOnlyList<string> requested,
+        string? mustMentionBlock,
+        CancellationToken ct,
+        Func<string, object?, string?, Task>? onTypeOutcome,
+        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness,
+        Func<string, string, Task>? onTypeWarning,
+        GccBriefRevisionStamp? briefRevision,
+        IReadOnlyList<string>? toolPartners)
+    {
+        var projectId = create.ProjectId ?? throw new InvalidOperationException(NoProjectRefusal);
+        var pageTypes = requested.Where(type => !GccRepurpose.IsShortType(type)).ToList();
+        var pieceTypes = requested.Where(GccRepurpose.IsShortType).ToList();
+
+        // (1) What the pieces are written from. Asked of the project as it stands, before a row of it
+        // is deleted: a run that has nothing to write a piece from deletes nothing and writes nothing.
+        var (from, nothingToWriteFrom) = GccRepurpose.GenerateSourceOf(
+            requested, await repo.ListProjectArtifactsAsync(projectId, ct));
+        if (from is null)
+        {
+            throw new InvalidOperationException(
+                nothingToWriteFrom ?? "Refused: the run names no short piece, so there is no page to write one from.");
+        }
+
+        // (2) Delete first (Jeff, 2026-10-06), the pages as a run with no piece deletes them.
+        var toolPageNames = toolPartners is { Count: > 0 }
+            ? await gen.ToolPageNamesAsync(create, toolPartners, ct)
+            : null;
+        var deletedPages = pageTypes.Count == 0
+            ? new GccPagesDeleteResult(false, 0, 0)
+            : await DeleteOldPagesAsync(repo, create, pageTypes, ct, toolPageNames);
+        var deletedPieces = await repo.DeleteProjectPiecesAsync(projectId, pieceTypes, ct)
+            ?? throw new InvalidOperationException(
+                $"Refused: project {projectId} no longer exists, so there is nowhere to write to. Nothing was generated.");
+        _logger.LogInformation(
+            "Generate on project {ProjectId} deleted {Pages} page(s) and {Derived} derived page(s) of {Types}, and {Pieces} piece(s) of {PieceTypes}, before writing; the pieces are written from the {Source}{ThisRun}",
+            projectId, deletedPages.Pages, deletedPages.DerivedPages, string.Join(", ", pageTypes),
+            deletedPieces.Pieces + deletedPieces.Derived, string.Join(", ", pieceTypes),
+            from.Label, from.WrittenByThisRun ? " this run writes" : " the project has");
+        await GccRunLog.RecordIfAnyAsync("short-pieces", new
+        {
+            types = pieceTypes,
+            writtenFrom = from.Type,
+            writtenByThisRun = from.WrittenByThisRun,
+            deleted = deletedPieces.Pieces + deletedPieces.Derived,
+        });
+
+        var preflight = new List<GccGenerateService.GccPartnerToolReadiness>();
+        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task> recordReadiness =
+            async (type, verdicts) =>
+            {
+                preflight.AddRange(verdicts);
+                if (onReadiness is not null) await onReadiness(type, verdicts);
+            };
+
+        // (3) and (4) The pages. Written from the research; the pieces are not, so they are handed the
+        // create as it came and not the one the research was merged into.
+        var groundingWarnings = new List<string>();
+        var pagesSettled = new GccRunSettlement.Settled([], []);
+        var pagesSaved = new SavedPart([], [], []);
+        if (pageTypes.Count > 0)
+        {
+            var written = await AttemptPagesAsync(
+                repo, gen, create, section, provider, pageTypes, mustMentionBlock,
+                groundingWarnings, recordReadiness, onTypeWarning, toolPartners, ct);
+            pagesSettled = GccRunSettlement.SettlePart(written.Attempts);
+            pagesSaved = await SaveWrittenAsync(
+                repo, gen, written.Create, pageTypes, pagesSettled.Pieces, groundingWarnings, provider,
+                briefRevision, onTypeOutcome, onTypeWarning, _logger, ct);
+        }
+
+        // (5) The page the pieces are written from, read back as it was saved. Everything from here on
+        // that cannot be done is each piece's refusal: the pages above are saved, and a run that then
+        // failed would leave them on the project with no result that says so.
+        GccRepurposeSource? source = null;
+        Func<string, string>? whyNoPiece = null;
+        if (from.WrittenByThisRun && !pagesSaved.Pieces.Any(page => LettersOf(page.ContentType) == from.Type))
+        {
+            whyNoPiece = type => GccRepurpose.SourceNotWrittenRefusal(from, type);
+        }
+        else
+        {
+            try
+            {
+                var page = GccRepurpose.PageOf(from.Type, await repo.ListProjectArtifactsAsync(projectId, ct));
+                if (page is null)
+                {
+                    whyNoPiece = type => GccRepurpose.SourceGoneRefusal(from, type);
+                }
+                else
+                {
+                    var saved = (await repo.ListVersionsAsync(page.Id, ct)).FirstOrDefault();
+                    var read = GccRepurpose.SourceOf(page, saved?.BodyDocumentJson, mustBeApproved: false);
+                    source = read.Source;
+                    if (read.Source is null) whyNoPiece = _ => read.Refusal ?? "Refused: the page has no text to write from.";
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "The {Source} of project {ProjectId} could not be read to write a short piece from", from.Label, projectId);
+                await GccRunLog.RecordIfAnyAsync("warning", new { step = "read the page a short piece is written from", fault = GccRunFault.Describe(ex) });
+                whyNoPiece = type =>
+                    $"Refused: the {GccRepurpose.PieceOf(type)} is written from this project's {from.Label}, which could not be read ({ex.Message}). "
+                    + "Nothing was written for it.";
+            }
+        }
+
+        var createId = create.Id;
+        var pieceAttempts = await Task.WhenAll(pieceTypes.Select(type => AttemptAsync(_logger, type, createId, async () =>
+        {
+            if (source is null) throw new InvalidOperationException(whyNoPiece!(type));
+            return await WritePieceAsync(gen, create, section, provider, type, source, ct);
+        })));
+        var piecesSettled = GccRunSettlement.SettlePart(pieceAttempts);
+
+        var refusals = new List<GccRunSettlement.TypeRefusal>(pagesSettled.Refusals);
+        refusals.AddRange(piecesSettled.Refusals);
+        var piecesSaved = new SavedPart([], [], []);
+        if (source is not null && piecesSettled.Pieces.Count > 0)
+        {
+            try
+            {
+                var created = await PersistAllAsync(
+                    repo, create, piecesSettled.Pieces, provider, briefRevision, onTypeOutcome, ct, parentPageId: source.PageId);
+                var warnings = new List<string>();
+                foreach (var piece in piecesSettled.Pieces)
+                {
+                    foreach (var warning in WarningsOf(piece.BodyJson))
+                    {
+                        warnings.Add($"{piece.ContentType}: {warning}");
+                        if (onTypeWarning is not null) await onTypeWarning(piece.ContentType, warning);
+                    }
+                }
+
+                piecesSaved = new SavedPart(created, piecesSettled.Pieces, warnings);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex) when (pagesSaved.Created.Count > 0)
+            {
+                // The pieces were written and not saved, and the pages of this run are saved. Each piece
+                // is reported as not written, with why; the pages are reported as what they are.
+                _logger.LogError(ex, "The short pieces of create {CreateId} were written and could not be saved", createId);
+                await GccRunLog.RecordIfAnyAsync("warning", new { step = "save the short pieces", fault = GccRunFault.Describe(ex) });
+                refusals.AddRange(piecesSettled.Pieces.Select(piece => GccRunSettlement.TypeRefusal.OfType(
+                    piece.ContentType,
+                    $"Refused: the {GccRepurpose.PieceOf(piece.ContentType)} was written and could not be saved: {ex.Message}")));
+            }
+        }
+
+        // (6) Nothing at all wrote: the run fails, saying why for each type, as any run does.
+        if (pagesSaved.Created.Count == 0 && piecesSaved.Created.Count == 0)
+        {
+            throw new InvalidOperationException(GccRunSettlement.NothingWrote(refusals));
+        }
+
+        foreach (var refused in refusals)
+        {
+            if (onTypeOutcome is not null) await onTypeOutcome(refused.Type, null, refused.Text);
+        }
+
+        // After the saves, so it never claims a piece that was not kept.
+        await GccRunLog.RecordIfAnyAsync("settled", new
+        {
+            piecesWrittenFrom = source is null ? null : new { pageId = source.PageId, type = source.Type, name = source.Name },
+            saved = pagesSaved.Pieces.Concat(piecesSaved.Pieces).Select(p => new { type = p.ContentType, name = p.ArtifactName }).ToList(),
+            refused = refusals.Select(r => new { type = r.Type, reason = r.Text }).ToList(),
+        });
+
+        return BuildGenerateResult(
+            [.. pagesSaved.Created, .. piecesSaved.Created],
+            [.. refusals.Select(refused => refused.Line)],
+            preflight,
+            [.. pagesSaved.Warnings, .. piecesSaved.Warnings]);
+    }
+
+    /// <summary>
+    /// The page types of a run that also writes short pieces, each attempted on its own from research
+    /// resolved once, as the run with no piece does it.
+    /// </summary>
+    /// <remarks>
+    /// One difference from that run, and it is the reason this is apart from it: research that cannot
+    /// be resolved is every page's refusal here, not the run's failure. A page cannot be written without
+    /// it; an email written from the Pillar the project already has needs none.
+    /// </remarks>
+    private async Task<(GccCreateDto Create, IReadOnlyList<GccRunSettlement.TypeAttempt> Attempts)> AttemptPagesAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        IReadOnlyList<string> pageTypes,
+        string? mustMentionBlock,
+        List<string> groundingWarnings,
+        Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task> recordReadiness,
+        Func<string, string, Task>? onTypeWarning,
+        IReadOnlyList<string>? toolPartners,
+        CancellationToken ct)
+    {
+        (GccCreateDto Create, IReadOnlyList<GccGroundedPassage> PartnerPassages, IReadOnlyList<string> Warnings, IReadOnlyList<string> PartnersWithoutPassages) resolved;
+        try
+        {
+            resolved = await ResolveAndMergeGroundingAsync(create, pageTypes, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            if (GccRunFault.IsRefusal(ex))
+            {
+                _logger.LogWarning("Generate refused the pages of create {CreateId} for their research: {Reason}", create.Id, ex.Message);
+            }
+            else
+            {
+                _logger.LogError(ex, "The research for the pages of create {CreateId} could not be resolved", create.Id);
+            }
+
+            await GccRunLog.RecordIfAnyAsync("grounding", new { error = ex.Message, fault = GccRunFault.Describe(ex) }, piece: null);
+            return (create, [.. pageTypes.Select(type => GccRunSettlement.TypeAttempt.Refused(type, ex.Message))]);
+        }
+
+        var grounded = resolved.Create;
+        await RecordGroundingWarningsAsync(resolved.Warnings, groundingWarnings, onTypeWarning);
+        await GccRunLog.RecordIfAnyAsync("grounding", GroundingRecord(resolved), piece: null);
+
+        var attempts = await Task.WhenAll(pageTypes.Select(type => AttemptAsync(_logger, type, grounded.Id, async () =>
+        {
+            if (PartnerEvidenceRefusal(type, resolved.PartnersWithoutPassages) is { } evidenceRefusal)
+                throw new InvalidOperationException(evidenceRefusal);
+            return await GenerateOneAsync(
+                repo, gen, grounded, section, provider, type, mustMentionBlock,
+                resolved.PartnerPassages, ct, recordReadiness, toolPartners);
+        })));
+        return (grounded, attempts);
+    }
+
+    /// <summary>
+    /// One short piece written from one page: the email, or a post or an ad for its platform, with its
+    /// image prompt. The one writer of a short piece, for a Generate and for a Repurpose.
+    /// </summary>
+    /// <remarks>The piece carries its page's name: a page has one piece of each type.</remarks>
+    private async Task<TypeOutcome> WritePieceAsync(
+        GccGenerateService gen,
+        GccCreateDto create,
+        SiteSectionContextDto? section,
+        ContentGeneratorProvider provider,
+        string type,
+        GccRepurposeSource source,
+        CancellationToken ct)
+    {
+        var contentType = type.Trim().ToLowerInvariant();
+        string bodyJson;
+        if (GccRepurpose.IsEmail(type))
+        {
+            bodyJson = await gen.RepurposeEmailAsync(
+                create with { StartingContentType = "email" }, source, section, provider, ct);
+            bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
+        }
+        else
+        {
+            var platform = GccRepurpose.PlatformOf(type);
+            bodyJson = await gen.RepurposeSocialPostAsync(
+                create with { StartingContentType = platform }, platform, source, section, provider, ct);
+            bodyJson = await AddImagePromptForContentAsync(gen, platform, create.Topic, bodyJson, section, provider, ct);
+        }
+
+        return new TypeOutcome([new GeneratedPiece(contentType, bodyJson, source.Name)], []);
+    }
+
+    /// <summary>
     /// A Repurpose: each requested short piece written from one approved page of the project, and what
     /// wrote saved under that page in one write (<see cref="GccRepurpose"/>).
     /// </summary>
@@ -396,27 +724,8 @@ public sealed class GccGenerationCoordinator
             projectId, deleted.Pieces, string.Join(", ", requested), source.PageId);
 
         var createId = create.Id;
-        var attempts = await Task.WhenAll(requested.Select(type => AttemptAsync(_logger, type, createId, async () =>
-        {
-            var contentType = type.Trim().ToLowerInvariant();
-            string bodyJson;
-            if (GccRepurpose.IsEmail(type))
-            {
-                bodyJson = await gen.RepurposeEmailAsync(
-                    create with { StartingContentType = "email" }, source, section, provider, ct);
-                bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
-            }
-            else
-            {
-                var platform = GccRepurpose.PlatformOf(type);
-                bodyJson = await gen.RepurposeSocialPostAsync(
-                    create with { StartingContentType = platform }, platform, source, section, provider, ct);
-                bodyJson = await AddImagePromptForContentAsync(gen, platform, create.Topic, bodyJson, section, provider, ct);
-            }
-
-            // The piece carries its page's name: a page has one piece of each type.
-            return new TypeOutcome([new GeneratedPiece(contentType, bodyJson, source.Name)], []);
-        })));
+        var attempts = await Task.WhenAll(requested.Select(type => AttemptAsync(
+            _logger, type, createId, () => WritePieceAsync(gen, create, section, provider, type, source, ct))));
 
         // Throws, saying why for each type, only when no type wrote anything.
         var settled = GccRunSettlement.Settle(attempts);
@@ -504,38 +813,9 @@ public sealed class GccGenerationCoordinator
         // read, so a run with nothing to save asks the repository for nothing.
         var settled = GccRunSettlement.Settle(attempts);
 
-        // What the run wrote, with a link to a tool page the project does not have named on the
-        // piece that carries it -- see WithMissingToolPagesNamedAsync. Advisory: it reads the project's
-        // pages to add a warning, and a read that fails must not discard pages that were written.
-        var runWarnings = new List<string>(groundingWarnings);
-        IReadOnlyList<GeneratedPiece> pieces;
-        try
-        {
-            pieces = await WithMissingToolPagesNamedAsync(repo, gen, create, settled.Pieces, requested, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "The link check against the project's tool pages failed on create {CreateId}", create.Id);
-            await GccRunLog.RecordIfAnyAsync("warning", new { step = "tool-page link check", fault = GccRunFault.Describe(ex) });
-            runWarnings.Add($"Links to tool pages were not checked ({ex.Message}); check them before publishing.");
-            pieces = settled.Pieces;
-        }
-
-        // Every piece that was written, in one write: all of them saved or none. Announced after it
-        // succeeds, so nothing on the page says a piece exists that was not kept.
-        var created = await PersistAllAsync(repo, create, pieces, provider, briefRevision, onTypeOutcome, ct);
-        foreach (var piece in pieces)
-        {
-            foreach (var warning in WarningsOf(piece.BodyJson))
-            {
-                runWarnings.Add($"{piece.ContentType}: {warning}");
-                if (onTypeWarning is not null) await onTypeWarning(piece.ContentType, warning);
-            }
-        }
+        var saved = await SaveWrittenAsync(
+            repo, gen, create, requested, settled.Pieces, groundingWarnings, provider,
+            briefRevision, onTypeOutcome, onTypeWarning, logger, ct);
 
         // Named, never swallowed: a type that was not written, and a partner whose page was not, are
         // reported alongside what was, so five requested types and three pages is visible rather
@@ -550,11 +830,74 @@ public sealed class GccGenerationCoordinator
         // After the save, so it never claims a piece that was not kept.
         await GccRunLog.RecordIfAnyAsync("settled", new
         {
-            saved = pieces.Select(p => new { type = p.ContentType, name = p.ArtifactName }).ToList(),
+            saved = saved.Pieces.Select(p => new { type = p.ContentType, name = p.ArtifactName }).ToList(),
             refused = settled.Refusals.Select(r => new { type = r.Type, reason = r.Text }).ToList(),
         });
 
-        return BuildGenerateResult(created, refusals, preflight, runWarnings);
+        return BuildGenerateResult(saved.Created, refusals, preflight, saved.Warnings);
+    }
+
+    /// <summary>What one save of a run kept: the result's entry for each piece, the pieces as they were
+    /// saved, and every warning that goes with them.</summary>
+    private sealed record SavedPart(
+        IReadOnlyList<object> Created, IReadOnlyList<GeneratedPiece> Pieces, IReadOnlyList<string> Warnings);
+
+    /// <summary>
+    /// The pages a run wrote, saved in one write and announced: the save itself, the warning each page
+    /// ships with, and the research's own warnings in front of them. The one save of a run's pages,
+    /// for a run of pages alone and for one that writes short pieces after them.
+    /// </summary>
+    /// <remarks>No page written is nothing saved and nothing asked of the repository.</remarks>
+    private static async Task<SavedPart> SaveWrittenAsync(
+        HttpGccRepository repo,
+        GccGenerateService gen,
+        GccCreateDto create,
+        IReadOnlyList<string> requested,
+        IReadOnlyList<GeneratedPiece> written,
+        IReadOnlyList<string> groundingWarnings,
+        ContentGeneratorProvider provider,
+        GccBriefRevisionStamp? briefRevision,
+        Func<string, object?, string?, Task>? onTypeOutcome,
+        Func<string, string, Task>? onTypeWarning,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        var runWarnings = new List<string>(groundingWarnings);
+        if (written.Count == 0) return new SavedPart([], [], runWarnings);
+
+        // What the run wrote, with a link to a tool page the project does not have named on the
+        // piece that carries it -- see WithMissingToolPagesNamedAsync. Advisory: it reads the project's
+        // pages to add a warning, and a read that fails must not discard pages that were written.
+        IReadOnlyList<GeneratedPiece> pieces;
+        try
+        {
+            pieces = await WithMissingToolPagesNamedAsync(repo, gen, create, written, requested, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "The link check against the project's tool pages failed on create {CreateId}", create.Id);
+            await GccRunLog.RecordIfAnyAsync("warning", new { step = "tool-page link check", fault = GccRunFault.Describe(ex) });
+            runWarnings.Add($"Links to tool pages were not checked ({ex.Message}); check them before publishing.");
+            pieces = written;
+        }
+
+        // Every piece that was written, in one write: all of them saved or none. Announced after it
+        // succeeds, so nothing on the page says a piece exists that was not kept.
+        var created = await PersistAllAsync(repo, create, pieces, provider, briefRevision, onTypeOutcome, ct);
+        foreach (var piece in pieces)
+        {
+            foreach (var warning in WarningsOf(piece.BodyJson))
+            {
+                runWarnings.Add($"{piece.ContentType}: {warning}");
+                if (onTypeWarning is not null) await onTypeWarning(piece.ContentType, warning);
+            }
+        }
+
+        return new SavedPart(created, pieces, runWarnings);
     }
 
     /// <summary>

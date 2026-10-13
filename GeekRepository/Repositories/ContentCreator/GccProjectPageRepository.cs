@@ -28,12 +28,13 @@ namespace GeekRepository.Repositories.ContentCreator;
 /// </para>
 /// <para>
 /// <b>A piece written from a page is saved under it</b> (2026-10-12). An email, a social post or an ad
-/// that a Repurpose wrote from a pillar, a blog or a tool page names that page
+/// written from a pillar, a blog or a tool page, by a Repurpose or by a Generate, names that page
 /// (<see cref="GccGeneratedPiece.ParentPageId"/>). It is one of the page's pieces, found among them by
 /// type and name as a page is found among the project's, and replaced the same way. It is not one of
-/// the project's pages: the one-page rule and a Generate's delete do not see it, and it goes when its
-/// page is written again or deleted. The database holds this rule too, one piece of a type and name
-/// under a page, by unique index.
+/// the project's pages: the one-page rule and a Generate's delete of its pages do not see it, and it
+/// goes when its page is written again or deleted. A Generate that writes a short piece deletes every
+/// piece of that type on the project first (<see cref="DeleteProjectPiecesAsync"/>). The database
+/// holds this rule too, one piece of a type and name under a page, by unique index.
 /// </para>
 /// <para>
 /// <b>All or nothing</b> (A12). GeekAPI wrote each piece with two calls -- the draft, then its
@@ -279,6 +280,61 @@ public class GccProjectPageRepository : IGccProjectPageRepository
         await _db.SaveChangesAsync(ct);
 
         return new GccPiecesDeleteResult(false, pieces.Count);
+    }
+
+    /// <summary>
+    /// Every piece of these types on the project, deleted with its content: under a page, whichever
+    /// page, and under none. The pages stand.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What a Generate that writes short pieces does before it writes anything (2026-10-13). A project
+    /// has one email, one social post and one ad, written from its Pillar, so the run that writes one
+    /// removes every other first: the one under the Pillar, one a Repurpose wrote from another page,
+    /// and one a Generate saved as a page of the project before 2026-10-12, which has no page above it.
+    /// </para>
+    /// <para>
+    /// A type is matched as a page's is, without regard to case or surrounding spaces. Nothing is
+    /// saved under a piece, and if something is, it goes with it rather than be left pointing at a row
+    /// that is gone.
+    /// </para>
+    /// </remarks>
+    public async Task<GccProjectPiecesDeleteResult> DeleteProjectPiecesAsync(
+        Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default)
+    {
+        if (!await _db.GccProjects.AnyAsync(p => p.Id == projectId, ct))
+            return GccProjectPiecesDeleteResult.Missing();
+
+        var wanted = types
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (wanted.Count == 0) return new GccProjectPiecesDeleteResult(false, 0, 0);
+
+        var all = await _db.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync(ct);
+        var pieces = all.Where(a => wanted.Contains(a.Type.Trim())).ToList();
+        if (pieces.Count == 0) return new GccProjectPiecesDeleteResult(false, 0, 0);
+
+        var going = pieces.Select(a => a.Id).ToHashSet();
+        var derived = new List<GccArtifact>();
+        var grew = true;
+        while (grew)
+        {
+            grew = false;
+            foreach (var child in all.Where(a => a.ParentArtifactId is Guid parent && going.Contains(parent) && !going.Contains(a.Id)))
+            {
+                going.Add(child.Id);
+                derived.Add(child);
+                grew = true;
+            }
+        }
+
+        foreach (var id in going) await GccArtifactVersionRepository.RemoveContentAsync(_db, id, ct);
+        _db.GccArtifacts.RemoveRange(pieces);
+        _db.GccArtifacts.RemoveRange(derived);
+        await _db.SaveChangesAsync(ct);
+
+        return new GccProjectPiecesDeleteResult(false, pieces.Count, derived.Count);
     }
 
     // The unit separator cannot occur in a type or a name, so two different pages never share a key.

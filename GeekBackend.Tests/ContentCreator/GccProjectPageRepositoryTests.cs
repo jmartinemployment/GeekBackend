@@ -533,6 +533,77 @@ public sealed class GccProjectPageRepositoryTests
         Assert.Equal(left.Count, await verify.GccArtifactVersions.CountAsync());
     }
 
+    /// <summary>
+    /// What a Generate that writes short pieces does first: every piece of the asked types on the
+    /// project goes, the one under the pillar, the one a Repurpose wrote from another page, and the
+    /// one a Generate saved as a page of the project before 2026-10-12, which has no page above it.
+    /// The pages, and the pieces of other types, stand.
+    /// </summary>
+    [Fact]
+    public async Task Deleting_every_piece_of_some_types_on_a_project_takes_those_under_any_page_and_under_none_and_leaves_the_pages()
+    {
+        var (options, projectId, createId) = await Seed();
+        var pillar = await SavePage(options, projectId, createId, "pillar", "AP: Approvals");
+        var blog = await SavePage(options, projectId, createId, "blog", "AP: Approvals");
+        Guid otherProject, otherCreate;
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            // A second project in the same database, with an email of its own that must stand.
+            var project = new GccProject
+            {
+                ClientId = Guid.NewGuid(), IdempotencyKey = Guid.NewGuid(), Name = "other",
+                Status = GccProjectStatuses.Planned, StartDate = new DateOnly(2026, 10, 1),
+                PartnerUrls = [], CompetitorUrls = [], Topic = "AR: Collections",
+            };
+            var create = Create(project.Id);
+            db.AddRange(project, create);
+            await db.SaveChangesAsync();
+            (otherProject, otherCreate) = (project.Id, create.Id);
+        }
+
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var pages = new GccProjectPageRepository(db);
+            await pages.SaveGeneratedAsync(
+                projectId,
+                new SaveGccGeneratedPiecesCommand(
+                    createId,
+                    [
+                        PieceFrom(pillar, "email-cold-outreach", "AP: Approvals"),
+                        PieceFrom(pillar, "social", "AP: Approvals"),
+                        PieceFrom(pillar, "ads", "AP: Approvals"),
+                        PieceFrom(blog, "email-cold-outreach", "AP: Approvals"),
+                        // Saved by a Generate before 2026-10-12: a page of the project, under no page.
+                        Piece("Email-Cold-Outreach", "AP: Approvals"),
+                    ]));
+            await pages.SaveGeneratedAsync(
+                otherProject, new SaveGccGeneratedPiecesCommand(otherCreate, [Piece("email-cold-outreach", "AR: Collections")]));
+        }
+
+        await using (var db = new ContentCreatorDbContext(options))
+        {
+            var pages = new GccProjectPageRepository(db);
+            Assert.Equal(
+                new GccProjectPiecesDeleteResult(false, 4, 0),
+                await pages.DeleteProjectPiecesAsync(projectId, [" email-cold-outreach ", "ADS"]));
+            // Nothing of those types left: nothing more to delete, and not an error.
+            Assert.Equal(
+                new GccProjectPiecesDeleteResult(false, 0, 0),
+                await pages.DeleteProjectPiecesAsync(projectId, ["email-cold-outreach", "ads"]));
+            // No types names nothing, and a project that is not there is said to be not there.
+            Assert.Equal(new GccProjectPiecesDeleteResult(false, 0, 0), await pages.DeleteProjectPiecesAsync(projectId, [" "]));
+            Assert.True((await pages.DeleteProjectPiecesAsync(Guid.NewGuid(), ["social"])).ProjectNotFound);
+        }
+
+        await using var verify = new ContentCreatorDbContext(options);
+        var left = await verify.GccArtifacts.Where(a => a.ProjectId == projectId).ToListAsync();
+        Assert.Equal(["blog", "pillar", "social"], left.Select(a => a.Type).Order());
+        Assert.Equal(pillar, Assert.Single(left, a => a.ParentArtifactId != null).ParentArtifactId);
+        // The other project's email stands, and every row left still has its one version.
+        Assert.Equal("email-cold-outreach", (await verify.GccArtifacts.SingleAsync(a => a.ProjectId == otherProject)).Type);
+        Assert.Equal(await verify.GccArtifacts.CountAsync(), await verify.GccArtifactVersions.CountAsync());
+    }
+
     [Fact]
     public async Task Deleting_a_page_as_a_generate_does_deletes_the_pieces_written_from_it()
     {

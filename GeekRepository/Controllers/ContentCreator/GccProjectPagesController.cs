@@ -77,4 +77,22 @@ public class GccProjectPagesController : ControllerBase
         var result = await _pages.DeletePiecesAsync(projectId, pageId, types, ct);
         return result.PageNotFound ? NotFound() : Ok(result);
     }
+
+    /// <summary>
+    /// Every piece of the named types on the project, deleted with its content, under a page or under
+    /// none. What a Generate that writes short pieces does first. 404 when there is no such project;
+    /// no types is a bad request, not a delete of every piece.
+    /// </summary>
+    [HttpDelete("pieces")]
+    public async Task<ActionResult<GccProjectPiecesDeleteResult>> DeleteProjectPieces(
+        Guid projectId,
+        [FromQuery(Name = "type")] string[] types,
+        CancellationToken ct)
+    {
+        if (types is null || types.Length == 0 || types.Any(string.IsNullOrWhiteSpace))
+            return BadRequest("Name the types of piece to delete; nothing is deleted without them.");
+
+        var result = await _pages.DeleteProjectPiecesAsync(projectId, types, ct);
+        return result.ProjectNotFound ? NotFound() : Ok(result);
+    }
 }

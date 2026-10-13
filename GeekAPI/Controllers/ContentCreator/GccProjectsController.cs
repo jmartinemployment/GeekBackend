@@ -352,8 +352,13 @@ public class GccProjectsController : ControllerBase
     /// </para>
     /// <para>
     /// Refusals: 404 no project; 400 no keyword, an incomplete brief, a missing site crawl, a bad
-    /// provider or output type; 409 a run already running on the project, named; 409 the brief was
+    /// provider or output type, an email, a social post or an ad asked of a project with no Pillar and
+    /// no Blog to write it from; 409 a run already running on the project, named; 409 the brief was
     /// saved again after this request read it. Every refusal writes nothing.
+    /// </para>
+    /// <para>
+    /// A short piece is a Generate type since 2026-10-13: the run writes its pages first and each piece
+    /// from the project's Pillar after them (<see cref="GccRepurpose.GenerateSourceOf"/>).
     /// </para>
     /// </remarks>
     [HttpPost("{id:guid}/generate")]
@@ -375,6 +380,15 @@ public class GccProjectsController : ControllerBase
         var requested = GccGenerationCoordinator.NormalizeRequestedTypes(request?.OutputTypes);
         var typeRefusal = GccGenerationCoordinator.ValidateRequestedTypes(requested);
         if (typeRefusal is not null) return BadRequest(typeRefusal);
+
+        // An email, a social post or an ad is written from the project's Pillar, or its Blog when it
+        // has no Pillar. A project with neither, and neither asked for, has nothing to write one from:
+        // answered here, by the rule the run itself uses, before a run exists or anything is deleted.
+        if (requested.Any(GccRepurpose.IsShortType)
+            && GccRepurpose.GenerateSourceOf(requested, await _repo.ListProjectArtifactsAsync(id, ct)).Refusal is { } nothingToWriteFrom)
+        {
+            return BadRequest(nothingToWriteFrom);
+        }
 
         // Some tool pages rather than all: each must be one of this project's declared partners, so a
         // typo cannot start a run about a product the project has no crawl for.
@@ -431,10 +445,12 @@ public class GccProjectsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The one way a short piece is written (Jeff, 2026-10-12). It runs behind the same two gates as a
-    /// Generate -- the project's site is crawled and the brief is complete -- which is what the route
-    /// it replaces never did, and it holds the project's one running place, so a Generate cannot
-    /// delete the page while a piece is being written from it.
+    /// How a short piece is written again from one approved page, a pillar, a blog or a tool page,
+    /// without running Generate (Jeff, 2026-10-12). A Generate writes one too since 2026-10-13, from
+    /// the project's Pillar, with the same writer. It runs behind the same two gates as a Generate --
+    /// the project's site is crawled and the brief is complete -- which is what the route it replaces
+    /// never did, and it holds the project's one running place, so a Generate cannot delete the page
+    /// while a piece is being written from it.
     /// </para>
     /// <para>
     /// Refusals: 404 no project, or no such page on it; 400 no keyword, a type that is not a short
@@ -467,7 +483,7 @@ public class GccProjectsController : ControllerBase
         var page = await _repo.GetArtifactAsync(pageId, ct);
         if (page is null || page.ProjectId != id) return NotFound();
         var written = (await _repo.ListVersionsAsync(pageId, ct)).FirstOrDefault();
-        var (source, sourceRefusal) = GccRepurpose.SourceOf(page, written?.BodyDocumentJson);
+        var (source, sourceRefusal) = GccRepurpose.SourceOf(page, written?.BodyDocumentJson, mustBeApproved: true);
         if (source is null) return BadRequest(sourceRefusal);
 
         var gate = await GateAsync(id, project, actor, ownerUserId, requested[0], ct);

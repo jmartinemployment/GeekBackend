@@ -232,8 +232,8 @@ public partial class GccGenerateService
     /// currently produce cold-outreach-shaped content regardless of which is selected -- not a thin
     /// version of the right thing, the wrong thing. Standalone Image prompt is not in this set: it
     /// was never flagged as broken. Email-cold-outreach, Social and Ads are not in it either, and are
-    /// not disabled: they are written by Repurpose from an approved page (<see cref="GccRepurpose"/>),
-    /// and a Generate asked for one is refused there, naming Repurpose.
+    /// not disabled: each is written from a page (<see cref="GccRepurpose"/>), by a Generate from the
+    /// project's Pillar and by a Repurpose from one approved page.
     /// Normalized by stripping hyphens/spaces/slashes and lowercasing, so "tech-article"/"techArticle"
     /// and "PDF / LinkedIn document"/"linkedin-document" both match one entry each.
     /// </summary>
@@ -2430,7 +2430,7 @@ public partial class GccGenerateService
         GccNicheFramingReader.ForCategory(create.BriefJson)?.ShortFormGuidance();
 
     /// <summary>
-    /// A cold-outreach email written from one approved page of the project (<see cref="GccRepurpose"/>).
+    /// A cold-outreach email written from one page of the project (<see cref="GccRepurpose"/>).
     /// </summary>
     /// <remarks>
     /// Until 2026-10-12 this was a Generate type, written from the Brief with no page in front of the
@@ -2497,7 +2497,7 @@ public partial class GccGenerateService
     private sealed record ColdEmailReply(string? Subject, string? Body, string? CtaLabel);
 
     /// <summary>
-    /// A social post or an ad for one platform, written from one approved page of the project
+    /// A social post or an ad for one platform, written from one page of the project
     /// (<see cref="GccRepurpose"/>). See <see cref="RepurposeEmailAsync"/> for what it is handed.
     /// </summary>
     public async Task<string> RepurposeSocialPostAsync(

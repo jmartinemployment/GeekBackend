@@ -514,6 +514,15 @@ public class GccController : ControllerBase
         var refusal = GccGenerationCoordinator.ValidateRequestedTypes(requested);
         if (refusal is not null) return BadRequest(refusal);
 
+        // A short piece is written from the project's Pillar or Blog; a project with neither, and
+        // neither asked for, is answered here by the rule the run uses, before a job exists.
+        if (requested.Any(GccRepurpose.IsShortType)
+            && GccRepurpose.GenerateSourceOf(
+                requested, await _repo.ListProjectArtifactsAsync(create.ProjectId.Value, ct)).Refusal is { } nothingToWriteFrom)
+        {
+            return BadRequest(nothingToWriteFrom);
+        }
+
         // Generation runs as a job and reports over SignalR rather than holding this request open.
         // One Tool page is partner extraction across every retrieved page plus a multi-call write,
         // and every selected content type runs its own complete pipeline -- longer than any

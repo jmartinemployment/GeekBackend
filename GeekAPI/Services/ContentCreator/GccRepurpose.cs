@@ -6,7 +6,7 @@ using GeekApplication.Models.ContentCreator;
 namespace GeekAPI.Services.ContentCreator;
 
 /// <summary>
-/// The page a Repurpose writes from: its type, its name on the project, its title and its text.
+/// The page a short piece is written from: its type, its name on the project, its title and its text.
 /// </summary>
 /// <param name="PageId">The page on the project. Every piece written from it is saved under it.</param>
 /// <param name="Type">The page's content type as stored: pillar, blog or tool.</param>
@@ -17,23 +17,37 @@ namespace GeekAPI.Services.ContentCreator;
 public sealed record GccRepurposeSource(Guid PageId, string Type, string Name, string Title, string Text);
 
 /// <summary>
-/// Repurpose: a short piece (an email, a social post, an ad) written from one approved page of the
-/// project, and saved under that page.
+/// The page a Generate writes its short pieces from: the project's Pillar, or its Blog when it has no
+/// Pillar.
+/// </summary>
+/// <param name="Type">The page's type: "pillar" or "blog".</param>
+/// <param name="WrittenByThisRun">True when the run was asked for that page too: the pieces wait for
+/// it and are written from what this run wrote, and are refused with it when it is refused. False when
+/// they are written from the page the project already has.</param>
+public sealed record GccGenerateSource(string Type, bool WrittenByThisRun)
+{
+    /// <summary>The page as the form's "Content type" list names it: "Pillar", "Blog".</summary>
+    public string Label => Type == "pillar" ? "Pillar" : "Blog";
+}
+
+/// <summary>
+/// A short piece (an email, a social post, an ad) is written from one page of the project and saved
+/// under that page, never from the Brief alone.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The one way a short piece is written</b> (Jeff, 2026-10-12: short content types "ARE DERIVED OR
-/// REPURPOSED FROM EXISTING CONTENT"). Until then Email, Social and Ads were ticked on Generate and
-/// written from the Brief alone, with no page in front of the writer, and the Repurpose route answered
-/// 403: it was given no Brief, never checked that the project's site was crawled, replied in a shape
-/// the form could not show, saved under types the form had no tab for, and tied nothing it made to the
-/// page it came from.
+/// <b>Two runs write one, with one writer</b> (Jeff, 2026-10-12: short content types "ARE DERIVED OR
+/// REPURPOSED FROM EXISTING CONTENT"; 2026-10-13: "Add my Email, Social, and Ads, back to generate").
+/// A Generate that is asked for one writes it from the project's Pillar, the one that run wrote or the
+/// one already saved (<see cref="GenerateSourceOf"/>). A Repurpose writes it again from one approved
+/// page, a pillar, a blog or a tool page, without running Generate. Until 2026-10-12 the three were
+/// Generate types written from the Brief alone, with no page in front of the writer; from then until
+/// 2026-10-13 a Generate asked for one was refused.
 /// </para>
 /// <para>
 /// <b>What the writer is handed.</b> The page's own text, whole, and from the Brief what a short piece
 /// was already handed: the reader, the voice and the problem. No research and no search: the page
-/// already used the research, and a piece that went back to it could say what the approved page does
-/// not.
+/// already used the research, and a piece that went back to it could say what the page does not.
 /// </para>
 /// <para>
 /// <b>One check, no second attempt.</b> A figure in the piece must be in the page it was written from
@@ -56,7 +70,10 @@ public static class GccRepurpose
     /// <summary>What the operator is told a Repurpose writes from, in every refusal that says so.</summary>
     public const string FromWhat = "an approved pillar, blog or tool page";
 
-    /// <summary>Whether a requested type is a short piece, written by Repurpose and never by Generate.</summary>
+    /// <summary>The types of page a Generate writes its short pieces from, the first the project has.</summary>
+    private static readonly string[] GenerateSourceTypes = ["pillar", "blog"];
+
+    /// <summary>Whether a requested type is a short piece: written from a page, never from the Brief alone.</summary>
     public static bool IsShortType(string? requestedType) =>
         !string.IsNullOrWhiteSpace(requestedType) && ShortTypes.Contains(GccGenerationCoordinator.LettersOf(requestedType));
 
@@ -90,17 +107,74 @@ public static class GccRepurpose
     };
 
     /// <summary>
-    /// What a Generate is told when it is asked for a short piece, or null when it is asked for none.
+    /// The page a Generate writes its short pieces from, or why it has none. Null and null when the
+    /// run was asked for no short piece.
     /// </summary>
-    public static string? GenerateRefusal(IReadOnlyList<string> requested)
+    /// <remarks>
+    /// <para>
+    /// The project's Pillar: the one this run writes when "Pillar" is among the types, otherwise the
+    /// one the project already has, approved or not. A project with no Pillar and none asked for: its
+    /// Blog, by the same rule. Neither, and neither asked for: refused, and the caller asks this before
+    /// a run exists and before anything is deleted.
+    /// </para>
+    /// <para>
+    /// One page, decided once. A Pillar that is asked for and then refused takes its pieces with it
+    /// (<see cref="SourceNotWrittenRefusal"/>); they are not written from the Blog in its place, which
+    /// would save under one page what the operator asked to be written from another.
+    /// </para>
+    /// </remarks>
+    /// <param name="requested">Every type the run was asked for, pages and pieces.</param>
+    /// <param name="onProject">The project's pages and pieces as they are before the run deletes anything.</param>
+    public static (GccGenerateSource? Source, string? Refusal) GenerateSourceOf(
+        IReadOnlyList<string> requested, IReadOnlyList<GccArtifactDto> onProject)
     {
         var shortOnes = requested.Where(IsShortType).ToList();
-        return shortOnes.Count == 0
-            ? null
-            : $"Refused: '{string.Join("', '", shortOnes)}' "
-                + (shortOnes.Count == 1 ? "is" : "are")
-                + $" written by Repurpose from {FromWhat}, not by Generate. Nothing was generated.";
+        if (shortOnes.Count == 0) return (null, null);
+
+        foreach (var type in GenerateSourceTypes)
+        {
+            if (requested.Any(asked => GccGenerationCoordinator.LettersOf(asked) == type))
+                return (new GccGenerateSource(type, WrittenByThisRun: true), null);
+            if (PageOf(type, onProject) is not null)
+                return (new GccGenerateSource(type, WrittenByThisRun: false), null);
+        }
+
+        return (null, $"Refused: '{string.Join("', '", shortOnes)}' "
+            + (shortOnes.Count == 1 ? "is" : "are")
+            + " written from this project's Pillar, or from its Blog when it has no Pillar, and it has neither. "
+            + "Tick \"Pillar\" as well, or generate one first. Nothing was generated.");
     }
+
+    /// <summary>
+    /// The project's page of one type, the one a short piece is written from: a page of the project's
+    /// own, not a piece under one. The newest when an older project holds more than one.
+    /// </summary>
+    public static GccArtifactDto? PageOf(string type, IReadOnlyList<GccArtifactDto> onProject) =>
+        onProject
+            .Where(page => page.ParentArtifactId is null && GccGenerationCoordinator.LettersOf(page.Type) == type)
+            .OrderByDescending(page => page.LatestVersionAtUtc ?? page.CreatedAtUtc)
+            .FirstOrDefault();
+
+    /// <summary>
+    /// What a short piece is refused with when the run was asked for the page it is written from and
+    /// did not write that page.
+    /// </summary>
+    /// <param name="requestedType">The piece's type as asked for.</param>
+    public static string SourceNotWrittenRefusal(GccGenerateSource source, string requestedType) =>
+        $"Refused: the {PieceOf(requestedType)} is written from this project's {source.Label}, which this run did not write. "
+        + "Nothing was written for it.";
+
+    /// <summary>
+    /// What a short piece is refused with when the page it was to be written from is not on the project
+    /// when the run reaches it.
+    /// </summary>
+    public static string SourceGoneRefusal(GccGenerateSource source, string requestedType) =>
+        $"Refused: the {PieceOf(requestedType)} is written from this project's {source.Label}, and the project no longer has one. "
+        + "Nothing was written for it.";
+
+    /// <summary>What a requested short type is called in a refusal: "email", "social post", "ad".</summary>
+    public static string PieceOf(string requestedType) =>
+        IsEmail(requestedType) ? "email" : PieceName(PlatformOf(requestedType));
 
     /// <summary>
     /// What a Repurpose is told when its types cannot be written, or null: it must name at least one,
@@ -119,12 +193,16 @@ public static class GccRepurpose
     }
 
     /// <summary>
-    /// The page as a Repurpose reads it, or why it cannot be written from. Nothing is searched and
-    /// nothing is paid for before this is known.
+    /// The page as the writer of a short piece reads it, or why it cannot be written from. Nothing is
+    /// searched and nothing is paid for before this is known.
     /// </summary>
     /// <param name="page">The page on the project.</param>
     /// <param name="bodyJson">The page's one version, as stored.</param>
-    public static (GccRepurposeSource? Source, string? Refusal) SourceOf(GccArtifactDto page, string? bodyJson)
+    /// <param name="mustBeApproved">True for a Repurpose, which writes from a page the operator has
+    /// approved. False for a Generate, which writes from the Pillar it has just written or the one the
+    /// project holds, and nobody has approved a page a run wrote a minute ago.</param>
+    public static (GccRepurposeSource? Source, string? Refusal) SourceOf(
+        GccArtifactDto page, string? bodyJson, bool mustBeApproved)
     {
         if (page.ParentArtifactId is not null)
             return (null, $"Refused: Repurpose writes from {FromWhat}, and this is a piece written from one.");
@@ -132,7 +210,7 @@ public static class GccRepurpose
         if (!SourceTypes.Contains(GccGenerationCoordinator.LettersOf(page.Type)))
             return (null, $"Refused: Repurpose writes from {FromWhat}; this page is a {page.Type.Trim()}.");
 
-        if (!string.Equals(page.Status, "approved", StringComparison.OrdinalIgnoreCase))
+        if (mustBeApproved && !string.Equals(page.Status, "approved", StringComparison.OrdinalIgnoreCase))
             return (null, "Refused: approve the page before Repurpose. A piece is written from a page that has been approved.");
 
         var read = GccBodyEnvelope.Read(bodyJson, GccDocumentJson.Options);
@@ -150,7 +228,7 @@ public static class GccRepurpose
     {
         var sb = new StringBuilder();
         sb.AppendLine($"=== THE PAGE THIS {piece.ToUpperInvariant()} IS WRITTEN FROM ===");
-        sb.AppendLine($"An approved {source.Type} page of this publisher's: \"{source.Title}\".");
+        sb.AppendLine($"A {source.Type} page of this publisher's: \"{source.Title}\".");
         sb.AppendLine();
         sb.AppendLine(source.Text);
         sb.AppendLine("=== END OF THE PAGE ===");

@@ -74,6 +74,38 @@ internal static class GccRunSettlement
             throw new InvalidOperationException("No content type was attempted, so there is nothing to save.");
         }
 
+        Check(attempts);
+        if (attempts.All(a => a.Outcome is null))
+        {
+            throw new InvalidOperationException(NothingWrote(Collect(attempts).Refusals));
+        }
+
+        return Collect(attempts);
+    }
+
+    /// <summary>
+    /// Settles one part of a run that has two: its pages, or the short pieces written from one of them
+    /// after the pages are saved (a Generate asked for an email, a social post or an ad).
+    /// </summary>
+    /// <remarks>
+    /// A part in which nothing wrote is that part's refusals and not the run's failure: an email is
+    /// still written from the Pillar the project already has when the Blog asked for beside it is
+    /// refused, and a Pillar is still saved when its email is. The caller fails the run when neither
+    /// part wrote anything (<see cref="NothingWrote"/>). A part with nothing asked of it settles to
+    /// nothing. The states a run cannot be in are refused here as they are in <see cref="Settle"/>.
+    /// </remarks>
+    internal static Settled SettlePart(IReadOnlyList<TypeAttempt> attempts)
+    {
+        Check(attempts);
+        return Collect(attempts);
+    }
+
+    /// <summary>What a run that wrote nothing fails with: every refusal line, joined as it always was.</summary>
+    internal static string NothingWrote(IEnumerable<TypeRefusal> refusals) =>
+        string.Join(" | ", refusals.Select(refusal => refusal.Line));
+
+    private static void Check(IReadOnlyList<TypeAttempt> attempts)
+    {
         foreach (var attempt in attempts)
         {
             if ((attempt.Outcome is null) == (attempt.Error is null))
@@ -88,14 +120,10 @@ internal static class GccRunSettlement
                     $"'{attempt.Type}' reported success but wrote no piece; it cannot be settled.");
             }
         }
+    }
 
-        var written = attempts.Where(a => a.Outcome is not null).ToList();
-        if (written.Count == 0)
-        {
-            throw new InvalidOperationException(
-                string.Join(" | ", attempts.Select(a => RefusalLine(a.Type, a.Error!))));
-        }
-
+    private static Settled Collect(IReadOnlyList<TypeAttempt> attempts)
+    {
         // In request order, a type's own refusals together: a refused type is one entry, and a tool type
         // that wrote contributes each partner it refused, as it did before.
         var refusals = new List<TypeRefusal>();
@@ -113,6 +141,6 @@ internal static class GccRunSettlement
             }
         }
 
-        return new Settled([.. written.SelectMany(a => a.Outcome!.Pieces)], refusals);
+        return new Settled([.. attempts.Where(a => a.Outcome is not null).SelectMany(a => a.Outcome!.Pieces)], refusals);
     }
 }

@@ -39,6 +39,16 @@ public sealed record GccPiecesDeleteResult(bool PageNotFound, int Pieces)
     public static GccPiecesDeleteResult Missing() => new(true, 0);
 }
 
+/// <summary>What deleting every piece of some types on a project removed.</summary>
+/// <param name="ProjectNotFound">There is no such project: nothing was deleted.</param>
+/// <param name="Pieces">The pieces of the named types that were deleted, with their content: those saved
+/// under a page, and those saved under none.</param>
+/// <param name="Derived">Anything saved under one of those, deleted with it.</param>
+public sealed record GccProjectPiecesDeleteResult(bool ProjectNotFound, int Pieces, int Derived)
+{
+    public static GccProjectPiecesDeleteResult Missing() => new(true, 0, 0);
+}
+
 /// <summary>A run's pieces saved, or why none of them was. Nothing is written on a refusal.</summary>
 public sealed record GccGeneratedPiecesSaveResult(
     IReadOnlyList<GccSavedPieceDto>? Saved, bool ProjectNotFound, string? Refusal)

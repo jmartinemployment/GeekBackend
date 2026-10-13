@@ -73,6 +73,15 @@ public interface IGccProjectPageRepository
     /// </summary>
     Task<GccPiecesDeleteResult> DeletePiecesAsync(
         Guid projectId, Guid pageId, IReadOnlyList<string> types, CancellationToken ct = default);
+
+    /// <summary>
+    /// Delete every piece of the given types on the project, with its content: the ones saved under a
+    /// page, whichever page, and the ones saved under none. A Generate that writes short pieces calls
+    /// this first, so the project has one piece of each type when the run ends, written by that run.
+    /// The pages themselves stand.
+    /// </summary>
+    Task<GccProjectPiecesDeleteResult> DeleteProjectPiecesAsync(
+        Guid projectId, IReadOnlyList<string> types, CancellationToken ct = default);
 }
 
 public interface IGccArtifactVersionRepository

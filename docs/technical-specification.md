@@ -11,7 +11,8 @@ workflow and Dockerfile lists and the hub routes; the rest is the explorers' rea
 A content-production backend. An operator saves a project brief, presses Generate, and receives pages (pillar, blog,
 tool pages, image prompts) grounded in three sets of crawled sites: the project's own site, its
 partners' sites (tools it sells or promotes) and its competitors' sites. A short piece (an email, a social post, an ad)
-is written afterwards by Repurpose, from one of those pages once it is approved. Generation is done by GeekAPI. Retrieval and
+is written from one of those pages: by the same Generate from the project's Pillar when it is ticked there, and again by
+Repurpose from any one page once it is approved. Generation is done by GeekAPI. Retrieval and
 quote verification are done by a separate RAG service that never generates.
 
 ## 2. System map
@@ -122,9 +123,10 @@ client, get, create, update, status, brief PATCH, soft delete), artifacts, log, 
 SERP parse, partner-quote readiness. `GccInternalController` (API key): brief backfill.
 GeekRepository mirrors these under `repo/content-creator/**` (InternalService).
 
-**Content types.** Written by Generate: pillar, blog, tool (one page per partner), image prompt. Written by Repurpose, from
-an approved page, and refused on Generate: email (cold outreach), social, ads, and the per-channel posts (`linkedin`, `x`,
-`instagram`, `facebook`, `metaads`, `googleads`). Disabled by `DisabledContentTypes` (13 keys): tech article, comparison,
+**Content types.** Written by Generate from the Brief and the research: pillar, blog, tool (one page per partner), image
+prompt. Written from a page, by Generate from the project's Pillar and by Repurpose from one approved page: email (cold
+outreach), social, ads, and the per-channel posts (`linkedin`, `x`, `instagram`, `facebook`, `metaads`, `googleads`).
+Disabled by `DisabledContentTypes` (13 keys): tech article, comparison,
 alternatives, case study, guide, listicle, service, local, whitepaper, LinkedIn document, three email variants. Only pillar,
 blog and tool have registered prompt sets.
 
@@ -173,8 +175,36 @@ blog and tool have registered prompt sets.
      until then each question was searched for in the partners' crawls and answered only from the passages found.
 5. The runner records `completed` or `failure`, writes the job row, and pushes over SignalR.
 
-**Repurpose, end to end** (2026-10-12; `GccRepurpose`). The one way a short piece is written. Until then Email, Social and
-Ads were ticked on Generate and written from the Brief alone, with no page in front of the writer.
+**A short piece on Generate, end to end** (2026-10-13; `GccGenerationCoordinator.RunGenerateWithPiecesAsync`). Jeff: *"Add
+my Email, Social, and Ads, back to generate"*; asked what each is written from there, the project's Pillar. A run asked for
+no short piece is unchanged.
+1. **What it is written from** (`GccRepurpose.GenerateSourceOf`): the Pillar this run writes when "Pillar" is asked for,
+   otherwise the Pillar the project already has, approved or not; a project with no Pillar and none asked for, its Blog by
+   the same rule. Neither, and neither asked for: `GccProjectsController.Generate` answers 400 before a run row exists, and
+   the run itself refuses before anything is deleted.
+2. **Delete first:** the old pages of the page types, as always, and **every piece of the asked types on the project**
+   (`DELETE repo/content-creator/projects/{id}/pieces?type=`, `GccProjectPageRepository.DeleteProjectPiecesAsync`): under
+   the Pillar, under another page from a Repurpose, and under no page from a Generate before 2026-10-12. A project ends
+   the run with one of each.
+3. **Pages first.** They are searched for and written as before (`AttemptPagesAsync`) and saved in one write. No page asked
+   for: nothing is searched. Research that cannot be resolved is each page's refusal here, not the run's failure, because
+   an email written from a saved Pillar needs none.
+4. **Then the pieces.** The page is read back as saved (`GccRepurpose.PageOf`, `SourceOf` with approval not required), each
+   piece is written by the one writer Repurpose uses (`WritePieceAsync`) with the same figure check, and what wrote is
+   saved in a second write under that page.
+5. **A Pillar asked for and refused takes its pieces with it** (`GccRepurpose.SourceNotWrittenRefusal`). They are not
+   written from the Blog instead. The other pages are kept.
+6. **One result:** pages and pieces, every refusal, every warning. The run fails only when nothing at all wrote
+   (`GccRunSettlement.SettlePart`, `NothingWrote`), and then no type is announced one by one, so each reason is said once.
+   Pieces that were written and could not be saved, beside pages that were, are reported as not written and the pages stand.
+- **Run log:** `short-pieces` (the types, the page type they are written from, whether this run writes it, how many were
+  deleted) and `piecesWrittenFrom` on `settled`.
+- **Not built:** a piece written by Generate from a tool page (that is Repurpose's), and the six per-channel types on the
+  form's list, which GeekAPI takes by the same rule.
+
+**Repurpose, end to end** (2026-10-12; `GccRepurpose`). How a short piece is written again from one approved page without
+running Generate. Until 2026-10-12 Email, Social and Ads were ticked on Generate and written from the Brief alone, with no
+page in front of the writer; from then until 2026-10-13 Repurpose was the only way one was written.
 1. `GccProjectsController.Repurpose` validates the actor, provider and types (every one a short piece), reads the page and
    its one version, and refuses unless it is a pillar, a blog or a tool page of this project that is approved and has text
    (`GccRepurpose.SourceOf`). It then passes the same two gates as a Generate, in the one method both routes call
@@ -198,13 +228,16 @@ Ads were ticked on Generate and written from the Brief alone, with no page in fr
   (`GccGenerateJobRepository.GetLatestForProjectAsync` answers runs with no source page), so a Repurpose never replaces the
   last Generate's result on the page.
 - **The export names a piece for its page** (`GccArtifactExportService.FromPage`): "email/{name}-from-pillar.json".
-- **Short pieces saved by Generate before 2026-10-12** are pages of the project with no page above them. No run deletes
-  them, and the form has no control that deletes a page.
+- **Short pieces saved by Generate before 2026-10-12** are pages of the project with no page above them. A Generate that
+  writes that type deletes them (above); the form has no control that deletes a page.
 
 **Repurpose on the form** (content-creator-v2, 2026-10-12; `src/lib/content-creator/repurpose.ts`,
 `ProjectContentWorkspace.tsx`).
-- **Generate's "Content type" list does not offer the three.** The picker leaves out what `isRepurposeType` names and
-  says under the list where they are written. They are not in the disabled list, so their tabs under Output stay.
+- **Generate's "Content type" list offers the three** (2026-10-13; it left them out from 2026-10-12) and says under the
+  list that they are written from the project's Pillar, this run's or the saved one, or its Blog when it has no Pillar.
+  A piece ticked on a project with neither page, and neither ticked, holds Generate with one line saying so
+  (`nothingToWriteFromLine`, the form's copy of `GccRepurpose.GenerateSourceOf`). When the drafts could not be read the
+  page does not hold it: the server answers.
 - **"Repurpose" is a section under "Approve & export"** on a pillar, a blog or a tool page (`isRepurposeSource`), not on a
   piece. Not approved: it says to approve the page and offers nothing to press. Approved: the three to tick, and a button
   behind what Generate's waits on (a saved, complete brief and a crawled site). The server holds the gates.
@@ -218,8 +251,9 @@ Ads were ticked on Generate and written from the Brief alone, with no page in fr
 - **A piece says its page:** "Written from the Pillar" in its heading line with the way back, and "From the Pillar" on
   its button where a tab holds several (`sourceLabel`, `pieceButtonLabel`). A piece carries its page's name, and a pillar
   and a blog are both named for the keyword.
-- **Under Generate's list, one line says how many pieces go with a ticked page** (`deletedPiecesLine`). With tool pages
-  ticked for some partners only it says the rule and no number.
+- **Under Generate's list, one line says what the run deletes** (`deletedPiecesLine`): how many pieces go with a ticked
+  page, and how many of a ticked piece's type the project already has, each piece counted once. With tool pages ticked for
+  some partners only it says the rule for those and no number.
 - **An email is drawn as its subject, body and button text and a post or an ad as its text**, escaped, never read as
   markup (`renderArtifactBody`). A piece's one image prompt is listed on the "Image prompts" tab (`imagePromptsFor`).
 - **Every line a run puts on the page passes `withoutIds`** (`run-display.ts`): the server refuses a second run by naming
@@ -536,11 +570,12 @@ SMTP_*.
 
 ## 13. Build, test and delivery
 
-- **Tests:** `dotnet test GEEKBACKEND.slnx`. GeekBackend.Tests: xUnit, 2,198 tests on 2026-10-13 (2,170 before that
+- **Tests:** `dotnet test GEEKBACKEND.slnx`. GeekBackend.Tests: xUnit, 2,215 tests on 2026-10-13 (2,198 before Email, Social
+  and Ads went back on Generate; 2,170 before that
   afternoon's tool-name, list-name and made-up-figure changes, after the tests of the removed question searches went; theory rows included;
   2,151 earlier that day; 2,139 on 2026-10-12; 1,972 on 2026-10-07), using EphemeralMongo and EF InMemory with scripted model providers, so they prove wiring and the
   checks and nothing about model behaviour. IntegrationTests (44 tests; 33 on 2026-10-07) need `TEST_DATABASE_URL` and run
-  the app through `WebApplicationFactory`. content-creator-v2: `node --test`, 83 tests on 2026-10-13 (63 on 2026-10-12; 14 on 2026-10-07),
+  the app through `WebApplicationFactory`. content-creator-v2: `node --test`, 84 tests on 2026-10-13 (63 on 2026-10-12; 14 on 2026-10-07),
   plus a CI of typecheck, lint and build. The form's tests render pages against a GeekAPI answered from fixtures; none
   follows a run over the hub.
 - **CI:** the only GeekBackend workflow is `geek-crawler-playwright.yml` (daily and manual). There is no build or deploy CI;
@@ -641,5 +676,8 @@ returned cut by a count; and Repurpose, in GeekAPI and on the form. Three things
 - **A run whose model `OpenAiModelLimits` does not list is refused before anything is deleted,** and that reads the writing
   model, `ExtractionModel` and `UtilityModel` alike; a run with the Anthropic provider is refused for the same reason. What
   those two settings name on Railway was not read (listing the variables shows the keys).
-- **A short piece saved by Generate before 2026-10-12** is a page of the project that no run deletes and the form cannot
-  delete.
+- **A short piece saved by Generate before 2026-10-12** is a page of the project that the form cannot delete. Since
+  2026-10-13 a Generate asked for that type deletes it.
+
+**Built on 2026-10-13 and not yet seen in a real run:** Email, Social and Ads on Generate, written from the project's Pillar
+(`plans/email-social-ads-on-generate.md`).

@@ -231,7 +231,7 @@ public sealed class GccShortFormReplyTests
 
         var sent = Assert.Single(provider.Requests).Messages[1].Content;
         Assert.Contains("IS WRITTEN FROM ===", sent, StringComparison.Ordinal);
-        Assert.Contains("An approved pillar page of this publisher's: \"Automated Approval Workflows: A Guide\".", sent, StringComparison.Ordinal);
+        Assert.Contains("A pillar page of this publisher's: \"Automated Approval Workflows: A Guide\".", sent, StringComparison.Ordinal);
         Assert.Contains(Page.Text, sent, StringComparison.Ordinal);
         Assert.Contains("a figure is written exactly as the page", sent, StringComparison.Ordinal);
         // And what a short piece was already handed from the Brief's side of the request.
