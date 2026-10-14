@@ -39,6 +39,19 @@ internal static class DeclaredUrlTestDoubles
             """;
     }
 
+    /// <summary>
+    /// GeekRepository not reached: the connection is reset before the read arrives, as the read of the
+    /// site's crawl run was on 2026-10-14 at 09:50:15 UTC.
+    /// </summary>
+    internal sealed class ResetConnectionHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException(
+                "An error occurred while sending the request.",
+                new IOException("Unable to read data from the transport connection: Connection reset by peer."));
+    }
+
     /// <summary>A search that returns a page: the run holds chunks.</summary>
     internal static GeekCrawlerRagQueryResult Holds(Guid runId) =>
         new() { RunId = runId, Pages = [new GccQuoteablePage("https://found.test/page", "Found", [], ["Text."])] };

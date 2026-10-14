@@ -116,6 +116,43 @@ public sealed class HostsIndexedFeedbackTests
     }
 
     /// <summary>
+    /// 2026-10-14, the Profile of "Cash Flow Forecasting: Automated Enterprise Resource Planning": the
+    /// read of the site's crawl run had its connection reset before it reached GeekRepository, the
+    /// exception escaped the check, and the form printed the 502's whole body under the site's URL.
+    /// A run that could not be read is no answer about the URL: the check says so, in a sentence, and
+    /// nothing is searched.
+    /// </summary>
+    [Fact]
+    public async Task A_crawl_run_that_cannot_be_read_is_not_an_answer_about_the_url()
+    {
+        var searched = 0;
+        var validator = new GccDeclaredUrlValidator(
+            new GccCompetitorAnalysisResolverTests.FakeRag(
+                [new GeekCrawlerRagHostIndex(Rival, "rival.test", true, Guid.NewGuid().ToString())],
+                (runId, _) =>
+                {
+                    Interlocked.Increment(ref searched);
+                    return DeclaredUrlTestDoubles.Holds(runId);
+                }),
+            new HttpGeekCrawlerRepository(
+                new HttpClient(new DeclaredUrlTestDoubles.ResetConnectionHandler()) { BaseAddress = new Uri("https://crawler.test") },
+                NullLogger<HttpGeekCrawlerRepository>.Instance),
+            NullLogger<GccDeclaredUrlValidator>.Instance);
+        var controller = new RagController(new SignedIn(), null!, validator);
+
+        var result = await controller.HostsIndexed(
+            new RagController.HostsIndexedRequest([Rival], CrawlTypes.Competitors), CancellationToken.None);
+
+        var refused = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status502BadGateway, refused.StatusCode);
+        var error = JsonDocument.Parse(JsonSerializer.Serialize(refused.Value)).RootElement.GetProperty("error").GetString();
+        Assert.Equal(
+            $"The crawl of {Rival} could not be read from GeekRepository, so the declared URLs could not be checked.",
+            error);
+        Assert.Equal(0, searched);
+    }
+
+    /// <summary>
     /// tipalti.com, 2026-10-08: one host, a partner run and a competitor run, both complete and both
     /// indexed. Asked by host alone, the index answered the competitor run; the partner probe on it
     /// matched nothing, and the partner was excluded with "its crawl finished, but a search of the

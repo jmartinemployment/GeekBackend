@@ -26,7 +26,8 @@ namespace GeekAPI.Services.ContentCreator;
 /// </para>
 /// <para>
 /// A search that fails -- the index unreachable or erroring -- is not an answer about any URL, so the
-/// whole check refuses and asks for a retry rather than calling the URL unusable or usable.
+/// whole check refuses and asks for a retry rather than calling the URL unusable or usable. So is a
+/// crawl run that GeekRepository could not be asked for.
 /// </para>
 /// </remarks>
 public sealed class GccDeclaredUrlValidator
@@ -205,7 +206,22 @@ public sealed class GccDeclaredUrlValidator
             // Indexed is not usable. The run says what actually landed.
             GeekCrawlerRunDto? run = null;
             if (row.Indexed && Guid.TryParse(row.RunId, out var runId))
-                run = await _crawlerRepo.GetRunAsync(runId, ct);
+            {
+                try
+                {
+                    run = await _crawlerRepo.GetRunAsync(runId, ct);
+                }
+                catch (HttpRequestException)
+                {
+                    // A run that could not be read is no answer about the URL, as a search that failed
+                    // is not. It escaped as an unhandled exception until 2026-10-14, when a connection
+                    // to GeekRepository was reset before the read reached it and the Profile of "Cash
+                    // Flow Forecasting: Automated Enterprise Resource Planning" printed the 502's whole
+                    // body under the site's URL. The client has logged the failure.
+                    return GccDeclaredUrlAnswers.NotAsked(
+                        $"The crawl of {url} could not be read from GeekRepository, so the declared URLs could not be checked.");
+                }
+            }
             var reason = GccDeclaredUrlEvidence.Unusable(row, run);
             answers[url] = new GccDeclaredUrlAnswer(
                 row.Url, row.Host, row.Indexed, row.RunId, reason,
