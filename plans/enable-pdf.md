@@ -5,7 +5,9 @@ Email"). Steps 1 to 5 of six are built and pushed on 2026-10-13, on Jeff's word 
 GeekBackend `b9573b9` first (GeekRepository up at 22:12 UTC, GeekAPI at 22:13), then
 content-creator-v2 `8107cfd` (pushed at 22:14, its Vercel build ready minutes later). See "As built" at the end, which also lists
 where the build differs from this plan. The live screen offers the type and the live GeekAPI takes
-it. No real run has written a deck: step 6 is your proof run. The four decisions at the end are settled, as written there, but for where the links go.**
+it. Step 6, your proof run, was on 2026-10-14 at 13:23 UTC: a deck written, nine pages saved, one line, the
+Brief's questions squeezed on to one slide. The commit that carries this line fixes it, and no deck has been
+written with the fix yet: see "The proof run" at the end. The four decisions at the end are settled, as written there, but for where the links go.**
 
 Jeff, 2026-10-13: *"Create a plan to enable PDF."*
 
@@ -186,7 +188,7 @@ do, so a real run should come in under this; its `evidence` events are the real 
 | 3 | **Built 2026-10-13.** The renderer, the route, the export | The read-back test; the route answers a PDF for a deck and 400 for a Pillar; the zip of a project with a deck holds the PDF, the post and the first comment |
 | 4 | **Built and pushed 2026-10-13.** Open GeekAPI's gate: the type leaves `DisabledContentTypes`; the leftover names go; `AGENTS.md`, the specification and the sources document say what was built | Both suites pass. Pushed on Jeff's word, with no Generate and no crawl running; Railway SUCCESS on both services |
 | 5 | **Built and pushed 2026-10-13.** The form: the type leaves `DISABLED_CONTENT_TYPES`; its own length band; "Download PDF"; the post under the slides and the first comment under the post; the unused second list of content types deleted if nothing reads it | `npm test`, `tsc`, `eslint`; the screen read in the browser, which waits for the push |
-| 6 | The proof | Jeff runs one Generate with "PDF / LinkedIn document" alone and reads the PDF: every partner on its slide, no link inside, every figure in the evidence, the booking words on the last page, a post that reads as a LinkedIn post |
+| 6 | **Run 2026-10-14, 13:23 UTC.** The proof | Jeff runs one Generate with "PDF / LinkedIn document" alone and reads the PDF: every partner on its slide, no link inside, every figure in the evidence, the booking words on the last page, a post that reads as a LinkedIn post. Run beside a pillar, a blog, five tool pages and a social post; the one line it listed is fixed below |
 
 The form is pushed after GeekAPI: the other order offers a type the server refuses.
 
@@ -487,3 +489,48 @@ Multi-State Sales Tax Nexus"): "PDF / LinkedIn document" is on Generate's "Conte
 LinkedIn document yet for this project. Pick it as an output type, then Generate above." The slides,
 the post, the first comment and "Download PDF" cannot be read on the live screen until a deck exists.
 
+### The proof run, 2026-10-14: the Brief's questions go on to another slide
+
+**The run.** Project "Cash Flow Forecasting: Intelligent Resource Planning" (`d12e3d88`), job `14e55db3`,
+13:23 UTC, five partners, the deck ticked with a pillar, a blog, five tool pages and a social post.
+Nine pages saved, none refused, one line:
+
+> linkedin-document: In the PDF, slide 9 ("Answer these questions when booking your free
+> consultation") holds more than fits a page at a size that reads on a phone, so its text is set
+> smaller than 28 points. Write the deck again for a shorter slide.
+
+Slides 1 to 8 were set at 42 to 48 points. Slide 9 held the Brief's twelve questions, 296 words, and
+none of the seven sizes fitted it.
+
+**The cause.** The last slide put every question on one slide (`GccLinkedInDocument.NextSlide`),
+and the renderer's only answer to a slide too full was to scale it. The line then told you to write
+the deck again, which cannot change a slide no request writes: the same questions give the same slide.
+
+**Why nothing caught it.** Every test's Brief had one short question. The test of a slide too full
+filled a written slide.
+
+**What was built, in the commit that carries this section.** Not yet seen in a real run.
+- `GccLinkedInDocumentPdfRenderer.LastSlides`: when the questions do not fit one slide at 28 points,
+  they go on to as many slides as they need, in the order typed, each under the booking words, the
+  site's address on the last. How many a slide holds is found by laying it out; of the ways to put
+  them on the fewest slides, the one with the most even share is taken. Your twelve, laid out as they are
+  in the Brief, are two slides of six, at 30 and 28 points (the second carries the site's address).
+- They are built before either request, and both requests are told the deck's real number of slides
+  ("a deck of 10 slides" for that project). A deck with no booking words configured is now told it has
+  no last slide; it was told it had one.
+- A slide of questions is under 28 points only when one question is longer than a whole slide, and
+  its own line says so (`QuestionTooLongLine`). "Write the deck again" is said only of a slide a
+  request wrote.
+- Tests (`LinkedInDocumentPdfTests`): a deck written from twelve questions of those lengths is two
+  slides of questions, every question once and in order, both at a size that reads, nothing listed,
+  the address on the last page alone, both requests told seven slides and shown no question; three
+  questions stay on one slide; a question longer than a slide is the one slide left small and its line
+  says so. 2,337 unit and 48 integration tests pass.
+
+**Where it differs from this plan.** The plan said 6 to 12 slides and the orange used once a deck. The
+questions now add slides past twelve when a project has eight partners and many questions, and the
+orange band is on each slide of questions. Your Brief is not cut to fit a count.
+
+**Not changed.** The deck saved by that run keeps its one small slide: the PDF is made from the saved
+deck, and the questions are split when a deck is written. Writing the deck again (only "PDF / LinkedIn
+document" ticked) gives the two slides.

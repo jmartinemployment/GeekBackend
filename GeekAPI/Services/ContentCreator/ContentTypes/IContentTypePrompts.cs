@@ -135,4 +135,13 @@ public sealed record ContentTypePromptContext(
     /// to a block its request does not carry. The pillar and the blog are handed the same block in
     /// their evidence by their writer and leave this null.
     /// </summary>
-    string? PartnerAnswers = null);
+    string? PartnerAnswers = null,
+    /// <summary>
+    /// How many slides a deck's last part takes: the booking words and the Brief's questions, carried
+    /// on to as many slides as they need to be read on a phone
+    /// (<see cref="GeekAPI.Services.ContentCreator.GccLinkedInDocumentPdfRenderer.LastSlides"/>), or 0
+    /// when the publisher has no booking words. The deck's writer builds those slides before any request
+    /// and sets this, so both requests are told the deck's real number of slides. Read by the deck's
+    /// prompts alone.
+    /// </summary>
+    int DeckLastSlides = 1);

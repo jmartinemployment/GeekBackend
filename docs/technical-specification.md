@@ -203,9 +203,10 @@ no short piece is unchanged.
 - **Not built:** a piece written by Generate from a tool page (that is Repurpose's), and the six per-channel types on the
   form's list, which GeekAPI takes by the same rule.
 
-**A "PDF / LinkedIn document", end to end** (2026-10-13; `plans/enable-pdf.md`; pushed 2026-10-13, not seen in a real
-run). Jeff: *"execute your plan to turn on PDF, Social and Email"*. A deck of 6 to 12 slides and the LinkedIn post that
-carries it, written from the Brief and the research like the Pillar and not from a page.
+**A "PDF / LinkedIn document", end to end** (2026-10-13; `plans/enable-pdf.md`; pushed 2026-10-13; first real run
+2026-10-14 at 13:23 UTC, job `14e55db3`). Jeff: *"execute your plan to turn on PDF, Social and Email"*. A deck of 6 to 12
+slides, and more when the Brief's questions need them, and the LinkedIn post that carries it, written from the Brief and
+the research like the Pillar and not from a page.
 1. **The slides are fixed by code** (`GccLinkedInDocument.Slides`): the cover, the problem, one slide for each partner in
    the project's order, the approach, what to do next. Two to eight partners; any other number is refused saying how many
    the project has (`PartnerRefusal`), by the route with 400 before a run exists, by the run before a page is deleted, and
@@ -216,8 +217,13 @@ carries it, written from the Brief and the research like the Pillar and not from
 3. **Two requests** (`Writers/GccGenerateService.LinkedInDocument.cs`), each through `RequestThatFitsAsync` with all of the
    page's research: the cover with the post, then every slide between the cover and the last. A slide's reply is a title
    and its lines as strings; a reply with another number of slides than were assigned is refused, never fitted.
-4. **The last slide is built by code** (`NextSlide`): the booking words, the Brief's questions, the site's address as words.
-   No request is shown the questions.
+4. **The last slides are built by code, before any request** (`NextSlide`, `GccLinkedInDocumentPdfRenderer.LastSlides`):
+   the booking words, the Brief's questions, the site's address as words. Every question goes on, in the order typed;
+   when they do not all fit one slide at 28 points they go on to as many slides as they need, each under the same booking
+   words, shared as evenly as the slides allow, the address on the last. Found by laying the slides out. No request is
+   shown the questions; both are told the deck's real number of slides. On the first real run the Brief's twelve
+   questions (296 words) were on one slide, scaled under 28 points, and the operator was told to write the deck again,
+   which could not change a slide no request writes.
 5. **The checks, once** (`GccDraftGuard.LinkedInDocument`), with the post as one more section so it is checked as a slide
    is: a line or a sentence of the post with a number the research does not hold is deleted and named; such a number in a
    title refuses the deck; money not in US dollars, a quotation, a link or a typed address, and a quiz on a slide refuse;
@@ -230,9 +236,10 @@ carries it, written from the Brief and the research like the Pillar and not from
 7. **The PDF** (`GccLinkedInDocumentPdfRenderer`, QuestPDF under its Community licence): one slide a page at 1080 by 1350,
    made from the saved deck each time it is asked for and never stored. It writes no markup; `SectionHtmlRenderer` is
    still the only producer of HTML. Sora for titles and Figtree for lines, both embedded in GeekAPI; no font of the machine
-   is used. Each slide is set at the largest of seven sizes at which it fits its page, found by laying it out; one that
-   does not fit at 28 points is scaled to its page and named for the operator when the deck is written, as is a character
-   neither face has a shape for.
+   is used. Each slide is set at the largest of seven sizes at which it fits its page, found by laying it out; a written
+   slide that does not fit at 28 points is scaled to its page and named for the operator when the deck is written, with
+   the line saying to write the deck again, as is a character neither face has a shape for. A slide of questions is under
+   28 points only when one question is longer than a whole slide, and its own line says so.
 8. **Routes.** `GET versions/{id}/pdf` answers `application/pdf`, 400 saying why for a version that is not a deck. The
    project export holds `linkedin-document/{title}.pdf`, `.caption.txt` and `.first-comment.txt`, and no HTML for a deck.
    `versions/{id}/seo` answers 400 for a deck: it is not scored for search.

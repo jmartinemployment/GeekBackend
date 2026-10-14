@@ -654,7 +654,7 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
         Assert.Null(GccLinkedInDocument.NextSlide(new CompanyProfileOptions { ConsultationClosingLinkWithoutQuestions = "" }, []));
 
         // A deck built without it is saved, and says what it is missing.
-        IReadOnlyList<GccDeckSlidePlan> slides = [.. GccLinkedInDocument.Slides(["Ramp", "Bill"]).Where(slide => !slide.BuiltByCode)];
+        IReadOnlyList<GccDeckSlidePlan> slides = [.. GccLinkedInDocument.Slides(["Ramp", "Bill"], lastSlides: 0)];
         var verdict = GccDraftGuard.LinkedInDocument(Deck(slides, "The post."), Inputs(), slides);
         var finding = Assert.Single(verdict.Findings);
         Assert.Equal("deck-last-slide", finding.Check);
@@ -699,7 +699,7 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
     [Fact]
     public void The_post_goes_through_the_checks_as_a_section_and_comes_back_out_as_text()
     {
-        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"]);
+        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"], lastSlides: 1);
         var deck = Deck(slides, post: null);
 
         var together = GccLinkedInDocument.WithPost(deck, "A first paragraph.\r\n\r\nA second,\nwith a line break in it.\n\n\n\nA third.");
@@ -762,7 +762,7 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
     [Fact]
     public void A_deck_that_names_each_partner_on_its_slide_and_ends_on_the_booking_slide_passes_every_check()
     {
-        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"]);
+        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"], lastSlides: 1);
 
         // The last slide's question holds "if your answers", which is the operator's own wording and
         // not a quiz the writer framed.
@@ -774,7 +774,7 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
     [Fact]
     public void A_partner_named_for_its_domain_is_not_read_as_an_address()
     {
-        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Bill.com", "Ramp"]);
+        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Bill.com", "Ramp"], lastSlides: 1);
         var deck = Deck(slides, "Bill.com and Ramp, side by side.");
 
         var verdict = GccDraftGuard.LinkedInDocument(deck, Inputs() with { RequiredTools = ["Bill.com", "Ramp"] }, slides);
@@ -785,7 +785,7 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
     [Fact]
     public void A_link_set_on_any_part_of_a_deck_refuses_it()
     {
-        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"]);
+        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"], lastSlides: 1);
         var deck = Deck(slides, "A post.", (slide, section) => slide.Kind == GccDeckSlideKind.Approach
             ? section with { Paragraphs = [new TextParagraph([new Run("See the method", Href: "/use-cases/method")])] }
             : section);
@@ -800,7 +800,7 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
     [Fact]
     public void A_quotation_in_a_deck_refuses_it()
     {
-        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"]);
+        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"], lastSlides: 1);
         var deck = Deck(slides, "A post.", (slide, section) => slide.Kind == GccDeckSlideKind.Problem
             ? section with { Paragraphs = [.. section.Paragraphs, new QuoteParagraph([new Run("We closed in two days.")])] }
             : section);
@@ -814,7 +814,7 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
     [Fact]
     public void A_title_and_the_covers_line_are_read_for_figures_and_one_the_evidence_holds_passes()
     {
-        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"]);
+        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"], lastSlides: 1);
         ContentDocument WithTitle() => Deck(slides, "A post.", (slide, section) => slide.Kind == GccDeckSlideKind.Problem
             ? section with { Heading = "A late invoice costs $45 in fees" }
             : section);
@@ -830,7 +830,7 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
     [Fact]
     public void What_each_slide_holds_is_counted_against_the_decks_numbers()
     {
-        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"]);
+        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(["Ramp", "Bill"], lastSlides: 1);
         var deck = Deck(slides, post: null, (slide, section) => slide.Kind switch
         {
             GccDeckSlideKind.Cover => section with

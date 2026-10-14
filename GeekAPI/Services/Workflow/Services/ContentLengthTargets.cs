@@ -125,6 +125,8 @@ public static class ContentLengthTargets
     /// <summary>The slides a deck has besides its partners': the cover, the problem, the approach, what to do next.</summary>
     public const int LinkedInDocumentSlidesBesidesPartners = 4;
 
+    // The slides of a deck whose questions fit one slide. The Brief's questions are carried on to as many
+    // more as they need to be read (GccLinkedInDocumentPdfRenderer.LastSlides), so a deck can be longer.
     public const int LinkedInDocumentMinSlides = LinkedInDocumentMinPartners + LinkedInDocumentSlidesBesidesPartners;
     public const int LinkedInDocumentMaxSlides = LinkedInDocumentMaxPartners + LinkedInDocumentSlidesBesidesPartners;
 

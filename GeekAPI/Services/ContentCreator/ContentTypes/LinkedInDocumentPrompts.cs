@@ -134,7 +134,7 @@ public sealed class LinkedInDocumentPrompts(IContentPromptBuilder prompts) : ICo
     public ChatCompletionRequest Lede(ContentTypePromptContext ctx)
     {
         var partners = ctx.Partners ?? [];
-        var slides = GccLinkedInDocument.Slides(partners);
+        var slides = GccLinkedInDocument.Slides(partners, ctx.DeckLastSlides);
         return prompts.BuildLinkedInDocumentCoverPrompt(
             ctx.Context,
             [.. slides.Select(Describe)],
@@ -148,7 +148,7 @@ public sealed class LinkedInDocumentPrompts(IContentPromptBuilder prompts) : ICo
         prompts.BuildLinkedInDocumentSlidesPrompt(
             ctx.Context,
             slides: ctx.SectionBatch ?? OutlineFor(ctx),
-            slideCount: GccLinkedInDocument.Slides(ctx.Partners ?? []).Count,
+            slideCount: GccLinkedInDocument.Slides(ctx.Partners ?? [], ctx.DeckLastSlides).Count,
             operatorsFraming: ctx.NicheFraming?.DeckGuidance(),
             evidenceBlock: EvidenceWithPartnerAnswers(ctx),
             cover: GccLinkedInDocument.CoverOf(ctx.Lede));

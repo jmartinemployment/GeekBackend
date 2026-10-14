@@ -13,7 +13,7 @@ namespace GeekAPI.Services.ContentCreator;
 //
 // Two requests, the cover with the post and then every slide between the cover and the last. Each goes
 // through RequestThatFitsAsync with the page's whole research, counted before it is sent: the one way
-// every type receives research (Jeff, 2026-10-12). Code builds the last slide, makes the page's
+// every type receives research (Jeff, 2026-10-12). Code builds the last slides first, makes the page's
 // document from the replies, runs every check once, and lists the links for the first comment.
 //
 // Not done for a deck: the keyword remap and the keyword checks (a deck is not scored for search), an
@@ -76,12 +76,21 @@ public partial class GccGenerateService
             withConsultantAppendix: false) with { LengthBand = null };
         await RecordCompetitorPagesWithoutOutlineAsync(label, create, competitorAnalyses);
 
+        // The last slides, built by code before any request: the booking words and the Brief's
+        // questions, on as many slides as they need to be read. No writer is shown the questions;
+        // both requests are told how many slides the deck has.
+        var last = LastSlidesOf(
+            GccLinkedInDocument.NextSlide(_company, GccNicheFramingReader.DiagnosisQuestions(create.BriefJson)),
+            number: GccLinkedInDocument.Slides(partners, lastSlides: 0).Count + 1);
+        IReadOnlyList<GccDeckSlidePlan> slides = GccLinkedInDocument.Slides(partners, last.Count);
+
         var deckType = RequireType(GccChannelTypes.LinkedInDocument);
         var promptCtx = new ContentTypePromptContext(
             context,
             NicheFraming: GccNicheFramingReader.ForEveryPartner(create.BriefJson, partnerTools.FailuresAreUnderThePartners),
             Partners: partners,
-            PartnerAnswers: partnerTools.Answers);
+            PartnerAnswers: partnerTools.Answers,
+            DeckLastSlides: last.Count);
         // The slides a request writes: the problem, one for each partner, the approach.
         var assigned = deckType.OutlineFor(promptCtx);
 
@@ -146,12 +155,6 @@ public partial class GccGenerateService
             ct);
         var written = GccLinkedInDocument.ReadSlides(slidesResult.Content, assigned.Count);
 
-        // (3) The last slide, built by code. The writer was never shown the questions.
-        var next = GccLinkedInDocument.NextSlide(_company, GccNicheFramingReader.DiagnosisQuestions(create.BriefJson));
-        IReadOnlyList<GccDeckSlidePlan> slides = next is null
-            ? [.. GccLinkedInDocument.Slides(partners).Where(slide => !slide.BuiltByCode)]
-            : GccLinkedInDocument.Slides(partners);
-
         var guardInputs = GuardInputsFor(
             create,
             context,
@@ -162,13 +165,13 @@ public partial class GccGenerateService
             // currency checks read whole as the operator's own statements.
             evidenceText: slidesEvidence);
 
-        // (4) Every check, once. The post goes through them with the deck, as one more section, so the
+        // (3) Every check, once. The post goes through them with the deck, as one more section, so the
         // em dash, a sentence with a number the research does not hold and money that is not in US
         // dollars are handled in it exactly as they are on a slide.
         Task<GccDraft> WriteDeckAsync()
         {
             var sections = written.Select(GccLinkedInDocument.SlideSection).ToList();
-            if (next is not null) sections.Add(next);
+            sections.AddRange(last);
             var whole = GccLinkedInDocument.WithPost(
                 new ContentDocument(GccLinkedInDocument.CoverSection(coverAndPost.Cover), sections),
                 coverAndPost.Post);
@@ -184,14 +187,14 @@ public partial class GccGenerateService
         var (deck, post) = GccLinkedInDocument.SplitPost(checkedDocument, slides.Count);
         if (GccDraftGuard.PostLength(post) is { } tooLong) warnings.Add(tooLong);
 
-        // (5) The links, for the first comment: the booking link and each partner's tool page on the
+        // (4) The links, for the first comment: the booking link and each partner's tool page on the
         // publisher's site. Whether the project has each of those pages is known when the run is over,
         // and a page it does not have is named then (GccGenerationCoordinator.NameMissingToolPages).
         var links = GccLinkedInDocument.Links(
             _company, GccPartnerToolPages.For(create, partnerUrls, _company.ToolBaseUrl));
         var firstComment = GccLinkedInDocument.FirstComment(links);
 
-        // (6) How the deck sets as the PDF that is posted, found now so the operator hears of it with
+        // (5) How the deck sets as the PDF that is posted, found now so the operator hears of it with
         // the deck and not on opening the file: a slide that had to be set under the legible size to
         // fit its page, and a character the PDF's typefaces have no shape for.
         var setting = SettingOf(new GccLinkedInDocument.SavedDeck(deck.Lede.Heading, deck, slides, post, firstComment));
@@ -247,9 +250,36 @@ public partial class GccGenerateService
                 : new[]
                     {
                         GccLinkedInDocumentPdfRenderer.SetSmallLine(Slides),
+                        GccLinkedInDocumentPdfRenderer.QuestionTooLongLine(Slides),
                         GccLinkedInDocumentPdfRenderer.EmptyBoxLine(NotHeld),
                     }
                     .OfType<string>();
+    }
+
+    /// <summary>
+    /// The deck's last slides: <paramref name="next"/> carried on to as many slides as its questions
+    /// need to be read on a phone (<see cref="GccLinkedInDocumentPdfRenderer.LastSlides"/>). None when
+    /// the publisher has no booking words.
+    /// </summary>
+    /// <param name="number">The place of the first of them in the deck, the cover being 1.</param>
+    /// <remarks>
+    /// Found by laying the slides out. If the layout itself fails, the questions stay on the one slide
+    /// they were built on and the deck is written: <see cref="SettingOf"/> fails the same way after the
+    /// deck is written and puts the reason in its lines, and refusing here would throw away a deck for
+    /// a fault in printing it.
+    /// </remarks>
+    private IReadOnlyList<Section> LastSlidesOf(Section? next, int number)
+    {
+        if (next is null) return [];
+        try
+        {
+            return GccLinkedInDocumentPdfRenderer.LastSlides(next, number, _company);
+        }
+        catch (Exception fault) when (fault is not OperationCanceledException)
+        {
+            _logger.LogError(fault, "A deck's last slides could not be laid out before the deck was written.");
+            return [next];
+        }
     }
 
     /// <summary>

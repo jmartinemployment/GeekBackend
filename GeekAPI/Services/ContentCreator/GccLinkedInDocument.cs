@@ -79,21 +79,25 @@ public static class GccLinkedInDocument
     /// </summary>
     /// <param name="partners">The project's partner tools, as the writer is told to spell them
     /// (<see cref="GccRequiredToolMentions.For"/>).</param>
-    public static IReadOnlyList<GccDeckSlidePlan> Slides(IReadOnlyList<string> partners) =>
+    /// <param name="lastSlides">How many slides what to do next takes: the slides
+    /// <see cref="GccLinkedInDocumentPdfRenderer.LastSlides"/> made of <see cref="NextSlide"/>, the
+    /// Brief's questions carried on to as many as they need to be read; none when the publisher has no
+    /// booking words.</param>
+    public static IReadOnlyList<GccDeckSlidePlan> Slides(IReadOnlyList<string> partners, int lastSlides) =>
     [
         new(GccDeckSlideKind.Cover),
         new(GccDeckSlideKind.Problem),
         .. Named(partners).Select(partner => new GccDeckSlidePlan(GccDeckSlideKind.Partner, partner)),
         new(GccDeckSlideKind.Approach),
-        new(GccDeckSlideKind.Next),
+        .. Enumerable.Repeat(new GccDeckSlidePlan(GccDeckSlideKind.Next), Math.Max(0, lastSlides)),
     ];
 
     /// <summary>
     /// The slides a request writes after the cover: the problem, each partner's, the approach. The
-    /// cover is written with the post, and the last slide is built by code.
+    /// cover is written with the post, and the last slides are built by code.
     /// </summary>
     public static IReadOnlyList<GccDeckSlidePlan> WrittenAfterTheCover(IReadOnlyList<string> partners) =>
-        [.. Slides(partners).Where(slide => slide.Kind != GccDeckSlideKind.Cover && !slide.BuiltByCode)];
+        [.. Slides(partners, lastSlides: 0).Where(slide => slide.Kind != GccDeckSlideKind.Cover)];
 
     /// <summary>
     /// Why a deck cannot be written for this many partners, or null when it can. Asked before a
@@ -103,7 +107,9 @@ public static class GccLinkedInDocument
     /// A deck has a slide for each partner and four besides, and LinkedIn readers leave a document
     /// that runs long: six to twelve slides is two to eight partners. One partner is a tool page, not
     /// a deck about the partners; nine would be thirteen slides. The count is said back with the
-    /// names, so the operator sees which partners the project holds.
+    /// names, so the operator sees which partners the project holds. The Brief's questions are not
+    /// counted against it: what the operator typed is carried on to another slide when it does not
+    /// fit one (<see cref="GccLinkedInDocumentPdfRenderer.LastSlides"/>), and never refused or cut.
     /// </remarks>
     public static string? PartnerRefusal(IReadOnlyList<string> partners)
     {
@@ -239,6 +245,12 @@ public static class GccLinkedInDocument
     /// <para>
     /// <b>No link.</b> LinkedIn does not make a link inside a document clickable, so the address is
     /// words on the slide. The links are in the first comment (<see cref="FirstComment"/>).
+    /// </para>
+    /// <para>
+    /// <b>One slide as written here, and as many as it needs in the deck.</b> Every question goes on
+    /// it, however many the Brief holds; <see cref="GccLinkedInDocumentPdfRenderer.LastSlides"/> then
+    /// carries them on to further slides with the same booking words when one slide cannot hold them
+    /// at a size that reads on a phone.
     /// </para>
     /// </remarks>
     public static Section? NextSlide(CompanyProfileOptions company, IReadOnlyList<string> questions)

@@ -272,6 +272,143 @@ public sealed class LinkedInDocumentPdfTests
         Assert.DoesNotContain(Warnings(saved), warning => warning.StartsWith("In the PDF,", StringComparison.Ordinal));
     }
 
+    // ---- the Brief's questions -------------------------------------------------------------------
+
+    /// <summary>
+    /// Twelve questions of the lengths the Brief of "Cash Flow Forecasting: Intelligent Resource
+    /// Planning" held on 2026-10-14 (296 words), in made-up words. The first deck of a real run put them on
+    /// one slide, scaled under 28 points, and told the operator to write the deck again.
+    /// </summary>
+    private static readonly string[] QuestionWords =
+        "how many hours a week does your bookkeeper spend pulling bank balances and open invoices into the forecast before anyone trusts the figures it gives you at month end"
+            .Split(' ');
+
+    private static readonly IReadOnlyList<string> TwelveQuestions = [.. new[] { 26, 32, 29, 29, 23, 20, 24, 20, 27, 25, 20, 21 }
+        .Select((words, i) => $"{i + 1}. " + string.Join(" ", Enumerable.Range(0, words - 1).Select(w => QuestionWords[(i + w) % QuestionWords.Length])) + "?")];
+
+    /// <summary>The complete Brief with its "One question per line" replaced.</summary>
+    private static string BriefAsking(IReadOnlyList<string> questions)
+    {
+        const string one = "\"diagnosisQuestions\": \"How many accounts are reconciled by hand each month?\"";
+        Assert.Contains(one, Brief, StringComparison.Ordinal);
+        return Brief.Replace(one, $"\"diagnosisQuestions\": {JsonSerializer.Serialize(string.Join("\n", questions))}", StringComparison.Ordinal);
+    }
+
+    private static async Task<(string Json, GccLinkedInDocument.SavedDeck Deck, IReadOnlyList<(string Label, string Text)> Calls)> DeckAskingAsync(
+        IReadOnlyList<string> questions)
+    {
+        var calls = await BriefFieldReachTests.WriteDeckAsync(BriefAsking(questions));
+        var saved = calls[^1].Text;
+        return (saved, GccLinkedInDocument.ReadSaved(saved, Web)
+            ?? throw new InvalidOperationException("The deck the writer saved does not read back as a deck."), calls);
+    }
+
+    private static IReadOnlyList<string> QuestionsOn(Section slide) =>
+        [.. slide.Paragraphs.OfType<ListParagraph>().SelectMany(list => list.Items).Select(item => string.Concat(item.Select(run => run.Text)))];
+
+    [Fact]
+    public async Task Questions_that_do_not_fit_one_slide_go_on_to_another_and_every_one_reads_on_a_phone()
+    {
+        var (saved, deck, calls) = await DeckAskingAsync(TwelveQuestions);
+
+        // The cover, the problem, two partners, the approach, and the questions on two slides.
+        Assert.Equal(
+            [GccDeckSlideKind.Cover, GccDeckSlideKind.Problem, GccDeckSlideKind.Partner, GccDeckSlideKind.Partner,
+             GccDeckSlideKind.Approach, GccDeckSlideKind.Next, GccDeckSlideKind.Next],
+            deck.Slides.Select(slide => slide.Kind));
+        var last = deck.Deck.Sections.Skip(4).ToList();
+
+        // Every question, once, in the order typed, about half on each slide.
+        Assert.Equal(TwelveQuestions, last.SelectMany(QuestionsOn));
+        Assert.All(last, slide => Assert.InRange(QuestionsOn(slide).Count, 5, 7));
+        // The booking words over both; the site's address under the last alone.
+        Assert.All(last, slide => Assert.Equal("Answer these questions when booking your free consultation", slide.Heading));
+        Assert.DoesNotContain(last[0].Paragraphs, paragraph => paragraph is TextParagraph);
+        Assert.Equal(
+            "geekatyourspot.com",
+            string.Concat(Assert.Single(last[1].Paragraphs.OfType<TextParagraph>()).Runs.Select(run => run.Text)));
+
+        // Set at a size that reads, and nothing for the operator to act on.
+        var fits = GccLinkedInDocumentPdfRenderer.Fit(deck, Company);
+        Assert.All(fits, fit =>
+        {
+            Assert.False(fit.UnderLegibleSize, $"slide {fit.Slide} is set under the legible size");
+            Assert.True(fit.TextSize >= GccLinkedInDocumentPdfRenderer.LegibleTextSize);
+        });
+        Assert.Empty(Warnings(saved));
+
+        // The PDF: a page a slide, each question on the page of its slide.
+        var pages = PagesOf(GccLinkedInDocumentPdfRenderer.Render(deck, Company));
+        Assert.Equal(7, pages.Count);
+        for (var i = 0; i < last.Count; i++)
+        {
+            var page = pages[5 + i];
+            Assert.Contains(Squashed("Answer these questions when booking your free consultation"), page.Text, StringComparison.Ordinal);
+            Assert.All(QuestionsOn(last[i]), question => Assert.Contains(Squashed(question), page.Text, StringComparison.Ordinal));
+            Assert.EndsWith($"{6 + i}/7", page.Text, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain("geekatyourspot.com", pages[5].Text, StringComparison.Ordinal);
+        Assert.Contains("geekatyourspot.com", pages[6].Text, StringComparison.Ordinal);
+
+        // Both requests are told the deck's real number of slides, and neither is shown a question.
+        var requests = calls.Where(call => call.Label is "cover and post" or "slides").ToList();
+        Assert.Equal(["cover and post", "slides"], requests.Select(request => request.Label));
+        Assert.All(requests, request =>
+        {
+            Assert.Contains("a deck of 7 slides", request.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain(TwelveQuestions[0], request.Text, StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
+    public async Task Questions_that_fit_one_slide_stay_on_one_and_the_requests_count_it()
+    {
+        var (saved, deck, calls) = await DeckAskingAsync(TwelveQuestions.Take(3).ToList());
+
+        Assert.Equal(GccDeckSlideKind.Next, Assert.Single(deck.Slides, slide => slide.BuiltByCode).Kind);
+        Assert.Equal(TwelveQuestions.Take(3), QuestionsOn(deck.Deck.Sections[^1]));
+        Assert.Empty(Warnings(saved));
+        Assert.All(
+            calls.Where(call => call.Label is "cover and post" or "slides"),
+            request => Assert.Contains("a deck of 6 slides", request.Text, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_question_longer_than_a_whole_slide_is_the_one_slide_left_small_and_its_line_says_so()
+    {
+        // About 510 words in one question, beside two short ones.
+        var tooLong = string.Join(" ", Enumerable.Repeat(FarTooLong, 3));
+        var next = GccLinkedInDocument.NextSlide(Company, ["Who signs off the forecast?", tooLong, "When is it read?"])!;
+
+        var slides = GccLinkedInDocumentPdfRenderer.LastSlides(next, number: 6, Company);
+
+        // No run of questions fits while the long one shares a slide, so each question has its own.
+        Assert.Equal(3, slides.Count);
+        IReadOnlyList<string>[] eachAlone = [["Who signs off the forecast?"], [tooLong], ["When is it read?"]];
+        Assert.Equal(eachAlone, slides.Select(QuestionsOn));
+
+        var deck = new GccLinkedInDocument.SavedDeck(
+            "A deck",
+            new ContentDocument(
+                new Section("h2", "A deck", [new TextParagraph([new Run("One line under it.")])], null, []),
+                slides),
+            [new GccDeckSlidePlan(GccDeckSlideKind.Cover), .. slides.Select(_ => new GccDeckSlidePlan(GccDeckSlideKind.Next))],
+            "A post.",
+            string.Empty);
+        var fits = GccLinkedInDocumentPdfRenderer.Fit(deck, Company);
+
+        Assert.Equal([3], fits.Where(fit => fit.UnderLegibleSize).Select(fit => fit.Slide));
+        // Writing the deck again does not change a slide no request writes, so it is not what the line says.
+        Assert.Null(GccLinkedInDocumentPdfRenderer.SetSmallLine(fits));
+        var line = GccLinkedInDocumentPdfRenderer.QuestionTooLongLine(fits);
+        Assert.Equal(
+            "In the PDF, a question from the Brief's \"One question per line\" is longer than one slide holds at a size "
+            + "that reads on a phone, so slide 3 is set smaller than 28 points. A shorter question there is set larger; "
+            + "nothing else on the deck changes.",
+            line);
+    }
+
     [Fact]
     public void Two_slides_set_small_are_one_line_that_names_both()
     {

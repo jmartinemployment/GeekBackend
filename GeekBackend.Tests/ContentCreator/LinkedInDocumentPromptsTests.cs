@@ -118,7 +118,7 @@ public class LinkedInDocumentPromptsTests
         Assert.Equal(FivePartners, partners);
         Assert.Null(GccLinkedInDocument.PartnerRefusal(partners));
 
-        var slides = GccLinkedInDocument.Slides(partners);
+        var slides = GccLinkedInDocument.Slides(partners, lastSlides: 1);
 
         Assert.Equal(
             [
@@ -146,7 +146,7 @@ public class LinkedInDocumentPromptsTests
         var names = Enumerable.Range(1, partners).Select(i => $"Tool{i}").ToList();
 
         Assert.Null(GccLinkedInDocument.PartnerRefusal(names));
-        Assert.Equal(slides, GccLinkedInDocument.Slides(names).Count);
+        Assert.Equal(slides, GccLinkedInDocument.Slides(names, lastSlides: 1).Count);
         Assert.InRange(slides, ContentLengthTargets.LinkedInDocumentMinSlides, ContentLengthTargets.LinkedInDocumentMaxSlides);
     }
 

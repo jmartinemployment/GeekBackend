@@ -26,15 +26,17 @@ namespace GeekAPI.Services.ContentCreator;
 /// <b>What a slide looks like is set by Jeff's <c>social</c> skill</b> (its carousel reference, which
 /// covers LinkedIn document posts): slides are 1080 by 1350; every interior slide has one layout, type
 /// scale and palette; text is legible at thumbnail size, about 28pt at 1080 wide at the least. And by
-/// the site: its navy, its orange used once a deck on the booking line (as the site sets a button,
-/// white words on orange), Sora for a title and Figtree for the lines, as the site sets headings and
-/// body text.
+/// the site: its navy, its orange used only on the booking line (as the site sets a button, white
+/// words on orange), Sora for a title and Figtree for the lines, as the site sets headings and body
+/// text.
 /// </para>
 /// <para>
 /// <b>A slide's text is fitted to its page, and never by guessing.</b> Each slide is set at the
 /// largest of a few sizes at which it fits one page, found by laying it out
 /// (<see cref="Fit"/>). A slide that does not fit at the smallest is scaled down to fit and
 /// reported as set under the legible size, so the operator hears of it when the deck is written.
+/// The Brief's questions are not squeezed this way: <see cref="LastSlides"/> carries them on to
+/// another slide.
 /// </para>
 /// <para>
 /// <b>The fonts are inside GeekAPI.</b> The Railway container has no font to ask for by name, so no
@@ -64,10 +66,11 @@ public static class GccLinkedInDocumentPdfRenderer
     /// <summary>The site's navy: the ground of the cover and the last slide, and the words on every other.</summary>
     public const string Navy = "#0B162A";
 
-    /// <summary>The site's orange, used once a deck: the band the booking words sit on.</summary>
+    /// <summary>The site's orange, used only for the band the booking words sit on.</summary>
     public const string Orange = "#C83803";
 
     private const string White = "#FFFFFF";
+
 
     private const string TitleFace = "GccDeckTitle";
     private const string TextFace = "GccDeckText";
@@ -140,7 +143,10 @@ public static class GccLinkedInDocumentPdfRenderer
     /// <param name="TextSize">The size its lines are set at.</param>
     /// <param name="UnderLegibleSize">True when the slide did not fit at the smallest size and is
     /// scaled down to fit, which sets its lines under <see cref="LegibleTextSize"/>.</param>
-    public sealed record SlideFit(int Slide, string Title, float TitleSize, float TextSize, bool UnderLegibleSize);
+    /// <param name="BuiltByCode">True for a slide of what to do next, which holds the Brief's questions
+    /// and is written by no request, so writing the deck again does not change it.</param>
+    public sealed record SlideFit(
+        int Slide, string Title, float TitleSize, float TextSize, bool UnderLegibleSize, bool BuiltByCode = false);
 
     /// <summary>
     /// How each slide of a deck is set: the largest sizes at which it fits one page, found by laying
@@ -163,10 +169,130 @@ public static class GccLinkedInDocumentPdfRenderer
                 break;
             }
 
-            fits.Add(new SlideFit(slide.Number, slide.Section.Heading, chosen.Title, chosen.Text, UnderLegibleSize: !fitted));
+            fits.Add(new SlideFit(
+                slide.Number, slide.Section.Heading, chosen.Title, chosen.Text,
+                UnderLegibleSize: !fitted, BuiltByCode: slide.Plan.BuiltByCode));
         }
 
         return fits;
+    }
+
+    /// <summary>
+    /// The slide of what to do next as the slides it takes to be read on a phone: one, when every
+    /// question fits it at <see cref="LegibleTextSize"/>; otherwise the questions in the order typed over
+    /// the fewest slides that each hold their share at that size, shared as evenly as those slides
+    /// allow, every one under the same booking words and the site's address on the last.
+    /// </summary>
+    /// <param name="next">The slide as <see cref="GccLinkedInDocument.NextSlide"/> built it, every
+    /// question on it.</param>
+    /// <param name="number">Its place in the deck, the cover being 1: what its page's foot says.</param>
+    /// <param name="company">The publisher, whose name is at the foot of the page.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Why.</b> On 2026-10-14 the first deck of a real run, for "Cash Flow Forecasting: Intelligent
+    /// Resource Planning", put the Brief's twelve questions (296 words) on one slide; no
+    /// size of the seven fitted it, so it was scaled under 28 points and the operator was told to write
+    /// the deck again, which could not change a slide no request writes. What the operator typed is
+    /// carried on to another slide, and none of it is cut.
+    /// </para>
+    /// <para>
+    /// <b>Found by laying the slides out,</b> as <see cref="Fit"/> finds a size, never by counting
+    /// characters: for each question, how many of the ones after it a slide that starts with it holds
+    /// at the smallest size. That gives the fewest slides, and of the ways to put the questions on that
+    /// many, the one whose fullest slide has the fewest characters is taken. A question that does not
+    /// fit a page alone has a slide to itself and is the one slide set under that size, which
+    /// <see cref="QuestionTooLongLine"/> names.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<Section> LastSlides(Section next, int number, CompanyProfileOptions company)
+    {
+        var questions = next.Paragraphs.OfType<ListParagraph>().SelectMany(list => list.Items).ToList();
+        var n = questions.Count;
+        if (n <= 1) return [next];
+
+        // The site's address, and anything else under the questions, closes the last of the slides.
+        var after = next.Paragraphs.Where(paragraph => paragraph is not ListParagraph).ToList();
+        Section SlideOf(int first, int last)
+        {
+            IReadOnlyList<Paragraph> closing = last == n - 1 ? after : [];
+            return next with
+            {
+                Paragraphs = [new ListParagraph(false, [.. questions.Skip(first).Take(last - first + 1)]), .. closing],
+            };
+        }
+
+        // Questions first to last, inclusive, on one slide at the smallest size. The foot's numbers do
+        // not change its height, so the slide is laid out under its first place in the deck.
+        var plan = new GccDeckSlidePlan(GccDeckSlideKind.Next);
+        bool Fits(int first, int last) =>
+            FitsOnePage(new Slide(number, plan, SlideOf(first, last)), number, LastSteps[^1], company);
+
+        if (Fits(0, n - 1)) return [next];
+
+        // reach[first]: the last question a slide that starts at first holds. A slide that holds a run
+        // holds any run inside it, so each start begins where the one before it reached.
+        var reach = new int[n];
+        var reached = 0;
+        for (var first = 0; first < n; first++)
+        {
+            reached = Math.Max(reached, first);
+            while (reached + 1 < n && Fits(first, reached + 1)) reached++;
+            reach[first] = reached;
+        }
+
+        var slides = 0;
+        for (var first = 0; first < n; first = reach[first] + 1) slides++;
+
+        return [.. Shared(questions, slides, reach).Select(run => SlideOf(run.First, run.Last))];
+    }
+
+    /// <summary>
+    /// The questions on <paramref name="slides"/> slides, in order, each slide holding no more than its
+    /// <paramref name="reach"/> allows, the fullest slide with as few characters as can be.
+    /// </summary>
+    private static List<(int First, int Last)> Shared(
+        IReadOnlyList<IReadOnlyList<Run>> questions, int slides, IReadOnlyList<int> reach)
+    {
+        var n = questions.Count;
+        // Characters of the first i questions.
+        var upTo = new int[n + 1];
+        for (var i = 0; i < n; i++) upTo[i + 1] = upTo[i] + Drawn(string.Concat(questions[i].Select(run => run.Text))).Length;
+
+        // fullest[p, i]: the fullest slide when the first i questions are on p slides, or int.MaxValue
+        // when no such way fits; from[p, i]: where the last of those slides starts.
+        var fullest = new int[slides + 1, n + 1];
+        var from = new int[slides + 1, n + 1];
+        for (var p = 0; p <= slides; p++)
+        {
+            for (var i = 0; i <= n; i++) fullest[p, i] = int.MaxValue;
+        }
+
+        fullest[0, 0] = 0;
+        for (var p = 1; p <= slides; p++)
+        {
+            for (var i = 1; i <= n; i++)
+            {
+                for (var first = 0; first < i; first++)
+                {
+                    if (fullest[p - 1, first] == int.MaxValue || reach[first] < i - 1) continue;
+                    var worst = Math.Max(fullest[p - 1, first], upTo[i] - upTo[first]);
+                    if (worst >= fullest[p, i]) continue;
+                    fullest[p, i] = worst;
+                    from[p, i] = first;
+                }
+            }
+        }
+
+        var runs = new List<(int First, int Last)>(slides);
+        var end = n;
+        for (var p = slides; p >= 1; p--)
+        {
+            var first = from[p, end];
+            runs.Insert(0, (first, end - 1));
+            end = first;
+        }
+
+        return runs;
     }
 
     /// <summary>The deck as a PDF, one slide a page.</summary>
@@ -223,12 +349,13 @@ public static class GccLinkedInDocumentPdfRenderer
     }
 
     /// <summary>
-    /// The line the operator reads when slides had to be set under <see cref="LegibleTextSize"/> to
-    /// fit, or null when none was.
+    /// The line the operator reads when slides a request wrote had to be set under
+    /// <see cref="LegibleTextSize"/> to fit, or null when none was. A slide of what to do next is
+    /// <see cref="QuestionTooLongLine"/>'s: writing the deck again does not change it.
     /// </summary>
     public static string? SetSmallLine(IReadOnlyList<SlideFit> fits)
     {
-        var small = fits.Where(fit => fit.UnderLegibleSize).ToList();
+        var small = fits.Where(fit => fit.UnderLegibleSize && !fit.BuiltByCode).ToList();
         if (small.Count == 0) return null;
 
         var named = string.Join("; ", small.Select(fit => $"slide {fit.Slide} (\"{fit.Title}\")"));
@@ -237,6 +364,25 @@ public static class GccLinkedInDocumentPdfRenderer
               + $"smaller than {LegibleTextSize:0} points. Write the deck again for a shorter slide."
             : $"In the PDF, {small.Count} slides hold more than fits a page at a size that reads on a phone, so their "
               + $"text is set smaller than {LegibleTextSize:0} points: {named}. Write the deck again for shorter slides.";
+    }
+
+    /// <summary>
+    /// The line the operator reads when a slide of what to do next is set under
+    /// <see cref="LegibleTextSize"/>, or null when none is. <see cref="LastSlides"/> carries the
+    /// questions on to as many slides as they need, so this is a single question longer than a whole
+    /// slide holds.
+    /// </summary>
+    public static string? QuestionTooLongLine(IReadOnlyList<SlideFit> fits)
+    {
+        var small = fits.Where(fit => fit.UnderLegibleSize && fit.BuiltByCode).ToList();
+        if (small.Count == 0) return null;
+
+        var named = small.Count == 1
+            ? $"slide {small[0].Slide} is"
+            : $"slides {string.Join(", ", small.SkipLast(1).Select(fit => fit.Slide))} and {small[^1].Slide} are";
+        return $"In the PDF, a question from the Brief's \"One question per line\" is longer than one slide holds at a "
+            + $"size that reads on a phone, so {named} set smaller than {LegibleTextSize:0} points. A shorter "
+            + "question there is set larger; nothing else on the deck changes.";
     }
 
     /// <summary>
@@ -413,8 +559,8 @@ public static class GccLinkedInDocumentPdfRenderer
         });
 
     /// <summary>
-    /// The last slide: the booking words in white on the one orange band of the deck, the operator's
-    /// questions under it, and the site's address as words.
+    /// A slide of what to do next: the booking words in white on the orange band, the operator's
+    /// questions under it, and on the last of these slides the site's address as words.
     /// </summary>
     private static void Last(IContainer content, Section slide, Step step) =>
         content.Column(column =>
