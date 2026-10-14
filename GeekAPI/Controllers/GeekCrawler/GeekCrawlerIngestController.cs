@@ -26,19 +26,17 @@ public class GeekCrawlerIngestController : ControllerBase
     private const long MaxPageBatchBytes = 50L * 1024 * 1024;
 
     /// <summary>
-    /// Pages assumed for a slot that has never been crawled, per crawl type — these mirror the page
-    /// budgets in Geek-Crawler-v2's crawl-profile.ts. A first crawl has nothing to measure, so the
-    /// type's own ceiling is the only honest estimate. Using one number for every type would refuse
-    /// small competitor crawls on the strength of a project-site budget.
+    /// Pages assumed for a slot that has never been crawled: the crawler's page cap for one site,
+    /// <c>MAX_PAGES_PER_SITE</c> in Geek-Crawler-v2's <c>src/crawl/crawl-limits.ts</c>. A first crawl
+    /// has nothing to measure, so its ceiling is the only honest estimate, and every crawl type has
+    /// the same ceiling: Partner's (Jeff, 2026-09-30; and 2026-10-14, "Local, competitors,
+    /// consultancy-competitors, and Partner's have identical settings").
+    ///
+    /// One number, not one per type. This kept competitors at 150 and local at 100 for two weeks
+    /// after the crawler had given both Partner's 2,500, because it was a second copy of the
+    /// crawler's budgets that nothing compared with the first.
     /// </summary>
-    private static long FirstCrawlPageEstimate(string crawlType) => crawlType switch
-    {
-        CrawlTypes.Partner => 2_500,
-        CrawlTypes.ProjectSite => 2_500,
-        CrawlTypes.Competitors => 150,
-        CrawlTypes.Local => 100,
-        _ => 2_500,
-    };
+    private const long FirstCrawlPageEstimate = 2_500;
 
     /// <summary>
     /// Links per page in the measured corpus: 9,850,985 links against 86,165 pages. Used only for a
@@ -229,7 +227,7 @@ public class GeekCrawlerIngestController : ControllerBase
             //
             // Measured against what the previous crawl of THIS site produced, because that is the
             // only honest predictor of what the next one will.
-            var capacityError = await CheckCapacityAsync(published?.Id, crawlType, ct).ConfigureAwait(false);
+            var capacityError = await CheckCapacityAsync(published?.Id, ct).ConfigureAwait(false);
             if (capacityError is not null)
                 return StatusCode(StatusCodes.Status507InsufficientStorage, capacityError);
 
@@ -1035,7 +1033,6 @@ public class GeekCrawlerIngestController : ControllerBase
     /// </summary>
     private async Task<string?> CheckCapacityAsync(
         Guid? publishedRunId,
-        string crawlType,
         CancellationToken ct)
     {
         var headroom = await _repo.GetStorageHeadroomAsync(ct).ConfigureAwait(false);
@@ -1054,7 +1051,7 @@ public class GeekCrawlerIngestController : ControllerBase
         // A re-crawl is measured against what the previous crawl of THIS site produced — the only
         // honest predictor available. It assumes the site has not grown since, which is the known
         // weakness of this estimate and the reason the ceiling is 50% of free space, not 90%.
-        var estimatedPages = FirstCrawlPageEstimate(crawlType);
+        var estimatedPages = FirstCrawlPageEstimate;
         if (publishedRunId is { } runId)
         {
             var activity = await _repo.GetPageActivityAsync(runId, ct).ConfigureAwait(false);

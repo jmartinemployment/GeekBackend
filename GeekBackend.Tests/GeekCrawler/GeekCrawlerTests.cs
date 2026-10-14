@@ -72,10 +72,12 @@ public class GeekCrawlerStartRulesTests
             CrawlTypes.Competitors,
             CrawlTypes.Local,
             CrawlTypes.ProjectSite,
+            CrawlTypes.ConsultancyCompetitors,
         ];
 
         Assert.All(accepted, t => Assert.True(CrawlTypes.IsValid(t)));
-        Assert.Equal(4, accepted.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(5, accepted.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal("consultancy-competitors", CrawlTypes.ConsultancyCompetitors);
 
         foreach (var unknown in new[] { "project_site", "ProjectSite", "site", "own", "geo", "" })
             Assert.False(CrawlTypes.IsValid(unknown));
@@ -92,6 +94,20 @@ public class GeekCrawlerStartRulesTests
         Assert.NotEqual(CrawlTypes.Partner, CrawlTypes.ProjectSite);
         Assert.NotEqual(CrawlTypes.Competitors, CrawlTypes.ProjectSite);
         Assert.NotEqual(CrawlTypes.Local, CrawlTypes.ProjectSite);
+        Assert.NotEqual(CrawlTypes.ConsultancyCompetitors, CrawlTypes.ProjectSite);
+    }
+
+    /// <summary>
+    /// The consultancy's local competitors are not a Content Creator project's competitors. The
+    /// competitor evidence is resolved by the exact value <see cref="CrawlTypes.Competitors"/>, so
+    /// the two must stay different values, or a South Florida IT firm's pages would be researched
+    /// as a rival of a partner's software.
+    /// </summary>
+    [Fact]
+    public void ConsultancyCompetitors_is_not_project_competitor_or_partner_evidence()
+    {
+        Assert.NotEqual(CrawlTypes.Competitors, CrawlTypes.ConsultancyCompetitors);
+        Assert.NotEqual(CrawlTypes.Partner, CrawlTypes.ConsultancyCompetitors);
     }
 
     [Fact]
