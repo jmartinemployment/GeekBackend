@@ -903,7 +903,22 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         "heading. Never leave one bare. " +
         "A reader who scans nothing but your headings should come away with the argument. And a " +
         "bare category label is also a section with nothing in particular to say, which is why " +
-        "generic headings come back thin -- name the claim and the section has somewhere to go.";
+        "generic headings come back thin -- name the claim and the section has somewhere to go. " +
+        HeadingColonInstruction;
+
+    /// <summary>
+    /// A heading is one phrase, never two joined by a colon (Jeff, 2026-10-18: "Almost every heading has
+    /// ':' in them", then "yes no more colons"). Pillars written on GPT-4o, to 2026-10-11, had no heading
+    /// with a colon; those written on GPT-4.1, from 2026-10-13, had two to seven a page. Three of the
+    /// pillar's outline labels were written as "subject: detail" or "subject -- detail" and the writer
+    /// turns a label into its heading; the labels are reworded too. <c>GccDraftGuard</c> lists a heading
+    /// that has one anyway, and never refuses the page for it.
+    /// </summary>
+    internal const string HeadingColonInstruction =
+        "NO COLON IN A HEADING: a heading states one claim as one phrase. Never split it in two with a " +
+        "colon (\"The Real Cost of Manual Planning: Time, Errors, and Who Pays\"), and never put a dash or " +
+        "parentheses in the colon's place. Write the claim itself (\"What Manual Planning Costs a Small " +
+        "Team Each Week\"). This holds for every heading and subheading on the page, the opening's included.";
 
     /// <summary>
     /// Structural monotony, which is a different defect from a bad heading and was producing the

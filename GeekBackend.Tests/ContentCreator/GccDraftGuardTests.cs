@@ -404,22 +404,37 @@ public class GccDraftGuardTests
     /// conditional on a self-check is refused (Jeff, 2026-10-05 and 2026-10-06).
     /// </summary>
     [Fact]
-    public void A_closing_that_turns_the_questions_into_a_quiz_is_refused()
+    public void A_heading_split_by_a_colon_is_listed_and_the_page_is_not_refused()
     {
-        var quiz = Doc(Body(
-            "Next steps",
-            Text("Consider asking yourself these questions. If these questions highlight inefficiencies in your "
-                 + "process, it may be time to book a consultation.")));
-        var booking = Doc(Body(
-            "Next steps",
-            Text("Book the appointment, and answer these questions when booking: how many invoices arrive each "
-                 + "month, and who approves them today.")));
+        var split = Doc(
+            Body("The Real Cost of Manual Planning: Time, Errors, and Who Pays", Text("Body text.")),
+            Body("What Manual Planning Costs a Small Team", Text("Body text.")),
+            Body("Can the tool post at 9:30 each morning?", Text("An operator's question keeps its colon.")));
+        var plain = Doc(Body("What Manual Planning Costs a Small Team", Text("Body text.")));
 
-        var finding = Assert.Single(GccDraftGuard.Pillar(quiz, Inputs()).Findings, f => f.Check == "questions-quiz");
-        Assert.True(finding.Refuses);
-        Assert.Contains("\"asking yourself\", \"if these questions\"", finding.Detail, StringComparison.Ordinal);
-        Assert.Contains("questions-quiz", Failed(GccDraftGuard.Tool(quiz, Inputs(requiredTools: []))));
-        Assert.DoesNotContain("questions-quiz", Failed(GccDraftGuard.Pillar(booking, Inputs())));
+        var finding = Assert.Single(GccDraftGuard.Pillar(split, Inputs()).Findings, f => f.Check == "heading-colon");
+        Assert.False(finding.Refuses);
+        Assert.Contains("\"The Real Cost of Manual Planning: Time, Errors, and Who Pays\"", finding.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("9:30", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains(GccDraftGuard.Tool(split, Inputs(requiredTools: [])).Findings, f => f.Check == "heading-colon");
+        Assert.DoesNotContain(GccDraftGuard.Pillar(plain, Inputs()).Findings, f => f.Check == "heading-colon");
+    }
+
+    /// <summary>
+    /// The writer's own checklist about a tool is the writer's own words, and nothing refuses a page for it.
+    /// The 12:56 UTC run of 2026-10-18 lost MarketMuse's tool page to "When judging fit, ask yourself these
+    /// questions:", when a check that has since been removed matched the phrase.
+    /// </summary>
+    [Fact]
+    public void A_page_that_asks_the_reader_to_ask_themselves_questions_is_not_refused()
+    {
+        var checklist = Doc(Body(
+            "What to Weigh When Judging a Tool for a Small Team",
+            Text("When judging fit, ask yourself these questions. If any of these describe your team, the tool is "
+                 + "likely a strong fit.")));
+
+        Assert.DoesNotContain(GccDraftGuard.Pillar(checklist, Inputs()).Findings, f => f.Refuses);
+        Assert.DoesNotContain(GccDraftGuard.Tool(checklist, Inputs(requiredTools: [])).Findings, f => f.Refuses);
     }
 
     [Fact]

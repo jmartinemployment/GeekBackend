@@ -105,9 +105,6 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
     public Task<GccArtifactDto> CreateArtifactAsync(CreateGccArtifactCommand command, CancellationToken ct = default) =>
         PostAsync<GccArtifactDto>("repo/content-creator/artifacts", command, ct);
 
-    public Task<GccArtifactDto> UpdateArtifactStatusAsync(Guid id, string status, CancellationToken ct = default) =>
-        PatchAsync<GccArtifactDto>($"repo/content-creator/artifacts/{id}/status", new { status }, ct);
-
     public Task<GccArtifactVersionDto?> GetVersionAsync(Guid id, CancellationToken ct = default) =>
         GetAsync<GccArtifactVersionDto>($"repo/content-creator/versions/{id}", ct);
 
@@ -116,9 +113,6 @@ public class HttpGccRepository : IGccProjectReader, IGccPartnerExtractionBank
 
     public Task<GccArtifactVersionDto> CreateVersionAsync(CreateGccArtifactVersionCommand command, CancellationToken ct = default) =>
         PostAsync<GccArtifactVersionDto>("repo/content-creator/versions", command, ct);
-
-    public Task<GccApprovalEventDto> CreateApprovalEventAsync(CreateGccApprovalEventCommand command, CancellationToken ct = default) =>
-        PostAsync<GccApprovalEventDto>("repo/content-creator/approval-events", command, ct);
 
     public Task<GccSiteAnalysisDto?> GetSiteAnalysisAsync(Guid id, CancellationToken ct = default) =>
         GetAsync<GccSiteAnalysisDto>($"repo/content-creator/site-analyses/{id}", ct);

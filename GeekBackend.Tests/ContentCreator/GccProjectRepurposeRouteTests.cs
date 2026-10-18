@@ -14,7 +14,7 @@ namespace GeekBackend.Tests.ContentCreator;
 
 /// <summary>
 /// Repurpose, through its real route: POST projects/{id}/pages/{pageId}/repurpose starts a run from one
-/// approved page of the project, behind the gates a Generate is held to, or refuses having started
+/// page of the project, behind the gates a Generate is held to, or refuses having started
 /// nothing. The route it replaced answered 403, was given no Brief and never asked whether the
 /// project's site was crawled.
 /// </summary>
@@ -41,7 +41,7 @@ public sealed class GccProjectRepurposeRouteTests
     }
 
     [Fact]
-    public async Task An_approved_page_starts_a_run_written_from_it()
+    public async Task A_page_starts_a_run_written_from_it()
     {
         var project = GccProjectGenerateRouteTests.Project(GccProjectGenerateRouteTests.CompleteBrief, briefVersion: 6);
         var backing = GccProjectGenerateRouteTests.Create(project.Id);
@@ -72,24 +72,23 @@ public sealed class GccProjectRepurposeRouteTests
         Assert.Equal(start.Id, await repo.Failed.Task.WaitAsync(TimeSpan.FromSeconds(10)));
     }
 
+    /// <summary>No page has to be approved first (Jeff, 2026-10-18: "remove approve content bs").</summary>
     [Theory]
     [InlineData("draft")]
     [InlineData("in_review")]
-    public async Task A_page_that_is_not_approved_is_refused_and_nothing_starts(string status)
+    public async Task A_page_nobody_approved_starts_a_run_written_from_it(string status)
     {
         var project = GccProjectGenerateRouteTests.Project(GccProjectGenerateRouteTests.CompleteBrief, briefVersion: 1);
+        var backing = GccProjectGenerateRouteTests.Create(project.Id);
         var page = Page(project.Id) with { Status = status };
-        var repo = new Repo(project, backing: null) { Page = page, PageBody = Body };
+        var repo = new Repo(project, backing) { Page = page, PageBody = Body };
 
         var result = await GccProjectGenerateRouteTests.Controller(repo)
             .Repurpose(project.Id, page.Id, EmailAndSocial, CancellationToken.None);
 
-        var refused = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal(
-            "Refused: approve the page before Repurpose. A piece is written from a page that has been approved.",
-            (string)refused.Value!);
-        Assert.Empty(repo.Starts);
-        Assert.Empty(repo.Writes);
+        Assert.IsType<AcceptedResult>(result);
+        Assert.Equal(page.Id, Assert.Single(repo.Starts).SourcePageId);
+        Assert.Equal(Assert.Single(repo.Starts).Id, await repo.Failed.Task.WaitAsync(TimeSpan.FromSeconds(10)));
     }
 
     /// <summary>The gate the old route never had: a project whose site the index holds nothing for.</summary>
@@ -178,10 +177,10 @@ public sealed class GccProjectRepurposeRouteTests
 
         // A piece written from a page is not itself a page to write from.
         Assert.Equal(
-            "Refused: Repurpose writes from an approved pillar, blog or tool page, and this is a piece written from one.",
+            "Refused: Repurpose writes from a pillar, blog or tool page, and this is a piece written from one.",
             await RefusalFor(Page(project.Id) with { Type = "social", ParentArtifactId = Guid.NewGuid() }, Body));
         Assert.Equal(
-            "Refused: Repurpose writes from an approved pillar, blog or tool page; this page is a imagePrompt.",
+            "Refused: Repurpose writes from a pillar, blog or tool page; this page is a imagePrompt.",
             await RefusalFor(Page(project.Id) with { Type = "imagePrompt" }, Body));
         Assert.Equal(
             "Refused: the page has no text to write from.",
@@ -220,7 +219,7 @@ public sealed class GccProjectRepurposeRouteTests
     }
 
     /// <summary>
-    /// The page was approved when this request read it and deleted before the run row was written -- a
+    /// The page was there when this request read it and deleted before the run row was written -- a
     /// Generate that finished in between. The repository refuses the start, and the answer is the page's.
     /// </summary>
     [Fact]
@@ -387,9 +386,9 @@ public sealed class GccProjectRepurposeRouteTests
 
     // ---- fixtures ----------------------------------------------------------------------------------
 
-    /// <summary>An approved pillar on a project.</summary>
+    /// <summary>A pillar on a project, as a Generate leaves it.</summary>
     private static GccArtifactDto Page(Guid projectId) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), projectId, null, "pillar", "AP: Approvals", "approved",
+        new(Guid.NewGuid(), Guid.NewGuid(), projectId, null, "pillar", "AP: Approvals", "draft",
             DateTime.UtcNow, DateTime.UtcNow, 1, DateTime.UtcNow);
 
     /// <summary>The page's one version, as a long-form writer stores it: the document inside its envelope.</summary>

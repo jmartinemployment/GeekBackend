@@ -39,7 +39,7 @@ public sealed record GccGenerateSource(string Type, bool WrittenByThisRun)
 /// <b>Two runs write one, with one writer</b> (Jeff, 2026-10-12: short content types "ARE DERIVED OR
 /// REPURPOSED FROM EXISTING CONTENT"; 2026-10-13: "Add my Email, Social, and Ads, back to generate").
 /// A Generate that is asked for one writes it from the project's Pillar, the one that run wrote or the
-/// one already saved (<see cref="GenerateSourceOf"/>). A Repurpose writes it again from one approved
+/// one already saved (<see cref="GenerateSourceOf"/>). A Repurpose writes it again from one
 /// page, a pillar, a blog or a tool page, without running Generate. Until 2026-10-12 the three were
 /// Generate types written from the Brief alone, with no page in front of the writer; from then until
 /// 2026-10-13 a Generate asked for one was refused.
@@ -68,7 +68,7 @@ public static class GccRepurpose
     private static readonly HashSet<string> SourceTypes = new(StringComparer.Ordinal) { "pillar", "blog", "tool", "aitool" };
 
     /// <summary>What the operator is told a Repurpose writes from, in every refusal that says so.</summary>
-    public const string FromWhat = "an approved pillar, blog or tool page";
+    public const string FromWhat = "a pillar, blog or tool page";
 
     /// <summary>The types of page a Generate writes its short pieces from, the first the project has.</summary>
     private static readonly string[] GenerateSourceTypes = ["pillar", "blog"];
@@ -113,7 +113,7 @@ public static class GccRepurpose
     /// <remarks>
     /// <para>
     /// The project's Pillar: the one this run writes when "Pillar" is among the types, otherwise the
-    /// one the project already has, approved or not. A project with no Pillar and none asked for: its
+    /// one the project already has. A project with no Pillar and none asked for: its
     /// Blog, by the same rule. Neither, and neither asked for: refused, and the caller asks this before
     /// a run exists and before anything is deleted.
     /// </para>
@@ -198,20 +198,18 @@ public static class GccRepurpose
     /// </summary>
     /// <param name="page">The page on the project.</param>
     /// <param name="bodyJson">The page's one version, as stored.</param>
-    /// <param name="mustBeApproved">True for a Repurpose, which writes from a page the operator has
-    /// approved. False for a Generate, which writes from the Pillar it has just written or the one the
-    /// project holds, and nobody has approved a page a run wrote a minute ago.</param>
-    public static (GccRepurposeSource? Source, string? Refusal) SourceOf(
-        GccArtifactDto page, string? bodyJson, bool mustBeApproved)
+    /// <remarks>
+    /// No page has to be approved first (Jeff, 2026-10-18: "remove approve content bs", then "Email and
+    /// social just work"). Until then a Repurpose refused a page nobody had approved, and approving was
+    /// the only thing the form's Approve button did that anything read.
+    /// </remarks>
+    public static (GccRepurposeSource? Source, string? Refusal) SourceOf(GccArtifactDto page, string? bodyJson)
     {
         if (page.ParentArtifactId is not null)
             return (null, $"Refused: Repurpose writes from {FromWhat}, and this is a piece written from one.");
 
         if (!SourceTypes.Contains(GccGenerationCoordinator.LettersOf(page.Type)))
             return (null, $"Refused: Repurpose writes from {FromWhat}; this page is a {page.Type.Trim()}.");
-
-        if (mustBeApproved && !string.Equals(page.Status, "approved", StringComparison.OrdinalIgnoreCase))
-            return (null, "Refused: approve the page before Repurpose. A piece is written from a page that has been approved.");
 
         var read = GccBodyEnvelope.Read(bodyJson, GccDocumentJson.Options);
         var text = ContentDocumentText.Flatten(read.Document).Trim();

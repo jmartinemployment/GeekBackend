@@ -71,15 +71,15 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
                 $"Every capability lands with its consequence -- hours returned, errors removed, a job that stops needing a person. A capability without one is a spec sheet, and they can already read {product}'s own.")
                 with { OwnsKeywordHeading = true },
             SectionSlot.Cover(
-                $"how {product} works: its real mechanics, step by step",
+                $"how {product} works, its real mechanics step by step",
                 "500-700 words",
                 $"The platform's own machinery, specific to {product} -- not a restatement of what it does, and not generic SaaS description."),
             SectionSlot.Cover(
-                $"how {product} is built: its real architecture, what it connects to and what it holds",
+                $"how {product} is built, its real architecture, what it connects to and what it holds",
                 "500-700 words",
                 $"The platform's own machinery, specific to {product} -- not a restatement of what it does, and not generic SaaS description."),
             SectionSlot.Cover(
-                $"what going live with {product} involves in a client's existing environment: what shortens it, and the order it happens in",
+                $"what going live with {product} involves in a client's existing environment, what shortens it, and the order it happens in",
                 "500-700 words",
                 $"{notGeneric} Made concrete to {product}: what shortens go-live (pre-built connectors, templated setup, phased rollout)."),
             SectionSlot.Cover(
@@ -91,11 +91,11 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
             // flow forecasting tools were each given a section headed "Approval Chains, Routing, and Automation
             // Logic". What a product has to configure is in its own pages, and the slot sends the writer there.
             SectionSlot.Cover(
-                $"what gets configured in {product}: its own rules and automation logic, and its extension mechanism",
+                $"what gets configured in {product}, its own rules and automation logic, and its extension mechanism",
                 "500-700 words",
                 $"{notGeneric} Made concrete to {product}: which rules and automation logic get configured, named as {product}'s own pages name them and never as another kind of product's; and {product}'s own extension mechanism if it has one (API, scripting, SDK) -- if it is config-only, say so rather than inventing one. This is where the reader's DIY question gets answered: what {publisher} does that makes it work in their environment."),
             SectionSlot.Cover(
-                $"how a buyer should judge {product}: fit and pricing model",
+                $"how a buyer should judge {product} on fit and on its pricing model",
                 "500-700 words",
                 "Pricing only where the persisted research carries it; otherwise discuss what to weigh rather than inventing a figure. Never state a specific price, tier or discount that is not in the research."),
             SectionSlot.Cover(
@@ -141,7 +141,7 @@ public sealed class ToolPrompts(IContentPromptBuilder prompts) : IContentTypePro
                 "500-700 words",
                 guidance),
             "case_study_data" => SectionSlot.Cover(
-                $"the evidence for {product} on {keyword} -- what the partner data actually shows, and what it does not",
+                $"the evidence for {product} on {keyword}, what the partner data actually shows and what it does not",
                 "500-700 words",
                 guidance),
             _ => SectionSlot.Cover(

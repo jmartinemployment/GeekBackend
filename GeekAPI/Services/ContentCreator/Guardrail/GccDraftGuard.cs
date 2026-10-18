@@ -154,6 +154,7 @@ public static partial class GccDraftGuard
         AddLengthFinding(document, inputs, findings, "tool page");
         AddKeywordFindings(document, inputs, findings, "tool page");
         AddKeywordHeadingFindings(document, inputs, findings, "tool page");
+        AddHeadingColonFinding(document, findings, "tool page");
         AddKeywordOpeningFinding(document, inputs, findings, "tool page");
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
@@ -229,6 +230,7 @@ public static partial class GccDraftGuard
         AddLengthFinding(document, inputs, findings, type);
         AddKeywordFindings(document, inputs, findings, type);
         AddKeywordHeadingFindings(document, inputs, findings, type);
+        AddHeadingColonFinding(document, findings, type);
         AddKeywordOpeningFinding(document, inputs, findings, type);
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
@@ -347,6 +349,33 @@ public static partial class GccDraftGuard
             "keyword-heading-by-hand",
             $"The {type} puts \"{phrase}\" straight after \"manual\" in a heading: {string.Join(", ", byHand)}. "
             + "A section about doing the work by hand does not take the keyword in its heading.",
+            Refuses: false));
+    }
+
+    /// <summary>
+    /// A heading split in two by a colon (Jeff, 2026-10-18: "no more colons"). The writer is told
+    /// (<c>ContentPromptBuilder.HeadingColonInstruction</c>); this lists a heading that has one anyway.
+    /// A reported line, never a refusal: code cannot rewrite a heading, and the page is good otherwise.
+    /// </summary>
+    /// <remarks>
+    /// A question is left alone: a heading that ends "?" is one of the operator's FAQ questions, which
+    /// are his words. A colon between digits ("9:30") is not followed by a space and is not read.
+    /// </remarks>
+    private static void AddHeadingColonFinding(ContentDocument document, List<GccGuardFinding> into, string type)
+    {
+        var split = AllSections(document)
+            .Select(section => section.Heading?.Trim())
+            .Where(heading => !string.IsNullOrEmpty(heading)
+                && !heading.EndsWith('?')
+                && (heading.Contains(": ", StringComparison.Ordinal) || heading.EndsWith(':')))
+            .Select(heading => $"\"{heading}\"")
+            .ToList();
+        if (split.Count == 0) return;
+
+        into.Add(new GccGuardFinding(
+            "heading-colon",
+            $"The {type} has {(split.Count == 1 ? "a heading" : $"{split.Count} headings")} split by a colon: "
+            + string.Join(", ", split) + ". A heading is one phrase.",
             Refuses: false));
     }
 
@@ -641,8 +670,6 @@ public static partial class GccDraftGuard
 
     private static void AddClosingFinding(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into)
     {
-        AddQuizFinding(document, inputs.ConsultationHref, into);
-
         var violations = GccClosingCtaGuard.FindViolations(document, inputs.ConsultationHref);
         if (violations.Count == 0) return;
 
@@ -652,50 +679,12 @@ public static partial class GccDraftGuard
             Refuses: false));
     }
 
-    /// <summary>
-    /// The phrasings that turn the publisher's questions into a quiz the reader grades before booking.
-    /// The instruction names them as forbidden; a page that uses one anyway is refused rather than trusted.
-    /// </summary>
-    private static readonly string[] QuizPhrasings =
-    [
-        "ask yourself",
-        "asking yourself",
-        "if these questions",
-        "if any of these",
-        "if your answers",
-        "if the answers",
-    ];
-
-    /// <summary>
-    /// The publisher's questions are answered when the reader books. They are not a self-check the
-    /// appointment depends on (Jeff, 2026-10-05: "It was meant answer these questions when booking your
-    /// appointment"; 2026-10-06: "Questions are not being used as intended").
-    /// </summary>
-    /// <remarks>
-    /// The closing instruction has said so since 2026-10-05, and said which phrasings are forbidden.
-    /// An instruction is not a check: a page that still wrote "consider asking yourself ... if these
-    /// questions highlight inefficiencies, it may be time to book" would have shipped. The phrasings
-    /// are matched anywhere on the page, since a quiz is a quiz wherever it sits.
-    /// </remarks>
-    private static void AddQuizFinding(ContentDocument document, string? anchorHref, List<GccGuardFinding> into)
-    {
-        // Read without the page's own closing. That line and the list under it are the operator's words,
-        // built by code (GccClosing), not a quiz the writer framed: a question he wrote that happens to
-        // contain "if your answers" must not refuse the page it is on.
-        var (withoutClosing, _, _) = GccClosing.Detach(document.Sections, anchorHref);
-        var text = GeekAPI.Services.Workflow.Services.ContentDocumentText.Flatten(document with { Sections = withoutClosing });
-        var used = QuizPhrasings
-            .Where(p => text.Contains(p, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (used.Count == 0) return;
-
-        var listed = string.Join("\", \"", used);
-        into.Add(new GccGuardFinding(
-            "questions-quiz",
-            $"The draft turns the publisher's questions into a quiz (\"{listed}\"). The reader answers them "
-            + "when booking; the appointment does not depend on their answers.",
-            Refuses: true));
-    }
+    // There is no check for questions framed as a quiz (removed 2026-10-18). It was added on 2026-10-06 to
+    // stop the writer turning the operator's booking questions into a self-test, and refused any page with
+    // "ask yourself", "if any of these" and the like anywhere on it. Since 2026-10-07 the closing is built by
+    // code and the questions never reach the writer (GccClosing), so what it caught was the writer's own
+    // words: the 12:56 UTC run of 2026-10-18 lost MarketMuse's tool page (8,160 words) for "When judging
+    // fit, ask yourself these questions:" above five questions of its own about the tool.
 
     private static int CountQuotes(ContentDocument document) =>
         AllSections(document).Sum(s => s.Paragraphs.Count(p => p is QuoteParagraph));

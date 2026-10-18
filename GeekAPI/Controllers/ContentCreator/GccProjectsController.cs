@@ -449,13 +449,13 @@ public class GccProjectsController : ControllerBase
     }
 
     /// <summary>
-    /// Repurpose: write short pieces (an email, a social post, an ad) from one approved page of the
+    /// Repurpose: write short pieces (an email, a social post, an ad) from one page of the
     /// project and save them under it (<see cref="GccRepurpose"/>). 202 with the job; progress on the
     /// hub and a record on the run log, exactly as a Generate.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// How a short piece is written again from one approved page, a pillar, a blog or a tool page,
+    /// How a short piece is written again from one page, a pillar, a blog or a tool page,
     /// without running Generate (Jeff, 2026-10-12). A Generate writes one too since 2026-10-13, from
     /// the project's Pillar, with the same writer. It runs behind the same two gates as a Generate --
     /// the project's site is crawled and the brief is complete -- which is what the route it replaces
@@ -464,7 +464,7 @@ public class GccProjectsController : ControllerBase
     /// </para>
     /// <para>
     /// Refusals: 404 no project, or no such page on it; 400 no keyword, a type that is not a short
-    /// piece, a page that is not an approved pillar, blog or tool page or has no text, an incomplete
+    /// piece, a page that is not a pillar, blog or tool page or has no text, an incomplete
     /// brief, a missing site crawl, a bad provider; 409 a run already running on the project, named;
     /// 409 the brief was saved again after this request read it. Every refusal writes nothing.
     /// </para>
@@ -493,7 +493,7 @@ public class GccProjectsController : ControllerBase
         var page = await _repo.GetArtifactAsync(pageId, ct);
         if (page is null || page.ProjectId != id) return NotFound();
         var written = (await _repo.ListVersionsAsync(pageId, ct)).FirstOrDefault();
-        var (source, sourceRefusal) = GccRepurpose.SourceOf(page, written?.BodyDocumentJson, mustBeApproved: true);
+        var (source, sourceRefusal) = GccRepurpose.SourceOf(page, written?.BodyDocumentJson);
         if (source is null) return BadRequest(sourceRefusal);
 
         var gate = await GateAsync(id, project, actor, ownerUserId, requested[0], ct);

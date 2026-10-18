@@ -99,19 +99,6 @@ public static partial class GccDraftGuard
         AddNumberFindings(withTitles, inputs, findings);
         AddCurrencyFindings(withTitles, inputs, findings);
 
-        // The publisher's questions are on the last slide, built by code, and are answered when the
-        // reader books. A slide the writer wrote does not turn questions into a quiz. The post is not
-        // held to this: it is a post in its own right, and a hook may put a question to its reader.
-        var slideText = string.Join(Environment.NewLine, writtenSlides.Select(TextOf));
-        var quiz = QuizPhrasings.Where(phrase => slideText.Contains(phrase, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (quiz.Count > 0)
-        {
-            findings.Add(new GccGuardFinding(
-                "questions-quiz",
-                $"The {deck} frames questions as a quiz on a slide (\"{string.Join("\", \"", quiz)}\"). The "
-                + "publisher's own questions are on the last slide, and the reader answers them when booking.",
-                Refuses: true));
-        }
 
         // Each partner has a slide, and the slide names it: in its lines as the request asks, or in
         // its title. One line for the deck's partners together.

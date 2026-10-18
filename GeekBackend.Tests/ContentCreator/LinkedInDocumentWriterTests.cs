@@ -350,14 +350,13 @@ public sealed class LinkedInDocumentWriterTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task A_slide_that_frames_questions_as_a_quiz_refuses_the_deck_and_a_post_that_asks_its_reader_does_not()
+    public async Task A_slide_or_a_post_that_asks_its_reader_a_question_is_saved()
     {
-        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => BriefFieldReachTests.WriteDeckAsync(
+        var slide = Saved(await BriefFieldReachTests.WriteDeckAsync(
             Brief,
             reply: Changing("slides", reply => Lines(reply, 0)[1] = "Ask yourself who signed off last month.")));
-        Assert.Contains("frames questions as a quiz on a slide (\"ask yourself\")", refused.Message, StringComparison.Ordinal);
+        Assert.Empty(Warnings(slide));
 
-        // The post is a post in its own right, and a hook may put a question to its reader.
         var saved = Saved(await BriefFieldReachTests.WriteDeckAsync(
             Brief,
             reply: Changing("cover and post", reply =>

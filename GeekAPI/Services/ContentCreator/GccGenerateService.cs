@@ -233,7 +233,7 @@ public partial class GccGenerateService
     /// version of the right thing, the wrong thing. Standalone Image prompt is not in this set: it
     /// was never flagged as broken. Email-cold-outreach, Social and Ads are not in it either, and are
     /// not disabled: each is written from a page (<see cref="GccRepurpose"/>), by a Generate from the
-    /// project's Pillar and by a Repurpose from one approved page. "PDF / LinkedIn document" left
+    /// project's Pillar and by a Repurpose from one page. "PDF / LinkedIn document" left
     /// the set on 2026-10-13, when it was given a writer, checks and a PDF of its own
     /// (<c>Writers/GccGenerateService.LinkedInDocument.cs</c>, <c>plans/enable-pdf.md</c>).
     /// Normalized by stripping hyphens/spaces/slashes and lowercasing, so "tech-article" and

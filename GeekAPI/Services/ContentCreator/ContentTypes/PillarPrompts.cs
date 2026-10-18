@@ -42,18 +42,18 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
     private static readonly SectionSlot[] Sections =
     [
         SectionSlot.Cover(
-            "the opening: what this reader is dealing with, told concretely, and what this page settles for them",
+            "the opening, which tells concretely what this reader is dealing with and what this page settles for them",
             SectionDepth) with { ResearchLabel = GccResearchLabel.Problem },
         SectionSlot.Cover(
             "what is actually going wrong in this work today",
             SectionDepth) with { ResearchLabel = GccResearchLabel.Problem },
         SectionSlot.Cover(
-            "what the status quo costs -- hours, errors, delay, risk, and who absorbs them",
+            "what the status quo costs in hours, errors, delay and risk, and who absorbs them",
             SectionDepth) with { ResearchLabel = GccResearchLabel.Problem },
         // The page's keyword heading belongs here: this is the section about the work once it is automated, so
         // the exact phrase reads true in its heading. The two before it are about the work as it is done today.
         SectionSlot.Cover(
-            "how the approach works end to end: the mechanics, in the order they happen, specific enough that a reader could describe it back",
+            "how the approach works end to end, its mechanics in the order they happen, specific enough that a reader could describe it back",
             SectionDepth) with { OwnsKeywordHeading = true, ResearchLabel = GccResearchLabel.HowItWorks },
         SectionSlot.Cover(
             "what separates an implementation that holds up from one that stalls",
@@ -62,7 +62,7 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
             "the decisions that are made early and cannot be unmade",
             SectionDepth) with { ResearchLabel = GccResearchLabel.GettingItRunning },
         SectionSlot.Cover(
-            "what rolling this out actually involves in a real environment: the sequence it happens in",
+            "what rolling this out actually involves in a real environment, in the order it happens",
             SectionDepth) with { ResearchLabel = GccResearchLabel.GettingItRunning },
         SectionSlot.Cover(
             "the data and the integration a real environment has to supply",
@@ -115,16 +115,21 @@ public sealed class PillarPrompts(IContentPromptBuilder prompts) : IContentTypeP
 
         var failures = niche.FailuresGuidance();
         var approach = niche.ApproachGuidance();
-        var pointer = niche.ApproachPointer();
+        var pointer = niche.LaterSectionPointer();
+        var argued = niche.FailuresArguedPointer();
         return WithBodyOwed(
         [
             Sections[0] with { Guidance = niche.ToGuidance() },
             Sections[1] with { Guidance = failures },
             Sections[2] with { Guidance = failures },
-            Sections[3] with { Guidance = $"{approach}{Environment.NewLine}   {GccPublisherPositions.ApproachSlotGuidance}" },
+            Sections[3] with { Guidance = With($"{approach}{Environment.NewLine}   {GccPublisherPositions.ApproachSlotGuidance}", argued) },
             .. Sections[4..].Select(slot => slot with { Guidance = pointer }),
         ]);
     }
+
+    /// <summary>The slot's guidance, followed by the next part where there is one.</summary>
+    private static string With(string guidance, string? next) =>
+        string.IsNullOrWhiteSpace(next) ? guidance : $"{guidance}{Environment.NewLine}   {next}";
 
     /// <summary>
     /// The outline with the page's floor divided across its body sections. The opening is written by the lede

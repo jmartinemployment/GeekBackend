@@ -137,11 +137,8 @@ public sealed class GccClosingLineTests
     }
 
     [Fact]
-    public void A_question_the_operator_wrote_is_not_a_quiz_the_writer_framed_but_the_same_words_in_the_body_still_are()
+    public void Neither_the_operators_question_nor_the_same_words_in_the_body_refuse_the_page()
     {
-        // "If your answers ..." is one of the quiz check's phrasings. In the operator's own question it is
-        // the operator's wording on the page's own closing; in the writer's body it is the failure the check
-        // exists for.
         string[] questions = ["If your answers to these are all no, who approves spending today?"];
         var closing = GccClosing.Paragraphs(Company(), questions);
 
@@ -152,9 +149,8 @@ public sealed class GccClosingLineTests
             new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
             GccClosing.AppendTo([Body("Where the hours go", "If your answers are mostly no, it may be time to book.")], closing));
 
-        Assert.DoesNotContain("questions-quiz", GccDraftGuard.Pillar(operators, Inputs()).FailedChecks);
-        var finding = Assert.Single(GccDraftGuard.Pillar(writers, Inputs()).Findings, f => f.Check == "questions-quiz");
-        Assert.True(finding.Refuses);
+        Assert.DoesNotContain(GccDraftGuard.Pillar(operators, Inputs()).Findings, f => f.Refuses);
+        Assert.DoesNotContain(GccDraftGuard.Pillar(writers, Inputs()).Findings, f => f.Refuses);
     }
 
     [Fact]

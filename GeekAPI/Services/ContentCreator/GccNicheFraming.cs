@@ -343,6 +343,37 @@ public sealed record GccNicheFraming(
             ? null
             : "Within the operator's own approach, stated in the section before this one -- never a generic "
               + "or a vendor's alternative to it.";
+
+    /// <summary>
+    /// For every section after the ones that argue the operator's failures: the case is made, so a later
+    /// section names a failure in a clause where its point rests on one and does not argue it again. Null
+    /// when the operator named no failure.
+    /// </summary>
+    /// <remarks>
+    /// Jeff, 2026-10-18, of the pillar "Intelligent Content Planning for Small Businesses: Real Results with
+    /// AI": "content repeats itself". No sentence was repeated; the failures were. "Stuck rewriting the
+    /// same" was argued in 6 of its 11 sections, "never rank" in 5. The problem sections are given every
+    /// failure (<see cref="FailuresGuidance"/>), every body request carries every partner's failures
+    /// (<c>GccPartnerAnswers</c>), and no later section was told the case had been made. He asked for this
+    /// as guidance that never prevents output ("include failure points, provided it doesn't prevent
+    /// output"), so nothing checks it and nothing is refused for it.
+    /// </remarks>
+    public string? FailuresArguedPointer() =>
+        PainPoints.Count == 0 && !FailuresAreUnderThePartners ? null : FailuresArguedInstruction;
+
+    internal const string FailuresArguedInstruction =
+        "The operator's failures are already argued earlier on this page, where the problem as it stands "
+        + "today is set out. Do not argue them again here. Where this section's point rests on one, name it "
+        + "in a clause and go on to what this section adds.";
+
+    /// <summary>What a section after the problem is held to: the operator's approach, and the failures already argued.</summary>
+    public string? LaterSectionPointer()
+    {
+        var parts = new[] { ApproachPointer(), FailuresArguedPointer() }
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToList();
+        return parts.Count == 0 ? null : string.Join(" ", parts);
+    }
 }
 
 /// <summary>

@@ -298,7 +298,7 @@ public sealed class GccGenerationCoordinator
             // The pages of a run are still written independently of each other, here. A short piece
             // (an email, a social post, an ad) is not one of them: it waits for its page, and is
             // written from the Pillar once the pages are saved (RunGenerateWithPiecesAsync), or again
-            // from one approved page by a Repurpose (RunRepurposeAsync). No run with a short piece
+            // from one page by a Repurpose (RunRepurposeAsync). No run with a short piece
             // reaches this block.
             //
             // Parallel, not sequential: every call is genuinely independent (no shared mutable state,
@@ -388,7 +388,7 @@ public sealed class GccGenerationCoordinator
     /// Jeff, 2026-10-13: "Add my Email, Social, and Ads, back to generate and make them work from here";
     /// asked what each is written from when ticked there, the project's Pillar. From 2026-10-12 a
     /// Generate asked for one was refused and the only way to write one was a Repurpose from an
-    /// approved page; that is still there, and this is the same writer and the same check.
+    /// page; that is still there, and this is the same writer and the same check.
     /// </para>
     /// <para>
     /// <b>The order, and why.</b>
@@ -508,7 +508,7 @@ public sealed class GccGenerationCoordinator
                 else
                 {
                     var saved = (await repo.ListVersionsAsync(page.Id, ct)).FirstOrDefault();
-                    var read = GccRepurpose.SourceOf(page, saved?.BodyDocumentJson, mustBeApproved: false);
+                    var read = GccRepurpose.SourceOf(page, saved?.BodyDocumentJson);
                     source = read.Source;
                     if (read.Source is null) whyNoPiece = _ => read.Refusal ?? "Refused: the page has no text to write from.";
                 }
@@ -694,7 +694,7 @@ public sealed class GccGenerationCoordinator
     }
 
     /// <summary>
-    /// A Repurpose: each requested short piece written from one approved page of the project, and what
+    /// A Repurpose: each requested short piece written from one page of the project, and what
     /// wrote saved under that page in one write (<see cref="GccRepurpose"/>).
     /// </summary>
     /// <remarks>

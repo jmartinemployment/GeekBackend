@@ -718,19 +718,8 @@ public class GccController : ControllerBase
         return Ok(report);
     }
 
-    [HttpPost("versions/{id:guid}/approve")]
-    public async Task<ActionResult<object>> Approve(Guid id, [FromBody] ApproveRequest? request, CancellationToken ct)
-    {
-        var version = await _repo.GetVersionAsync(id, ct);
-        if (version is null) return NotFound();
-        var artifact = await _repo.UpdateArtifactStatusAsync(version.ArtifactId, "approved", ct);
-        var evt = await _repo.CreateApprovalEventAsync(new CreateGccApprovalEventCommand(
-            version.Id,
-            _user.UserId,
-            "approved",
-            request?.Notes), ct);
-        return Ok(new { artifact, @event = evt });
-    }
+    // There is no approve route (Jeff, 2026-10-18: "remove approve content bs"). It marked a page
+    // approved, and the only thing that read the mark was Repurpose, which no longer asks for it.
 
     // Repurpose is on the project: POST projects/{id}/pages/{pageId}/repurpose
     // (GccProjectsController), beside Generate and behind the same two gates. This controller has no
@@ -1054,7 +1043,6 @@ public class GccController : ControllerBase
         bool Async = false,
         IReadOnlyList<string>? OutputTypes = null,
         bool AcknowledgeStaleGrounding = false);
-    public sealed record ApproveRequest(string? Notes);
     public sealed record ToolGenerateRequest(
         IReadOnlyList<string>? ToolNames,
         string? Brief,

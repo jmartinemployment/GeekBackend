@@ -68,7 +68,8 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
         // the blog, like the pillar, never received it (Jeff: "inventing its own Methodology versus
         // using mine?"); the slot text below is unchanged, and what each argues from is now the operator's.
         var niche = ctx.NicheFraming is { HasAny: true } framing ? framing : null;
-        var pointer = niche?.ApproachPointer();
+        var pointer = niche?.LaterSectionPointer();
+        var argued = niche?.FailuresArguedPointer();
 
         return
         [
@@ -76,8 +77,8 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
             // (SectionSlot.ResearchLabel). No prompt prints it.
             Opening(ctx.Context.ContentAngle, keyword, niche) with { ResearchLabel = GccResearchLabel.Problem },
             SectionSlot.Cover(
-                $"what doing {keyword} by hand actually costs this reader -- the hours, the errors, the "
-                + "delay, and who absorbs them",
+                $"what doing {keyword} by hand actually costs this reader in hours, errors and delay, and who "
+                + "absorbs them",
                 depth,
                 With(
                     "Concrete and attributable, from the evidence in front of you. Not a list of generic pain "
@@ -93,7 +94,7 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
             // (Jeff, 2026-10-07: copy how the pillar links tools). What follows the naming sentence is the
             // pillar's "how the approach works" guidance, word for word.
             SectionSlot.Cover(
-                $"how the work changes once {keyword} is automated -- the mechanics, in the order they happen",
+                $"how the work changes once {keyword} is automated, its mechanics in the order they happen",
                 depth,
                 With(
                     With(
@@ -101,7 +102,7 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
                         + "reaches them -- what each one does about THIS step, not what it is in general. Never a "
                         + "heading, never a sub-section, never one paragraph per product.",
                         niche?.ApproachGuidance()),
-                    GccPublisherPositions.ApproachSlotGuidance))
+                    With(GccPublisherPositions.ApproachSlotGuidance, argued)))
                 with { OwnsKeywordHeading = true, ResearchLabel = GccResearchLabel.HowItWorks },
             SectionSlot.Cover(
                 $"what separates an implementation of {keyword} that holds up from one that stalls",
@@ -113,10 +114,12 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
                     + "tools whose behaviour decides these, where that matters to the point being made.",
                     pointer)) with { ResearchLabel = GccResearchLabel.GettingItRunning },
             SectionSlot.Cover(
-                $"what the evidence shows about {keyword} -- measured outcomes, and what they do not prove",
+                $"what the evidence shows about {keyword} in measured outcomes, and what it does not prove",
                 depth,
-                "Only figures the retrieved evidence carries, attributed to the partner that published them. "
-                + "Where the evidence is thin, say what is unknown rather than filling it.")
+                With(
+                    "Only figures the retrieved evidence carries, attributed to the partner that published them. "
+                    + "Where the evidence is thin, say what is unknown rather than filling it.",
+                    argued))
                 with { ResearchLabel = GccResearchLabel.ResultsAndProof },
             SectionSlot.Cover(
                 $"when automating {keyword} is the right call, when it is not, and what this reader does next",
@@ -150,7 +153,7 @@ public sealed class BlogPrompts(IContentPromptBuilder prompts) : IContentTypePro
         return (angle ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "problem_solution" => SectionSlot.Cover(
-                $"the moment this reader recognises the problem: doing {keyword} the manual way, and why it "
+                $"the moment this reader recognises the problem of doing {keyword} the manual way, and why it "
                 + "keeps costing them",
                 depth,
                 guidance),

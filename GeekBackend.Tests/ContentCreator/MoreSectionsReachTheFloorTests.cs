@@ -89,9 +89,35 @@ public sealed class MoreSectionsReachTheFloorTests
         Assert.Equal(niche.FailuresGuidance(), outline[1].Guidance);
         Assert.Equal(niche.FailuresGuidance(), outline[2].Guidance);
         Assert.StartsWith(niche.ApproachGuidance()!, outline[3].Guidance, StringComparison.Ordinal);
-        Assert.EndsWith(GccPublisherPositions.ApproachSlotGuidance, outline[3].Guidance, StringComparison.Ordinal);
-        Assert.All(outline.Skip(4), slot => Assert.Equal(niche.ApproachPointer(), slot.Guidance));
+        Assert.Contains(GccPublisherPositions.ApproachSlotGuidance, outline[3].Guidance, StringComparison.Ordinal);
+        Assert.EndsWith(GccNicheFraming.FailuresArguedInstruction, outline[3].Guidance, StringComparison.Ordinal);
+        Assert.All(outline.Skip(4), slot => Assert.Equal(niche.LaterSectionPointer(), slot.Guidance));
+        Assert.All(outline.Skip(4), slot => Assert.StartsWith(niche.ApproachPointer()!, slot.Guidance, StringComparison.Ordinal));
         Assert.Equal(7, outline.Skip(4).Count());
+    }
+
+    [Fact]
+    public void Every_section_after_the_problem_is_told_the_failures_are_already_argued_and_the_problem_sections_are_not()
+    {
+        var niche = new GccNicheFraming(
+            "Approvals stall in inboxes", ["Invoices wait on one manager", "Nobody sees what is overdue"], "Route by amount and owner");
+
+        var outline = PillarPrompts.Outline(niche);
+
+        Assert.All(outline.Take(3), slot => Assert.DoesNotContain(GccNicheFraming.FailuresArguedInstruction, slot.Guidance, StringComparison.Ordinal));
+        Assert.All(outline.Skip(3), slot => Assert.Contains(GccNicheFraming.FailuresArguedInstruction, slot.Guidance, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_brief_with_no_failures_tells_no_section_that_failures_were_argued()
+    {
+        var niche = new GccNicheFraming("Approvals stall in inboxes", [], "Route by amount and owner");
+
+        var outline = PillarPrompts.Outline(niche);
+
+        Assert.Null(niche.FailuresArguedPointer());
+        Assert.All(outline, slot => Assert.DoesNotContain(GccNicheFraming.FailuresArguedInstruction, slot.Guidance ?? "", StringComparison.Ordinal));
+        Assert.All(outline.Skip(4), slot => Assert.Equal(niche.ApproachPointer(), slot.Guidance));
     }
 
     [Fact]

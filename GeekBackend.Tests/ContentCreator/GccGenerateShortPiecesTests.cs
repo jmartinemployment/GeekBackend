@@ -73,17 +73,16 @@ public sealed class GccGenerateShortPiecesTests
     }
 
     [Fact]
-    public void A_page_a_generate_writes_from_need_not_be_approved_and_one_a_repurpose_writes_from_must_be()
+    public void A_page_nobody_approved_is_written_from()
     {
         var draft = Held("pillar");
 
-        var forGenerate = GccRepurpose.SourceOf(draft, PageBody("A guide", "The close runs on spreadsheets."), mustBeApproved: false);
-        var forRepurpose = GccRepurpose.SourceOf(draft, PageBody("A guide", "The close runs on spreadsheets."), mustBeApproved: true);
+        var forGenerate = GccRepurpose.SourceOf(draft, PageBody("A guide", "The close runs on spreadsheets."));
 
+        Assert.Equal("draft", draft.Status);
+        Assert.Null(forGenerate.Refusal);
         Assert.Equal((draft.Id, "pillar", Keyword, "A guide"), (forGenerate.Source!.PageId, forGenerate.Source.Type, forGenerate.Source.Name, forGenerate.Source.Title));
         Assert.Contains("The close runs on spreadsheets.", forGenerate.Source.Text, StringComparison.Ordinal);
-        Assert.Null(forRepurpose.Source);
-        Assert.StartsWith("Refused: approve the page before Repurpose.", forRepurpose.Refusal);
 
         // The writer is told what the page is, not that somebody approved it.
         Assert.Contains(
@@ -159,7 +158,7 @@ public sealed class GccGenerateShortPiecesTests
         var pillar = Assert.Single(repository.Everything, held => held.Type == "pillar");
 
         // Each piece's writer was handed the pillar this run wrote, whole, and was asked once.
-        var written = GccRepurpose.SourceOf(pillar, repository.BodyOf(pillar.Id), mustBeApproved: false).Source!;
+        var written = GccRepurpose.SourceOf(pillar, repository.BodyOf(pillar.Id)).Source!;
         Assert.Contains("Planned section", written.Text, StringComparison.Ordinal);
         Assert.Equal(["ads", "email-cold-outreach", "social"], model.PieceRequests.Select(sent => sent.Type).Order());
         Assert.All(model.PieceRequests, sent =>
