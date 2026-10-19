@@ -2438,7 +2438,7 @@ public partial class GccGenerateService
     /// Until 2026-10-12 this was a Generate type, written from the Brief with no page in front of the
     /// writer. It is handed the page whole, and from the Brief what it was handed before: the reader,
     /// the voice and the operator's statement of the problem. No research and no site outline: the page
-    /// already used them. A figure the page does not state refuses the email; nothing is written again.
+    /// already used them. A figure neither the page nor the Brief states refuses the email; nothing is written again.
     /// </remarks>
     public async Task<string> RepurposeEmailAsync(
         GccCreateDto create,
@@ -2490,7 +2490,7 @@ public partial class GccGenerateService
                 : null);
 
         email = await WithoutEmDashesAsync(email, "the email");
-        if (GccRepurpose.FigureRefusal("email", [email.Subject, email.Body, email.CtaLabel], source) is { } figures)
+        if (GccRepurpose.FigureRefusal("email", [email.Subject, email.Body, email.CtaLabel], source, OperatorsOwnWords(create)) is { } figures)
             throw new InvalidOperationException(figures);
 
         return JsonSerializer.Serialize(email, JsonOpts);
@@ -2561,7 +2561,7 @@ public partial class GccGenerateService
             static r => string.IsNullOrWhiteSpace(r.Text) ? "the reply carried no text" : null);
 
         post = await WithoutEmDashesAsync(post, $"the {platform} post");
-        if (GccRepurpose.FigureRefusal(piece, [post.Text], source) is { } figures)
+        if (GccRepurpose.FigureRefusal(piece, [post.Text], source, OperatorsOwnWords(create)) is { } figures)
             throw new InvalidOperationException(figures);
 
         return JsonSerializer.Serialize(post, JsonOpts);
@@ -3659,11 +3659,7 @@ public partial class GccGenerateService
         var (unlisted, shown) = GccRequiredToolMentions.Unlisted(
             (await _knownTools.ResolveAsync(create, ct)).Select(tool => tool.Name),
             required,
-            string.Join(
-                Environment.NewLine,
-                Guardrail.GccJsonEvidence.TextOf(create.BriefJson),
-                create.Topic ?? string.Empty,
-                create.Notes ?? string.Empty),
+            OperatorsOwnWords(create),
             BuildResearchBlock(create));
         if (unlisted.Count > 0 || shown.Count > 0)
         {
@@ -3912,6 +3908,23 @@ public partial class GccGenerateService
         return (remapped.Document.Lede, [.. remapped.Document.Sections]);
     }
 
+    /// <summary>
+    /// What the operator typed, as text: every value of the Brief on a line of its own, the topic and the
+    /// notes. A figure in it is the operator's own statement, and no check refuses a page or a piece for
+    /// it (Jeff, 2026-10-13: "You accept what I type").
+    /// </summary>
+    /// <remarks>
+    /// The one reading of it, for a page's checks (<see cref="GuardInputsFor"/>), a short piece's
+    /// (<see cref="GccRepurpose.FigureRefusal"/>) and which of the site's tools the Brief names. A short
+    /// piece's check read the page alone until 2026-10-19, and the 16:44 UTC run of that day refused its
+    /// social post for "in under 60 seconds", the operator's own pitch, which the writer had been handed.
+    /// </remarks>
+    private static string OperatorsOwnWords(GccCreateDto? create) => string.Join(
+        Environment.NewLine,
+        Guardrail.GccJsonEvidence.TextOf(create?.BriefJson),
+        create?.Topic ?? string.Empty,
+        create?.Notes ?? string.Empty);
+
     private Guardrail.GccGuardInputs GuardInputsFor(
         GccCreateDto? create,
         ProjectGenerationContext context,
@@ -3945,9 +3958,7 @@ public partial class GccGenerateService
             Environment.NewLine,
             evidenceText ?? string.Empty,
             Guardrail.GccJsonEvidence.TextOf(extractionJson),
-            Guardrail.GccJsonEvidence.TextOf(create?.BriefJson),
-            create?.Topic ?? string.Empty,
-            create?.Notes ?? string.Empty);
+            OperatorsOwnWords(create));
 
         return new Guardrail.GccGuardInputs(
             provenance,

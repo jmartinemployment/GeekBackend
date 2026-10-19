@@ -51,8 +51,8 @@ public sealed record GccGenerateSource(string Type, bool WrittenByThisRun)
 /// </para>
 /// <para>
 /// <b>One check, no second attempt.</b> A figure in the piece must be in the page it was written from
-/// (<see cref="FigureRefusal"/>). A piece that states another is refused and nothing is saved for it;
-/// the other pieces of the run are kept.
+/// or in the Brief (<see cref="FigureRefusal"/>). A piece that states another is refused and nothing is
+/// saved for it; the other pieces of the run are kept.
 /// </para>
 /// </remarks>
 public static class GccRepurpose
@@ -238,14 +238,24 @@ public static class GccRepurpose
     }
 
     /// <summary>
-    /// What a piece is refused with when it states a figure the page it was written from does not, or
-    /// null. What a figure is, and is not, is <see cref="GccFigureGrammar"/>, as it is for a page.
+    /// What a piece is refused with when it states a figure that neither the page it was written from nor
+    /// the Brief states, or null. What a figure is, and is not, is <see cref="GccFigureGrammar"/>, as it is
+    /// for a page.
     /// </summary>
+    /// <remarks>
+    /// The Brief counts as a page's does: the writer is handed its reader, voice, problem and pitch, and a
+    /// figure the operator typed there is his own statement. Until 2026-10-19 only the page was read, and
+    /// the 16:44 UTC run of that day refused its social post for "in under 60 seconds", which the pitch
+    /// says and the Pillar did not.
+    /// </remarks>
     /// <param name="piece">What was written: "email", "LinkedIn post".</param>
     /// <param name="written">Every part of the piece the reader sees, a part to an entry.</param>
-    public static string? FigureRefusal(string piece, IReadOnlyList<string?> written, GccRepurposeSource source)
+    /// <param name="operatorsWords">The Brief, the topic and the notes as text, read as for a page.</param>
+    public static string? FigureRefusal(
+        string piece, IReadOnlyList<string?> written, GccRepurposeSource source, string operatorsWords)
     {
-        var known = GccFigureGrammar.NumbersIn(source.Title + Environment.NewLine + source.Text);
+        var known = GccFigureGrammar.NumbersIn(
+            string.Join(Environment.NewLine, source.Title, source.Text, operatorsWords));
         var unsupported = new List<string>();
         foreach (var part in written)
         {
@@ -260,7 +270,7 @@ public static class GccRepurpose
             ? null
             : $"Refused: the {piece} states "
                 + (unsupported.Distinct(StringComparer.Ordinal).Count() == 1 ? "a figure" : "figures")
-                + $" the page it was written from does not: {string.Join(", ", unsupported.Distinct(StringComparer.Ordinal))}. "
+                + $" found in neither the page it was written from nor the Brief: {string.Join(", ", unsupported.Distinct(StringComparer.Ordinal))}. "
                 + "Nothing was saved for it.";
     }
 }

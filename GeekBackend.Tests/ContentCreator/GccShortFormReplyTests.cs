@@ -248,14 +248,41 @@ public sealed class GccShortFormReplyTests
         var email = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             Email("""{"subject":"Hello","body":"Customers save $12,000 a year and cut approval time by 60%.","ctaLabel":"Read more"}"""));
         Assert.Equal(
-            "Refused: the email states a figure the page it was written from does not: $12,000. Nothing was saved for it.",
+            "Refused: the email states a figure found in neither the page it was written from nor the Brief: $12,000. Nothing was saved for it.",
             email.Message);
 
         var post = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             Social("""{"text":"Approvals run 75% faster and cost 40% less."}"""));
         Assert.Equal(
-            "Refused: the LinkedIn post states figures the page it was written from does not: 75%, 40%. Nothing was saved for it.",
+            "Refused: the LinkedIn post states figures found in neither the page it was written from nor the Brief: 75%, 40%. Nothing was saved for it.",
             post.Message);
+    }
+
+    /// <summary>
+    /// The 16:44 UTC run of 2026-10-19 refused its social post for "in under 60 seconds": the operator's own
+    /// pitch, handed to the writer from the Brief, which the Pillar did not repeat.
+    /// </summary>
+    [Fact]
+    public async Task A_figure_the_Brief_states_may_be_stated_though_the_page_does_not()
+    {
+        const string pitch = "A workflow that drafts your SEO articles, social posts and emails in under 60 seconds.";
+        var create = Create() with { BriefJson = $$$"""{"nicheFraming":{"automationToPitch":"{{{pitch}}}"}}""" };
+        const string written = "A workflow that drafts your articles, posts and emails in under 60 seconds.";
+
+        var service = Service($$"""{"text":"{{written}}"}""", out var provider);
+        var saved = await service.RepurposeSocialPostAsync(
+            create, "social", Page, null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
+
+        Assert.Contains(pitch, Assert.Single(provider.Requests).Messages[1].Content, StringComparison.Ordinal);
+        Assert.Contains("under 60 seconds", saved, StringComparison.Ordinal);
+
+        // A figure in neither is still refused.
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(() => Service(
+                """{"subject":"Hello","body":"It drafts a post in under 90 seconds.","ctaLabel":"Read more"}""", out _)
+            .RepurposeEmailAsync(create, Page, null, ContentGeneratorProvider.OpenAi, CancellationToken.None));
+        Assert.Equal(
+            "Refused: the email states a figure found in neither the page it was written from nor the Brief: 90 seconds. Nothing was saved for it.",
+            refused.Message);
     }
 
     [Fact]

@@ -382,7 +382,7 @@ public sealed class GccGenerateShortPiecesTests
         using var recorded = JsonDocument.Parse(JsonSerializer.Serialize(result, Web));
         Assert.Equal(2, recorded.RootElement.GetProperty("created").GetArrayLength());
         Assert.Equal(
-            ["social: Refused: the social post states a figure the page it was written from does not: 75%. Nothing was saved for it."],
+            ["social: Refused: the social post states a figure found in neither the page it was written from nor the Brief: 75%. Nothing was saved for it."],
             recorded.RootElement.GetProperty("refusals").EnumerateArray().Select(line => line.GetString()));
     }
 

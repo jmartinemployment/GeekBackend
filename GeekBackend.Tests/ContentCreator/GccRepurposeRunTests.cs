@@ -94,7 +94,7 @@ public sealed class GccRepurposeRunTests(Xunit.Abstractions.ITestOutputHelper ou
         var save = Assert.Single(repository.Saves);
         Assert.Equal("email-cold-outreach", Assert.Single(save.Pieces).Type);
 
-        const string why = "Refused: the social post states a figure the page it was written from does not: 75%. Nothing was saved for it.";
+        const string why = "Refused: the social post states a figure found in neither the page it was written from nor the Brief: 75%. Nothing was saved for it.";
         using var recorded = JsonDocument.Parse(JsonSerializer.Serialize(result, Web));
         Assert.Equal(1, recorded.RootElement.GetProperty("created").GetArrayLength());
         Assert.Equal($"social: {why}", recorded.RootElement.GetProperty("refusals").EnumerateArray().Single().GetString());
