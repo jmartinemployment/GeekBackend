@@ -2490,9 +2490,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             // described a planned heading the model had itself invented, and there are none now.
             .AppendLine(isBlogBatch
                 ? $"Write ONLY these {blogBatch.Count} top-level (h2) sections, in this order. Each entry says "
-                  + "what that section is responsible for; you write its heading:"
+                  + "what that section is responsible for; you write its heading, as one phrase with no colon:"
                 : $"Write {blogBatch.Count} top-level (h2) sections, in this order. Each entry says what that "
-                  + "section is responsible for; you write its heading:")
+                  + "section is responsible for; you write its heading, as one phrase with no colon:")
             .AppendLine(RenderSlots(blogBatch))
             .AppendLine()
             .AppendLine(isBlogBatch
@@ -2886,7 +2886,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                 : string.Empty)
             .AppendLine("No introductory paragraphs before the first section.")
             .AppendLine($"Write {outline.Count} top-level (h2) sections, in this order. Each entry says what that " +
-                "section is responsible for; you write its heading:")
+                "section is responsible for; you write its heading, as one phrase with no colon:")
             .AppendLine(sectionBlock.ToString().TrimEnd())
             // When this call writes part of the page, the rest of the plan is context: it stops a
             // batch re-covering what another owns, and stops it closing the page it cannot see

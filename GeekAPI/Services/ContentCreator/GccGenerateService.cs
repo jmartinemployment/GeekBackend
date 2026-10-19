@@ -3440,6 +3440,25 @@ public partial class GccGenerateService
         // is checked is what is saved. A quotation keeps the source's own.
         var (withoutEmDashes, emDashesRemoved) = Guardrail.GccEmDash.Clean(draft.Document);
         draft = draft with { Document = withoutEmDashes };
+        // No heading split by a colon (Jeff, 2026-10-18: "no more colons"): the part before it is kept.
+        // The writer is told as well; the run of 15:06 UTC that day showed that is not enough. Not on the
+        // deck: its slide titles are an ad's, and he asked for no change to the deck unless he asks.
+        var headingCuts = (IReadOnlyList<Guardrail.GccHeadingColon.Cut>)[];
+        if (type != GccLinkedInDocument.Label)
+        {
+            var (withoutColons, cuts) = Guardrail.GccHeadingColon.Remove(draft.Document, keyword);
+            draft = draft with { Document = withoutColons };
+            headingCuts = cuts;
+        }
+
+        if (headingCuts.Count > 0)
+        {
+            await GccRunLog.RecordIfAnyAsync("headings-cut", new
+            {
+                label,
+                cuts = headingCuts.Select(c => new { written = c.Written, saved = c.Saved }).ToList(),
+            });
+        }
         // A sentence that states a figure the writer was shown nowhere is taken out, and the page is
         // kept (Jeff, 2026-10-13: "Stop the sentence, not the pillar or blog?"). Before the check, which
         // then reads the page as it will be saved and still refuses what could not be taken out.
