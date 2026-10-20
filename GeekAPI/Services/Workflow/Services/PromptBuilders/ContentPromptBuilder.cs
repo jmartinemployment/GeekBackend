@@ -669,7 +669,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     private static string SeoLedeInstruction(string keyword) =>
         $"KEYWORD AND ANSWER: the opening contains \"{keyword}\" in a sentence that would be there "
         + "anyway -- not as a label, not bolted onto the first line. And it answers the question the "
-        + "title asks within its first hundred words, before any history, context or scene-setting. "
+        + "title asks in its first one or two sentences, before any history, context or scene-setting. "
         + "A reader who stops after the opening should already have the answer; everything after it "
         + "is why.";
 
@@ -789,6 +789,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("You are a senior consultant at an IT consulting firm that specializes in AI implementation, writing for that firm's prospective clients: expert, direct and consultative.")
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine(HumanRegisterInstruction)
+            .AppendLine(AnswerFirstInstruction)
+            .AppendLine(MadeUpPeopleInstruction)
             .AppendLine(FillerBanInstruction)
             .AppendLine(HeadingCraftInstruction)
             .AppendLine(SectionVarietyInstruction)
@@ -826,10 +828,11 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         "No formal opener and no wrap-up: do not introduce what you are about to cover, and do not " +
         "close by telling the reader what they just read. Start talking, and stop when you are done. " +
         "HOW THIS READS: the giveaway is rhythm, not vocabulary. " +
-        "Vary sentence length on purpose. A paragraph whose sentences are all fifteen to twenty-five " +
-        "words reads as machine-written however good each one is. Use short sentences -- three to " +
-        "eight words -- and let some run long. " +
-        "Vary paragraph length too: some are one sentence, some are six. Never a page of even blocks. " +
+        "Keep the average sentence to fifteen to twenty words, and vary around it on purpose: some of " +
+        "three to eight words, few over thirty. A paragraph whose sentences are all one length reads as " +
+        "machine-written however good each one is. Prefer the short common word to the long one. " +
+        "A paragraph is two to four sentences carrying one idea, and its first sentence states that " +
+        "idea. Define a technical term the first time it is used. " +
         "Drop the scaffolding: no Moreover, Furthermore, Additionally, Consequently, In conclusion, " +
         "It is worth noting, It is important to note. Start the sentence. " +
         "Break the symmetry: no \"not just X, but Y\", no three-item lists used for cadence rather " +
@@ -854,11 +857,55 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// </para>
     /// </summary>
     private const string FillerBanInstruction =
-        "Ban filler: cutting-edge, paradigm shift, transformative potential, seamless transition, " +
-        "maximize ROI, unlock value. Write specific, verifiable claims instead of hype adjectives. " +
+        "Ban filler: cutting-edge, paradigm shift, transformative potential, maximize ROI, unlock value. " +
+        "Write specific, verifiable claims instead of hype adjectives. " +
         "Ban these words outright, in any form: delve, testament, unlock, tapestry, beacon, realm, " +
-        "dynamic, pivotal, navigating. If one of them is the word you want, the sentence has not " +
-        "decided what it is saying yet -- say the thing instead.";
+        "dynamic, pivotal, navigating, seamless, landscape, revolutionize, game-changer. If one of them " +
+        "is the word you want, the sentence has not decided what it is saying yet -- say the thing instead.";
+
+    /// <summary>
+    /// The answer comes first, in the opening and in every section (geekatyourspot's GEO and SEO audit
+    /// of 2026-10-20: 40 pages open with "Picture" or "Imagine", and 99 sections open with a scene
+    /// instead of an answer).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// From Jeff's GEO skills: <c>seo-geo</c> lists "Direct answer in first 40-60 words of section" as a
+    /// signal of citability; <c>ai-seo</c> says "Lead every section with a direct answer (don't bury it)";
+    /// <c>geo-citability</c> gives its top score to a page where "Every major section opens with a 1-2
+    /// sentence direct answer"; <c>geo-content</c> says the first sentence of a paragraph is its main
+    /// point.
+    /// </para>
+    /// <para>
+    /// Until 2026-10-20 the opening was told the reverse: "Otherwise open with a story ... put a person
+    /// in a situation", with worked examples of named people, and the body was told to bring those
+    /// people back two or three times. The opening was also told, by <c>SeoLedeInstruction</c>, to
+    /// answer within its first hundred words before any scene-setting; the story instruction was longer
+    /// and had examples, and it won.
+    /// </para>
+    /// </remarks>
+    internal const string AnswerFirstInstruction =
+        "ANSWER FIRST: the opening and every section and subsection begin with their answer. The first " +
+        "one or two sentences, 40 to 60 words, say plainly what the heading asks, so they could be quoted " +
+        "on their own. An example, a case or a scene comes after that answer, never before it. Never open " +
+        "the page or a section with \"Picture\", \"Imagine\" or a person in a situation.";
+
+    /// <summary>
+    /// No made-up person read as a real one (the same audit: "Lisa Anderson, the owner of a boutique
+    /// marketing agency in Miami", "Maria Sanchez", "Lisa" and "Jane" on the published tool pages, with
+    /// no "hypothetical" at first mention).
+    /// </summary>
+    /// <remarks>
+    /// A named person no source names is an invented case study, which is what <c>ai-seo</c> means by
+    /// "Don't fabricate", and it reads as first-hand experience the publisher does not have. The
+    /// sentences elsewhere that say a quantified hypothetical outcome must be labelled
+    /// (<c>ContentPromptBuilder.Pillar</c>, the Workflow product's section rules) say the same thing of
+    /// figures, and stay.
+    /// </remarks>
+    internal const string MadeUpPeopleInstruction =
+        "NO MADE-UP PEOPLE: never give a name to a person, a client or a business that the evidence does " +
+        "not name. A case you make up to illustrate a point is called hypothetical in the sentence that " +
+        "first mentions it (\"a hypothetical five-person design firm\"), and stays unnamed.";
 
     /// <summary>
     /// Headings, for every type that lets the writer name its own sections.
@@ -1062,15 +1109,17 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             block.AppendLine(opening.Length > 1_800 ? opening[..1_800] : opening);
         }
 
+        // Until 2026-10-20 this began "Carry the story forward. If the opening put someone in a situation,
+        // they come back ... Two or three times across the piece". With the opening told to open on a
+        // person, that put the opening's made-up person at the head of later sections: the audit of that
+        // day counted 99 sections opening on a scene instead of an answer (AnswerFirstInstruction).
         block.AppendLine(
-            "Carry the story forward. If the opening put someone in a situation, they come back: the " +
-            "same team, the same invoice, the same Friday afternoon, further along. Two or three " +
-            "times across the piece is enough -- a concrete return to the people in the opening, " +
-            "where the material naturally allows it. A story used once as a hook and then dropped " +
-            "for explanation is the shape that reads well for three paragraphs and becomes a chore.");
+            "If the opening told a hypothetical case after its answer, a section may return to it where " +
+            "the material allows, still called hypothetical, and only after that section's own answer: " +
+            "never as a section's first sentence.");
         block.AppendLine(
             "The page has started and the reader is inside that thread. The sections below are the " +
-            "same piece of writing continuing, not a reference document appended to a story. Keep " +
+            "same piece of writing continuing, not a reference document appended to an opening. Keep " +
             "the register the opening set; do not hook the reader a second time, do not " +
             "reintroduce the topic, and do not drop into neutral textbook voice at the first " +
             "heading. Where the opening raised something specific -- a person, a moment, a cost, a " +
@@ -1425,122 +1474,43 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     private static string BuildLedeTypeGuidance(ProjectGenerationContext context)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Lede types (pick ONE ledeType that best fits this audience + angle + topic):");
-        sb.AppendLine("- summary: direct thesis-first overview (what/why).");
-        sb.AppendLine("- immediateIdentification: lead names the who/what up front.");
-        sb.AppendLine("- delayedIdentification: hold identity for reveal after hook.");
-        sb.AppendLine("- singleItem: spotlight one striking example/data point.");
-        sb.AppendLine("- anecdotal: brief human story or vignette.");
-        sb.AppendLine("- narrative: chronological arc or journey.");
-        sb.AppendLine("- sceneSetting: vivid place/time establishing context.");
-        sb.AppendLine("- startlingStatement: bold, counterintuitive claim.");
-        sb.AppendLine("- directAddress: speak directly to reader (you/your).");
-        sb.AppendLine("- question: open with a compelling question.");
-        sb.AppendLine("- quote: open with a relevant quotation.");
-        sb.AppendLine("- wordplay: clever phrasing or pun (use sparingly, only if topic allows).");
-        // "summary" is the one a model reaches for unprompted on technical B2B material, and it is
-        // listed first here, which makes it the anchor. Jeff, 2026-09-23: "Overview is a boring
-        // type of lede, that does not pique interest." It is still correct sometimes -- a reader
-        // with transactional or navigational intent wants the answer in the first line, not a
-        // scene -- so this biases against it rather than banning it.
-        sb.AppendLine();
+        // The type shapes the opening after its answer, never before it (2026-10-20, AnswerFirstInstruction).
+        // Until then the "Choosing" lines below said "Otherwise open with a story ... put a person in a
+        // situation", and 45 lines of worked examples (Jeff's, 2026-09-23) showed a hook first and the page's
+        // subject second, five of them with a named person no source names ("Marcus Vance", "Sarah Jenkins",
+        // "Dr. Aris Thorne") and two with a figure no source gives ("Nearly eighty percent of small business
+        // owners"). The published tool pages carry exactly that: "Lisa Anderson, the owner of a boutique
+        // marketing agency in Miami", 40 pages opening "Picture" or "Imagine". The examples are deleted, not
+        // reworded: each one demonstrated the order the GEO skills reject. They are at
+        // `git show b6b6e29:GeekAPI/Services/Workflow/Services/PromptBuilders/ContentPromptBuilder.cs`.
+        sb.AppendLine("Lede types (pick ONE ledeType that best fits this audience + angle + topic). The type");
+        sb.AppendLine("shapes the opening AFTER its answer: whatever the type, the opening's first one or two");
+        sb.AppendLine("sentences answer the question the title asks (ANSWER FIRST).");
+        sb.AppendLine("- summary: the answer, then why it holds.");
+        sb.AppendLine("- immediateIdentification: the answer names the who or what itself.");
+        sb.AppendLine("- delayedIdentification: after the answer, the subject is built up before it is named again.");
+        sb.AppendLine("- singleItem: after the answer, one striking example or data point from the evidence.");
+        sb.AppendLine("- anecdotal: after the answer, a brief case, called hypothetical where no source names it.");
+        sb.AppendLine("- narrative: after the answer, the work told in order, start to finish.");
+        sb.AppendLine("- sceneSetting: after the answer, the place and moment where the problem shows.");
+        sb.AppendLine("- startlingStatement: the answer itself is a bold, counterintuitive claim the evidence supports.");
+        sb.AppendLine("- directAddress: the answer and what follows speak to the reader (you, your).");
+        sb.AppendLine("- question: after the answer, the question the reader asks next.");
+        sb.AppendLine("- quote: after the answer, a quotation from the evidence that bears it out.");
+        sb.AppendLine("- wordplay: clever phrasing or pun in the answer (use sparingly, only if topic allows).");
         // The three lines that stood here told the model not to let the lede's heading restate the
         // page title. They were removed on 2026-09-23 with the heading itself, then restored on
         // 2026-09-29 with it -- as LedeHeadingInstruction, stated once next to the heading's other
         // rules rather than buried in the lede-type guidance, which is about choosing the opening's
         // twelve types and not about what its heading may say.
-
-        sb.AppendLine("Choosing: \"summary\" is the weakest hook and the one most often reached for by default.");
-        sb.AppendLine("Use it only when the brief's intent is transactional or navigational, or the reader");
-        sb.AppendLine("genuinely needs the answer in the opening line.");
-        sb.AppendLine("Otherwise open with a story. Prefer anecdotal, narrative or sceneSetting: put a");
-        sb.AppendLine("person in a situation the reader recognises and let the problem show up in what");
-        sb.AppendLine("happens to them, before any explanation of it. \"Picture your accounts team");
-        sb.AppendLine("struggling through stacks of invoices, each one a potential error waiting to");
-        sb.AppendLine("happen\" is the shape -- concrete, peopled, in motion.");
-        sb.AppendLine("directAddress, question, startlingStatement and delayedIdentification are the");
-        sb.AppendLine("fallbacks when the material genuinely has no scene in it -- not the default. They");
-        sb.AppendLine("are safer to write and that is exactly why they keep getting chosen: a page that");
-        sb.AppendLine("opens by addressing the reader in the abstract has stated a topic, not started a");
-        sb.AppendLine("piece of writing.");
-        // Worked examples, supplied by Jeff 2026-09-23. A one-line definition tells the model what
-        // a type is called; it does not show the craft -- the specificity, the concrete detail, the
-        // withheld name, the second person. These demonstrate the technique.
-        //
-        // The subject matter of the examples is deliberately irrelevant and the instruction says so
-        // twice: few-shot examples are copied as readily as they are learned from, and a lede that
-        // borrows "2 a.m." or a server room from here would be worse than no example at all.
         sb.AppendLine();
-        sb.AppendLine("Examples of the craft each type calls for. TWO per type, from two unrelated");
-        sb.AppendLine("subjects on purpose: match the TECHNIQUE they share, never their wording, imagery");
-        sb.AppendLine("or subject matter. Note the shape -- a hook sentence, then a second sentence that");
-        sb.AppendLine("turns it into what the page is about.");
-        sb.AppendLine("- anecdotal/narrative:");
-        sb.AppendLine("  (a) \"Sarah Jenkins stared at her computer screen at 2 a.m., watching a lines-of-code "
-            + "algorithm generate a flawless, professional marketing strategy in under four seconds -- a task that "
-            + "normally took her entire team a full workweek to complete.\"");
-        sb.AppendLine("  (b) \"Dr. Aris Thorne spent three grueling years reviewing thousands of anonymous patient "
-            + "lung scans, searching for microscopic anomalies that the human eye routinely misses. Yesterday, he "
-            + "loaded those same images into a new neural network, which flagged every single early-stage tumor in "
-            + "less time than it took him to pour a cup of coffee.\"");
-        sb.AppendLine("- sceneSetting:");
-        sb.AppendLine("  (a) \"Inside the climate-controlled server room, the air hums with a low, collective roar "
-            + "as thousands of blinking green lights flicker in the dark, processing billions of data points every "
-            + "second to rewrite the future of human labor.\"");
-        sb.AppendLine("  (b) \"The oncology ward at St. Jude's is uncharacteristically quiet, save for the soft "
-            + "rhythmic beeping of vitals monitors and the faint clicking of a nearby keyboard. On that screen, a "
-            + "newly deployed diagnostic algorithm is quietly solving a catastrophic medical bottleneck.\"");
-        sb.AppendLine("- delayedIdentification:");
-        sb.AppendLine("  (a) \"A quiet, invisible companion now sits at the desk of nearly every modern white-collar "
-            + "professional, drafting their emails, analyzing their financial spreadsheets, and silently transforming "
-            + "the workforce without ever collecting a paycheck.\"");
-        sb.AppendLine("  (b) \"A silent diagnostic partner is entering rural medical clinics across the country, "
-            + "reviewing patient records at lightning speed to catch deadly medical oversights before they happen. "
-            + "This new automated software is solving America's critical radiologist shortage.\"");
-        sb.AppendLine("- startlingStatement:");
-        sb.AppendLine("  (a) \"By the time you finish reading this sentence, an automated program will have generated "
-            + "enough text online to fill an entire library encyclopedia, fundamentally altering how humanity creates "
-            + "and consumes information.\"");
-        sb.AppendLine("  (b) \"Half of all malignant lung tumors are caught too late for effective treatment, a tragic "
-            + "reality driven by a global shortage of expert medical eyes. But a radical shift in computer vision is "
-            + "quietly wiping this problem away.\"");
-        sb.AppendLine("- directAddress:");
-        sb.AppendLine("  (a) \"Think about the last time you asked an online customer service agent a question, "
-            + "received a perfect response in seconds, and closed the window -- unknowingly interacting with a system "
-            + "that possesses more collective data than any human mind in history.\"");
-        sb.AppendLine("  (b) \"Imagine waiting weeks for a critical medical scan, knowing that a single missed pixel "
-            + "on your X-ray could mean the difference between life and death. Now imagine a system that scans your "
-            + "files instantly and spots anomalies your doctor might miss.\"");
-        sb.AppendLine();
-        sb.AppendLine("A third set, in the back-office automation space. These show the level of CONCRETE");
-        sb.AppendLine("DETAIL a good lede carries -- a named tool, a real number, a specific task -- not the");
-        sb.AppendLine("vague abstraction most drafts open with. Because these are close to the subject matter");
-        sb.AppendLine("you may be writing about, the reuse rule is absolute: never repeat their names");
-        sb.AppendLine("(Marcus Vance, QuickBooks), their figures (fifty invoices, eighty percent), their");
-        sb.AppendLine("businesses or their scenes. Take the register and the specificity; invent your own");
-        sb.AppendLine("particulars from the brief and the evidence you were given.");
-        sb.AppendLine("- anecdotal/narrative: \"Marcus Vance spent every Sunday afternoon buried under a mountain "
-            + "of physical invoices, manually matching line items to receipts for his local hardware store. Last "
-            + "week, he finally deployed a custom AI agentic workflow that parsed, verified, and logged fifty "
-            + "invoices into QuickBooks in the time it took him to open his laptop.\"");
-        sb.AppendLine("- sceneSetting: \"The main office of the local distribution center is dead quiet at midnight, "
-            + "save for the hum of a single desktop computer and the stack of unentered billing receipts waiting for "
-            + "morning. But behind the screen, an automated data pipeline is silently running.\"");
-        sb.AppendLine("- delayedIdentification: \"A tireless new worker has quietly joined the administrative teams "
-            + "of several local businesses, managing complex data entries and accounts payable around the clock. "
-            + "This custom automation software is permanently solving the manual bottlenecks that stall small "
-            + "business growth.\"");
-        sb.AppendLine("- startlingStatement: \"Nearly eighty percent of small business owners report that "
-            + "administrative tasks like manual data entry and billing reconciliation are the leading barriers to "
-            + "their company's growth. A radical shift in automated accounting workflows is now erasing this "
-            + "problem.\"");
-        sb.AppendLine("- directAddress: \"Imagine spending your Sunday evenings manually typing invoice numbers into "
-            + "a spreadsheet instead of being with your family, knowing a single typo could derail your monthly "
-            + "financial reports. Now imagine a custom AI pipeline that handles that entire workload for you "
-            + "instantly.\"");
-        sb.AppendLine();
-        sb.AppendLine("Soft/indirect ledes need that turn -- a nutgraf immediately after the hook, carrying the "
-            + "reader from the opening image to what this page is actually about.");
+        // Jeff, 2026-09-23: "Overview is a boring type of lede, that does not pique interest." An answer
+        // first is not an overview: it is the page's own claim, as specific as the evidence lets it be.
+        sb.AppendLine("Choosing: an answer first is not a dull overview. State it as the specific claim this");
+        sb.AppendLine("page makes, with a figure or a named tool from the evidence where the evidence has one,");
+        sb.AppendLine("never \"In this article\" or a definition any page could carry. Then pick the type that");
+        sb.AppendLine("best carries the reader from that answer into the page. A case told after the answer");
+        sb.AppendLine("is hypothetical and unnamed unless the evidence names it (NO MADE-UP PEOPLE).");
         var hasBrief = !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes) || !string.IsNullOrWhiteSpace(context.ContentAngle)
             || !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
             || !string.IsNullOrWhiteSpace(context.LengthBand)
@@ -1608,7 +1578,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         (angle ?? string.Empty).Trim().ToLowerInvariant() switch
         {
             "comparative" => "question, startlingStatement, singleItem -- stakes and contrast",
-            "problem_solution" => "anecdotal, sceneSetting, directAddress, question -- pain first",
+            "problem_solution" => "anecdotal, sceneSetting, directAddress, question -- the problem, straight after the answer",
             "case_study_data" => "immediateIdentification, singleItem, quote, startlingStatement -- evidence first",
             "ultimate_guide" => "summary, delayedIdentification, directAddress -- comprehensive framing",
             _ => null,

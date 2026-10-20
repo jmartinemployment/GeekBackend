@@ -134,7 +134,7 @@ public class OutlinePromptRulesTests
 
         Assert.Contains("the opening contains", rendered, StringComparison.Ordinal);
         Assert.Contains("Automated Data Entry & Processing", rendered, StringComparison.Ordinal);
-        Assert.Contains("within its first hundred words", rendered, StringComparison.Ordinal);
+        Assert.Contains("in its first one or two sentences", rendered, StringComparison.Ordinal);
     }
 
     [Fact]

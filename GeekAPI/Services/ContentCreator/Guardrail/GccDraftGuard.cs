@@ -155,6 +155,7 @@ public static partial class GccDraftGuard
         AddKeywordFindings(document, inputs, findings, "tool page");
         AddKeywordHeadingFindings(document, inputs, findings, "tool page");
         AddHeadingColonFinding(document, findings, "tool page");
+        AddSceneOpeningFinding(document, findings, "tool page");
         AddKeywordOpeningFinding(document, inputs, findings, "tool page");
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
@@ -231,6 +232,7 @@ public static partial class GccDraftGuard
         AddKeywordFindings(document, inputs, findings, type);
         AddKeywordHeadingFindings(document, inputs, findings, type);
         AddHeadingColonFinding(document, findings, type);
+        AddSceneOpeningFinding(document, findings, type);
         AddKeywordOpeningFinding(document, inputs, findings, type);
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
@@ -377,6 +379,46 @@ public static partial class GccDraftGuard
             $"The {type} has {(split.Count == 1 ? "a heading" : $"{split.Count} headings")} split by a colon: "
             + string.Join(", ", split) + ". A heading is one phrase.",
             Refuses: false));
+    }
+
+    /// <summary>
+    /// The opening or a section that begins on a scene instead of its answer: its first paragraph opens
+    /// with "Picture" or "Imagine". The writer is told to answer first
+    /// (<c>ContentPromptBuilder.AnswerFirstInstruction</c>); this lists a section that did not. A reported
+    /// line, never a refusal: code cannot move an answer up a section.
+    /// </summary>
+    /// <remarks>
+    /// The two words are the audit's own measure (geekatyourspot's GEO and SEO audit of 2026-10-20: 40
+    /// pages open with "Picture" or "Imagine"). Whether a sentence is an answer is not something code can
+    /// read, so a scene that opens another way is not listed. A section whose first paragraph is a
+    /// quotation or a list is not read: neither is the writer's own opening sentence.
+    /// </remarks>
+    private static void AddSceneOpeningFinding(ContentDocument document, List<GccGuardFinding> into, string type)
+    {
+        var scenes = AllSections(document)
+            .Where(section => !string.IsNullOrWhiteSpace(section.Heading)
+                && section.Paragraphs.FirstOrDefault() is TextParagraph first
+                && OpensOnAScene(string.Join(" ", first.Runs.Select(run => run.Text))))
+            .Select(section => $"\"{section.Heading!.Trim()}\"")
+            .ToList();
+        if (scenes.Count == 0) return;
+
+        into.Add(new GccGuardFinding(
+            "opens-on-a-scene",
+            $"The {type} opens {(scenes.Count == 1 ? "a section" : $"{scenes.Count} sections")} on a scene "
+            + "(\"Picture\" or \"Imagine\") where its answer belongs: " + string.Join(", ", scenes) + ". "
+            + "An answer engine quotes a section's first sentences.",
+            Refuses: false));
+    }
+
+    /// <summary>Whether a paragraph's first word is "Picture" or "Imagine".</summary>
+    internal static bool OpensOnAScene(string paragraph)
+    {
+        var first = paragraph.TrimStart().Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (first is null) return false;
+        var word = first.TrimEnd(',', ':', ';', '.', '!');
+        return string.Equals(word, "Picture", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(word, "Imagine", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

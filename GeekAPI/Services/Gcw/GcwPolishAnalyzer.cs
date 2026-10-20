@@ -75,17 +75,34 @@ public static class GcwPolishAnalyzer
                 : "No obvious placeholder phrases found.",
             placeholderHit ? "Remove placeholder / template phrases before shipping." : null));
 
-        var longSentences = sentences.Count(s => Tokenize(s).Count > 40);
-        var clarityOk = avgSentence <= 28 && longSentences <= 2;
+        // Jeff's seo-content and geo-content skills: "Sentence length: average 15-20 words" and "Flesch
+        // Reading Ease: target 60-70". Until 2026-10-20 this passed an average of 28 words and two
+        // sentences over 40, the code's own numbers, and nothing read the reading ease. geekatyourspot's
+        // GEO and SEO audit of that day put the published pillars and tool pages at 11 to 33, against 62
+        // to 66 on the operator's own /methodology. An advisory, as both skills say it is: readability is
+        // not a ranking factor, and geo-content says writing under 30 is cited less.
+        var clarityOk = avgSentence <= MaxAverageSentenceWords;
         checks.Add(new PolishCheck(
             "sentence-clarity",
             "Sentence clarity",
             clarityOk,
             "advisory",
-            $"Avg ≈ {avgSentence:0.0} words/sentence; {longSentences} sentence(s) over 40 words.",
+            $"Avg ≈ {avgSentence:0.0} words/sentence (aim for 15–20).",
             clarityOk
                 ? null
-                : "Split long sentences and aim for ~15–25 words on average."));
+                : "Split long sentences: aim for 15–20 words on average."));
+
+        var readingEase = ReadingEase(text);
+        var readableOk = wordCount == 0 || readingEase >= MinReadingEase;
+        checks.Add(new PolishCheck(
+            "readability",
+            "Readability",
+            readableOk,
+            "advisory",
+            $"Flesch Reading Ease ≈ {readingEase:0} (aim for 60–70).",
+            readableOk
+                ? null
+                : "Use shorter sentences and shorter, common words."));
 
         var fillerCount = CountFiller(words);
         var fillerRate = wordCount == 0 ? 0 : 100.0 * fillerCount / wordCount;
@@ -143,6 +160,49 @@ public static class GcwPolishAnalyzer
             Math.Round(avgSentence, 1),
             checks,
             applyFeedback);
+    }
+
+    /// <summary>The longest average sentence that reads clearly: the top of the skills' 15 to 20 words.</summary>
+    internal const double MaxAverageSentenceWords = 20;
+
+    /// <summary>The lowest Flesch Reading Ease that passes: the bottom of the skills' 60 to 70.</summary>
+    internal const double MinReadingEase = 60;
+
+    /// <summary>
+    /// Flesch Reading Ease: 206.835 less 1.015 times the words a sentence, less 84.6 times the syllables a
+    /// word. Syllables are counted as runs of vowels, a final silent "e" taken off and one at least; a
+    /// number is one. An estimate, as every counter of syllables is; the same text always scores the same.
+    /// </summary>
+    internal static double ReadingEase(string text)
+    {
+        var words = Tokenize(text);
+        if (words.Count == 0) return 0;
+        var sentences = Math.Max(SplitSentences(text).Count, 1);
+        var syllables = words.Sum(Syllables);
+        return Math.Round(206.835 - 1.015 * words.Count / sentences - 84.6 * syllables / words.Count, 1);
+    }
+
+    internal static int Syllables(string word)
+    {
+        var letters = word.Replace("'", "", StringComparison.Ordinal);
+        if (letters.Length == 0 || letters.All(char.IsDigit)) return 1;
+
+        var count = 0;
+        var inVowels = false;
+        foreach (var c in letters)
+        {
+            var vowel = "aeiouy".Contains(c, StringComparison.Ordinal);
+            if (vowel && !inVowels) count++;
+            inVowels = vowel;
+        }
+
+        if (letters.Length > 2 && letters.EndsWith('e') && !letters.EndsWith("le", StringComparison.Ordinal)
+            && !"aeiouy".Contains(letters[^2], StringComparison.Ordinal))
+        {
+            count--;
+        }
+
+        return Math.Max(count, 1);
     }
 
     /// <summary>

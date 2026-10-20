@@ -1730,6 +1730,54 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Every opening and body request of a pillar, a blog and a tool page is told to answer first and to
+    /// name no made-up person (geekatyourspot's GEO and SEO audit of 2026-10-20; Jeff's seo-geo, ai-seo and
+    /// geo-citability skills). Read through the real writers, so a request added later without them fails.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task Every_opening_and_body_request_is_told_to_answer_first_and_to_name_no_made_up_person(string page)
+    {
+        var calls = await WriteAsync(page, CompleteBrief);
+        var writing = calls
+            .Where(c => c.Label == "opening" || c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(writing);
+        foreach (var (label, text) in writing)
+        {
+            Assert.True(text.Contains(ContentPromptBuilder.AnswerFirstInstruction, StringComparison.Ordinal), $"{page} '{label}' is not told to answer first.");
+            Assert.True(text.Contains(ContentPromptBuilder.MadeUpPeopleInstruction, StringComparison.Ordinal), $"{page} '{label}' is not told to name no made-up person.");
+        }
+    }
+
+    /// <summary>
+    /// No request asks for a story ahead of the answer, or shows a named person no source names. Until
+    /// 2026-10-20 the opening was told "Otherwise open with a story", with "Marcus Vance", "Sarah Jenkins"
+    /// and "Dr. Aris Thorne" as its examples, and every body call was told to "Carry the story forward".
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    [InlineData("email")]
+    [InlineData("social")]
+    [InlineData("deck")]
+    public async Task No_request_asks_for_a_story_first_or_shows_a_made_up_name(string page)
+    {
+        var calls = await WriteAsync(page, CompleteBrief);
+        string[] gone = ["open with a story", "Carry the story forward", "Picture your accounts team", "Marcus Vance", "Sarah Jenkins", "Aris Thorne", "pain first"];
+
+        foreach (var (label, text) in calls)
+        foreach (var phrase in gone)
+        {
+            Assert.False(text.Contains(phrase, StringComparison.OrdinalIgnoreCase), $"{page} '{label}' still says \"{phrase}\".");
+        }
+    }
+
+    /// <summary>
     /// A number the writer made up, through each page's real writer: the sentence that states it is
     /// deleted, the sentences either side stay, the page is saved, and its lines name the sentence and
     /// the heading it stood under.

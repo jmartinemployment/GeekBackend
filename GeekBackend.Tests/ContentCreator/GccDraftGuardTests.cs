@@ -403,6 +403,40 @@ public class GccDraftGuardTests
     /// The publisher's questions are answered when the reader books; a closing that makes the booking
     /// conditional on a self-check is refused (Jeff, 2026-10-05 and 2026-10-06).
     /// </summary>
+    /// <summary>
+    /// A section that opens on "Picture" or "Imagine" is listed with its heading, and the page is not
+    /// refused (geekatyourspot's GEO and SEO audit of 2026-10-20: 40 pages open that way).
+    /// </summary>
+    [Fact]
+    public void A_section_that_opens_on_a_scene_is_listed_and_the_page_is_not_refused()
+    {
+        var scene = Doc(
+            Body("What Late Invoices Cost a Small Firm", Text("Picture your accounts team buried in invoices.")),
+            Body("How Reminders Run Once Automated", Text("Imagine, for a moment, a month with no chasing.")),
+            Body("What Changes in the First Month", Text("Reminders go out on the day an invoice falls due.")));
+        var answered = Doc(Body("What Changes in the First Month", Text("A picture of the month is ready by the fifth.")));
+
+        var finding = Assert.Single(GccDraftGuard.Pillar(scene, Inputs()).Findings, f => f.Check == "opens-on-a-scene");
+        Assert.False(finding.Refuses);
+        Assert.Contains("2 sections", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("\"What Late Invoices Cost a Small Firm\"", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains("\"How Reminders Run Once Automated\"", finding.Detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("First Month", finding.Detail, StringComparison.Ordinal);
+        Assert.Contains(GccDraftGuard.Tool(scene, Inputs(requiredTools: [])).Findings, f => f.Check == "opens-on-a-scene");
+        Assert.DoesNotContain(GccDraftGuard.Blog(answered, Inputs()).Findings, f => f.Check == "opens-on-a-scene");
+    }
+
+    [Fact]
+    public void The_pages_opening_is_read_too()
+    {
+        var document = new ContentDocument(
+            new Section("h2", "Where the Month Goes", [Text("Imagine a Friday with every invoice still open.")], null, []),
+            [Closing]);
+
+        var finding = Assert.Single(GccDraftGuard.Blog(document, Inputs()).Findings, f => f.Check == "opens-on-a-scene");
+        Assert.Contains("\"Where the Month Goes\"", finding.Detail, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_heading_split_by_a_colon_is_listed_and_the_page_is_not_refused()
     {
