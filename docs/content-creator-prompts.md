@@ -4,6 +4,11 @@ Generated from the real builders on 2026-10-07 (HEAD `e55f41c` plus the provenan
 stale-line fixes of that day, uncommitted when this was written). Every `{braces}` is a placeholder for run data.
 This replaces the earlier version of this file, which described the prompts before the restructure.
 
+**The opening's lede guidance below is the 2026-10-07 text and is no longer what the writer is sent.** On
+2026-10-20 the story instruction and its worked examples went (answer first); on 2026-10-22 the twelve-type
+menu went too: every opening is a Question lede, stated once by `ContentPromptBuilder.QuestionLedeInstruction`
+and printed with the brief's lines by `BuildOpeningGuidance`. Read those for the live wording.
+
 Each call is `[system][user]`. The system message is one static text for every pillar, blog and tool
 call; only its last line, the output contract, differs by call. Everything that varies is in the user
 message.

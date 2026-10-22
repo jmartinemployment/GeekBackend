@@ -577,10 +577,19 @@ public sealed class GccGroundingResolver(
                     }
 
                     // Partner only -- see PartnerPassages. The competitor and project-site runs skip
-                    // this read entirely rather than mapping blocks no consumer may quote from.
+                    // this read entirely rather than mapping blocks no consumer may quote from. The
+                    // same read says when each page was crawled, which is the date a citation to it
+                    // carries (GccFigureSources); the publisher's own pages are asked that alone, and a
+                    // competitor's page is never cited, so its date is not asked for.
                     if (isPartner && fresh.Count > 0)
                     {
-                        passages.AddRange(await typedPassages.ReadAsync(runId, fresh, ct));
+                        var read = await typedPassages.ReadAsync(runId, fresh, ct);
+                        passages.AddRange(read.Passages);
+                        StampCrawledAt(into, seenUrls, fresh, read.CrawledAtUtc);
+                    }
+                    else if (string.Equals(crawlType, CrawlTypes.ProjectSite, StringComparison.OrdinalIgnoreCase) && fresh.Count > 0)
+                    {
+                        StampCrawledAt(into, seenUrls, fresh, await typedPassages.CrawledAtAsync(runId, fresh, ct));
                     }
                 }
 
@@ -726,6 +735,24 @@ public sealed class GccGroundingResolver(
     /// until 2026-10-11 nothing wrote it down: a partner is asked the brief's problem and then one
     /// question per row, and every passage reached the writers as one undivided pool.
     /// </remarks>
+    /// <summary>
+    /// Each of <paramref name="fresh"/> given the date its crawl page carries, where the read answered
+    /// one. The pages are already in <paramref name="into"/> at the positions <paramref name="seenUrls"/>
+    /// records; a page the read did not answer for keeps no date, and a citation to it carries none.
+    /// </summary>
+    private static void StampCrawledAt(
+        List<GccQuoteablePage> into,
+        Dictionary<string, int> seenUrls,
+        IReadOnlyList<GccQuoteablePage> fresh,
+        IReadOnlyDictionary<string, DateTimeOffset> crawledAt)
+    {
+        foreach (var page in fresh)
+        {
+            if (!crawledAt.TryGetValue(page.Url, out var at) || !seenUrls.TryGetValue(page.Url, out var held)) continue;
+            into[held] = into[held] with { CrawledAtUtc = at };
+        }
+    }
+
     internal static GccQuoteablePage FoundBy(GccQuoteablePage page, GccPassageSearch search) =>
         page with
         {

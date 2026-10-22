@@ -127,7 +127,7 @@ public sealed class GccClosingLineTests
     {
         var closing = GccClosing.Paragraphs(Company(), Questions);
         var document = new ContentDocument(
-            new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
+            new Section("h2", "Opening", [new TextParagraph([new Run("Where do the hours go? They go to keying.")])], null, []),
             GccClosing.AppendTo([Body("Where the hours go", "Invoices are keyed twice.")], closing));
 
         var verdict = GccDraftGuard.Pillar(document, Inputs());
@@ -143,10 +143,10 @@ public sealed class GccClosingLineTests
         var closing = GccClosing.Paragraphs(Company(), questions);
 
         var operators = new ContentDocument(
-            new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
+            new Section("h2", "Opening", [new TextParagraph([new Run("Where do the hours go? They go to keying.")])], null, []),
             GccClosing.AppendTo([Body("Where the hours go", "Invoices are keyed twice.")], closing));
         var writers = new ContentDocument(
-            new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
+            new Section("h2", "Opening", [new TextParagraph([new Run("Where do the hours go? They go to keying.")])], null, []),
             GccClosing.AppendTo([Body("Where the hours go", "If your answers are mostly no, it may be time to book.")], closing));
 
         Assert.DoesNotContain(GccDraftGuard.Pillar(operators, Inputs()).Findings, f => f.Refuses);
@@ -157,7 +157,7 @@ public sealed class GccClosingLineTests
     public void Without_the_closing_the_same_document_has_no_link_to_the_scheduler()
     {
         var document = new ContentDocument(
-            new Section("h2", "Opening", [new TextParagraph([new Run("An opening.")])], null, []),
+            new Section("h2", "Opening", [new TextParagraph([new Run("Where do the hours go? They go to keying.")])], null, []),
             [Body("Where the hours go", "Invoices are keyed twice.")]);
 
         Assert.NotEmpty(GccClosingCtaGuard.FindViolations(document, Anchor));

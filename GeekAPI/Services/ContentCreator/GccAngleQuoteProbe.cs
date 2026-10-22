@@ -181,9 +181,9 @@ public sealed class GccAngleQuoteProbe(
         // does -- see this class's remarks. Retrieval's page text is the prompt projection, labels
         // and all; the generate stopped reading it when the quote source became the blocks, so a
         // probe still reading it would be answering a different question than the one it reports on.
-        var passages = await typedPassages
+        var passages = (await typedPassages
             .ReadAsync(runId, pages, ct)
-            .ConfigureAwait(false);
+            .ConfigureAwait(false)).Passages;
 
         // Pages retrieved but none readable back is the crawl store not answering, not this partner
         // having nothing to say -- the Unavailable/NoAnswer distinction this class exists to keep.

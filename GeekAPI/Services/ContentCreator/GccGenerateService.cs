@@ -1109,7 +1109,7 @@ public partial class GccGenerateService
         {
             // Neither the research nor the brief. GenerateToolPageAsync hands the research to the tool
             // prompts once, as their evidence block, and those prompts print the brief once themselves
-            // (BuildLedeTypeGuidance on the opening, BuildBriefBodyGuidance on every other call). Until
+            // (BuildOpeningGuidance on the opening, BuildBriefBodyGuidance on every other call). Until
             // 2026-10-10 the brief was here as well, twice more, in two other wordings.
             var toolSource = BuildAudience(create, section, withBrief: false);
             if (!string.IsNullOrWhiteSpace(mustMentionBlock))
@@ -1382,7 +1382,7 @@ public partial class GccGenerateService
         // Built by the shared BuildMinimalContext, not by hand. This was a duplicate of that
         // method's construction, identical field for field except that it passed none of the brief
         // -- no ContentAngle, no AudienceSegment, no PrimaryIntent, no ToneOfVoice -- so
-        // BuildLedeTypeGuidance's `hasBrief` check was false on the tool path and the lede type was
+        // BuildOpeningGuidance's `hasBrief` check was false on the tool path and the lede type was
         // chosen with nothing to go on. Jeff, 2026-09-23: "The right lede, based off of the 'Angle
         // for SEO' already supplied but apparently not used?" -- supplied, and never delivered.
         //
@@ -1747,6 +1747,11 @@ public partial class GccGenerateService
             sections = toolBody;
             // A tool page links no other tool page (GuardInputsFor hands it none), so nothing is linked here.
             sections = await LinkToolsAsync($"the tool page '{name}'", sections, []);
+            // Every figure in the opening and the body cited to the page it is on, before the closing
+            // and the FAQ, which carry the operator's own words and no research.
+            (toolOpening, sections) = await CiteFiguresAsync(
+                $"the tool page '{name}'", "tool page", toolOpening, sections,
+                SourcesFor(create, toolOutlineCtx.Context, toolPartnerUrls, toolResearch), shortfalls);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (await ToolFaqAsync(shortfalls) is { } faq) sections.Add(faq);
             return new GccDraft(new ContentDocument(toolOpening, sections), shortfalls, callsUnderFloor);
@@ -2348,7 +2353,7 @@ public partial class GccGenerateService
 
     /// <param name="withBrief">
     /// False for a pillar, a blog and a tool page. Their prompt builders print the brief themselves,
-    /// once (<c>BuildLedeTypeGuidance</c> on an opening, <c>BuildBriefBodyGuidance</c> everywhere
+    /// once (<c>BuildOpeningGuidance</c> on an opening, <c>BuildBriefBodyGuidance</c> everywhere
     /// else), and until 2026-10-10 this printed it again beside them in other words: twice in a pillar
     /// prompt, three times in a blog's and a tool page's. True for an email and a social post, which
     /// have no other channel to it.
@@ -2801,6 +2806,9 @@ public partial class GccGenerateService
                 "the blog", blogLede with { Tag = "h2" }, sections, blogPromptCtx.Context.TargetKeyword);
             sections = blogBody;
             sections = await LinkToolsAsync("the blog", sections, blogPromptCtx.Context.KnownCrawlTools ?? []);
+            (blogOpening, sections) = await CiteFiguresAsync(
+                "the blog", "blog", blogOpening, sections,
+                SourcesFor(create, blogPromptCtx.Context, partnerUrls, GccResearchFetchService.Deserialize(create.ResearchJson)), shortfalls);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (blogFaq is not null) sections.Add(blogFaq);
             shortfalls.AddRange(blogFaqGaps);
@@ -3858,6 +3866,80 @@ public partial class GccGenerateService
         foreignAmountsNote is null ? evidence
         : string.IsNullOrWhiteSpace(evidence) ? foreignAmountsNote
         : $"{evidence}{Environment.NewLine}{foreignAmountsNote}";
+
+    /// <summary>
+    /// What a page's figures may be cited to: the research pages the writer was shown, each partner's
+    /// name by its host, the publisher's name and hosts, and the operator's own words. Null on the
+    /// create-less path and when the create holds no research: nothing is cited and nothing is listed.
+    /// </summary>
+    private Guardrail.GccFigureSources.Inputs? SourcesFor(
+        GccCreateDto? create,
+        ProjectGenerationContext context,
+        IReadOnlyList<string>? partnerUrls,
+        GccResearchDocument? research)
+    {
+        if (create is null || research is null) return null;
+
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var page in GccPartnerToolPages.For(create, partnerUrls ?? [], _company.ToolBaseUrl))
+        {
+            names.TryAdd(page.Host, page.ProductName);
+        }
+
+        // The publisher's hosts as GuardInputsFor reads them, so a citation to one of the publisher's
+        // own pages is named for the publisher and passes the same link check.
+        var publisherHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var url in new[] { _company.ArticleBaseUrl, _company.BlogBaseUrl, _company.ToolBaseUrl, context.ProjectUrl }
+                     .Concat((research.SiteQuoteables ?? []).Select(p => p.Url)))
+        {
+            var host = GccRequiredToolMentions.HostKeyOf(url);
+            if (host.Length > 0) publisherHosts.Add(host);
+        }
+
+        return new Guardrail.GccFigureSources.Inputs(
+            research.Quoteables ?? [],
+            research.SiteQuoteables ?? [],
+            research.CompetitorQuoteables ?? [],
+            names,
+            _company.PublisherName,
+            publisherHosts,
+            OperatorsOwnWords(create));
+    }
+
+    /// <summary>
+    /// The opening and the body with every figure cited to the research page it is on
+    /// (<see cref="Guardrail.GccFigureSources"/>), every citation and every sentence that could be cited
+    /// to no page on the run's record (<c>citations</c>), and the latter named for the operator in one
+    /// line. Nothing here refuses.
+    /// </summary>
+    /// <remarks>
+    /// After the linker and before the closing and the FAQ: the closing is the operator's own questions
+    /// and the FAQ the operator's own answers, neither of which comes from a research page.
+    /// </remarks>
+    private static async Task<(Section Lede, List<Section> Sections)> CiteFiguresAsync(
+        string label,
+        string type,
+        Section lede,
+        IReadOnlyList<Section> sections,
+        Guardrail.GccFigureSources.Inputs? sources,
+        List<string> shortfalls)
+    {
+        if (sources is null) return (lede, [.. sections]);
+
+        var cited = Guardrail.GccFigureSources.Cite(lede, sections, sources);
+        await GccRunLog.RecordIfAnyAsync("citations", new
+        {
+            label,
+            placed = cited.Placed
+                .Select(c => new { heading = c.Heading, sentence = c.Sentence, figures = c.Figures, url = c.Url, name = c.Name, asOf = c.AsOf, alsoOn = c.AlsoOn })
+                .ToList(),
+            uncited = cited.Uncited
+                .Select(u => new { heading = u.Heading, sentence = u.Sentence, figures = u.Figures, why = u.Why })
+                .ToList(),
+        });
+        if (Guardrail.GccFigureSources.Line(type, cited) is { } line) shortfalls.Add(line);
+        return (cited.Lede, [.. cited.Sections]);
+    }
 
     /// <summary>
     /// The body with each partner tool's page on the first mention of its name, and what was linked on

@@ -1730,6 +1730,29 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Every opening request of a pillar, a blog and a tool page asks for the Question lede and no other
+    /// (Jeff, 2026-10-22: "change the Lede to The Question Lede"; geekatyourspot's GEO and SEO audit of
+    /// 2026-10-20, H5). Read through the real writers, so an opening request added later without it fails.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task Every_opening_request_asks_for_the_question_lede_and_offers_no_other(string page)
+    {
+        var calls = await WriteAsync(page, CompleteBrief);
+        var openings = calls.Where(c => c.Label == "opening").ToList();
+
+        Assert.NotEmpty(openings);
+        foreach (var (label, text) in openings)
+        {
+            Assert.True(text.Contains(ContentPromptBuilder.QuestionLedeInstruction, StringComparison.Ordinal), $"{page} '{label}' is not told the opening is a Question lede.");
+            Assert.True(text.Contains("\"ledeType\": \"question\"", StringComparison.Ordinal), $"{page} '{label}' does not fix the ledeType to question.");
+            Assert.False(text.Contains("Do NOT start with \"How\"", StringComparison.Ordinal), $"{page} '{label}' still forbids a question.");
+        }
+    }
+
+    /// <summary>
     /// Every opening and body request of a pillar, a blog and a tool page is told to answer first and to
     /// name no made-up person (geekatyourspot's GEO and SEO audit of 2026-10-20; Jeff's seo-geo, ai-seo and
     /// geo-citability skills). Read through the real writers, so a request added later without them fails.
@@ -1768,7 +1791,12 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     public async Task No_request_asks_for_a_story_first_or_shows_a_made_up_name(string page)
     {
         var calls = await WriteAsync(page, CompleteBrief);
-        string[] gone = ["open with a story", "Carry the story forward", "Picture your accounts team", "Marcus Vance", "Sarah Jenkins", "Aris Thorne", "pain first"];
+        string[] gone =
+        [
+            "open with a story", "Carry the story forward", "Picture your accounts team", "Marcus Vance", "Sarah Jenkins", "Aris Thorne", "pain first",
+            // The twelve-type menu the writer picked a story from, gone 2026-10-22 for the Question lede.
+            "Pick ONE ledeType", "Lede types (pick", "\"sceneSetting\"", "\"anecdotal\"", "hook/narrative",
+        ];
 
         foreach (var (label, text) in calls)
         foreach (var phrase in gone)
@@ -1820,6 +1848,94 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             StringComparison.Ordinal);
         Assert.EndsWith("The rest of the page is as written.", line, StringComparison.Ordinal);
         if (page == "tool") Assert.StartsWith("Tool page '", line, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A figure the writer states is cited to the research page it is on, through each page's real
+    /// writer: the source's name linked to that page and the date the page was crawled, placed by code
+    /// after the sentence (<see cref="GeekAPI.Services.ContentCreator.Guardrail.GccFigureSources"/>).
+    /// The writer wrote no link; the saved page carries one, and no line says a figure went uncited.
+    /// </summary>
+    /// <remarks>
+    /// Jeff's ai-seo, seo-content, geo-citability and seo-geo skills ask for a named, linked and dated
+    /// source on every statistic; geekatyourspot's GEO audit of 2026-10-20 counted 0 pillars in 23
+    /// linking an outside source. Until 2026-10-22 a page cited nothing: the writer was asked to name a
+    /// source in words, and no code read whether it had.
+    /// </remarks>
+    [Theory]
+    [InlineData("pillar", "written.")]
+    [InlineData("blog", "written.")]
+    [InlineData("tool", "the manual pass.")]
+    public async Task A_figure_is_cited_to_the_research_page_it_is_on_with_the_source_linked_and_dated(string page, string before)
+    {
+        const string Stated = "Setup falls from 40 hours to 4 hours with Partner Widget.";
+        const string After = "The rest stands.";
+        const string PageUrl = "https://partner.test/widget";
+        var crawled = new DateTimeOffset(2026, 10, 13, 9, 30, 0, TimeSpan.Zero);
+        var research = GccResearchFetchService.Serialize(new GccResearchDocument(
+            SerpIndex: null,
+            Quoteables:
+            [
+                new GccQuoteablePage(
+                    PageUrl, "Partner Widget", [new HeadingDto(2, "Pricing")],
+                    ["Partner Widget is billed monthly.", "Partner Widget cuts setup from 40 hours to 4 hours a month."],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk,
+                    CrawledAtUtc: crawled),
+            ]));
+
+        var calls = await WriteAsync(
+            page, CompleteBrief, pageResearch: research,
+            firstBody: body => body.Replace(before, $"{before} {Stated} {After}", StringComparison.Ordinal));
+
+        using var saved = JsonDocument.Parse(calls[^1].Text);
+        var body = JsonSerializer.Deserialize<ContentDocument>(saved.RootElement.GetProperty("body").GetRawText(), GccDocumentJson.Options);
+        Assert.NotNull(body);
+
+        var runLists = RunListsOf(body!).ToList();
+        var cited = Assert.Single(runLists, runs => string.Concat(runs.Select(run => run.Text)).Contains("Setup falls from 40 hours", StringComparison.Ordinal));
+        // The citation calls the page what the project calls the partner: the name the tool page is titled
+        // with and the linker links, read from the Brief for the partner's host.
+        var productName = GccRequiredToolMentions.AnchorLookup(CompleteBrief, PartnerUrls).Values.Single();
+        var citedText = string.Concat(cited.Select(run => run.Text));
+        Assert.True(
+            citedText.Contains($"Setup falls from 40 hours to 4 hours with Partner Widget ({productName}, as of Oct 13, 2026). The rest stands.", StringComparison.Ordinal),
+            citedText);
+        var citation = Assert.Single(cited, run => string.Equals(run.Href, PageUrl, StringComparison.Ordinal));
+        Assert.Equal(productName, citation.Text);
+
+        // The writer's reply carried no link: every request's reply format is the writer's, and the
+        // stand-in writer types none. Only code placed one.
+        Assert.DoesNotContain(calls.SkipLast(1), call => call.Text.Contains(PageUrl, StringComparison.Ordinal) && call.Label.Contains("reply", StringComparison.OrdinalIgnoreCase));
+
+        var lines = saved.RootElement.GetProperty("warnings").EnumerateArray().Select(line => line.GetString() ?? string.Empty).ToList();
+        Assert.DoesNotContain(lines, line => line.Contains("no page to cite it to", StringComparison.Ordinal));
+    }
+
+    /// <summary>Every run list of a document: each text paragraph's runs and each list item's, the opening first.</summary>
+    private static IEnumerable<IReadOnlyList<Run>> RunListsOf(ContentDocument document)
+    {
+        static IEnumerable<IReadOnlyList<Run>> Of(Section section)
+        {
+            foreach (var paragraph in section.Paragraphs)
+            {
+                switch (paragraph)
+                {
+                    case TextParagraph text:
+                        yield return text.Runs;
+                        break;
+                    case ListParagraph list:
+                        foreach (var item in list.Items) yield return item;
+                        break;
+                }
+            }
+
+            foreach (var child in section.Children)
+            {
+                foreach (var runs in Of(child)) yield return runs;
+            }
+        }
+
+        return Of(document.Lede).Concat(document.Sections.SelectMany(Of));
     }
 
     /// <summary>

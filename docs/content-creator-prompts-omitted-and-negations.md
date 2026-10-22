@@ -332,6 +332,9 @@ This site covers them elsewhere, but they are not this project's partners. Do no
 
 ### B3. The research block (`BuildResearchBlock`), when the run retrieved partner evidence
 
+Rule 2 below is the live wording (2026-10-10 on): the writer writes no link, and since 2026-10-22 a
+figure's citation, like a partner tool's link, is placed by code (`GccFigureSources`, `GccToolLinker`).
+
 ```
 === QUOTEABLE RESEARCH (partner/tool evidence) ===
 How to read a passage. A passage may carry labelled lines above or around
@@ -358,15 +361,10 @@ Rules for this block, and they are not optional:
    and from one whose Target Entity Match or Section places it with that
    product. A passage labelled for one tool does not support a claim about
    another, however similar the products are.
-2. Attribute it: name the source where the claim appears, and carry its URL in a
-   field, never in the text. Both are on the bracketed line above the passage --
-   the page title first, then its URL in parentheses -- and every passage indented
-   beneath that line belongs to it. The page title, or a short form of it, is the
-   text of a run of its own -- no more than 12 words -- and the URL is that
-   run's "href". The sentence it sits in is separate runs with no href: a link on a
-   whole sentence or paragraph is refused. A URL typed into "text", or a bracketed
-   link such as [title](url), is refused and the section is not written. Never
-   attribute a claim to a URL you did not read it under.
+2. Attribute it in words: in the paragraph that carries the claim, say which product
+   or page it comes from. You write no URL anywhere: not in "text", not as an href,
+   not as [title](url). Never attribute a claim to a page whose passages do not state
+   it.
 3. Quote verbatim or paraphrase closely. Do not extrapolate a capability,
    price, integration or limitation that no passage states.
 4. If the evidence does not cover something, omit it. Do not fill the gap.
@@ -657,7 +655,6 @@ Counted across the six generated prompts (the three types' ledes and bodies, sys
 - This call does not end the page -- sections you were not given follow yours.
 
 ### content-creator-prompts-by-type :: Pillar lede (temperature 0.65, max output 6,144; contract: lede and introduction)
-- Do NOT start with "How" or a question unless ledeType is Question.
 - The introduction continues the same opening — it is not a second start:
 - Never a duplicate hook, and never a heading.
 - Quality means comprehensive coverage — not padding.
@@ -680,7 +677,6 @@ Counted across the six generated prompts (the three types' ledes and bodies, sys
 - THE REST OF THIS POST, written by other calls -- do not cover these, do not recap them, and do not write a conclusion for the post unless its closing section is listed above as yours:
 
 ### content-creator-prompts-by-type :: Tool lede (temperature 0.65, max output 2,048; contract: lede)
-- Do NOT start with "How" or a question.
 
 ### content-creator-prompts-by-type :: Tool body (temperature 0.5, max output 16,384; two sections per call, three calls; contract: sections without provenance)
 - Equal in depth to a Pillar page, never a thinner treatment.
@@ -712,7 +708,7 @@ Counted across the six generated prompts (the three types' ledes and bodies, sys
 - What it may not be: a paraphrase tidied into quotation marks, a claim you are confident they make, wording assembled from several places, or a sentence of your own typed into a quote paragraph without a number.
 - If no listed span says it, it is not quotable, and the draft is rejected rather than published with an invented one.
 - NO QUOTATION IN THIS PART: this page's one block quotation of {P} is written by another call.
-- When a section needs what {P} says, put it in your own words and attribute it: name the page it comes from in a short run of its own, with that page's URL as that run's "href" -- never an href on the sentence or the paragraph.
+- When a section needs what {P} says, put it in your own words and attribute it in words: name the product or the page it comes from. You write no URL and no link anywhere; code places every link.
 
 ### content-creator-prompts-omitted-and-negations :: A1. Pillar metadata (plans the title, standfirst, meta description and outline)
 - No Site Analyzer hierarchy context for this keyword.

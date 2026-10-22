@@ -648,9 +648,36 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// Only the pillar's request asked for it. The description is cut to 160 characters when it is
     /// saved, so the phrase is asked for early: one the cut removes is reported as missing.
     /// </remarks>
+    /// <summary>
+    /// The meta description: the sentence under the title in a search result. What it is told, and why
+    /// (Jeff, 2026-10-22, from geekatyourspot's GEO and SEO audit of 2026-10-20, M1 and item 38: 44 of 158
+    /// pages' descriptions open "Explore", "Discover how" or "Revolutionize" and say nothing specific).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// From his <c>seo-content-brief</c> skill, the writing reference, which wins where <c>seo-page</c>
+    /// (150-160) and the <c>seo</c> quality gates (120-160) differ on length: 130 to 150 characters, active
+    /// voice, "expand on the title with USPs and specifics", "End with a call to action", no brand name at
+    /// the end, no quotation marks (Google truncates at a quote). <c>seo-local</c> puts the city in the
+    /// title tag and the H1, not here, and Jeff, 2026-10-22, on spending the description's characters on
+    /// the audience and the place: "I think not."
+    /// </para>
+    /// <para>
+    /// Until 2026-10-22 this said only that the description carries the keyword inside 160 characters, so
+    /// the writer wrote "Explore AI Marketing Systems that strengthen small business strategy": no outcome,
+    /// the call to action first, the audience restated. The save-time cut stays at 160 as a ceiling. No
+    /// worked example with a figure is given: the writer copies an example's figures (2026-10-20), and no
+    /// code checks the description's figures against the evidence as it checks the body's.
+    /// </para>
+    /// </remarks>
     internal static string SeoMetaDescriptionInstruction(string keyword) =>
         $"META DESCRIPTION AND THE KEYWORD: the meta description contains \"{keyword}\" in a sentence that "
-        + "would be there anyway, early enough that it is whole within 160 characters.";
+        + "would be there anyway, early enough that it is whole within 150 characters. Write it in 130 to 150 "
+        + "characters, in active voice. It adds to the title what the title does not say: the specific outcome "
+        + "the reader gets, with a figure from the evidence where the evidence has one and no figure otherwise. "
+        + "It ends with a short call to action in the page's own terms. It spends no words on who the reader "
+        + "is or where they are (the title and the H1 carry those), never opens on \"Explore\", \"Discover\" "
+        + "or another invitation to look, names no brand at its end, and holds no quotation marks.";
 
     private static string SeoOutlineInstruction(string keyword) =>
         $"HEADINGS AND THE KEYWORD: at least one H2 contains \"{keyword}\", and not more than two -- "
@@ -669,7 +696,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     private static string SeoLedeInstruction(string keyword) =>
         $"KEYWORD AND ANSWER: the opening contains \"{keyword}\" in a sentence that would be there "
         + "anyway -- not as a label, not bolted onto the first line. And it answers the question the "
-        + "title asks in its first one or two sentences, before any history, context or scene-setting. "
+        + "title asks straight after asking it, before any history, context or scene-setting. "
         + "A reader who stops after the opening should already have the answer; everything after it "
         + "is why.";
 
@@ -887,8 +914,42 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     internal const string AnswerFirstInstruction =
         "ANSWER FIRST: the opening and every section and subsection begin with their answer. The first " +
         "one or two sentences, 40 to 60 words, say plainly what the heading asks, so they could be quoted " +
-        "on their own. An example, a case or a scene comes after that answer, never before it. Never open " +
-        "the page or a section with \"Picture\", \"Imagine\" or a person in a situation.";
+        "on their own. The opening is a Question lede: its first sentence is the question this page " +
+        "answers, and the answer follows it at once, within those same 40 to 60 words. An example, a " +
+        "case or a scene comes after that answer, never before it. Never open the page or a section with " +
+        "\"Picture\", \"Imagine\" or a person in a situation.";
+
+    /// <summary>
+    /// The opening is a Question lede, for every page (Jeff, 2026-10-22: "change the Lede to The Question
+    /// Lede", from geekatyourspot's GEO and SEO audit of 2026-10-20, H5: 40 pages opening on a scene).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Until 2026-10-22 the opening request listed twelve lede types and asked the writer to pick one, with
+    /// preferences by angle, audience, intent and buying stage. The pick was a story (anecdotal, narrative,
+    /// sceneSetting) often enough that the audit counted 40 pages opening "Picture" or "Imagine". A menu
+    /// the writer chooses from is a decision the writer makes; the lede type is the operator's, and he
+    /// chose the question. So there is no menu: one type, named here, and the JSON contract takes only
+    /// its value. The menu is in git at <c>74223f2</c>.
+    /// </para>
+    /// <para>
+    /// The shape is the one his skills already ask of a question heading: the question, then its answer
+    /// in 40 to 60 words that stand alone (<c>ai-seo</c> "Answer the question directly ... 40-60 words
+    /// immediately after the question heading"; <c>geo-citability</c> "First 40-60 words of each section
+    /// can stand alone as a complete answer"; <c>copywriting</c> "Use rhetorical questions ... make them
+    /// think about their own situation"). The question is the reader's, not the page's: "Tired of chasing
+    /// approvals?", not "What is this article about?".
+    /// </para>
+    /// </remarks>
+    internal const string QuestionLedeInstruction =
+        "THE OPENING IS A QUESTION LEDE (ledeType \"question\" is the only value). Its first sentence is the " +
+        "question this page answers, asked in the reader's own words and ending in a question mark: the " +
+        "question the title raises, as the reader would put it about their own situation. The sentences " +
+        "straight after it answer it, in 40 to 60 words that stand alone as the answer: the specific claim " +
+        "this page makes, with a figure or a named tool from the evidence where the evidence has one, never " +
+        "\"In this article\" and never a definition any page could carry. Only then the turn into the page: " +
+        "what is at stake, and who this is for. No scene, no story and no case before the answer; a case " +
+        "after it is hypothetical and unnamed unless the evidence names it.";
 
     /// <summary>
     /// No made-up person read as a real one (the same audit: "Lisa Anderson, the owner of a boutique
@@ -970,8 +1031,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>
     /// Structural monotony, which is a different defect from a bad heading and was producing the
     /// same symptom. Jeff, 2026-09-23: "While it starts off nice with a story, it becomes dull and
-    /// a chore to read afterward." The lede lands because it is chosen from twelve types against
-    /// audience and angle; the body then ran one formula over every section -- open on the
+    /// a chore to read afterward." The lede lands because it is shaped against audience and angle
+    /// (since 2026-10-22 as a Question lede); the body then ran one formula over every section -- open on the
     /// practitioner problem, nest two to three h3s, nest one to three h4s under each, 500-700 words
     /// -- so all six sections had the same silhouette. That reads as a form someone filled in, and
     /// no amount of per-sentence quality fixes it.
@@ -1219,13 +1280,18 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// create does not carry one yet.
     /// </para>
     /// </remarks>
-    /// <summary>What every batch after the first is told: the page's one quotation is not its to write.</summary>
+    /// <summary>
+    /// What every batch after the first is told: the page's one quotation is not its to write. Until
+    /// 2026-10-22 this went on to ask for the page's URL as a run's href, the shape that failed on
+    /// 2026-10-05 and 2026-10-09 and that the writer has been told to write none of since 2026-10-10;
+    /// the same request printed both. Attribution is in words, and code places every link, a figure's
+    /// citation included (<c>GccFigureSources</c>).
+    /// </summary>
     private static string ToolQuotationWrittenElsewhere(string productName) =>
         "NO QUOTATION IN THIS PART: this page's one block quotation of " + productName + " is written by "
         + "another call. Write no paragraph of type \"quote\" here. When a section needs what "
-        + productName + " says, put it in your own words and attribute it: name the page it comes from "
-        + "in a short run of its own, with that page's URL as that run's \"href\" -- never an href on the "
-        + "sentence or the paragraph.";
+        + productName + " says, put it in your own words and attribute it in words: name the product or "
+        + "the page it comes from. You write no URL and no link anywhere; code places every link.";
 
     private static string ToolQuotationInstruction(string productName, string targetKeyword) =>
         "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries at most one block "
@@ -1388,9 +1454,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     private static readonly string LedeLengthInstruction =
         $"LENGTH: the opening runs {ContentLengthTargets.LedeRangeLabel} words across 3-4 paragraphs, " +
         $"and no paragraph in it is shorter than {ContentLengthTargets.LedeParagraphMinWords} words. " +
-        "This is the paragraph that decides whether the rest gets read, so give it room: the hook, " +
-        "the turn that names what is at stake, and the line that says who this is for and what they " +
-        "get. A three-sentence opening is not a short opening, it is an opening that has not started.";
+        "This is the paragraph that decides whether the rest gets read, so give it room: the question " +
+        "and its answer, the turn that names what is at stake, and the line that says who this is for " +
+        "and what they get. A three-sentence opening is not a short opening, it is an opening that has not started.";
 
     /// <summary>
     /// The opening asks nothing of the reader. The page's one ask is at its end, built by code
@@ -1399,6 +1465,19 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// took it for a button label, and linked the vendor's homepage -- the page was refused for a link that
     /// led nowhere the evidence went. The brief has had no call-to-action field since 2026-10-10.
     /// </summary>
+    /// <summary>
+    /// The pillar opens on the practitioner's pain, not on the solution. Reworded 2026-10-22 for the
+    /// Question lede: the question carries the pain, the answer that follows names what changes it. Until
+    /// then it read "the first paragraph must open on the practitioner's pain ... before naming AI", which
+    /// contradicted ANSWER FIRST where the answer is the approach, and a contradiction is won by the longer
+    /// instruction (the story instruction won on 2026-10-20).
+    /// </summary>
+    internal const string PainBeforeSolutionInstruction =
+        "PAIN BEFORE SOLUTION (required): the opening question carries the practitioner's pain with the " +
+        "manual / status-quo process for the target keyword (cost, delay, error, risk, wasted hours). The " +
+        "answer that follows says how an AI-assisted approach changes it. Name no AI or intelligent solution " +
+        "before the question has been asked.";
+
     private const string LedeAskInstruction =
         "THE OPENING ASKS NOTHING OF THE READER: it ends on its own material. The page's one invitation to " +
         "the reader sits at its end, so this opening does not ask them to book, call, sign up or click.";
@@ -1429,12 +1508,12 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// </para>
     ///
     /// <para>
-    /// The twelve <c>ledeType</c> values describe the opening <i>paragraphs</i>, not the heading.
-    /// Nobody picks "anecdotal" for a heading; the type shapes the prose under it.
+    /// The <c>ledeType</c> describes the opening <i>paragraphs</i>, not the heading: the question and its
+    /// answer are the prose under it, and the heading is still this page's first H2.
     /// </para>
     /// </summary>
     private static readonly string LedeJsonContract =
-        "{\"ledeType\": \"summary\"|\"immediateIdentification\"|\"delayedIdentification\"|\"singleItem\"|\"anecdotal\"|\"narrative\"|\"sceneSetting\"|\"startlingStatement\"|\"directAddress\"|\"question\"|\"quote\"|\"wordplay\", " +
+        "{\"ledeType\": \"question\" (the only value: every opening is a Question lede), " +
         "\"heading\": \"...\" (this page's first H2, in your own words -- see the heading rules; never a restatement of the title), " +
         "\"paragraphs\": [" + ParagraphJsonShape + ", ...] (the opening itself, running under that heading)" +
         "}";
@@ -1459,9 +1538,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
 
     /// <summary>
     /// The angle as an instruction, not a token. This printed the raw enum -- "Angle:
-    /// problem_solution" -- in a prompt where all twelve lede types carry a line explaining what
-    /// they are, so the one control the operator uses to shape the piece was the only one the model
-    /// had to guess at (Jeff, 2026-09-23: "Doesn't seem to be using Angle for Seo?").
+    /// problem_solution" -- in a prompt where every other line explained itself, so the one control the
+    /// operator uses to shape the piece was the only one the model had to guess at (Jeff, 2026-09-23:
+    /// "Doesn't seem to be using Angle for Seo?").
     ///
     /// Vocabulary is CONTENT_ANGLES in brief-catalog.ts. An unrecognised value is passed through
     /// rather than dropped, so a new angle still reaches the model while it waits for a line here.
@@ -1471,151 +1550,54 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>The brief block's heading on a call that plans a page's title and outline.</summary>
     private const string BriefForTitleAndOutline = "=== BRIEF CONTROLS (honor in the title and the outline) ===";
 
-    private static string BuildLedeTypeGuidance(ProjectGenerationContext context)
+    /// <summary>
+    /// What an opening request is told about its opening and its brief: the Question lede
+    /// (<see cref="QuestionLedeInstruction"/>), then this brief's own lines, each a choice printed in words
+    /// (<see cref="BriefChoiceWords"/>). This is the one place an opening is given the brief.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-10-22 this was <c>BuildLedeTypeGuidance</c>: twelve lede types for the writer to pick
+    /// from, preferences by angle, audience, intent and buying stage, and "Pick ONE ledeType from the 12".
+    /// The pick was the writer's and it picked a story (geekatyourspot's GEO and SEO audit of 2026-10-20,
+    /// 40 pages opening "Picture" or "Imagine"). Jeff, 2026-10-22: the Question lede. That text is in git
+    /// at <c>74223f2</c>.
+    /// </remarks>
+    private static string BuildOpeningGuidance(ProjectGenerationContext context)
     {
         var sb = new StringBuilder();
-        // The type shapes the opening after its answer, never before it (2026-10-20, AnswerFirstInstruction).
-        // Until then the "Choosing" lines below said "Otherwise open with a story ... put a person in a
-        // situation", and 45 lines of worked examples (Jeff's, 2026-09-23) showed a hook first and the page's
-        // subject second, five of them with a named person no source names ("Marcus Vance", "Sarah Jenkins",
-        // "Dr. Aris Thorne") and two with a figure no source gives ("Nearly eighty percent of small business
-        // owners"). The published tool pages carry exactly that: "Lisa Anderson, the owner of a boutique
-        // marketing agency in Miami", 40 pages opening "Picture" or "Imagine". The examples are deleted, not
-        // reworded: each one demonstrated the order the GEO skills reject. They are at
-        // `git show b6b6e29:GeekAPI/Services/Workflow/Services/PromptBuilders/ContentPromptBuilder.cs`.
-        sb.AppendLine("Lede types (pick ONE ledeType that best fits this audience + angle + topic). The type");
-        sb.AppendLine("shapes the opening AFTER its answer: whatever the type, the opening's first one or two");
-        sb.AppendLine("sentences answer the question the title asks (ANSWER FIRST).");
-        sb.AppendLine("- summary: the answer, then why it holds.");
-        sb.AppendLine("- immediateIdentification: the answer names the who or what itself.");
-        sb.AppendLine("- delayedIdentification: after the answer, the subject is built up before it is named again.");
-        sb.AppendLine("- singleItem: after the answer, one striking example or data point from the evidence.");
-        sb.AppendLine("- anecdotal: after the answer, a brief case, called hypothetical where no source names it.");
-        sb.AppendLine("- narrative: after the answer, the work told in order, start to finish.");
-        sb.AppendLine("- sceneSetting: after the answer, the place and moment where the problem shows.");
-        sb.AppendLine("- startlingStatement: the answer itself is a bold, counterintuitive claim the evidence supports.");
-        sb.AppendLine("- directAddress: the answer and what follows speak to the reader (you, your).");
-        sb.AppendLine("- question: after the answer, the question the reader asks next.");
-        sb.AppendLine("- quote: after the answer, a quotation from the evidence that bears it out.");
-        sb.AppendLine("- wordplay: clever phrasing or pun in the answer (use sparingly, only if topic allows).");
-        // The three lines that stood here told the model not to let the lede's heading restate the
-        // page title. They were removed on 2026-09-23 with the heading itself, then restored on
-        // 2026-09-29 with it -- as LedeHeadingInstruction, stated once next to the heading's other
-        // rules rather than buried in the lede-type guidance, which is about choosing the opening's
-        // twelve types and not about what its heading may say.
-        sb.AppendLine();
-        // Jeff, 2026-09-23: "Overview is a boring type of lede, that does not pique interest." An answer
-        // first is not an overview: it is the page's own claim, as specific as the evidence lets it be.
-        sb.AppendLine("Choosing: an answer first is not a dull overview. State it as the specific claim this");
-        sb.AppendLine("page makes, with a figure or a named tool from the evidence where the evidence has one,");
-        sb.AppendLine("never \"In this article\" or a definition any page could carry. Then pick the type that");
-        sb.AppendLine("best carries the reader from that answer into the page. A case told after the answer");
-        sb.AppendLine("is hypothetical and unnamed unless the evidence names it (NO MADE-UP PEOPLE).");
+        sb.AppendLine(QuestionLedeInstruction);
         var hasBrief = !string.IsNullOrWhiteSpace(context.AudienceSegment) || !string.IsNullOrWhiteSpace(context.AudienceNotes) || !string.IsNullOrWhiteSpace(context.ContentAngle)
             || !string.IsNullOrWhiteSpace(context.PrimaryIntent) || !string.IsNullOrWhiteSpace(context.BuyingStage) || !string.IsNullOrWhiteSpace(context.ToneOfVoice)
             || !string.IsNullOrWhiteSpace(context.LengthBand)
             || context.EeatSignals is { Count: > 0 };
-        if (hasBrief)
-        {
-            if (!string.IsNullOrWhiteSpace(context.PrimaryIntent))
-                sb.AppendLine($"Primary intent: {BriefChoiceWords.Intent(context.PrimaryIntent)}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $"; secondary: {BriefChoiceWords.SecondaryIntent(context.SecondaryIntent)}"));
-            if (!string.IsNullOrWhiteSpace(context.BuyingStage))
-                sb.AppendLine($"Buying stage: {BriefChoiceWords.Stage(context.BuyingStage)}");
-            if (!string.IsNullOrWhiteSpace(context.AudienceSegment))
-                sb.AppendLine($"Audience: {BriefChoiceWords.Audience(context.AudienceSegment)}" + (context.AudienceDetails is { Count: > 0 } d ? $" — details: {string.Join(", ", d)}" : "") + (string.IsNullOrWhiteSpace(context.AudienceNotes) ? "" : $" — notes: {context.AudienceNotes}"));
-            else if (!string.IsNullOrWhiteSpace(context.AudienceNotes))
-                sb.AppendLine($"Audience notes: {context.AudienceNotes}");
-            if (context.AudienceDetails is { Count: > 0 } details && string.IsNullOrWhiteSpace(context.AudienceSegment))
-                sb.AppendLine($"Audience details: {string.Join(", ", details)}");
-            if (!string.IsNullOrWhiteSpace(context.ContentAngle))
-                sb.AppendLine(DescribeAngle(context.ContentAngle));
-            if (!string.IsNullOrWhiteSpace(context.ToneOfVoice))
-                sb.AppendLine($"Tone of voice: {BriefChoiceWords.Tone(context.ToneOfVoice)}" + (context.EeatSignals is { Count: > 0 } ee ? $" — E-E-A-T: {BriefChoiceWords.Eeat(ee)}" : ""));
-            else if (context.EeatSignals is { Count: > 0 } eeOnly)
-                sb.AppendLine($"E-E-A-T: {BriefChoiceWords.Eeat(eeOnly)}");
-            if (!string.IsNullOrWhiteSpace(context.LengthBand))
-                sb.AppendLine($"Length band: {context.LengthBand}");
-            // Only this brief's row. It used to print all four, which put "problem_solution",
-            // "comparative", "case_study_data" and "ultimate_guide" into the prompt as bare tokens a
-            // line above "Pick ONE ledeType" -- and the model returned "problem_solution" AS the
-            // ledeType, which ParseLedeTypeStrict refused, failing the blog outright. Three of the four
-            // rows could never apply anyway: angle is a required brief field, so exactly one is live and
-            // the rest were noise that did nothing but offer a wrong answer.
-            var anglePreference = LedeTypesPreferredForAngle(context.ContentAngle);
-            if (anglePreference is not null)
-                sb.AppendLine($"For this brief's angle, prefer one of: {anglePreference}");
-            // Only this brief's rows, as for the angle above. These were three tables keyed by every
-            // audience, intent and stage code ("affinity/in_market -> ...; detailed_demographics/your_data
-            // -> ..."), which the model had to look its own row up in, and which put the other rows'
-            // codes in front of it as bare tokens beside the ledeType ask.
-            if (LedeTypesPreferredForAudience(context.AudienceSegment) is { } forAudience)
-                sb.AppendLine($"For this audience: {forAudience}");
-            if (LedeTypesPreferredForIntent(context.PrimaryIntent) is { } forIntent)
-                sb.AppendLine($"For this intent, prefer one of: {forIntent}");
-            if (LedeTypesPreferredForStage(context.BuyingStage) is { } forStage)
-                sb.AppendLine($"For this buying stage, prefer one of: {forStage}");
-            sb.AppendLine("If audience notes conflict with segment, follow notes. Tone and E-E-A-T must be honored in lede voice.");
-            // Said explicitly because a brief value has come back as the answer before. The 12 names
-            // are the only legal answers.
-            sb.AppendLine("The angle, audience, intent and buying-stage lines above are brief values, NOT "
-                + "ledeType values. NEVER return one of them as ledeType -- the only legal ledeType values "
-                + "are the 12 listed above.");
-        }
-        sb.Append("Pick ONE ledeType from the 12 that best fits this brief (audience + angle + intent/funnel/tone) + heading/topic.");
+        if (!hasBrief) return sb.ToString().TrimEnd();
+
+        sb.AppendLine("The brief shapes the question, the answer and the turn:");
+        if (!string.IsNullOrWhiteSpace(context.PrimaryIntent))
+            sb.AppendLine($"Primary intent: {BriefChoiceWords.Intent(context.PrimaryIntent)}" + (string.IsNullOrWhiteSpace(context.SecondaryIntent) ? "" : $"; secondary: {BriefChoiceWords.SecondaryIntent(context.SecondaryIntent)}"));
+        if (!string.IsNullOrWhiteSpace(context.BuyingStage))
+            sb.AppendLine($"Buying stage: {BriefChoiceWords.Stage(context.BuyingStage)}");
+        if (!string.IsNullOrWhiteSpace(context.AudienceSegment))
+            sb.AppendLine($"Audience: {BriefChoiceWords.Audience(context.AudienceSegment)}" + (context.AudienceDetails is { Count: > 0 } d ? $" — details: {string.Join(", ", d)}" : "") + (string.IsNullOrWhiteSpace(context.AudienceNotes) ? "" : $" — notes: {context.AudienceNotes}"));
+        else if (!string.IsNullOrWhiteSpace(context.AudienceNotes))
+            sb.AppendLine($"Audience notes: {context.AudienceNotes}");
+        if (context.AudienceDetails is { Count: > 0 } details && string.IsNullOrWhiteSpace(context.AudienceSegment))
+            sb.AppendLine($"Audience details: {string.Join(", ", details)}");
+        if (!string.IsNullOrWhiteSpace(context.ContentAngle))
+            sb.AppendLine(DescribeAngle(context.ContentAngle));
+        if (!string.IsNullOrWhiteSpace(context.ToneOfVoice))
+            sb.AppendLine($"Tone of voice: {BriefChoiceWords.Tone(context.ToneOfVoice)}" + (context.EeatSignals is { Count: > 0 } ee ? $" — E-E-A-T: {BriefChoiceWords.Eeat(ee)}" : ""));
+        else if (context.EeatSignals is { Count: > 0 } eeOnly)
+            sb.AppendLine($"E-E-A-T: {BriefChoiceWords.Eeat(eeOnly)}");
+        if (!string.IsNullOrWhiteSpace(context.LengthBand))
+            sb.AppendLine($"Length band: {context.LengthBand}");
+        sb.Append("If audience notes conflict with segment, follow notes. Tone and E-E-A-T must be honored in the opening's voice.");
         return sb.ToString();
     }
 
     /// <summary>
-    /// The lede types that suit one angle, or null when the angle is unrecognised.
-    /// </summary>
-    /// <remarks>
-    /// Returns the right-hand side only. The caller must not print the angle name beside it: the angle
-    /// reaching the model as a bare token next to the ledeType ask is what produced
-    /// <c>ledeType: "problem_solution"</c> and a refused blog. The angle is already stated once, in prose,
-    /// by <see cref="DescribeAngle"/>.
-    /// </remarks>
-    private static string? LedeTypesPreferredForAngle(string? angle) =>
-        (angle ?? string.Empty).Trim().ToLowerInvariant() switch
-        {
-            "comparative" => "question, startlingStatement, singleItem -- stakes and contrast",
-            "problem_solution" => "anecdotal, sceneSetting, directAddress, question -- the problem, straight after the answer",
-            "case_study_data" => "immediateIdentification, singleItem, quote, startlingStatement -- evidence first",
-            "ultimate_guide" => "summary, delayedIdentification, directAddress -- comprehensive framing",
-            _ => null,
-        };
-
-    /// <summary>What the audience leaves room for in an opening, or null when it says nothing about it.</summary>
-    private static string? LedeTypesPreferredForAudience(string? audience) =>
-        (audience ?? string.Empty).Trim().ToLowerInvariant() switch
-        {
-            "affinity" or "in_market" => "more room for narrative or anecdotal",
-            "detailed_demographics" or "your_data" => "lean to directAddress or question",
-            _ => null,
-        };
-
-    /// <summary>The lede types that suit one search intent. Right-hand side only: see <see cref="LedeTypesPreferredForAngle"/>.</summary>
-    private static string? LedeTypesPreferredForIntent(string? intent) =>
-        (intent ?? string.Empty).Trim().ToLowerInvariant() switch
-        {
-            "informational" => "summary, narrative, sceneSetting",
-            "transactional" or "commercial_investigation" => "directAddress, question, singleItem",
-            "navigational" => "immediateIdentification",
-            _ => null,
-        };
-
-    /// <summary>The lede types that suit one buying stage. Right-hand side only.</summary>
-    private static string? LedeTypesPreferredForStage(string? stage) =>
-        (stage ?? string.Empty).Trim().ToLowerInvariant() switch
-        {
-            "awareness" => "anecdotal, narrative, sceneSetting",
-            "consideration" => "question, singleItem",
-            "action" => "directAddress, singleItem",
-            _ => null,
-        };
-
-    /// <summary>
     /// The brief, once, for every call that is not an opening (an opening has its own, in
-    /// <see cref="BuildLedeTypeGuidance"/>).
+    /// <see cref="BuildOpeningGuidance"/>).
     /// </summary>
     /// <param name="withAngle">
     /// True where the angle shapes what is written: the body, and the title and outline. False for a
@@ -1793,11 +1775,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("Write the opening lede for a schema.org TechnicalArticle pillar — third person, expert, consultative, like a senior consultant advising a prospective client.")
             .AppendLine($"Publisher positioning: {context.ImplementerPositioning}")
             .AppendLine(SeoLedeInstruction(context.TargetKeyword))
-            .AppendLine(BuildLedeTypeGuidance(context))
-            .AppendLine("Do NOT start with \"How\" or a question.")
-            .AppendLine("PAIN BEFORE SOLUTION (required): the first paragraph must open on the practitioner's pain with the manual / status-quo process ")
-            .AppendLine("for the target keyword (cost, delay, error, risk, wasted hours) — before naming AI or an intelligent solution.")
-            .AppendLine("Only after that pain is established, introduce how an AI-assisted approach changes the situation.")
+            .AppendLine(BuildOpeningGuidance(context))
+            .AppendLine(PainBeforeSolutionInstruction)
             .AppendLine(LedeLengthInstruction)
             .AppendLine(LedeAskInstruction)
             .AppendLine(LedeHeadingInstruction)
@@ -2195,8 +2174,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(BrandTones.ForWebpages())
             .AppendLine(SeoLedeInstruction(context.TargetKeyword))
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
-            .AppendLine("Prefer a creative (hook/narrative) opening; use a summary (direct thesis-first) opening only if a creative angle genuinely doesn't fit this topic.")
-            .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
+            .AppendLine(QuestionLedeInstruction)
+            .AppendLine("After the question and its answer, the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
             .AppendLine(LedeAskInstruction)
             .AppendLine(HumanRegisterInstruction)
@@ -2314,9 +2293,9 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine("=== THIS PAGE ===")
             .AppendLine("Write the opening lede for a schema.org BlogPosting deep-dive — conversational but substantive; first/second person allowed.")
             .AppendLine(SeoLedeInstruction(context.TargetKeyword))
-            // The same lede-type guidance the pillar's opening gets: twelve types, chosen against the brief.
-            .AppendLine(BuildLedeTypeGuidance(context))
-            .AppendLine("The opening is the hook, then the turn that names what is at stake, then who this is for.")
+            // The same opening guidance the pillar's opening gets: the Question lede, then the brief.
+            .AppendLine(BuildOpeningGuidance(context))
+            .AppendLine("After the question and its answer, the turn that names what is at stake, then who this is for.")
             .AppendLine(LedeLengthInstruction)
             .AppendLine(LedeAskInstruction)
             .AppendLine(LedeHeadingInstruction)

@@ -10,18 +10,15 @@ using GeekAPI.Services.Workflow.Services.SchemaBuilders;
 namespace GeekBackend.Tests.Workflow.PromptBuilders;
 
 /// <summary>
-/// A blog generate failed with <c>unknown ledeType 'problem_solution'</c> (Jeff, 2026-10-03).
+/// Every opening is a Question lede, and the opening request offers the writer no other type.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>problem_solution</c> is an <b>angle</b>, not a lede type. The lede guidance printed a table of all
-/// four angles as bare left-hand tokens — <c>problem_solution → prefers anecdotal, ...</c> — one line
-/// above "Pick ONE ledeType from the 12", so the model answered with the key instead of the value and
-/// <c>ParseLedeTypeStrict</c> refused it. Refusing is correct; being asked an ambiguous question is not.
-/// </para>
-/// <para>
-/// Three of those four rows could never apply: <c>angle</c> is a required brief field, so exactly one is
-/// live. The others were noise whose only effect was to offer a wrong answer.
+/// Until 2026-10-22 the request listed twelve lede types and asked the writer to pick one against the
+/// brief. Two things went wrong with that. A blog generate failed with <c>unknown ledeType
+/// 'problem_solution'</c> (Jeff, 2026-10-03): the angle was printed as a bare token beside the ask and the
+/// model returned the key. And the pick was the writer's: geekatyourspot's GEO and SEO audit of
+/// 2026-10-20 counted 40 pages opening "Picture" or "Imagine". Jeff, 2026-10-22: the Question Lede.
 /// </para>
 /// <para>
 /// The lede request attaches no JSON schema, so nothing constrains the field provider-side and this
@@ -72,96 +69,79 @@ public class LedeTypeIsNotConfusableWithTheAngleTests
             fullOutline: [SectionSlot.Assigned("Overview"), SectionSlot.Assigned("Details")],
             isRegeneration: false));
 
-    /// <summary>The four angle tokens that must never be offered where a ledeType is asked for.</summary>
-    public static TheoryData<string> Angles() => new()
-    {
-        "problem_solution", "comparative", "case_study_data", "ultimate_guide",
-    };
+    /// <summary>The four angle tokens, which must never be offered where a ledeType is asked for.</summary>
+    private static readonly string[] AngleTokens = ["problem_solution", "comparative", "case_study_data", "ultimate_guide"];
+
+    public static TheoryData<string> Angles() => new(AngleTokens);
 
     [Theory]
     [MemberData(nameof(Angles))]
     public void No_angle_name_is_ever_offered_as_a_lede_type(string angle)
     {
-        // The exact failure: the angle appeared as a selectable token beside the ledeType ask. It may
-        // still be described in prose by DescribeAngle -- that is the angle doing its own job -- but it
-        // must not appear in the "prefer one of" list the model picks a ledeType from.
+        // The angle is described in prose by DescribeAngle -- that is the angle doing its own job -- and
+        // never appears as a token the model could return as the ledeType.
         var prompt = BlogLede(angle);
 
         Assert.DoesNotContain($"{angle} →", prompt, StringComparison.Ordinal);
         Assert.DoesNotContain("Lede guidance by angle", prompt, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [MemberData(nameof(Angles))]
-    public void Only_this_briefs_angle_shapes_the_lede_and_the_other_three_are_absent(string angle)
-    {
-        var prompt = BlogLede(angle);
-
-        Assert.Contains("For this brief's angle, prefer one of:", prompt, StringComparison.Ordinal);
-
-        // Mutation guard: restore the four-row table and this fails, because a row for an angle this
-        // brief does not have would be present.
-        foreach (var other in new[] { "problem_solution", "comparative", "case_study_data", "ultimate_guide" })
+        Assert.DoesNotContain("prefer one of", prompt, StringComparison.Ordinal);
+        foreach (var other in AngleTokens.Where(other => other != angle))
         {
-            if (other == angle) continue;
             Assert.DoesNotContain(other, prompt, StringComparison.Ordinal);
         }
     }
 
-    [Fact]
-    public void The_prompt_says_outright_that_brief_values_are_not_lede_types()
+    [Theory]
+    [InlineData("blog")]
+    [InlineData("pillar")]
+    public void The_opening_is_a_question_lede_and_no_other_type_is_offered(string page)
     {
-        // Belt and braces, and cheap: the guidance still reads "<brief value> -> <ledeTypes>" for
-        // audience, intent and funnel stage, so the same echo is available there.
-        var prompt = BlogLede("problem_solution");
+        var prompt = page == "blog" ? BlogLede("problem_solution") : PillarLede("problem_solution");
 
-        Assert.Contains("brief values, NOT", prompt, StringComparison.Ordinal);
-        Assert.Contains("NEVER return one of them as ledeType", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Problem_solution_prefers_the_pain_first_types()
-    {
-        // The guidance itself has to survive the rewrite -- dropping the table must not drop the advice.
-        var prompt = BlogLede("problem_solution");
-
-        Assert.Contains("anecdotal, sceneSetting, directAddress, question", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void An_unrecognised_angle_offers_no_preference_rather_than_all_four()
-    {
-        // Fail closed: an angle nothing maps gets no lede steer, not every steer at once.
-        var prompt = BlogLede("something_new");
-
-        Assert.DoesNotContain("For this brief's angle, prefer one of:", prompt, StringComparison.Ordinal);
-        Assert.Contains("Pick ONE ledeType", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void The_pillar_lede_gets_the_same_treatment()
-    {
-        // Same helper, so the same fix -- asserted because the reported failure was blog and a fix that
-        // only covered blog would leave pillar one generate away from the same refusal.
-        var prompt = PillarLede("problem_solution");
-
-        Assert.DoesNotContain("comparative", prompt, StringComparison.Ordinal);
-        Assert.Contains("brief values, NOT", prompt, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void The_twelve_values_the_prompt_offers_are_exactly_the_twelve_the_guard_accepts()
-    {
-        // Prompt and guard are one rule in two places. ParseLedeTypeStrict rejects anything outside
-        // Enum.GetNames<LedeType>(), while the JSON contract hand-lists the names in camelCase -- so
-        // adding a thirteenth type, or renaming one, silently makes the prompt offer a value the guard
-        // refuses. This is the drift that produced a refusal nobody could act on.
-        var prompt = BlogLede("problem_solution");
-
+        Assert.Contains(ContentPromptBuilder.QuestionLedeInstruction, prompt, StringComparison.Ordinal);
+        Assert.Contains("\"ledeType\": \"question\"", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Pick ONE ledeType", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Lede types (pick", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("brief values, NOT", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Do NOT start with \"How\"", prompt, StringComparison.Ordinal);
+        // "quote" is also a paragraph type in the JSON shape, so it is checked as the menu wrote it.
+        Assert.DoesNotContain("\"quote\"|\"wordplay\"", prompt, StringComparison.Ordinal);
         foreach (var name in Enum.GetNames<LedeType>())
         {
+            if (name is nameof(LedeType.Question) or nameof(LedeType.Quote)) continue;
             var camel = char.ToLowerInvariant(name[0]) + name[1..];
-            Assert.Contains($"\"{camel}\"", prompt, StringComparison.Ordinal);
+            Assert.DoesNotContain($"\"{camel}\"", prompt, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void The_one_value_the_prompt_asks_for_is_one_the_parser_accepts()
+    {
+        // Prompt and parser are one rule in two places: ParseLedeTypeStrict accepts the enum's names, and
+        // the contract names "question". A rename of the enum member would make the prompt ask for a value
+        // the parser refuses.
+        Assert.True(Enum.TryParse<LedeType>("question", ignoreCase: true, out var parsed));
+        Assert.Equal(LedeType.Question, parsed);
+        Assert.Contains("\"question\"", BlogLede("comparative"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_brief_still_shapes_the_opening_in_words()
+    {
+        var prompt = BlogLede("comparative");
+
+        Assert.Contains("The brief shapes the question, the answer and the turn:", prompt, StringComparison.Ordinal);
+        Assert.Contains("Comparative", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Angle: comparative", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_unrecognised_angle_is_passed_through_and_offers_no_type()
+    {
+        var prompt = BlogLede("something_new");
+
+        Assert.Contains("something_new", prompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("prefer one of", prompt, StringComparison.Ordinal);
+        Assert.Contains(ContentPromptBuilder.QuestionLedeInstruction, prompt, StringComparison.Ordinal);
     }
 }

@@ -163,6 +163,35 @@ public class GccGroundingRetrievalTests
             Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
     }
 
+    /// <summary>Answers each seed with a page its crawl read at one known time.</summary>
+    private sealed class DatedPages(DateTimeOffset crawledAt) : IGccCrawlPageReader
+    {
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPagesBySeedsAsync(
+            Guid runId, IReadOnlyList<string> seedUrls, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>(seedUrls.Select(url => new GeekCrawlerPageDto(
+                Id: Guid.NewGuid(),
+                RunId: runId,
+                Origin: url,
+                Url: url,
+                FinalUrl: url,
+                StatusCode: 200,
+                RobotsAllowed: true,
+                Html: null,
+                FailureReason: null,
+                CrawledAtUtc: crawledAt,
+                Title: "Page",
+                Excerpt: null,
+                ContentHtml: null,
+                Blocks: JsonSerializer.SerializeToElement(new[]
+                {
+                    new Dictionary<string, string> { ["kind"] = "paragraph", ["text"] = "Billed per document." },
+                }))).ToList());
+
+        public Task<IReadOnlyList<GeekCrawlerPageDto>> ListPageBlocksAsync(
+            Guid runId, int limit = 100, int offset = 0, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<GeekCrawlerPageDto>>([]);
+    }
+
     private static GccGroundingResolver Build(GccProjectDto? project, IGeekCrawlerRagClient rag, IGccCrawlPageReader? pages = null) =>
         new(new FakeProjects(project), rag, new GccTypedPassageReader(pages ?? new NoPages()),
             new GccPublisherPositionsReader(pages ?? new NoPages(), NullLogger<GccPublisherPositionsReader>.Instance),
@@ -212,6 +241,30 @@ public class GccGroundingRetrievalTests
         Assert.Equal(PartnerUrl, Assert.Single(outcome.Pages).Url);
         Assert.Equal(CompetitorUrl, Assert.Single(outcome.CompetitorPages).Url);
         Assert.Equal(SiteUrl, Assert.Single(outcome.SitePages).Url);
+    }
+
+    /// <summary>
+    /// A research page carries the date its crawl read it, for the citation a figure on it gets
+    /// (GccFigureSources: "(Name, as of Oct 13, 2026)", Jeff's skills asking for a date on every
+    /// statistic). A partner's page takes it from the typed read the resolver already makes; the
+    /// publisher's own page from a read of dates alone; a competitor's page is never cited and carries
+    /// none. Until 2026-10-22 nothing set it, on any page.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task A_partner_page_and_a_site_page_carry_the_date_their_crawl_read_them(string type)
+    {
+        var at = new DateTimeOffset(2026, 10, 13, 9, 30, 0, TimeSpan.Zero);
+        var project = Project([PartnerUrl], [CompetitorUrl]);
+
+        var outcome = await Build(project, new CrawlTypeRag(), new DatedPages(at)).ResolveAsync(Create(project.Id, type), type);
+
+        Assert.False(outcome.Refused);
+        Assert.Equal(at, Assert.Single(outcome.Pages).CrawledAtUtc);
+        Assert.Equal(at, Assert.Single(outcome.SitePages).CrawledAtUtc);
+        Assert.Null(Assert.Single(outcome.CompetitorPages).CrawledAtUtc);
     }
 
     /// <summary>Returns the SAME url for every crawl type — an operator declaring one URL twice.</summary>

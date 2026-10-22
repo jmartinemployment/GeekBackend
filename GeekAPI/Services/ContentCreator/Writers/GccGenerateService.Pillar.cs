@@ -252,6 +252,11 @@ public partial class GccGenerateService
                 "the pillar", lede, sections, pillarPromptCtx.Context.TargetKeyword);
             sections = pillarBody;
             sections = await LinkToolsAsync("the pillar", sections, pillarPromptCtx.Context.KnownCrawlTools ?? []);
+            // Every figure in the opening and the body cited to the page it is on, before the closing
+            // and the People Also Ask, which carry the operator's own words and no research.
+            (pillarOpening, sections) = await CiteFiguresAsync(
+                "the pillar", "pillar", pillarOpening, sections,
+                SourcesFor(create, pillarPromptCtx.Context, partnerUrls, GccResearchFetchService.Deserialize(create.ResearchJson)), shortfalls);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (pillarFaq is not null) sections.Add(pillarFaq);
             shortfalls.AddRange(pillarFaqGaps);

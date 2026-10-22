@@ -148,7 +148,7 @@ public static partial class GccDraftGuard
 
         AddLinkFindings(document, inputs, findings);
         AddLinkTextFindings(document, findings);
-        AddOpeningLinkFindings(document, findings);
+        AddOpeningLinkFindings(document, inputs, findings);
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
         AddLengthFinding(document, inputs, findings, "tool page");
@@ -156,6 +156,7 @@ public static partial class GccDraftGuard
         AddKeywordHeadingFindings(document, inputs, findings, "tool page");
         AddHeadingColonFinding(document, findings, "tool page");
         AddSceneOpeningFinding(document, findings, "tool page");
+        AddQuestionOpeningFinding(document, findings, "tool page");
         AddKeywordOpeningFinding(document, inputs, findings, "tool page");
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
@@ -207,7 +208,7 @@ public static partial class GccDraftGuard
 
         AddLinkFindings(document, inputs, findings);
         AddLinkTextFindings(document, findings);
-        AddOpeningLinkFindings(document, findings);
+        AddOpeningLinkFindings(document, inputs, findings);
         AddNumberFindings(document, inputs, findings);
         AddCurrencyFindings(document, inputs, findings);
 
@@ -233,6 +234,7 @@ public static partial class GccDraftGuard
         AddKeywordHeadingFindings(document, inputs, findings, type);
         AddHeadingColonFinding(document, findings, type);
         AddSceneOpeningFinding(document, findings, type);
+        AddQuestionOpeningFinding(document, findings, type);
         AddKeywordOpeningFinding(document, inputs, findings, type);
         AddClosingFinding(document, inputs, findings);
         return new GccGuardVerdict(findings);
@@ -411,6 +413,50 @@ public static partial class GccDraftGuard
             Refuses: false));
     }
 
+    /// <summary>
+    /// The opening that does not begin with a question. Every opening is a Question lede (Jeff,
+    /// 2026-10-22; <c>ContentPromptBuilder.QuestionLedeInstruction</c>): its first sentence is the question
+    /// the page answers, and the answer follows. This lists an opening whose first sentence ends in no
+    /// question mark. A reported line, never a refusal: code cannot write the question.
+    /// </summary>
+    /// <remarks>
+    /// Only the first sentence is read, with <see cref="GccInventedFigures.SentencesOf"/>, the same reading
+    /// the figure check makes; a closing quotation mark or bracket after the question mark is allowed.
+    /// Whether the answer follows, no code reads. An opening whose first paragraph is a list or a
+    /// quotation is not read: neither is the writer's own opening sentence.
+    /// </remarks>
+    private static void AddQuestionOpeningFinding(ContentDocument document, List<GccGuardFinding> into, string type)
+    {
+        if (document.Lede.Paragraphs.FirstOrDefault() is not TextParagraph first) return;
+        var text = string.Concat(first.Runs.Select(run => run.Text)).Trim();
+        if (text.Length == 0) return;
+
+        var sentence = FirstSentence(text);
+        if (OpensOnAQuestion(sentence)) return;
+
+        into.Add(new GccGuardFinding(
+            "opening-question",
+            $"The {type}'s opening does not begin with a question: its first sentence is \"{sentence}\". "
+            + "The opening is a Question lede: the question the page answers, then its answer.",
+            Refuses: false));
+    }
+
+    /// <summary>The first sentence of a paragraph, as the figure check reads sentences.</summary>
+    private static string FirstSentence(string paragraph)
+    {
+        var sentences = GccInventedFigures.SentencesOf(paragraph);
+        if (sentences.Count == 0) return paragraph.Trim();
+        var (start, end) = sentences[0];
+        return paragraph[start..end].Trim();
+    }
+
+    /// <summary>Whether a sentence ends in a question mark, allowing a closing quotation mark or bracket after it.</summary>
+    internal static bool OpensOnAQuestion(string sentence)
+    {
+        var trimmed = sentence.TrimEnd().TrimEnd(GccInventedFigures.Closers.ToCharArray()).TrimEnd();
+        return trimmed.EndsWith('?');
+    }
+
     /// <summary>Whether a paragraph's first word is "Picture" or "Imagine".</summary>
     internal static bool OpensOnAScene(string paragraph)
     {
@@ -577,12 +623,16 @@ public static partial class GccDraftGuard
     /// the link before publishing.
     /// </para>
     /// </remarks>
-    private static void AddOpeningLinkFindings(ContentDocument document, List<GccGuardFinding> into)
+    private static void AddOpeningLinkFindings(ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into)
     {
+        // A link to a page of the evidence is a figure's citation, placed by code (GccFigureSources):
+        // the writer can type no link (the reply parser drops one), so nothing else puts an evidence
+        // page in the opening. The skills put the most citable passage first on the page, so the
+        // opening's figures are cited like the body's.
         var linked = OpeningSections(document.Lede)
             .SelectMany(section => section.Paragraphs)
             .SelectMany(Runs)
-            .Where(run => !string.IsNullOrWhiteSpace(run.Href))
+            .Where(run => !string.IsNullOrWhiteSpace(run.Href) && !inputs.AllowedLinkUrls.Contains(run.Href.Trim()))
             .ToList();
         if (linked.Count == 0) return;
 

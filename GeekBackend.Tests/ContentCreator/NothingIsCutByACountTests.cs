@@ -223,7 +223,7 @@ public class NothingIsCutByACountTests
         var pages = new CountingPages(crawled);
         var retrieved = urls.Select(url => new GccQuoteablePage(url, "A page", [], ["A passage."])).ToList();
 
-        var typed = await new GccTypedPassageReader(pages).ReadAsync(Guid.NewGuid(), retrieved, CancellationToken.None);
+        var typed = (await new GccTypedPassageReader(pages).ReadAsync(Guid.NewGuid(), retrieved, CancellationToken.None)).Passages;
 
         Assert.Equal([32, 32, 6], pages.Reads);
         Assert.Equal(urls, typed.Select(passage => passage.Url));

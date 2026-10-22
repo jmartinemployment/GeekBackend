@@ -152,10 +152,13 @@ public class ContentPromptBuilderClosingCtaTests
     }
 
     [Fact]
-    public void A_tool_part_that_paraphrases_the_partner_links_the_source_name_not_the_paragraph()
+    public void A_tool_part_that_paraphrases_the_partner_attributes_it_in_words_and_writes_no_link()
     {
         // "attribute it, with the page it comes from as that run's href" is the sentence that produced
-        // the paragraph-long links: the paraphrase is one run, so the whole of it carried the URL.
+        // the paragraph-long links: the paraphrase is one run, so the whole of it carried the URL. Its
+        // replacement asked for the URL on a short run of its own, which the parser dropped (the writer
+        // has written no link since 2026-10-10). Since 2026-10-22 the line asks for no link at all: the
+        // attribution is in words, and a figure's citation is placed by code (GccFigureSources).
         var app = new SoftwareApplicationDescriptor("Partner Widget", "A widget.");
         var outline = ToolPrompts.Outline(Context(), app.Name);
         var later = SystemPrompt(new ContentPromptBuilder().BuildToolBodyPrompt(
@@ -167,8 +170,11 @@ public class ContentPromptBuilderClosingCtaTests
             batchIndex: 1));
 
         Assert.Contains("NO QUOTATION IN THIS PART", later, StringComparison.Ordinal);
-        Assert.Contains("in a short run of its own", later, StringComparison.Ordinal);
+        Assert.Contains("attribute it in words: name the product or the page it comes from", later, StringComparison.Ordinal);
+        Assert.Contains("You write no URL and no link anywhere; code places every link.", later, StringComparison.Ordinal);
         Assert.DoesNotContain("attribute it, with the page it comes from", later, StringComparison.Ordinal);
+        Assert.DoesNotContain("in a short run of its own", later, StringComparison.Ordinal);
+        Assert.DoesNotContain("as that run's \"href\"", later, StringComparison.Ordinal);
     }
 
     [Theory]

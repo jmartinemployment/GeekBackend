@@ -76,16 +76,18 @@ OUTPUT: respond with ONLY the JSON this contract describes -- no code fences, no
 - Pillar and blog bodies add a required `"provenance"` string on every section: one of `plan`,
   `brief:<fieldName>`, `paa:<question>`, `competitor:<heading>`, `site:<subtopic>`,
   `evidence:<identifier>`. The tool body has no `provenance`.
-- Blog and tool ledes return `{"ledeType": <one of 12>, "heading": "...", "paragraphs": [...]}`.
+- Blog and tool ledes return `{"ledeType": "question", "heading": "...", "paragraphs": [...]}`. Since 2026-10-22 every opening is a Question lede and `"question"` is the only value the contract offers.
 - The pillar lede returns `{"lede": {...that shape...}, "introduction": {"paragraphs": [...], "children": [Section]}}`.
 
 ## 2. Shared blocks
 
-**[LEDE TYPE GUIDANCE]**, in all three ledes. It lists the 12 types; a rule that "summary is the weakest
-hook, open with a story"; three sets of worked examples (two unrelated subjects, then a back-office set
-with a warning never to reuse its names or figures); then the brief's own lines (intent, stage,
-audience, angle, tone, CTA, notes); the angle's preferred types; and "never return an angle or intent
-name as the ledeType". The full text is in `docs/content-creator-prompts.md`, under any lede.
+**[LEDE TYPE GUIDANCE]**, in all three ledes. Since 2026-10-22 (`ContentPromptBuilder.BuildOpeningGuidance`)
+it is the Question lede instruction, `QuestionLedeInstruction`: the first sentence is the question this page
+answers, in the reader's words, ending in a question mark; the 40 to 60 words after it answer it; then the
+turn into the page; no scene, story or case before the answer. Under it, the brief's own lines in words
+(intent, stage, audience, angle, tone, length band). Until then it listed twelve types with preferences by
+angle, audience, intent and stage and asked the writer to pick one (the text is in git at `74223f2`); the
+writer picked a story, which is what geekatyourspot's GEO and SEO audit of 2026-10-20 found on 40 pages.
 
 **[PUBLISHER SITE BLOCK]**, when the publisher's site has been crawled.
 
@@ -265,12 +267,11 @@ that approach.
 ```
 === THIS PAGE ===
 [SEO LEDE]
-Tone: {implementer positioning} — audience×angle sets ledeType and voice (audience + angle + topic → 12 types); keep expert, consultative tone throughout.
+Tone: the brief's audience and angle set the voice; keep an expert, consultative tone throughout.
 Publisher positioning: {implementer positioning}
 
 Produce the pillar's opening — its first H2 and the lead paragraphs under it.
 [LEDE TYPE GUIDANCE]
-Do NOT start with "How" or a question unless ledeType is Question.
 [PAIN BEFORE SOLUTION]
 [LEDE LENGTH]
 
@@ -471,7 +472,6 @@ Write the opening lede for a schema.org TechnicalArticle pillar — third person
 Publisher positioning: {implementer positioning}
 [SEO LEDE]
 [LEDE TYPE GUIDANCE]
-Do NOT start with "How" or a question.
 [PAIN BEFORE SOLUTION]
 [LEDE LENGTH]
 [LEDE HEADING RULE]
@@ -578,7 +578,7 @@ QUOTABLE SPANS -- the only wording this page may quote, by number:
 **Every later call instead:**
 
 ```
-NO QUOTATION IN THIS PART: this page's one block quotation of {P} is written by another call. Write no paragraph of type "quote" here. When a section needs what {P} says, put it in your own words and attribute it: name the page it comes from in a short run of its own, with that page's URL as that run's "href" -- never an href on the sentence or the paragraph.
+NO QUOTATION IN THIS PART: this page's one block quotation of {P} is written by another call. Write no paragraph of type "quote" here. When a section needs what {P} says, put it in your own words and attribute it in words: name the product or the page it comes from. You write no URL and no link anywhere; code places every link.
 ```
 
 ## 6. Things noticed while generating this, not changed

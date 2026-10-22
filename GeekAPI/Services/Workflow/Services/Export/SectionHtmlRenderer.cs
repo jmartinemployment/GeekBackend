@@ -300,12 +300,34 @@ public static class SectionHtmlRenderer
                 var blockquote = doc.CreateElement("blockquote");
                 if (!string.IsNullOrWhiteSpace(quote.Cite))
                 {
-                    blockquote.SetAttributeValue("cite", quote.Cite);
+                    blockquote.SetAttributeValue("cite", EncodeAttribute(quote.Cite.Trim()));
                 }
                 var quoteBody = doc.CreateElement("p");
                 AppendRuns(doc, quoteBody, quote.Runs);
                 blockquote.AppendChild(quoteBody);
-                parent.AppendChild(blockquote);
+                // A quotation's source is a link a reader can follow, not only a cite attribute nobody
+                // sees: the quotation and its caption in a figure, which is where the HTML standard puts
+                // a quotation's attribution. Jeff's skills ask for a named, linked source on a quotation
+                // as on a figure; the GEO audit of 2026-10-20 found tool pages naming a source and not
+                // linking it.
+                if (SourceHost(quote.Cite) is { } host)
+                {
+                    var figure = doc.CreateElement("figure");
+                    figure.AppendChild(blockquote);
+                    var caption = doc.CreateElement("figcaption");
+                    caption.AppendChild(CreateEncodedTextNode(doc, "Source: "));
+                    var source = doc.CreateElement("a");
+                    source.SetAttributeValue("href", EncodeAttribute(quote.Cite!.Trim()));
+                    source.AppendChild(CreateEncodedTextNode(doc, host));
+                    caption.AppendChild(source);
+                    figure.AppendChild(caption);
+                    parent.AppendChild(figure);
+                }
+                else
+                {
+                    parent.AppendChild(blockquote);
+                }
+
                 break;
 
             case CodeParagraph code:
@@ -372,6 +394,16 @@ public static class SectionHtmlRenderer
 
             textHost.AppendChild(CreateEncodedTextNode(doc, run.Text));
         }
+    }
+
+    /// <summary>The host a quotation's source is shown as ("ramp.com"), or null when the cite is not an absolute address.</summary>
+    private static string? SourceHost(string? cite)
+    {
+        if (string.IsNullOrWhiteSpace(cite) || !Uri.TryCreate(cite.Trim(), UriKind.Absolute, out var uri)) return null;
+        if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) return null;
+        var host = uri.Host;
+        if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) host = host[4..];
+        return host.Length == 0 ? null : host.ToLowerInvariant();
     }
 
     /// <summary>HtmlAgilityPack's CreateTextNode does not HTML-encode on its own — without this,

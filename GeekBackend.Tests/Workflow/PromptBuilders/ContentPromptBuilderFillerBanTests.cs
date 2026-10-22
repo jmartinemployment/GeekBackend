@@ -111,18 +111,19 @@ public class ContentPromptBuilderFillerBanTests
     }
 
     [Fact]
-    public void Blog_lede_prompt_gets_real_lede_type_guidance_not_a_hardcoded_creative_only_line()
+    public void Blog_lede_prompt_gets_the_question_lede_not_a_hardcoded_creative_only_line()
     {
-        // Stage 6: pillar's lede got brief-aware 12-type guidance via BuildLedeTypeGuidance; blog's
-        // lede kept a hardcoded "prefer a creative opening" line while still demanding a ledeType
-        // value from the same 12-way enum, with nothing telling the model how to choose one.
+        // Stage 6: pillar's lede got brief-aware guidance; blog's lede kept a hardcoded "prefer a creative
+        // opening" line. Since 2026-10-22 both openings are the Question lede (Jeff), stated once, with the
+        // brief's lines under it; no menu of types and no creative-opening steer.
         var builder = new ContentPromptBuilder();
         var metadata = new BlogMetadataDraft("Title", "Meta", ["ai"], ["Overview"]);
 
         var request = builder.BuildStandaloneBlogLedePrompt(Context(), metadata);
         var user = UserPrompt(request);
 
-        Assert.Contains("Lede types (pick ONE ledeType", user);
+        Assert.Contains(ContentPromptBuilder.QuestionLedeInstruction, user);
+        Assert.DoesNotContain("Lede types (pick ONE ledeType", user);
         Assert.DoesNotContain("Prefer a creative (hook/narrative) opening", user);
     }
 

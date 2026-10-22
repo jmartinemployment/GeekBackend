@@ -12,6 +12,8 @@ public class GccDraftGuardTests
 {
     private const string Scheduler = "#consultationAppointment2xl";
     private const string PartnerPage = "https://melio.test/pay-bills";
+    /// <summary>One of the publisher's own pages: a link the writer may place, and not an evidence page.</summary>
+    private const string OwnPage = "https://geek.test/methodology";
 
     private static readonly GccHeadingProvenanceEvidence NoEvidence = new(
         new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), new HashSet<string>(), new HashSet<string>());
@@ -48,7 +50,7 @@ public class GccDraftGuardTests
     private static readonly Section Closing = Body("What to do next", Text("Book a free consultation.", Scheduler));
 
     private static ContentDocument Doc(params Section[] sections) =>
-        new(new Section("h2", "Opening", [Text("An opening.")], null, []), [.. sections, Closing]);
+        new(new Section("h2", "Opening", [Text("Where do the hours go? They go to keying.")], null, []), [.. sections, Closing]);
 
     private static IReadOnlySet<string> Failed(GccGuardVerdict verdict) => verdict.FailedChecks;
 
@@ -426,6 +428,48 @@ public class GccDraftGuardTests
         Assert.DoesNotContain(GccDraftGuard.Blog(answered, Inputs()).Findings, f => f.Check == "opens-on-a-scene");
     }
 
+    /// <summary>
+    /// The opening is a Question lede (Jeff, 2026-10-22): an opening whose first sentence is not a question
+    /// is listed with that sentence, on every type, and the page is not refused. A question followed by a
+    /// closing quotation mark still counts; only the opening is read, never a section.
+    /// </summary>
+    [Fact]
+    public void An_opening_that_does_not_begin_with_a_question_is_listed_and_the_page_is_not_refused()
+    {
+        var statement = DocWithOpening(new Section(
+            "h2", "Where the Month Goes", [Text("Approval chains take nine days. Why is a question of routing.")], null, []));
+        var question = DocWithOpening(new Section(
+            "h2", "Where the Month Goes", [Text("Why do approvals still take nine days? Because every invoice waits on one inbox.")], null, []));
+        var quoted = DocWithOpening(new Section(
+            "h2", "Where the Month Goes", [Text("\"Why does this still take nine days?\" Because every invoice waits on one inbox.")], null, []));
+        var sectionAsksInstead = new ContentDocument(
+            question.Lede, [Body("How it routes", Text("Approvals route by amount.")), Body("What next?", Text("Why wait? The routing is set in an hour.")), Closing]);
+
+        foreach (var verdict in new[] { GccDraftGuard.Pillar(statement, Inputs()), GccDraftGuard.Blog(statement, Inputs()), GccDraftGuard.Tool(statement, Inputs(requiredTools: [])) })
+        {
+            var finding = Assert.Single(verdict.Findings, f => f.Check == "opening-question");
+            Assert.False(finding.Refuses);
+            Assert.Contains("\"Approval chains take nine days.\"", finding.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("routing", finding.Detail, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain(GccDraftGuard.Pillar(question, Inputs()).Findings, f => f.Check == "opening-question");
+        Assert.DoesNotContain(GccDraftGuard.Blog(quoted, Inputs()).Findings, f => f.Check == "opening-question");
+        Assert.DoesNotContain(GccDraftGuard.Pillar(sectionAsksInstead, Inputs()).Findings, f => f.Check == "opening-question");
+    }
+
+    [Theory]
+    [InlineData("Why do approvals still take nine days?", true)]
+    [InlineData("\"Why does this still take nine days?\"", true)]
+    [InlineData("Is it the inbox?)", true)]
+    [InlineData("Approvals take nine days.", false)]
+    [InlineData("Approvals take nine days", false)]
+    [InlineData("What a week it was!", false)]
+    public void A_sentence_opens_on_a_question_when_it_ends_in_a_question_mark(string sentence, bool question)
+    {
+        Assert.Equal(question, GccDraftGuard.OpensOnAQuestion(sentence));
+    }
+
     [Fact]
     public void The_pages_opening_is_read_too()
     {
@@ -559,7 +603,7 @@ public class GccDraftGuardTests
     public void An_unlinked_closing_is_a_gap_not_a_refusal()
     {
         var doc = new ContentDocument(
-            new Section("h2", "Opening", [Text("An opening.")], null, []),
+            new Section("h2", "Opening", [Text("Where do the hours go? They go to keying.")], null, []),
             [Body("What to do next", Text("Book a free consultation."))]);
 
         var finding = Assert.Single(GccDraftGuard.Pillar(doc, Inputs()).Findings);
@@ -576,7 +620,7 @@ public class GccDraftGuardTests
             null,
             [new Section("h3", "Is it secure?", [Text("See https://competitor.test.", "https://competitor.test")], null, [])]);
         var doc = new ContentDocument(
-            new Section("h2", "Opening", [Text("An opening.")], null, []),
+            new Section("h2", "Opening", [Text("Where do the hours go? They go to keying.")], null, []),
             [Closing, faq]);
 
         var verdict = GccDraftGuard.Pillar(doc, Inputs(appended: 1));
@@ -640,7 +684,7 @@ public class GccDraftGuardTests
     public void A_link_in_the_opening_is_reported_with_the_draft_on_every_type_and_never_refuses_it()
     {
         var doc = DocWithOpening(new Section(
-            "h2", "Opening", [new TextParagraph([new Run("As outlined on "), new Run("Geek's site", Href: PartnerPage)])], null, []));
+            "h2", "Opening", [new TextParagraph([new Run("As outlined on "), new Run("Geek's site", Href: OwnPage)])], null, []));
 
         foreach (var verdict in new[]
                  {
@@ -650,7 +694,7 @@ public class GccDraftGuardTests
             var finding = Assert.Single(verdict.Findings, f => f.Check == "opening-links");
             Assert.False(finding.Refuses);
             Assert.Contains("Geek's site", finding.Detail, StringComparison.Ordinal);
-            Assert.Contains(PartnerPage, finding.Detail, StringComparison.Ordinal);
+            Assert.Contains(OwnPage, finding.Detail, StringComparison.Ordinal);
             Assert.DoesNotContain(verdict.Refusals, f => f.Check == "opening-links");
         }
     }
@@ -658,16 +702,40 @@ public class GccDraftGuardTests
     [Fact]
     public void A_link_in_a_section_nested_under_the_opening_is_part_of_the_opening()
     {
-        var child = new Section("h3", "Nested", [new TextParagraph([new Run("named", Href: PartnerPage)])], null, []);
-        var doc = DocWithOpening(new Section("h2", "Opening", [Text("An opening.")], null, [child]));
+        var child = new Section("h3", "Nested", [new TextParagraph([new Run("named", Href: OwnPage)])], null, []);
+        var doc = DocWithOpening(new Section("h2", "Opening", [Text("Where do the hours go? They go to keying.")], null, [child]));
 
         Assert.Contains("opening-links", Failed(GccDraftGuard.Pillar(doc, Inputs())));
+    }
+
+    /// <summary>
+    /// A figure in the opening is cited to the research page it is on, as in the body
+    /// (GccFigureSources): the source's name linked to that page. The opening-links line is about a
+    /// link to somewhere else in a page's first words; a link to an evidence page is a citation and is
+    /// not listed, on any type.
+    /// </summary>
+    [Fact]
+    public void A_citation_to_an_evidence_page_in_the_opening_is_not_listed()
+    {
+        var cited = new TextParagraph(
+        [
+            new Run("Approvals used to take 9 days ("), new Run("Melio", Href: PartnerPage), new Run(", as of Oct 13, 2026)."),
+        ]);
+        var doc = DocWithOpening(new Section("h2", "Opening", [cited], null, []));
+        var inputs = Inputs(numberEvidence: "Approvals took 9 days before.");
+
+        foreach (var verdict in new[] { GccDraftGuard.Pillar(doc, inputs), GccDraftGuard.Blog(doc, inputs), GccDraftGuard.Tool(doc, inputs) })
+        {
+            Assert.DoesNotContain(verdict.Findings, f => f.Check == "opening-links");
+            Assert.DoesNotContain(verdict.Findings, f => f.Check == "links");
+            Assert.DoesNotContain(verdict.Findings, f => f.Check == "numbers");
+        }
     }
 
     [Fact]
     public void An_opening_with_no_link_is_not_reported_and_links_in_the_body_are_not_the_openings()
     {
-        var doc = DocWithOpening(new Section("h2", "Opening", [Text("An opening.")], null, []));
+        var doc = DocWithOpening(new Section("h2", "Opening", [Text("Where do the hours go? They go to keying.")], null, []));
         var withBodyLink = new ContentDocument(
             doc.Lede, [Body("How it routes", Text("Approvals route by amount.", PartnerPage)), Closing]);
 

@@ -231,7 +231,7 @@ internal static class GccInventedFigures
     }
 
     /// <summary>Marks that close a sentence after its full stop: a quotation mark or a bracket.</summary>
-    private const string Closers = "\"'”’)]";
+    internal const string Closers = "\"'”’)]";
 
     /// <summary>Marks a sentence can open with, besides a capital or a digit.</summary>
     private const string Openers = "\"'“‘([$€£";

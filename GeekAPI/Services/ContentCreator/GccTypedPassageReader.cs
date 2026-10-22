@@ -42,16 +42,66 @@ public sealed class GccTypedPassageReader(IGccCrawlPageReader pages)
     /// </summary>
     private const int MaxSeedsPerRead = 32;
 
-    public async Task<IReadOnlyList<GccGroundedPassage>> ReadAsync(
+    /// <summary>
+    /// The crawl pages behind <paramref name="retrieved"/>, as typed passages, and when each was crawled.
+    /// </summary>
+    public async Task<GccTypedRead> ReadAsync(
         Guid runId,
         IReadOnlyList<GccQuoteablePage> retrieved,
         CancellationToken ct)
     {
         if (runId == Guid.Empty || retrieved.Count == 0)
         {
-            return [];
+            return new GccTypedRead([], NoDates);
         }
 
+        var byUrl = await PagesByUrlAsync(runId, retrieved, ct);
+
+        var typed = new List<GccGroundedPassage>();
+        foreach (var page in retrieved)
+        {
+            if (!byUrl.TryGetValue(page.Url, out var crawledPage))
+            {
+                continue;
+            }
+
+            var content = GccCorpusBlockMapper.MapBlocks(crawledPage.Blocks, page.Url);
+            if (content.Count > 0)
+            {
+                typed.Add(new GccGroundedPassage(page.Url, page.Title, content));
+            }
+        }
+
+        return new GccTypedRead(typed, CrawledAt(retrieved, byUrl));
+    }
+
+    /// <summary>
+    /// When each of <paramref name="retrieved"/> was crawled, by its address, for a run whose blocks no
+    /// consumer may quote from (the publisher's own site): the date is what a citation to one of its
+    /// pages carries. A page the run does not hold is not in the answer.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, DateTimeOffset>> CrawledAtAsync(
+        Guid runId,
+        IReadOnlyList<GccQuoteablePage> retrieved,
+        CancellationToken ct)
+    {
+        if (runId == Guid.Empty || retrieved.Count == 0)
+        {
+            return NoDates;
+        }
+
+        return CrawledAt(retrieved, await PagesByUrlAsync(runId, retrieved, ct));
+    }
+
+    private static readonly IReadOnlyDictionary<string, DateTimeOffset> NoDates =
+        new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The run's crawl pages behind <paramref name="retrieved"/>, by address and by final address, 32 a read.</summary>
+    private async Task<Dictionary<string, GeekCrawlerPageDto>> PagesByUrlAsync(
+        Guid runId,
+        IReadOnlyList<GccQuoteablePage> retrieved,
+        CancellationToken ct)
+    {
         var urls = retrieved.Select(page => page.Url).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
         var byUrl = new Dictionary<string, GeekCrawlerPageDto>(StringComparer.OrdinalIgnoreCase);
@@ -68,20 +118,26 @@ public sealed class GccTypedPassageReader(IGccCrawlPageReader pages)
             }
         }
 
-        var typed = new List<GccGroundedPassage>();
+        return byUrl;
+    }
+
+    private static IReadOnlyDictionary<string, DateTimeOffset> CrawledAt(
+        IReadOnlyList<GccQuoteablePage> retrieved, Dictionary<string, GeekCrawlerPageDto> byUrl)
+    {
+        var dates = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
         foreach (var page in retrieved)
         {
-            if (!byUrl.TryGetValue(page.Url, out var crawledPage))
-            {
-                continue;
-            }
-
-            var content = GccCorpusBlockMapper.MapBlocks(crawledPage.Blocks, page.Url);
-            if (content.Count > 0)
-            {
-                typed.Add(new GccGroundedPassage(page.Url, page.Title, content));
-            }
+            if (byUrl.TryGetValue(page.Url, out var crawled)) dates.TryAdd(page.Url, crawled.CrawledAtUtc);
         }
-        return typed;
+
+        return dates;
     }
 }
+
+/// <summary>
+/// What a read of a run's crawl pages gives: the pages as typed passages, and when each retrieved
+/// address was crawled, which is the date a citation to it carries.
+/// </summary>
+public sealed record GccTypedRead(
+    IReadOnlyList<GccGroundedPassage> Passages,
+    IReadOnlyDictionary<string, DateTimeOffset> CrawledAtUtc);

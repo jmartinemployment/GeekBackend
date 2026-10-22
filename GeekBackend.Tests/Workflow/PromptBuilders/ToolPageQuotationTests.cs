@@ -86,6 +86,12 @@ public class ToolPageQuotationTests
         Assert.DoesNotContain("this page carries at most one block quotation", later, StringComparison.Ordinal);
         Assert.DoesNotContain("QUOTABLE SPANS", later, StringComparison.Ordinal);
         Assert.Contains("is written by another call. Write no paragraph of type \"quote\" here.", later, StringComparison.Ordinal);
+        // A later batch attributes in words, and writes no link: the writer has written none since
+        // 2026-10-10, and a figure's citation is placed by code (GccFigureSources). Until 2026-10-22 this
+        // line still asked for the page's URL as a run's href, which the parser then dropped.
+        Assert.Contains("attribute it in words: name the product or the page it comes from", later, StringComparison.Ordinal);
+        Assert.Contains("You write no URL and no link anywhere; code places every link.", later, StringComparison.Ordinal);
+        Assert.DoesNotContain("as that run's \"href\"", later, StringComparison.Ordinal);
     }
 
     [Fact]
