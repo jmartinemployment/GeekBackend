@@ -27,7 +27,7 @@ namespace GeekAPI.Services.ContentCreator;
 /// else. The probe queries one host at <see cref="TopK"/> 8 for each statement of the problem the
 /// brief holds and has a model select a candidate against the angle; Generate queries the partner run unfiltered at <c>PartnerTopK</c> 32 through
 /// <c>GccGroundingResolver.BuildNeed</c>, the writer picks the quotation, and
-/// <c>GccToolQuoteGuard</c> checks that it is a candidate, not that it fits the angle. So a partner
+/// <c>GccQuotations</c> resolves it by its number, not by whether it fits the angle. So a partner
 /// can pass here and be refused at generation, or the reverse. This said "the probe that validates is
 /// the probe that writes"; it was not, and the claim stood while the two drifted apart. A14 settled
 /// it this way rather than by making the probe the generate path (review, 2026-10-04).

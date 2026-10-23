@@ -467,11 +467,53 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         + "into how it removes that specific friction, in your own editorial voice. Do not reuse "
         + "vendor slogans, buzzwords or self-promotional phrasing from the source, and do not "
         + "describe the product in general -- only what it does about this problem.\n"
-        + "- Do not quote. No blockquotes, no pull-quotes, no verbatim testimonial lines; this is "
-        + "analysis in your voice. Claims still come from the supplied evidence, not from what you "
-        + "already believe about these products.\n"
+        + "- No block quotation of your own: no pull-quote, no verbatim testimonial line; this is analysis "
+        + "in your voice. A point of law's quotation, where POINT OF LAW below asks for one, is the one "
+        + "exception. Claims still come from the supplied evidence, not from what you already believe "
+        + "about these products.\n"
         + "- Every declared partner tool is discussed on this basis. A tool named without saying what "
         + "it solves has not been discussed.";
+
+    /// <summary>
+    /// A point of law is a passage's words in a block quotation, or it is not stated; where the piece turns
+    /// on one the evidence does not hold, the writer names the agency and the reader's adviser, in the
+    /// sentence (Jeff, 2026-10-22, from geekatyourspot's GEO and SEO audit of 2026-10-20, item 42: the
+    /// payroll pillar named the IRS nine times and cited nothing; "such a passage should be contained within
+    /// a blockquote with cite url").
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Printed by every body request of the pillar, the blog and the tool page that carries an evidence
+    /// block (<see cref="PointOfLawFor"/>): the Content Creator's. The Workflow product's requests to the
+    /// same three builders carry none, so its writers are not told, and they have no step that would
+    /// resolve such a quotation. The quotation it asks for is
+    /// the second kind the pipeline carries, beside the tool page's quotation of its partner chosen by
+    /// number: written out, found by its words on a page the writer was shown, and cited to that page by
+    /// <c>GccQuotations</c>, which deletes one that matches no passage and keeps the page. So the writer is
+    /// told the consequence it will see, deletion, and not a refusal.
+    /// </para>
+    /// <para>
+    /// No code reads whether a sentence in the writer's own words states a point of law, or whether the
+    /// agency was named where it should have been. The quotation is what code can hold the page to.
+    /// </para>
+    /// </remarks>
+    /// <summary>The point-of-law rule for a request that carries an evidence block, and nothing for one that does not.</summary>
+    private static string PointOfLawFor(string? evidenceBlock) =>
+        string.IsNullOrWhiteSpace(evidenceBlock) ? string.Empty : PointOfLawInstruction;
+
+    internal const string PointOfLawInstruction =
+        "A POINT OF LAW IS QUOTED FROM A PASSAGE, OR IT IS NOT STATED: what a statute, a regulation, an "
+        + "agency's rule or a tax requirement requires (a threshold, a rate, a deadline, a filing, a penalty, "
+        + "who counts as an employee or a contractor) is stated only as a passage in the evidence states it, "
+        + "and that passage's own sentence goes on the page as a block quotation where the point is made, with "
+        + "a sentence of yours before it saying whose page it comes from: {\"type\":\"quote\",\"runs\":"
+        + "[{\"text\":\"<the passage's sentence, character for character>\"}],\"cite\":null}. Copy it whole: "
+        + "do not shorten it, join sentences from different places, or change a word. Code matches the "
+        + "quotation to the passage and writes the page's address as its cite; a quotation that matches no "
+        + "passage is deleted from the page. Where the piece turns on a point of law that no passage states, "
+        + "do not state it: name the agency that decides it (the IRS, the state's department of revenue, the "
+        + "state's labor department) and say in that same sentence that the reader's accountant or employment "
+        + "attorney makes the call. In the sentence, never as a note, a disclaimer or a label.";
 
     /// <summary>
     /// The same ban, said at the planning stage: an outline heading is what the body writer is then
@@ -1252,8 +1294,8 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     ///
     /// <para>
     /// Required does not mean invented. The words have to be a span already in the evidence, cited
-    /// to the page it came from, and <c>GccToolQuoteGuard</c> rejects the draft when they are not --
-    /// this instruction asks, that guard enforces. A path with no partner evidence cannot satisfy
+    /// to the page it came from, and <c>GccQuotations</c> deletes the quotation when they are not,
+    /// keeping the page -- this instruction asks, that step enforces. A path with no partner evidence cannot satisfy
     /// either and must refuse before it gets here, rather than reach this prompt and fabricate.
     /// </para>
     /// </summary>
@@ -1288,19 +1330,22 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// citation included (<c>GccFigureSources</c>).
     /// </summary>
     private static string ToolQuotationWrittenElsewhere(string productName) =>
-        "NO QUOTATION IN THIS PART: this page's one block quotation of " + productName + " is written by "
-        + "another call. Write no paragraph of type \"quote\" here. When a section needs what "
-        + productName + " says, put it in your own words and attribute it in words: name the product or "
-        + "the page it comes from. You write no URL and no link anywhere; code places every link.";
+        "NO QUOTATION IN THIS PART BUT A POINT OF LAW'S: this page's one block quotation of "
+        + productName + " chosen by number is written by another call. Write no paragraph of type \"quote\" "
+        + "here but a point of law's, where POINT OF LAW below asks for one. When a section needs what " + productName
+        + " says, put it in your own words and attribute it in words: name the product or the page it "
+        + "comes from. You write no URL and no link anywhere; code places every link.";
 
     private static string ToolQuotationInstruction(string productName, string targetKeyword) =>
         "QUOTE " + productName + " ONCE, IN THEIR OWN WORDS: this page carries at most one block "
-        + "quotation -- a paragraph of type \"quote\" -- and only when a listed span earns it. Choose it from the "
-        + "numbered QUOTABLE SPANS below and answer with its number: {\"type\":\"quote\","
-        + "\"candidate\":<number>,\"runs\":[],\"cite\":null}. Do not write the sentence out, and do "
-        + "not shorten, edit or combine spans -- the words and the cite are taken from the list by "
-        + "that number, not from your reply, so anything you type into the quotation is discarded "
-        + "and a number that is not on the list is refused.\n"
+        + "quotation of " + productName + " chosen by number, a paragraph of type \"quote\" with a "
+        + "\"candidate\", and only when a listed span earns it. A point of law's quotation, where POINT OF "
+        + "LAW below asks for one, is the one other block quotation this page carries, written out from a "
+        + "passage with no number. Choose " + productName + "'s from the numbered QUOTABLE SPANS below and answer with its "
+        + "number: {\"type\":\"quote\",\"candidate\":<number>,\"runs\":[],\"cite\":null}. Do not write "
+        + "the sentence out, and do not shorten, edit or combine spans -- the words and the cite are taken "
+        + "from the list by that number, not from your reply, so anything you type into the quotation is "
+        + "discarded, and a number that is not on the list is a quotation of nothing, deleted from the page.\n"
         + "WHAT THE QUOTE MUST SAY: how " + productName + " solves the problem this page is about -- "
         + "the pain of doing " + targetKeyword
         + " the manual or status-quo way, and what their product does about it. Choose the span that "
@@ -1316,11 +1361,11 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         + "top, not left to the end as decoration. "
         + "What it may not be: a paraphrase tidied into quotation marks, a claim you are confident "
         + "they make, wording assembled from several places, or a sentence of your own typed into a "
-        + "quote paragraph without a number. If no listed span says it, it is not quotable, and the "
-        + "draft is rejected rather than published with an invented one.";
+        + "quote paragraph without a number. If no listed span says it, it is not quotable: a quotation "
+        + "that matches no listed span and no passage is deleted from the page, and the page is kept.";
 
     /// <summary>
-    /// The spans the writer may quote -- the same list GccToolQuoteGuard will check the draft
+    /// The spans the writer may quote -- the same list GccQuotations resolves the draft's quotation
     /// against.
     /// </summary>
     /// <remarks>
@@ -2386,6 +2431,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                 "a section coming in at half of it has not finished making its point, it has not been written concisely.")
             .AppendLine(NoToolsSectionInstruction)
             .AppendLine(ToolsAsSolutionInstruction)
+            .AppendLine(PointOfLawFor(evidenceBlock))
             .AppendLine();
 
         user.AppendLine(BuildBriefBodyGuidance(context, withAngle: true));
@@ -2830,6 +2876,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
             .AppendLine(batchIndex == 0
                 ? ToolQuotationInstruction(app.Name, context.TargetKeyword)
                 : ToolQuotationWrittenElsewhere(app.Name))
+            .AppendLine(PointOfLawFor(evidenceBlock))
             .AppendLine(batchIndex == 0 && quoteCandidates is { Count: > 0 }
                 ? QuotableSpansBlock(quoteCandidates)
                 : string.Empty)

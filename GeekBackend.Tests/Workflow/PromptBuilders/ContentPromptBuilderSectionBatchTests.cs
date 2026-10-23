@@ -305,7 +305,7 @@ public class ContentPromptBuilderSectionBatchTests
             // blocks with the names swapped -- so the ban has to name it, not just ban headings.
             Assert.Contains("NO DEDICATED OR REPEATABLE FORMAT", prompt, StringComparison.Ordinal);
             Assert.Contains("not a paragraph per tool", prompt, StringComparison.Ordinal);
-            Assert.Contains("Do not quote", prompt, StringComparison.Ordinal);
+            Assert.Contains("No block quotation of your own", prompt, StringComparison.Ordinal);
         }
     }
 

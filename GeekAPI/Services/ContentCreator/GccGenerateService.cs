@@ -1732,19 +1732,20 @@ public partial class GccGenerateService
                             .Where(b => !string.IsNullOrWhiteSpace(b))),
                 create is null ? null : CompetitorPagesThatGiveWay(create));
 
-            // Snap first, judge second. The writer copies a candidate's words and copying drifts -- a
-            // live run lost AvidXchange's page to a shortened span with an ellipsis added. Snapping
-            // restores the system's own string for anything that matches a candidate; the guard still
-            // refuses anything that matches none. A quotation chosen by number carries empty runs
-            // until it is snapped, so it would be refused without this.
-            List<Section> sections = create is null
-                ? written
-                : [.. Guardrail.GccToolQuoteGuard.SnapQuotesToCandidates(written, quoteCandidates)];
+            // Every block quotation resolved first, before anything else reads the page: the partner's
+            // by its number, a point of law's by its words on a page the writer was shown, the cite
+            // written by code. What matches nothing is deleted and named, and the page is kept
+            // (GccQuotations; Jeff, 2026-10-22). A quotation chosen by number carries empty runs until
+            // it is resolved.
+            var (toolHook, resolved) = await ResolveQuotationsAsync(
+                $"the tool page '{name}'", "tool page", toolLede with { Tag = "h2" }, written,
+                new Guardrail.GccQuotations.Evidence(create is null ? null : quoteCandidates, QuotablePages(toolResearch), name),
+                shortfalls);
             // The keyword's shortenings put back on the opening and the body as written, before anything
             // code builds joins them.
             var (toolOpening, toolBody) = await RemapKeywordAsync(
-                $"the tool page '{name}'", toolLede with { Tag = "h2" }, sections, toolOutlineCtx.Context.TargetKeyword);
-            sections = toolBody;
+                $"the tool page '{name}'", toolHook, resolved, toolOutlineCtx.Context.TargetKeyword);
+            List<Section> sections = toolBody;
             // A tool page links no other tool page (GuardInputsFor hands it none), so nothing is linked here.
             sections = await LinkToolsAsync($"the tool page '{name}'", sections, []);
             // Every figure in the opening and the body cited to the page it is on, before the closing
@@ -2800,15 +2801,22 @@ public partial class GccGenerateService
                 blogResearch,
                 carries => WithForeignAmountsNamed(BlogEvidenceWith(carries), blogForeignAmounts),
                 CompetitorPagesThatGiveWay(create));
+            // Every block quotation resolved first: a point of law's, by its words on a page the writer
+            // was shown, cited by code; what matches nothing is deleted and named, and the page is kept
+            // (GccQuotations; Jeff, 2026-10-22: "and blog posts").
+            var blogResearchDocument = GccResearchFetchService.Deserialize(create.ResearchJson);
+            var (blogHook, blogResolved) = await ResolveQuotationsAsync(
+                "the blog", "blog", blogLede with { Tag = "h2" }, sections,
+                new Guardrail.GccQuotations.Evidence(null, QuotablePages(blogResearchDocument), null), shortfalls);
             // The keyword's shortenings put back on the opening and the body as written, then the links,
             // the closing and the FAQ, none of which is remapped.
             var (blogOpening, blogBody) = await RemapKeywordAsync(
-                "the blog", blogLede with { Tag = "h2" }, sections, blogPromptCtx.Context.TargetKeyword);
+                "the blog", blogHook, blogResolved, blogPromptCtx.Context.TargetKeyword);
             sections = blogBody;
             sections = await LinkToolsAsync("the blog", sections, blogPromptCtx.Context.KnownCrawlTools ?? []);
             (blogOpening, sections) = await CiteFiguresAsync(
                 "the blog", "blog", blogOpening, sections,
-                SourcesFor(create, blogPromptCtx.Context, partnerUrls, GccResearchFetchService.Deserialize(create.ResearchJson)), shortfalls);
+                SourcesFor(create, blogPromptCtx.Context, partnerUrls, blogResearchDocument), shortfalls);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (blogFaq is not null) sections.Add(blogFaq);
             shortfalls.AddRange(blogFaqGaps);
@@ -3906,6 +3914,45 @@ public partial class GccGenerateService
             OperatorsOwnWords(create));
     }
 
+    /// <summary>The pages a writer was shown and may quote: the partners' pages, then the publisher's own. Never a competitor's.</summary>
+    private static IReadOnlyList<GccQuoteablePage> QuotablePages(GccResearchDocument? research) =>
+        [.. research?.Quoteables ?? [], .. research?.SiteQuoteables ?? []];
+
+    /// <summary>
+    /// The opening and the body with every block quotation resolved (<see cref="Guardrail.GccQuotations"/>):
+    /// the partner's by its number, a point of law's by its words on a page the writer was shown, each
+    /// cited to its page by code. What matched nothing is deleted, named for the operator in one line, and
+    /// on the run's record with what was kept (<c>quotations</c>). Nothing here refuses.
+    /// </summary>
+    /// <remarks>
+    /// Before the keyword remap, the linker, the citations, the closing and the FAQ: every later step reads
+    /// the page with its quotations as they will be saved, and the steps that skip a quotation skip the
+    /// source's words, not the writer's.
+    /// </remarks>
+    private static async Task<(Section Lede, List<Section> Sections)> ResolveQuotationsAsync(
+        string label,
+        string type,
+        Section lede,
+        IReadOnlyList<Section> sections,
+        Guardrail.GccQuotations.Evidence evidence,
+        List<string> shortfalls)
+    {
+        var result = Guardrail.GccQuotations.Resolve(lede, sections, evidence);
+        if (result.Kept.Count > 0 || result.Deleted.Count > 0)
+        {
+            await GccRunLog.RecordIfAnyAsync("quotations", new
+            {
+                label,
+                kept = result.Kept.Select(q => new { heading = q.Heading, text = q.Text, url = q.Url, span = q.Span }).ToList(),
+                deleted = result.Deleted.Select(q => new { heading = q.Heading, text = q.Text, why = q.Why }).ToList(),
+                headings = result.Headings,
+            });
+        }
+
+        if (Guardrail.GccQuotations.Line(type, result) is { } line) shortfalls.Add(line);
+        return (result.Lede, [.. result.Sections]);
+    }
+
     /// <summary>
     /// The opening and the body with every figure cited to the research page it is on
     /// (<see cref="Guardrail.GccFigureSources"/>), every citation and every sentence that could be cited
@@ -4024,6 +4071,13 @@ public partial class GccGenerateService
         foreach (var page in (research?.Quoteables ?? []).Concat(research?.SiteQuoteables ?? []))
         {
             if (!string.IsNullOrWhiteSpace(page.Url)) allowedUrls.Add(page.Url.Trim());
+        }
+
+        // The pages the listed spans were cut from: each is printed to the writer with its span, and a
+        // quotation chosen by number is cited to it by GccQuotations.
+        foreach (var candidate in quoteCandidates ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(candidate.PageUrl)) allowedUrls.Add(candidate.PageUrl.Trim());
         }
 
         var publisherHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

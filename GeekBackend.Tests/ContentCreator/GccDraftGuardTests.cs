@@ -279,13 +279,39 @@ public class GccDraftGuardTests
     }
 
     [Fact]
-    public void A_quotation_on_a_pillar_or_blog_is_refused()
+    public void A_quotation_cited_to_a_page_the_writer_was_shown_passes_on_every_page()
     {
-        var doc = Doc(Body("Proof", new QuoteParagraph([new Run("We love it.")], PartnerPage)));
+        // GccQuotations has matched its words to the page and written the page as its cite; the guard
+        // reads the cite. A point of law's quotation on a pillar or a blog (Jeff, 2026-10-22) is this.
+        var doc = Doc(Body("The rule", Text("The threshold:"), new QuoteParagraph([new Run("Sales above $100,000 oblige registration.")], PartnerPage)));
 
-        Assert.Contains("no-quotation", Failed(GccDraftGuard.Pillar(doc, Inputs())));
-        Assert.Contains("no-quotation", Failed(GccDraftGuard.Blog(doc, Inputs())));
-        Assert.All(GccDraftGuard.Blog(doc, Inputs()).Findings.Where(f => f.Check == "no-quotation"), f => Assert.True(f.Refuses));
+        Assert.DoesNotContain("quotation", Failed(GccDraftGuard.Pillar(doc, Inputs(numberEvidence: "$100,000"))));
+        Assert.DoesNotContain("quotation", Failed(GccDraftGuard.Blog(doc, Inputs(numberEvidence: "$100,000"))));
+        Assert.DoesNotContain("quotation", Failed(GccDraftGuard.Tool(doc, Inputs(numberEvidence: "$100,000", requiredTools: ["Melio"]))));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("https://irs.gov/a-page-nobody-retrieved")]
+    public void A_quotation_cited_to_no_page_the_writer_was_shown_is_refused_on_every_page(string? cite)
+    {
+        // Never on the live path: GccQuotations deletes such a quotation and keeps the page. This is the
+        // boundary for a path without that step.
+        var doc = Doc(Body("Proof", new QuoteParagraph([new Run("We love it.")], cite)));
+
+        foreach (var verdict in new[]
+                 {
+                     GccDraftGuard.Pillar(doc, Inputs()),
+                     GccDraftGuard.Blog(doc, Inputs()),
+                     GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Proof"])),
+                 })
+        {
+            var finding = Assert.Single(verdict.Findings, f => f.Check == "quotation");
+            Assert.True(finding.Refuses);
+            Assert.Contains("\"We love it.\" under \"Proof\"", finding.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("no-quotation", Failed(verdict));
+        }
     }
 
     [Theory]
@@ -630,15 +656,43 @@ public class GccDraftGuardTests
     }
 
     [Fact]
-    public void A_tool_page_with_two_quotations_is_refused()
+    public void A_tool_page_with_its_partners_quotation_and_a_point_of_law_passes()
+    {
+        // Two quotations, both cited to the partner's pages: the one chosen by number and a point of law
+        // written out. Until 2026-10-22 a second quotation refused the page; GccQuotations now keeps one
+        // chosen by number and any number of a point of law's, and the guard counts nothing.
+        var candidates = new[] { new GccQuoteCandidate(1, "Melio pays bills from your bank.", PartnerPage, "Pay bills") };
+        var partner = new QuoteParagraph([new Run("Melio pays bills from your bank.")], PartnerPage);
+        var law = new QuoteParagraph([new Run("A payment over $10,000 is reported.")], "https://melio.test/compliance");
+        var doc = Doc(Body("Melio at work", Text("Melio moves the money."), partner, law));
+
+        var inputs = Inputs(requiredTools: ["Melio"], candidates: candidates, numberEvidence: "$10,000") with
+        {
+            AllowedLinkUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { PartnerPage, "https://melio.test/compliance" },
+        };
+
+        var verdict = GccDraftGuard.Tool(doc, inputs);
+
+        Assert.DoesNotContain("quotation", Failed(verdict));
+        Assert.DoesNotContain("one-quotation", Failed(verdict));
+        Assert.DoesNotContain(verdict.Findings, f => f.Check == "blockquote-missing");
+    }
+
+    [Fact]
+    public void A_tool_page_whose_only_quotation_is_of_the_publishers_own_page_still_lists_the_partners_as_missing()
     {
         var candidates = new[] { new GccQuoteCandidate(1, "Melio pays bills from your bank.", PartnerPage, "Pay bills") };
-        var quote = new QuoteParagraph([new Run("Melio pays bills from your bank.")], PartnerPage, Candidate: 1);
-        var doc = Doc(Body("Melio at work", Text("Melio moves the money."), quote, quote));
+        var doc = Doc(Body("Melio at work", Text("Melio moves the money."), new QuoteParagraph([new Run("Our method.")], OwnPage)));
+        var inputs = Inputs(requiredTools: ["Melio"], candidates: candidates) with
+        {
+            AllowedLinkUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { PartnerPage, OwnPage },
+        };
 
-        var verdict = GccDraftGuard.Tool(doc, Inputs(requiredTools: ["Melio"], candidates: candidates));
+        var verdict = GccDraftGuard.Tool(doc, inputs);
 
-        Assert.Equal(["one-quotation"], Failed(verdict));
+        Assert.DoesNotContain("quotation", Failed(verdict));
+        var gap = Assert.Single(verdict.Findings, f => f.Check == "blockquote-missing");
+        Assert.False(gap.Refuses);
     }
 
     [Fact]

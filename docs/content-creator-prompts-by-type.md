@@ -166,8 +166,14 @@ TOOLS ARE THE SOLUTION: this page must discuss the partner tools as the answer t
 - Express the problem in the reader's own terms first -- the workflow bottleneck the keyword implies -- then work through the solutions the tool or tools provide.
 - NO DEDICATED OR REPEATABLE FORMAT. Not a section for this, not a paragraph per tool, not the same sentence shape five times with the names swapped. Each tool appears where the argument reaches it, at the length that point deserves. A reader must not be able to see the template.
 - Write the mechanics, not the marketing. Translate what the evidence says the tool does into how it removes that specific friction, in your own editorial voice. Do not reuse vendor slogans, buzzwords or self-promotional phrasing from the source, and do not describe the product in general -- only what it does about this problem.
-- Do not quote. No blockquotes, no pull-quotes, no verbatim testimonial lines; this is analysis in your voice. Claims still come from the supplied evidence, not from what you already believe about these products.
+- No block quotation of your own: no pull-quote, no verbatim testimonial line; this is analysis in your voice. A point of law's quotation, where POINT OF LAW below asks for one, is the one exception. Claims still come from the supplied evidence, not from what you already believe about these products.
 - Every declared partner tool is discussed on this basis and linked to its tool page at its first substantive mention. A tool named without saying what it solves has not been discussed.
+```
+
+**Straight after it on every body call of the pillar, the blog and the tool page that carries an evidence block, which is every Content Creator body call and none of the Workflow product's (2026-10-22; `ContentPromptBuilder.PointOfLawInstruction`).** The quotation it asks for is written out and found by its words on a page the writer was shown; `GccQuotations` writes the page's address as its cite and deletes one that matches no passage, keeping the page.
+
+```
+A POINT OF LAW IS QUOTED FROM A PASSAGE, OR IT IS NOT STATED: what a statute, a regulation, an agency's rule or a tax requirement requires (a threshold, a rate, a deadline, a filing, a penalty, who counts as an employee or a contractor) is stated only as a passage in the evidence states it, and that passage's own sentence goes on the page as a block quotation where the point is made, with a sentence of yours before it saying whose page it comes from: {"type":"quote","runs":[{"text":"<the passage's sentence, character for character>"}],"cite":null}. Copy it whole: do not shorten it, join sentences from different places, or change a word. Code matches the quotation to the passage and writes the page's address as its cite; a quotation that matches no passage is deleted from the page. Where the piece turns on a point of law that no passage states, do not state it: name the agency that decides it (the IRS, the state's department of revenue, the state's labor department) and say in that same sentence that the reader's accountant or employment attorney makes the call. In the sentence, never as a note, a disclaimer or a label.
 ```
 
 **[SCORED ON]**, the batched form. The floor comes from the scorer's own rules: pillar 3,000 words, blog 1,800, tool 3,000.
@@ -532,6 +538,7 @@ Name the product and its specifics concretely. A page that could be about any to
 === ASSIGNMENT ===
 {first call only: the quotation instruction, below, then the QUOTABLE SPANS list}
 {every later call: the "no quotation in this part" instruction, below}
+{every call: the POINT OF LAW instruction of section 2}
 
 No introductory paragraphs before the first section.
 Write {n} top-level (h2) sections, in this order. Each entry says what that section is responsible for; you write its heading:
@@ -567,10 +574,10 @@ narrative punch only if explicitly labeled hypothetical/illustrative — avoid r
 **The quotation instruction (first call only).**
 
 ```
-QUOTE {P} ONCE, IN THEIR OWN WORDS: this page carries exactly one block quotation -- a paragraph of type "quote" -- and it is required. Choose it from the numbered QUOTABLE SPANS below and answer with its number: {"type":"quote","candidate":<number>,"runs":[],"cite":null}. Do not write the sentence out, and do not shorten, edit or combine spans -- the words and the cite are taken from the list by that number, not from your reply, so anything you type into the quotation is discarded and a number that is not on the list is refused.
+QUOTE {P} ONCE, IN THEIR OWN WORDS: this page carries at most one block quotation of {P} chosen by number, a paragraph of type "quote" with a "candidate", and only when a listed span earns it. A point of law's quotation, where POINT OF LAW below asks for one, is the one other block quotation this page carries, written out from a passage with no number. Choose {P}'s from the numbered QUOTABLE SPANS below and answer with its number: {"type":"quote","candidate":<number>,"runs":[],"cite":null}. Do not write the sentence out, and do not shorten, edit or combine spans -- the words and the cite are taken from the list by that number, not from your reply, so anything you type into the quotation is discarded, and a number that is not on the list is a quotation of nothing, deleted from the page.
 WHAT THE QUOTE MUST SAY: how {P} solves the problem this page is about -- the pain of doing {kw} the manual or status-quo way, and what their product does about it. Choose the span that states a capability, a mechanism or a measured outcome against that problem.
 NOT a compliment and NOT a testimonial: "we love it", "the team has been great", "best decision we made" say nothing about the problem and do not qualify however warmly they read. A general description of the product with no problem attached does not qualify either. If no span in front of you says how the problem is solved, there is no quotation to write -- say so by writing none rather than stretching the nearest sentence to fill the slot.
-Put it in the section whose point it supports, where the reader has just been told something and the quote is {P} saying it themselves -- not stacked at the top, not left to the end as decoration. What it may not be: a paraphrase tidied into quotation marks, a claim you are confident they make, wording assembled from several places, or a sentence of your own typed into a quote paragraph without a number. If no listed span says it, it is not quotable, and the draft is rejected rather than published with an invented one.
+Put it in the section whose point it supports, where the reader has just been told something and the quote is {P} saying it themselves -- not stacked at the top, not left to the end as decoration. What it may not be: a paraphrase tidied into quotation marks, a claim you are confident they make, wording assembled from several places, or a sentence of your own typed into a quote paragraph without a number. If no listed span says it, it is not quotable: a quotation that matches no listed span and no passage is deleted from the page, and the page is kept.
 QUOTABLE SPANS -- the only wording this page may quote, by number:
 1. "{span}"  [cite: {page url}]
 ```
@@ -578,7 +585,7 @@ QUOTABLE SPANS -- the only wording this page may quote, by number:
 **Every later call instead:**
 
 ```
-NO QUOTATION IN THIS PART: this page's one block quotation of {P} is written by another call. Write no paragraph of type "quote" here. When a section needs what {P} says, put it in your own words and attribute it in words: name the product or the page it comes from. You write no URL and no link anywhere; code places every link.
+NO QUOTATION IN THIS PART BUT A POINT OF LAW'S: this page's one block quotation of {P} chosen by number is written by another call. Write no paragraph of type "quote" here but a point of law's, where POINT OF LAW below asks for one. When a section needs what {P} says, put it in your own words and attribute it in words: name the product or the page it comes from. You write no URL and no link anywhere; code places every link.
 ```
 
 ## 6. Things noticed while generating this, not changed

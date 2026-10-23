@@ -76,7 +76,7 @@ public sealed record ListParagraph(bool Ordered, IReadOnlyList<IReadOnlyList<Run
 /// <param name="Candidate">
 /// The number of the quotable span this quotation was chosen from, when the writer was shown a
 /// numbered list (<c>GccQuoteCandidates</c>). Set, it is the whole answer: the words and the cite are
-/// read back from that list by <c>GccToolQuoteGuard.SnapQuotesToCandidates</c>, and whatever the
+/// read back from that list by <c>GccQuotations.Resolve</c>, and whatever the
 /// model typed into <paramref name="Runs"/> is discarded. A resolved quotation carries null here --
 /// the number is a selector on the way in, not a fact about the page.
 /// </param>

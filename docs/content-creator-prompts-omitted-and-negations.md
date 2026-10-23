@@ -630,8 +630,11 @@ Counted across the six generated prompts (the three types' ledes and bodies, sys
 - A reader must not be able to see the template.
 - - Write the mechanics, not the marketing.
 - Do not reuse vendor slogans, buzzwords or self-promotional phrasing from the source, and do not describe the product in general -- only what it does about this problem.
-- - Do not quote.
-- No blockquotes, no pull-quotes, no verbatim testimonial lines; this is analysis in your voice.
+- - No block quotation of your own:
+- no pull-quote, no verbatim testimonial line; this is analysis in your voice.
+- A POINT OF LAW IS QUOTED FROM A PASSAGE, OR IT IS NOT STATED (2026-10-22, every body call of the pillar, the blog and the tool page): Copy it whole: do not shorten it, join sentences from different places, or change a word.
+- Where the piece turns on a point of law that no passage states, do not state it: name the agency that decides it (the IRS, the state's department of revenue, the state's labor department) and say in that same sentence that the reader's accountant or employment attorney makes the call.
+- In the sentence, never as a note, a disclaimer or a label.
 - Claims still come from the supplied evidence, not from what you already believe about these products.
 - A tool named without saying what it solves has not been discussed.
 - A short batch is not made up by another one; it is simply the page arriving under the floor.
@@ -700,14 +703,15 @@ Counted across the six generated prompts (the three types' ledes and bodies, sys
 - Equal to a Pillar page in ambition, not a thinner treatment -- {n} substantial sections, not four.
 - This word target is for the {n} sections above only -- a separate FAQ section, when the tool has partner FAQ data, is generated afterward and is additional, not part of this budget.
 - {last call only:} Place it after the reader has reason to act — never a banner, never repeated per section.
-- Do not write the sentence out, and do not shorten, edit or combine spans -- the words and the cite are taken from the list by that number, not from your reply, so anything you type into the quotation is discarded and a number that is not on the list is refused.
+- Do not write the sentence out, and do not shorten, edit or combine spans -- the words and the cite are taken from the list by that number, not from your reply, so anything you type into the quotation is discarded, and a number that is not on the list is a quotation of nothing, deleted from the page.
 - NOT a compliment and NOT a testimonial:
 - "we love it", "the team has been great", "best decision we made" say nothing about the problem and do not qualify however warmly they read.
 - A general description of the product with no problem attached does not qualify either.
 - Put it in the section whose point it supports, where the reader has just been told something and the quote is {P} saying it themselves -- not stacked at the top, not left to the end as decoration.
 - What it may not be: a paraphrase tidied into quotation marks, a claim you are confident they make, wording assembled from several places, or a sentence of your own typed into a quote paragraph without a number.
-- If no listed span says it, it is not quotable, and the draft is rejected rather than published with an invented one.
-- NO QUOTATION IN THIS PART: this page's one block quotation of {P} is written by another call.
+- If no listed span says it, it is not quotable: a quotation that matches no listed span and no passage is deleted from the page, and the page is kept.
+- NO QUOTATION IN THIS PART BUT A POINT OF LAW'S: this page's one block quotation of {P} chosen by number is written by another call.
+- Write no paragraph of type "quote" here but a point of law's, where POINT OF LAW below asks for one.
 - When a section needs what {P} says, put it in your own words and attribute it in words: name the product or the page it comes from. You write no URL and no link anywhere; code places every link.
 
 ### content-creator-prompts-omitted-and-negations :: A1. Pillar metadata (plans the title, standfirst, meta description and outline)

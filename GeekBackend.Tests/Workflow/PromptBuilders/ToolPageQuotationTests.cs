@@ -17,8 +17,9 @@ namespace GeekBackend.Tests.Workflow.PromptBuilders;
 /// <para>
 /// A tool page is an advertisement for that partner, which is what makes the quote box belong on
 /// it -- so it is a required element of the type, not an option the writer weighs. These assert the
-/// prompt asks unconditionally; <see cref="GeekBackend.Tests.ContentCreator.GccToolQuoteGuardTests"/>
-/// asserts the code that refuses a draft without one, because an instruction is not enforcement.
+/// prompt asks unconditionally; <see cref="GeekBackend.Tests.ContentCreator.GccQuotationsTests"/>
+/// asserts the code that resolves one by its number and deletes an invented one, keeping the page,
+/// because an instruction is not enforcement.
 /// </para>
 /// </summary>
 public class ToolPageQuotationTests
@@ -85,7 +86,7 @@ public class ToolPageQuotationTests
         Assert.Contains("QUOTABLE SPANS", first, StringComparison.Ordinal);
         Assert.DoesNotContain("this page carries at most one block quotation", later, StringComparison.Ordinal);
         Assert.DoesNotContain("QUOTABLE SPANS", later, StringComparison.Ordinal);
-        Assert.Contains("is written by another call. Write no paragraph of type \"quote\" here.", later, StringComparison.Ordinal);
+        Assert.Contains("is written by another call. Write no paragraph of type \"quote\" here but a point of law's, where POINT OF LAW below asks for one.", later, StringComparison.Ordinal);
         // A later batch attributes in words, and writes no link: the writer has written none since
         // 2026-10-10, and a figure's citation is placed by code (GccFigureSources). Until 2026-10-22 this
         // line still asked for the page's URL as a run's href, which the parser then dropped.
@@ -128,13 +129,14 @@ public class ToolPageQuotationTests
     }
 
     [Fact]
-    public void The_prompt_says_the_draft_is_rejected_rather_than_published_with_an_invented_quote()
+    public void The_prompt_says_an_invented_quotation_is_deleted_and_the_page_is_kept()
     {
-        // The prompt and GccToolQuoteGuard have to describe the same consequence, or the writer is
+        // The prompt and GccQuotations have to describe the same consequence, or the writer is
         // being asked to guess which one is real.
         var system = ToolPrompt("{}");
 
-        Assert.Contains("the draft is rejected rather than published with an invented one", system, StringComparison.Ordinal);
+        Assert.Contains("a quotation that matches no listed span and no passage is deleted from the page, and the page is kept", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("is rejected rather than published", system, StringComparison.Ordinal);
     }
 
     [Fact]

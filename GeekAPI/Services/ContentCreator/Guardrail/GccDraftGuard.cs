@@ -77,7 +77,7 @@ public sealed record GccGuardInputs(
 /// </para>
 /// <para>
 /// It also makes four promises the prompts already make true in code, where nothing checked them:
-/// no quotation on a pillar or blog; exactly one on a tool page; no link to anywhere but the
+/// every quotation cited to a page the writer was shown; no link to anywhere but the
 /// publisher, the scheduler and the evidence the writer was given -- which is the only way "never cite
 /// or link a competitor" holds, since competitor URLs are printed into the prompt; and no number the
 /// evidence does not contain.
@@ -111,23 +111,19 @@ public static partial class GccDraftGuard
                 Refuses: true));
         }
 
+        // Every quotation on the page is cited to a page the writer was shown, or the page is refused.
+        // GccQuotations.Resolve has already made that so, deleting what matched nothing (Jeff,
+        // 2026-10-22: "delete the invented quotation, do not make me pay for the page and get nothing!"),
+        // so on the live path this finds nothing; it is the boundary all the same.
+        AddQuotationFindings(document, inputs, findings, "tool page");
+
         // No candidates is the legacy path with no create and no partner evidence: there is nothing a
-        // quotation could be checked against, so none is required. With candidates, a quotation
-        // that is present is held to them -- invented or misattributed words refuse the page -- but a
-        // page with none ships and says so (Jeff, 2026-10-08: do not fail the page when no fitting
+        // quotation could be chosen from, so none is required. With candidates, a page with no quotation
+        // of its partner ships and says so (Jeff, 2026-10-08: do not fail the page when no fitting
         // quotation was found). The gap is reported with the draft; nothing is substituted for it.
         if (inputs.QuoteCandidates is not null)
         {
-            var quoteViolations = GccToolQuoteGuard.FindViolations(sections, inputs.QuoteCandidates);
-            if (quoteViolations.Count > 0)
-            {
-                findings.Add(new GccGuardFinding(
-                    "quotation",
-                    "The tool page does not carry a verifiable block quotation. " + string.Join(" ", quoteViolations),
-                    Refuses: true));
-            }
-
-            var missing = GccToolQuoteGuard.MissingQuotation(sections, inputs.QuoteCandidates);
+            var missing = GccQuotations.MissingPartnerQuotation(document, inputs.QuoteCandidates);
             if (missing is not null)
             {
                 findings.Add(new GccGuardFinding(
@@ -135,15 +131,6 @@ public static partial class GccDraftGuard
                     missing + " The page ships without one; the writer found no listed span that answers the problem.",
                     Refuses: false));
             }
-        }
-
-        var quotes = CountQuotes(document);
-        if (quotes > 1)
-        {
-            findings.Add(new GccGuardFinding(
-                "one-quotation",
-                $"The tool page carries {quotes} block quotations; it carries exactly one.",
-                Refuses: true));
         }
 
         AddLinkFindings(document, inputs, findings);
@@ -193,18 +180,11 @@ public static partial class GccDraftGuard
             }
         }
 
-        // The prompt says "Do not quote. No blockquotes" for these two types. The parser accepts a
-        // quote paragraph from any type and no quote guard runs on them, so a pillar could ship a
-        // quotation nobody verified under a cite nobody checked.
-        var quotes = CountQuotes(document);
-        if (quotes > 0)
-        {
-            findings.Add(new GccGuardFinding(
-                "no-quotation",
-                $"The {type} carries {quotes} block quotation(s). A {type} does not quote; only a tool page "
-                + "carries a quotation, and only one checked against the partner's own words.",
-                Refuses: true));
-        }
+        // A pillar or a blog quotes one thing: a point of law, in a passage's own words (Jeff,
+        // 2026-10-22). GccQuotations.Resolve has matched every quotation to a page the writer was shown
+        // and written that page as its cite, or deleted it; this refuses whatever a path without that
+        // step would let through. Until 2026-10-22 any quotation at all refused these two types.
+        AddQuotationFindings(document, inputs, findings, type);
 
         AddLinkFindings(document, inputs, findings);
         AddLinkTextFindings(document, findings);
@@ -780,6 +760,46 @@ public static partial class GccDraftGuard
 
     private static int CountQuotes(ContentDocument document) =>
         AllSections(document).Sum(s => s.Paragraphs.Count(p => p is QuoteParagraph));
+
+    /// <summary>
+    /// A block quotation whose cite is not the address of a page the writer was shown refuses the page.
+    /// </summary>
+    /// <remarks>
+    /// On the live path this never fires: <see cref="GccQuotations.Resolve"/> has already matched every
+    /// quotation's words to a page and written that page's address as its cite, or deleted the quotation
+    /// and kept the page (Jeff, 2026-10-22). This is the boundary all the same. The parser accepts a quote
+    /// paragraph from any type with whatever cite the writer typed, so a writer path added without that
+    /// step would otherwise ship a quotation nobody verified under a cite nobody checked.
+    /// </remarks>
+    private static void AddQuotationFindings(
+        ContentDocument document, GccGuardInputs inputs, List<GccGuardFinding> into, string type)
+    {
+        var unverified = new List<string>();
+        foreach (var section in AllSections(document))
+        {
+            foreach (var quote in section.Paragraphs.OfType<QuoteParagraph>())
+            {
+                var cite = quote.Cite?.Trim() ?? string.Empty;
+                if (cite.Length > 0 && inputs.AllowedLinkUrls.Contains(cite)) continue;
+
+                var text = string.Concat(quote.Runs.Select(run => run.Text)).Trim();
+                unverified.Add(
+                    $"\"{Excerpt(text)}\" under \"{section.Heading}\""
+                    + (cite.Length == 0 ? " (no cite)" : $" (cited to {cite})"));
+            }
+        }
+
+        if (unverified.Count == 0) return;
+        into.Add(new GccGuardFinding(
+            "quotation",
+            $"The {type} carries {unverified.Count} block quotation(s) matched to no page the writer was shown: "
+            + string.Join("; ", unverified)
+            + ". A quotation is the source's words on a page in the evidence, cited to it, or it is not on the page.",
+            Refuses: true));
+    }
+
+    private static string Excerpt(string value) =>
+        value.Length <= 80 ? value : value[..80].TrimEnd() + "\u2026";
 
     private static IEnumerable<Section> AllSections(ContentDocument document)
     {

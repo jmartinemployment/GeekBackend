@@ -289,6 +289,7 @@ public partial class ContentPromptBuilder
             .AppendLine("Each section's own tag is \"h2\". Use nested h3 children where a section genuinely has distinct parts, and h4 under an h3 only when that part itself divides — depth where the material has depth, not a fixed lattice on every section.")
             .AppendLine(NoToolsSectionInstruction)
             .AppendLine(ToolsAsSolutionInstruction)
+            .AppendLine(PointOfLawFor(evidenceBlock))
             .AppendLine("Open each section where its own material starts. Somewhere early in the page the practitioner's cost — the delay, the error rate, the wasted hours of the status quo — has to be concrete, but it is one page making one argument: do not restate the pain at the top of every section, and never open with \"AI enables…\", \"Intelligent X is…\", a capability list, or a definition of the technology.")
             .AppendLine("Do not write these as neutral textbook explainers — every subsection should be framed through what an AI implementation " +
                 $"consultancy like {context.PublisherName} ({context.ImplementerPositioning}) actually does about the problem being discussed, not just background education on it.")

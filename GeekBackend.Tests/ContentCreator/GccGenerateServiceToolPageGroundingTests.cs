@@ -33,8 +33,8 @@ public class GccGenerateServiceToolPageGroundingTests
     // Overview is a type of Lede.").
     // The body carries a block quotation of the partner, verbatim from the Citables span the
     // grounded tests supply and cited to the page it came from -- every grounded tool page does,
-    // and GccToolQuoteGuard refuses one that does not (Jeff, 2026-09-26: "I want a blockquote in
-    // each tool").
+    // and GccQuotations deletes one that matches no listed span and no page, keeping the page
+    // (Jeff, 2026-09-26: "I want a blockquote in each tool"; 2026-10-22: delete the invented quotation).
     // The body names the product, because a real tool page does and the generator now refuses one
     // that does not. This fixture said "Body." / "Capabilities." / "Considerations." and would have
     // shipped a page about nothing in particular.

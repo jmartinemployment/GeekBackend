@@ -245,18 +245,25 @@ public partial class GccGenerateService
                 pillarResearch,
                 carries => WithForeignAmountsNamed(PillarEvidenceWith(carries), pillarForeignAmounts),
                 CompetitorPagesThatGiveWay(create));
+            // Every block quotation resolved first: a point of law's, by its words on a page the writer
+            // was shown, cited by code; what matches nothing is deleted and named, and the page is kept
+            // (GccQuotations; Jeff, 2026-10-22).
+            var pillarResearchDocument = GccResearchFetchService.Deserialize(create.ResearchJson);
+            var (pillarHook, pillarResolved) = await ResolveQuotationsAsync(
+                "the pillar", "pillar", lede, sections,
+                new Guardrail.GccQuotations.Evidence(null, QuotablePages(pillarResearchDocument), null), shortfalls);
             // The keyword's shortenings put back on the opening and the body as written, then partner
             // tool pages on the body alone, then the page's own closing, then the section written
             // outside the outline: neither of the last two can carry a tool link, and neither is remapped.
             var (pillarOpening, pillarBody) = await RemapKeywordAsync(
-                "the pillar", lede, sections, pillarPromptCtx.Context.TargetKeyword);
+                "the pillar", pillarHook, pillarResolved, pillarPromptCtx.Context.TargetKeyword);
             sections = pillarBody;
             sections = await LinkToolsAsync("the pillar", sections, pillarPromptCtx.Context.KnownCrawlTools ?? []);
             // Every figure in the opening and the body cited to the page it is on, before the closing
             // and the People Also Ask, which carry the operator's own words and no research.
             (pillarOpening, sections) = await CiteFiguresAsync(
                 "the pillar", "pillar", pillarOpening, sections,
-                SourcesFor(create, pillarPromptCtx.Context, partnerUrls, GccResearchFetchService.Deserialize(create.ResearchJson)), shortfalls);
+                SourcesFor(create, pillarPromptCtx.Context, partnerUrls, pillarResearchDocument), shortfalls);
             sections = GccClosing.AppendTo(sections, ClosingFor(create));
             if (pillarFaq is not null) sections.Add(pillarFaq);
             shortfalls.AddRange(pillarFaqGaps);

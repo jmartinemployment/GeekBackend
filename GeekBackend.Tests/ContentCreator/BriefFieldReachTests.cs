@@ -1796,6 +1796,8 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             "open with a story", "Carry the story forward", "Picture your accounts team", "Marcus Vance", "Sarah Jenkins", "Aris Thorne", "pain first",
             // The twelve-type menu the writer picked a story from, gone 2026-10-22 for the Question lede.
             "Pick ONE ledeType", "Lede types (pick", "\"sceneSetting\"", "\"anecdotal\"", "hook/narrative",
+            // A pillar or a blog quotes a point of law; a quotation is deleted, never the page (2026-10-22).
+            "Do not quote. No blockquotes", "is rejected rather than published",
         ];
 
         foreach (var (label, text) in calls)
@@ -1909,6 +1911,115 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
 
         var lines = saved.RootElement.GetProperty("warnings").EnumerateArray().Select(line => line.GetString() ?? string.Empty).ToList();
         Assert.DoesNotContain(lines, line => line.Contains("no page to cite it to", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Every body request of a pillar, a blog and a tool page is told how a point of law is stated: quoted
+    /// from a passage in a block quotation, or not stated, with the agency and the reader's adviser named
+    /// in the sentence (Jeff, 2026-10-22, from geekatyourspot's audit item 42). Read through the real
+    /// writers, so a body request added later without it fails.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    [InlineData("tool")]
+    public async Task Every_body_request_is_told_a_point_of_law_is_quoted_from_a_passage_or_not_stated(string page)
+    {
+        var calls = await WriteAsync(page, CompleteBrief);
+        var bodies = calls
+            .Where(c => c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(bodies);
+        foreach (var (label, text) in bodies)
+        {
+            Assert.True(text.Contains(ContentPromptBuilder.PointOfLawInstruction, StringComparison.Ordinal), $"{page} '{label}' is not told how a point of law is stated.");
+        }
+    }
+
+    /// <summary>
+    /// A block quotation the writer wrote out, through each page's real writer: one whose words are on a
+    /// research page is kept as that page's own characters with the page as its cite, and one whose words
+    /// are on no page is deleted, the page is saved, and its lines name the quotation and the heading it
+    /// stood under (<see cref="GeekAPI.Services.ContentCreator.Guardrail.GccQuotations"/>).
+    /// </summary>
+    /// <remarks>
+    /// Jeff, 2026-10-22: "delete the invented quotation, do not make me pay for the page and get nothing!",
+    /// "and blog posts". Until then an invented quotation refused a tool page, and any quotation refused a
+    /// pillar or a blog. The writer typed a straight apostrophe where the page has a curly one and typed no
+    /// cite; the saved quotation has the page's apostrophe and the page's address.
+    /// </remarks>
+    [Theory]
+    [InlineData("pillar", "pillar")]
+    [InlineData("blog", "blog")]
+    [InlineData("tool", "tool page")]
+    public async Task A_quotation_is_kept_with_its_pages_address_when_its_words_are_on_a_page_and_deleted_when_they_are_not(
+        string page, string named)
+    {
+        const string PageUrl = "https://partner.test/nexus-guide";
+        const string Passage = "Under the rule, a remote seller\u2019s sales above $100,000 into the state oblige it to register and collect.";
+        const string Typed = "a remote seller's sales above $100,000 into the state oblige it to register and collect";
+        const string Invented = "Any seller with more than 200 separate transactions must register within thirty days.";
+        var research = GccResearchFetchService.Serialize(new GccResearchDocument(
+            SerpIndex: null,
+            Quoteables:
+            [
+                new GccQuoteablePage(
+                    PageUrl, "Nexus guide", [new HeadingDto(2, "Thresholds")],
+                    ["Partner Widget files in every state.", Passage],
+                    RetrievalMode: GccQuoteablePage.RetrievalModeRagChunk),
+            ]));
+
+        var calls = await WriteAsync(
+            page, CompleteBrief, pageResearch: research,
+            firstBody: body => WithQuotations(body, Typed, Invented));
+
+        using var saved = JsonDocument.Parse(calls[^1].Text);
+        var bodyJson = saved.RootElement.GetProperty("body").GetRawText();
+        var body = JsonSerializer.Deserialize<ContentDocument>(bodyJson, GccDocumentJson.Options);
+        Assert.NotNull(body);
+
+        var quotes = QuotesOf(body!).ToList();
+        var kept = Assert.Single(quotes, quote => string.Equals(quote.Cite, PageUrl, StringComparison.Ordinal));
+        Assert.Equal("a remote seller\u2019s sales above $100,000 into the state oblige it to register and collect", string.Concat(kept.Runs.Select(run => run.Text)));
+        Assert.DoesNotContain("200 separate transactions", bodyJson, StringComparison.Ordinal);
+
+        var lines = saved.RootElement.GetProperty("warnings").EnumerateArray().Select(line => line.GetString() ?? string.Empty).ToList();
+        var line = Assert.Single(lines, l => l.Contains("block quotation was deleted", StringComparison.Ordinal));
+        Assert.Contains(
+            $"The {named}: 1 block quotation was deleted because its words are on no page the writer was shown: \"{Invented}\", under \"",
+            line,
+            StringComparison.Ordinal);
+        Assert.EndsWith("The rest of the page is as written.", line, StringComparison.Ordinal);
+        if (page == "tool") Assert.StartsWith("Tool page '", line, StringComparison.Ordinal);
+        Assert.DoesNotContain(lines, l => l.Contains("no page to cite it to", StringComparison.Ordinal));
+    }
+
+    /// <summary>The writer's first body reply with block quotations added to its first section, typed out with no cite.</summary>
+    private static string WithQuotations(string body, params string[] quotations)
+    {
+        var root = System.Text.Json.Nodes.JsonNode.Parse(body)!.AsObject();
+        var paragraphs = root["sections"]!.AsArray()[0]!["paragraphs"]!.AsArray();
+        foreach (var text in quotations)
+        {
+            paragraphs.Add(new System.Text.Json.Nodes.JsonObject
+            {
+                ["type"] = "quote",
+                ["runs"] = new System.Text.Json.Nodes.JsonArray(new System.Text.Json.Nodes.JsonObject { ["text"] = text }),
+                ["cite"] = null,
+            });
+        }
+
+        return root.ToJsonString();
+    }
+
+    /// <summary>Every block quotation of a document, the opening's first.</summary>
+    private static IEnumerable<QuoteParagraph> QuotesOf(ContentDocument document)
+    {
+        static IEnumerable<QuoteParagraph> Of(Section section) =>
+            section.Paragraphs.OfType<QuoteParagraph>().Concat(section.Children.SelectMany(Of));
+
+        return Of(document.Lede).Concat(document.Sections.SelectMany(Of));
     }
 
     /// <summary>Every run list of a document: each text paragraph's runs and each list item's, the opening first.</summary>

@@ -197,7 +197,7 @@ public static class ContentSectionJsonSchema
     /// </para>
     /// <para>
     /// The result was a requirement no legal output could satisfy. The tool body prompt asks for a
-    /// block quotation and lists the spans it may use; <c>GccToolQuoteGuard</c> then refuses the page
+    /// block quotation and lists the spans it may use; the guard of the day then refused the page
     /// for not carrying one. On a real generate that produced
     /// <i>"40 quotable partner span(s) were supplied and none was used"</i> — the model was shown the
     /// list, told to quote from it, and had no way to return a quote. Every test passed throughout,

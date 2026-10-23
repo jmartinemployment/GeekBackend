@@ -70,8 +70,8 @@ public sealed record ContentTypePromptContext(
     string? ToolSlug = null,
     string? ExtractedResearchJson = null,
     /// <summary>
-    /// The spans a tool page may quote, which is the same list GccToolQuoteGuard checks the draft
-    /// against. Both have to read one list: the writer was shown the extraction JSON and told to
+    /// The spans a tool page may quote, which is the same list GccQuotations resolves the draft's
+    /// quotation from. Both have to read one list: the writer was shown the extraction JSON and told to
     /// quote "a testimonial or an isolated claim" from it, so a partner whose extraction filed
     /// nothing under those headings left it with nothing verbatim to use -- while the guard held
     /// spans cut from the retrieved pages it had never seen.
