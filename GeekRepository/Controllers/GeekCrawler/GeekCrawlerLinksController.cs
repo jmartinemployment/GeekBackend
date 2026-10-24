@@ -70,8 +70,8 @@ public class GeekCrawlerLinksController : ControllerBase
             return BadRequest("runId and links are required");
 
         var linkTuples = command.Links.Select(l => (l.PageId, l.FromUrl, l.LinkUrl, l.IsSameOrigin)).ToList();
-        var inserted = await _mongo.InsertLinksIgnoringDuplicatesAsync(command.RunId, linkTuples, ct);
-        return Ok(new { count = inserted });
+        var written = await _mongo.WritePageLinksAsync(command.RunId, linkTuples, ct);
+        return Ok(new { count = written });
     }
 
     public record CreateGeekCrawlerLinkBatchCommand(

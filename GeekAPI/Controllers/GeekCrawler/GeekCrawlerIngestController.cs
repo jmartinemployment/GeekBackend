@@ -883,7 +883,15 @@ public class GeekCrawlerIngestController : ControllerBase
                     $"Could not verify ownership of run {runId:D}: GeekRepository was unreachable. "
                     + "Nothing was written. Retry the request.");
             default:
-                return NotFound();
+                // GeekAPI's own answer, in its own shape. A bare NotFound() carried no body, and the
+                // crawler cannot tell an empty 404 from the one Railway's edge returns while the
+                // service redeploys. Since 2026-10-24 the crawler sends a delete that failed in
+                // transit once more and reads GeekAPI's own 404 as the run being gone, so the body
+                // has to show it is GeekAPI speaking (the crawler's answeredByGeekApi).
+                return Problem(
+                    title: "Run not found",
+                    detail: $"Run {runId:D} does not exist or is not yours.",
+                    statusCode: StatusCodes.Status404NotFound);
         }
     }
 

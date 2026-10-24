@@ -44,6 +44,11 @@ public interface IMongoGeekCrawlerService
     Task<DateTimeOffset?> GetLastCrawledTimeAsync(Guid runId, CancellationToken ct = default);
 
     // WRITE: Pages
+    /// <summary>
+    /// Write pages, once per (RunId, Url). A page already stored under its URL is left as it is and
+    /// its Id is what is answered, so a save the crawler sent again after losing the acknowledgment
+    /// lands once and the links written after it point at the page that exists.
+    /// </summary>
     Task<List<(string Url, Guid PageId)>> CreatePagesBatchAsync(Guid runId, IReadOnlyList<GeekCrawlerPage> pages, CancellationToken ct = default);
 
     // READ: Runs
@@ -133,7 +138,12 @@ public interface IMongoGeekCrawlerService
     Task<GeekCrawlerStorageHeadroom?> GetStorageHeadroomAsync(CancellationToken ct = default);
 
     // WRITE: Links
-    Task<int> InsertLinksIgnoringDuplicatesAsync(Guid runId, IReadOnlyList<(Guid PageId, string FromUrl, string LinkUrl, bool IsSameOrigin)> links, CancellationToken ct = default);
+    /// <summary>
+    /// Write a page's links. A page's links arrive whole in one batch; a second batch for the same
+    /// page is that save sent again after its acknowledgment was lost in transit, so the page's
+    /// links are replaced, never added to. Returns how many links the page now has.
+    /// </summary>
+    Task<int> WritePageLinksAsync(Guid runId, IReadOnlyList<(Guid PageId, string FromUrl, string LinkUrl, bool IsSameOrigin)> links, CancellationToken ct = default);
 
     // WRITE: Schedules
     Task<GeekCrawlerSchedule> CreateScheduleAsync(GeekCrawlerSchedule schedule, CancellationToken ct = default);
@@ -543,8 +553,47 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         try
         {
             var collection = _db.GetCollection<GeekCrawlerPage>("crawl_pages");
-            await collection.InsertManyAsync(pages, cancellationToken: ct);
-            return pages.Select(p => (p.Url, p.Id)).ToList();
+            var stored = new List<(string Url, Guid PageId)>(pages.Count);
+            var alreadyPresent = 0;
+            foreach (var page in pages)
+            {
+                // Written once per (RunId, Url). The crawler sends each URL of a run once, so a
+                // second arrival is the same save sent again after its acknowledgment was lost in
+                // transit; since 2026-10-24 the crawler sends such a save once more (Jeff: a power
+                // loss of about a second on 2026-10-23 cost five crawls one lost save each).
+                // $setOnInsert writes the document only when none is there. A document already
+                // there is left as it is, and its Id is what the crawler is told, so the links it
+                // writes after the retry point at the page that exists. The guarantee is this
+                // write, not a unique index: the live collection held no duplicate (RunId, Url) on
+                // 2026-10-24, and rebuilding an index at startup is a migration with its own failure
+                // mode.
+                var filter = Builders<GeekCrawlerPage>.Filter.And(
+                    Builders<GeekCrawlerPage>.Filter.Eq(p => p.RunId, runId),
+                    Builders<GeekCrawlerPage>.Filter.Eq(p => p.Url, page.Url));
+                var update = new BsonDocument("$setOnInsert", page.ToBsonDocument());
+                var options = new FindOneAndUpdateOptions<GeekCrawlerPage, GeekCrawlerPage>
+                {
+                    IsUpsert = true,
+                    ReturnDocument = ReturnDocument.After,
+                    Projection = Builders<GeekCrawlerPage>.Projection
+                        .Include(p => p.Id)
+                        .Include(p => p.Url),
+                };
+                var document = await collection
+                    .FindOneAndUpdateAsync(filter, update, options, ct)
+                    .ConfigureAwait(false);
+                if (document.Id != page.Id) alreadyPresent++;
+                stored.Add((page.Url, document.Id));
+            }
+            if (alreadyPresent > 0)
+            {
+                _logger.LogInformation(
+                    "Run {RunId}: {Count} of {Batch} page(s) were already stored under their URL and were not written again.",
+                    runId,
+                    alreadyPresent,
+                    pages.Count);
+            }
+            return stored;
         }
         catch (Exception ex)
         {
@@ -1109,7 +1158,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         }
     }
 
-    public async Task<int> InsertLinksIgnoringDuplicatesAsync(
+    public async Task<int> WritePageLinksAsync(
         Guid runId,
         IReadOnlyList<(Guid PageId, string FromUrl, string LinkUrl, bool IsSameOrigin)> links,
         CancellationToken ct = default)
@@ -1121,11 +1170,30 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
         {
             var collection = _db.GetCollection<GeekCrawlerLink>("crawl_links");
             var now = DateTimeOffset.UtcNow;
-            var docsToInsert = new List<GeekCrawlerLink>(links.Count);
+            var written = 0;
 
-            foreach (var link in links)
+            foreach (var page in links.GroupBy(l => l.PageId))
             {
-                docsToInsert.Add(new GeekCrawlerLink
+                // A page's links arrive whole, in one batch: the crawler refuses a page above the
+                // batch cap rather than slicing it. So a batch for a page that already has links is
+                // that save sent again after its acknowledgment was lost in transit (the crawler
+                // sends such a save once more since 2026-10-24), and the page's links are replaced,
+                // never added to. Until then this method inserted one document at a time and caught
+                // duplicate-key errors that no index could raise: ix_crawl_links_run_from_link is
+                // not unique, so a repeated batch would have landed twice.
+                var removed = await collection
+                    .DeleteManyAsync(l => l.RunId == runId && l.PageId == page.Key, ct)
+                    .ConfigureAwait(false);
+                if (removed.DeletedCount > 0)
+                {
+                    _logger.LogInformation(
+                        "Run {RunId}: page {PageId} had {Count} link(s) stored already; replaced by the batch sent again.",
+                        runId,
+                        page.Key,
+                        removed.DeletedCount);
+                }
+
+                var documents = page.Select(link => new GeekCrawlerLink
                 {
                     Id = Guid.NewGuid(),
                     RunId = runId,
@@ -1134,28 +1202,16 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
                     LinkUrl = link.LinkUrl ?? "",
                     IsSameOrigin = link.IsSameOrigin,
                     DiscoveredAtUtc = now,
-                });
+                }).ToList();
+                await collection.InsertManyAsync(documents, cancellationToken: ct).ConfigureAwait(false);
+                written += documents.Count;
             }
 
-            var insertedCount = 0;
-            foreach (var doc in docsToInsert)
-            {
-                try
-                {
-                    await collection.InsertOneAsync(doc, cancellationToken: ct);
-                    insertedCount++;
-                }
-                catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
-                {
-                    continue;
-                }
-            }
-
-            return insertedCount;
+            return written;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to insert links for run {RunId}", runId);
+            _logger.LogError(ex, "Failed to write links for run {RunId}", runId);
             throw;
         }
     }

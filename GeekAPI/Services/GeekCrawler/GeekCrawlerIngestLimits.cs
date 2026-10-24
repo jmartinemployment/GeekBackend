@@ -25,9 +25,10 @@ namespace GeekAPI.Services.GeekCrawler;
 /// does not use Postgres at all</b> (Jeff, 2026-09-29 — a live Postgres use in the crawl path is a
 /// defect to fix on sight, not to document), and the EF layer that made this sentence necessary is
 /// gone. Links go to Mongo via <c>MongoGeekCrawlerService</c>. And it is
-/// <b>not</b> atomicity: <c>InsertLinksIgnoringDuplicatesAsync</c> loops <c>InsertOneAsync</c> per
-/// document and swallows duplicate-key errors individually, so a batch of any size is already N
-/// independent writes with no rollback.
+/// <b>not</b> atomicity: <c>WritePageLinksAsync</c> deletes the page's stored links and inserts the
+/// batch, two writes with no transaction between them, so a batch of any size has no rollback. (Until
+/// 2026-10-24 it inserted one document at a time and caught duplicate-key errors no index could
+/// raise.)
 /// </para>
 ///
 /// <para>
