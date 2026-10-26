@@ -55,7 +55,9 @@ public sealed record GeekCrawlerRunReport
 
     [JsonIgnore]
     public int TotalExcluded =>
-        ExcludedByPolicy.RobotsDisallowed + ExcludedByPolicy.LocaleExcluded;
+        ExcludedByPolicy.RobotsDisallowed + ExcludedByPolicy.LocaleExcluded
+        + ExcludedByPolicy.NonContentDirectory + ExcludedByPolicy.OffSiteRedirect
+        + ExcludedByPolicy.RequiresJavascript;
 
     /// <summary>
     /// Attempted pages that produced nothing, as a share of everything attempted excluding policy
@@ -109,6 +111,19 @@ public sealed record GeekCrawlerExcludedByPolicy
 
     /// <summary>Locale duplicates of pages already held in the primary language.</summary>
     public int LocaleExcluded { get; init; }
+
+    /// <summary>Under a directory that is never corpus: legal, privacy, terms, cookies, careers.</summary>
+    public int NonContentDirectory { get; init; }
+
+    /// <summary>
+    /// Redirected to another site. That site's page, not this crawl's: Moosend's partner crawl of
+    /// 2026-10-25 saved seven pages that landed on other companies' sites, and the index then
+    /// answered Moosend's run for activecampaign.com (2026-10-26). The crawler rejects them since.
+    /// </summary>
+    public int OffSiteRedirect { get; init; }
+
+    /// <summary>Needs JavaScript to render. Out of scope for a static crawler, not broken.</summary>
+    public int RequiresJavascript { get; init; }
 }
 
 /// <summary>Pages the crawler attempted and did not get. Each cause is separately actionable.</summary>

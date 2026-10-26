@@ -181,4 +181,55 @@ public sealed class HostsIndexedFeedbackTests
 
         Assert.Equal([crawlType], rag.HostsAskedAs);
     }
+
+    /// <summary>
+    /// 2026-10-26: the Profile showed activecampaign.com as indexed with Moosend's 187 pages and
+    /// 3,024 chunks, because the index answered Moosend's run for it. Two declared URLs the index
+    /// answers with one run means one of them has no crawl of its own; neither is usable, each line
+    /// names the other, and nothing is read or searched for them.
+    /// </summary>
+    [Fact]
+    public async Task Two_urls_the_index_answers_with_one_run_are_not_usable_and_name_each_other()
+    {
+        const string Moosend = "https://moosend.test";
+        const string Activecampaign = "https://www.activecampaign.test/";
+        var moosendRun = Guid.NewGuid().ToString();
+        var searched = 0;
+        var validator = new GccDeclaredUrlValidator(
+            new GccCompetitorAnalysisResolverTests.FakeRag(
+                [
+                    new GeekCrawlerRagHostIndex(Moosend, "moosend.test", true, moosendRun),
+                    new GeekCrawlerRagHostIndex(Activecampaign, "www.activecampaign.test", true, moosendRun),
+                    new GeekCrawlerRagHostIndex(Partner, "partner.test", true, Guid.NewGuid().ToString()),
+                ],
+                (runId, _) =>
+                {
+                    Interlocked.Increment(ref searched);
+                    return DeclaredUrlTestDoubles.Holds(runId);
+                }),
+            new HttpGeekCrawlerRepository(
+                new HttpClient(new DeclaredUrlTestDoubles.UsableRunHandler()) { BaseAddress = new Uri("https://crawler.test") },
+                NullLogger<HttpGeekCrawlerRepository>.Instance),
+            NullLogger<GccDeclaredUrlValidator>.Instance);
+        var controller = new RagController(new SignedIn(), null!, validator);
+
+        var result = await controller.HostsIndexed(
+            new RagController.HostsIndexedRequest([Moosend, Activecampaign, Partner], CrawlTypes.Partner),
+            CancellationToken.None);
+
+        var rows = Results(result).EnumerateArray().ToList();
+        Assert.Equal(3, rows.Count);
+        var moosend = rows.Single(r => r.GetProperty("url").GetString() == Moosend);
+        var activecampaign = rows.Single(r => r.GetProperty("url").GetString() == Activecampaign);
+        var partner = rows.Single(r => r.GetProperty("url").GetString() == Partner);
+        Assert.False(moosend.GetProperty("usable").GetBoolean());
+        Assert.False(activecampaign.GetProperty("usable").GetBoolean());
+        Assert.Contains(Activecampaign, moosend.GetProperty("reason").GetString());
+        Assert.Contains(Moosend, activecampaign.GetProperty("reason").GetString());
+        Assert.Contains("one crawl is one site", activecampaign.GetProperty("reason").GetString());
+        Assert.True(partner.GetProperty("usable").GetBoolean());
+        // Only the partner that has a crawl of its own was searched.
+        Assert.Equal(1, searched);
+    }
 }
+

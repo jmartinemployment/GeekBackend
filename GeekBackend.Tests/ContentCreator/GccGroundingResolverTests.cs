@@ -549,4 +549,54 @@ public class GccGroundingResolverTests
         Assert.Single(outcome.Pages);
         Assert.Equal("https://p.test/a", outcome.Pages[0].Url);
     }
+
+    /// <summary>
+    /// 2026-10-26: activecampaign.com, with no partner crawl of its own, and moosend.com were both
+    /// answered Moosend's run, because a Moosend page had redirected to activecampaign.com and the
+    /// index resolved a host by the host stamped on a point. The run was searched once, under
+    /// Moosend's name, and Activecampaign's tool page had no pages. One crawl is one site: two
+    /// declared sites on one run is a fault, and it stops, naming both.
+    /// </summary>
+    [Theory]
+    [InlineData("tool")]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public async Task Two_declared_partners_answered_with_one_run_refuse_the_run_naming_both(string type)
+    {
+        var moosendRun = Guid.NewGuid().ToString();
+        var rag = new PerRunRag(
+        [
+            new GeekCrawlerRagHostIndex("https://moosend.test", "moosend.test", true, moosendRun),
+            new GeekCrawlerRagHostIndex("https://www.activecampaign.test/", "www.activecampaign.test", true, moosendRun),
+        ]);
+        var resolver = Build(
+            new FakeProjects(Project("https://moosend.test", "https://www.activecampaign.test/")), rag);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), type);
+
+        Assert.True(outcome.Refused);
+        Assert.Contains("https://moosend.test", outcome.Refusal!);
+        Assert.Contains("https://www.activecampaign.test/", outcome.Refusal!);
+        Assert.Contains("one crawl is one site", outcome.Refusal!);
+        Assert.Contains(moosendRun, outcome.Refusal!);
+    }
+
+    [Fact]
+    public async Task The_same_site_declared_as_www_and_bare_is_one_site_and_is_not_refused_for_sharing_its_run()
+    {
+        var run = Guid.NewGuid().ToString();
+        var rag = new PerRunRag(
+        [
+            new GeekCrawlerRagHostIndex("https://melio.test", "melio.test", true, run),
+            new GeekCrawlerRagHostIndex("https://www.melio.test/", "www.melio.test", true, run),
+        ]);
+        var resolver = Build(new FakeProjects(Project("https://melio.test", "https://www.melio.test/")), rag);
+
+        var outcome = await resolver.ResolveAsync(Create(Guid.NewGuid()), "tool");
+
+        // The fakes hand back no typed blocks, so the tool is refused further on for that; what this
+        // asserts is that the two spellings were read as one site and not as two sites on one run.
+        Assert.DoesNotContain("one crawl is one site", outcome.Refusal ?? string.Empty);
+    }
 }
+

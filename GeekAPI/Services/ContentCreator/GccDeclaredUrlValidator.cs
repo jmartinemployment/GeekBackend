@@ -192,6 +192,25 @@ public sealed class GccDeclaredUrlValidator
         }
 
         var byUrl = rows.ToDictionary(r => r.Url, StringComparer.OrdinalIgnoreCase);
+        // One crawl is one site: two declared URLs the index answers with the same run means one of
+        // them was answered another site's crawl. On 2026-10-26 activecampaign.com, with no partner
+        // crawl of its own, was answered Moosend's partner run because a Moosend page redirected
+        // there, and the Profile showed Moosend's 187 pages and 3,024 chunks under its address.
+        // Neither is usable until each has a crawl of its own; nothing is read or searched for them.
+        var sharedRun = rows
+            .Where(row => row.Indexed && !string.IsNullOrWhiteSpace(row.RunId))
+            .GroupBy(row => row.RunId!, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group
+                .Select(row => GccRequiredToolMentions.HostKeyOf(row.Url))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() > 1)
+            .SelectMany(group => group.Select(row => (
+                row.Url,
+                Others: group
+                    .Where(other => !string.Equals(other.Url, row.Url, StringComparison.OrdinalIgnoreCase))
+                    .Select(other => other.Url)
+                    .ToList())))
+            .ToDictionary(pair => pair.Url, pair => pair.Others, StringComparer.OrdinalIgnoreCase);
         var unanswered = new List<string>();
         var answers = new Dictionary<string, GccDeclaredUrlAnswer>(StringComparer.OrdinalIgnoreCase);
         var toSearch = new List<(string Url, Guid RunId)>();
@@ -200,6 +219,16 @@ public sealed class GccDeclaredUrlValidator
             if (!byUrl.TryGetValue(url, out var row))
             {
                 unanswered.Add(url);
+                continue;
+            }
+
+            if (sharedRun.TryGetValue(row.Url, out var others))
+            {
+                answers[url] = new GccDeclaredUrlAnswer(
+                    row.Url, row.Host, row.Indexed, row.RunId,
+                    $"the index answers the same crawl for it as for {string.Join(" and ", others)}, and one "
+                    + "crawl is one site, so it has no crawl of its own",
+                    null, null, null);
                 continue;
             }
 

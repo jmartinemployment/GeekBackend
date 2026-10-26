@@ -454,6 +454,31 @@ public sealed class GccGroundingResolver(
                         + "Re-crawl and index it, then retry.");
                 }
 
+                // One crawl is one site. Two declared URLs answered with the same run means one of them
+                // has no crawl of its own and was answered another site's. Moosend's partner crawl of
+                // 2026-10-25 saved a page that redirected to activecampaign.com, the index stamped that
+                // point with the host it landed on, and on 2026-10-26 activecampaign.com and moosend.com
+                // both resolved to Moosend's run. The run was searched once, under Moosend's name, every
+                // page came back as Moosend's, and Activecampaign's tool page had none. A fault, and it
+                // stops, naming both -- the index now resolves a host by a run's seed, and this is the
+                // boundary for an index that answers otherwise.
+                var sharedRuns = answered
+                    .GroupBy(host => Guid.Parse(host.RunId!))
+                    .Where(group => group
+                        .Select(host => GccRequiredToolMentions.HostKeyOf(host.Url))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count() > 1)
+                    .ToList();
+                if (sharedRuns.Count > 0)
+                {
+                    return GccGroundingOutcome.Refuse(
+                        string.Join(" ", sharedRuns.Select(group =>
+                            $"{string.Join(" and ", group.Select(host => host.Url))} are answered by one indexed "
+                            + $"{crawlType} crawl ({group.Key}), and one crawl is one site, so at least one of them "
+                            + "has no crawl of its own."))
+                        + " Crawl and index it as its own URL, then retry.");
+                }
+
                 runIds = answered
                     .Select(host => Guid.Parse(host.RunId!))
                     .Distinct()

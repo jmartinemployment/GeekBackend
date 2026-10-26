@@ -84,8 +84,11 @@ public static class GccDeclaredUrlEvidence
     /// <summary>Why one declared URL cannot be used, or null when it can.</summary>
     public static string? Unusable(GeekCrawlerRagHostIndex row, GeekCrawlerRunDto? run)
     {
+        // The index's own reason when it has one: a host indexed under two crawl types with no type
+        // asked, or crawl rows it could not read. "No crawl is indexed" would send the operator to
+        // re-crawl a site the index merely could not answer for.
         if (!row.Indexed || string.IsNullOrWhiteSpace(row.RunId))
-            return "no crawl is indexed for it";
+            return string.IsNullOrWhiteSpace(row.Reason) ? "no crawl is indexed for it" : row.Reason;
 
         if (run is null)
             return "the index names a crawl run that cannot be read";
