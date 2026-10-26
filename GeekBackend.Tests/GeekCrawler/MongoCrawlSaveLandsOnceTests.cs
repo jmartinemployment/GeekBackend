@@ -96,6 +96,29 @@ public sealed class MongoCrawlSaveLandsOnceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_same_requested_url_loaded_as_two_final_urls_is_two_pages()
+    {
+        // gohighlevel.com, 2026-10-24 (run c69a65fa): the home page is an A/B split, and the crawler
+        // saved the requested URL twice, loaded as /7648a9 and as /7648b9. Each is its own page; only
+        // the same requested URL loaded as the same final URL is the same save again.
+        var mongo = CreateMongo();
+        var runId = Guid.NewGuid();
+
+        var a = await mongo.CreatePagesBatchAsync(runId, [NewPage(runId, "https://retry.example/", "A", finalUrl: "https://retry.example/a")]);
+        var b = await mongo.CreatePagesBatchAsync(runId, [NewPage(runId, "https://retry.example/", "B", finalUrl: "https://retry.example/b")]);
+        var aAgain = await mongo.CreatePagesBatchAsync(runId, [NewPage(runId, "https://retry.example/", "A again", finalUrl: "https://retry.example/a")]);
+
+        Assert.NotEqual(a[0].PageId, b[0].PageId);
+        Assert.Equal(a[0].PageId, aAgain[0].PageId);
+        Assert.Equal(2, await mongo.CountPagesByRunAsync(runId));
+
+        var stored = await mongo.ListPagesByRunAsync(runId, 10, 0);
+        Assert.Equal(
+            new[] { "https://retry.example/a", "https://retry.example/b" },
+            stored.Select(p => p.FinalUrl).OrderBy(u => u, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
     public async Task A_batch_of_several_pages_answers_each_in_order_with_repeats_resolved()
     {
         var mongo = CreateMongo();
@@ -158,12 +181,12 @@ public sealed class MongoCrawlSaveLandsOnceTests : IAsyncLifetime
         Assert.Equal("https://retry.example/y", Assert.Single(stored, l => l.PageId == pageB).LinkUrl);
     }
 
-    private static GeekCrawlerPage NewPage(Guid runId, string url, string title) => new()
+    private static GeekCrawlerPage NewPage(Guid runId, string url, string title, string? finalUrl = null) => new()
     {
         RunId = runId,
         Origin = "https://retry.example",
         Url = url,
-        FinalUrl = url,
+        FinalUrl = finalUrl ?? url,
         StatusCode = 200,
         RobotsAllowed = true,
         Title = title,

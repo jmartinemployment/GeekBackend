@@ -557,19 +557,25 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             var alreadyPresent = 0;
             foreach (var page in pages)
             {
-                // Written once per (RunId, Url). The crawler sends each URL of a run once, so a
-                // second arrival is the same save sent again after its acknowledgment was lost in
-                // transit; since 2026-10-24 the crawler sends such a save once more (Jeff: a power
-                // loss of about a second on 2026-10-23 cost five crawls one lost save each).
-                // $setOnInsert writes the document only when none is there. A document already
-                // there is left as it is, and its Id is what the crawler is told, so the links it
-                // writes after the retry point at the page that exists. The guarantee is this
-                // write, not a unique index: the live collection held no duplicate (RunId, Url) on
-                // 2026-10-24, and rebuilding an index at startup is a migration with its own failure
-                // mode.
+                // Written once per (RunId, Url, FinalUrl): the save as the crawler sent it. The
+                // crawler saves each page it fetched once, so a second arrival of the same requested
+                // URL loaded as the same final URL is the same save sent again after its
+                // acknowledgment was lost in transit; since 2026-10-24 the crawler sends such a save
+                // once more (Jeff: a power loss of about a second on 2026-10-23 cost five crawls one
+                // lost save each). The same requested URL loaded as a different final URL is another
+                // page: gohighlevel.com's home page is an A/B split, and on 2026-10-24 (run c69a65fa)
+                // the crawler saved it as /7648a9 and again as /7648b9; matched on (RunId, Url)
+                // alone, as this was until that day, the second was not written and its links
+                // replaced the first's. $setOnInsert writes the document only when none is there. A
+                // document already there is left as it is, and its Id is what the crawler is told,
+                // so the links it writes after the retry point at the page that exists. The
+                // guarantee is this write, not a unique index: the live collection held no duplicate
+                // on 2026-10-24, and rebuilding an index at startup is a migration with its own
+                // failure mode. ix_crawl_pages_run_url (RunId, Url) still serves the lookup.
                 var filter = Builders<GeekCrawlerPage>.Filter.And(
                     Builders<GeekCrawlerPage>.Filter.Eq(p => p.RunId, runId),
-                    Builders<GeekCrawlerPage>.Filter.Eq(p => p.Url, page.Url));
+                    Builders<GeekCrawlerPage>.Filter.Eq(p => p.Url, page.Url),
+                    Builders<GeekCrawlerPage>.Filter.Eq(p => p.FinalUrl, page.FinalUrl));
                 var update = new BsonDocument("$setOnInsert", page.ToBsonDocument());
                 var options = new FindOneAndUpdateOptions<GeekCrawlerPage, GeekCrawlerPage>
                 {
@@ -588,7 +594,7 @@ public sealed class MongoGeekCrawlerService : IMongoGeekCrawlerService
             if (alreadyPresent > 0)
             {
                 _logger.LogInformation(
-                    "Run {RunId}: {Count} of {Batch} page(s) were already stored under their URL and were not written again.",
+                    "Run {RunId}: {Count} of {Batch} page(s) were already stored under their requested and final URL and were not written again.",
                     runId,
                     alreadyPresent,
                     pages.Count);
