@@ -593,7 +593,12 @@ determined**. Playwright is legacy, awaiting a decision (see `AGENTS.md` notes).
 `GccInterruptedJobsOnStartup` (fails running jobs left by a redeploy; one instance is assumed), `GccV2JobWorker`,
 `GccV2ContextIngestionWorker` (polls GeekRepository every 45 seconds; nothing enqueues work for it),
 `GeekCrawlerPlaywrightStartupHostedService`, `GeekCrawlerWorker` (x count), `GeekCrawlerConfigLogger`,
-`GeekCrawlerStallRecoveryHostedService`, `GeekCrawlerScheduleHostedService`. `BackgroundServiceExceptionBehavior` is Ignore.
+`GeekCrawlerStallRecoveryHostedService`, `GeekCrawlerScheduleHostedService`, `VisitorDailyReportHostedService` (every minute; at or after
+07:00 America/New_York it claims the previous day in `geek_visitors.daily_reports`, builds the visitor report once, runs the 180-day
+retention purge through `repo/visitors/retention/purge`, and records the totals and the purge's counts or error on the day's row; a
+row that cannot be written releases the claim for the next tick, and a claim older than ten minutes with no build behind it is taken
+over; nothing is emailed, the report is read from `api/visitors/internal/reports/{date}` and the build's record from
+`.../summary`). `BackgroundServiceExceptionBehavior` is Ignore.
 
 ## 12. Configuration
 
@@ -605,8 +610,9 @@ code: `LlmProviders`, `ContentCreatorV2` (DraftingEnabled, ContextPolicy, Contex
 GEEK_OAUTH_AUTHORITY, AUTH_SERVER_URL, AUTH_URL, OAUTH_CLIENT_ID, CLIENT_SECRET_GEEKAPI, GEEK_CRAWLER_RAG_URL,
 GEEK_CRAWLER_RAG_API_KEY, GEEK_CRAWLER_WORKER_COUNT (and other GEEK_CRAWLER_*), OPENAI_API_KEY, ANTHROPIC_API_KEY,
 GROQ_API_KEY, GEEK_CONTENT_MODEL_<STAGE>, IMAGE_GENERATOR_BASE_URL, GEEKATYOURSPOT_GITHUB_TOKEN, WORDPRESS_URL, GEEK_CC_GSC_*,
-GEEK_CC_DRIVE_*, GEEK_CC_SHAREPOINT_*, GEEK_CC_OCR_*. **GeekRepository:** DATABASE_URL, PORT, REPO_API_KEY, MONGO_CRAWLER_URL,
-SKIP_AUTH_SQL_MIGRATIONS, GEEK_SEO_ENCRYPTION_KEY. **content-creator-v2:** NEXT_PUBLIC_GEEK_API_URL, NEXT_PUBLIC_AUTH_URL,
+GEEK_CC_DRIVE_*, GEEK_CC_SHAREPOINT_*, GEEK_CC_OCR_*. **GeekRepository:** DATABASE_URL (which also holds the `geek_visitors` schema,
+created by `Migrations/Sql/0042_geek_visitors_schema.sql`), PORT, REPO_API_KEY, MONGO_CRAWLER_URL (the crawl store, and Mongo's only
+use), SKIP_AUTH_SQL_MIGRATIONS, GEEK_SEO_ENCRYPTION_KEY. **content-creator-v2:** NEXT_PUBLIC_GEEK_API_URL, NEXT_PUBLIC_AUTH_URL,
 NEXT_PUBLIC_OAUTH_CLIENT_ID, NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_WORKFLOW_HUB_URL. **RAG:** MONGO_CRAWLER_URL, MONGO_DB_NAME,
 QDRANT_URL, QDRANT_COLLECTION, QDRANT_API_KEY, EMBEDDING_MODEL, API_KEY, INDEX_STATUS_WEBHOOK_URL, INDEX_STATUS_WEBHOOK_KEY and
 more (`config.py`). **GeekOAuth:** DATABASE_URL, ISSUER_URL, SIGNING_CERT_*, ENCRYPTION_CERT_*, CLIENT_SECRET_*, CORS_ORIGINS,

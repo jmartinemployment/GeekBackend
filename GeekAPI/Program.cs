@@ -9,6 +9,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
 using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.Visitors;
 using GeekAPI.Services.Workflow.Hosting;
 using GeekAPI.Services.Workflow.Infrastructure;
 using GeekApplication.Interfaces;
@@ -172,6 +173,8 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, SubUserIdProvider>();
 builder.Services.AddMemoryCache();
 builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
+// Website visitors: the beacon's events, the intent mark and the 07:00 daily report build.
+builder.Services.AddVisitors();
 builder.Services.AddScoped<GeekAPI.Services.Rag.RagLibrary>();
 
 // GeekOAuth-issued JWT bearer. Originally added only so the v2 realtime hub could require

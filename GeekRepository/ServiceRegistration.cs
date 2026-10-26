@@ -11,6 +11,7 @@ using GeekRepository.Repositories.Content;
 using GeekRepository.Repositories.ContentCreator;
 using GeekRepository.Repositories.ContentWriterV3;
 using GeekRepository.Repositories.ContentWriterV4;
+using GeekRepository.Repositories.Visitors;
 using GeekRepository.Services;
 
 namespace GeekRepository;
@@ -83,6 +84,11 @@ public static class ServiceRegistration
             new MongoGeekCrawlerService(
                 mongoConnectionString,
                 sp.GetRequiredService<ILogger<MongoGeekCrawlerService>>()));
+
+        // Website visitors (geek_visitors): a schema in this service's own database, through
+        // VisitorsDbContext, which Program.cs registers against DATABASE_URL. Not Mongo: Mongo is
+        // the crawl store only (AGENTS.md, Jeff 2026-10-26).
+        services.AddScoped<IVisitorRepository, VisitorRepository>();
 
         return services;
     }

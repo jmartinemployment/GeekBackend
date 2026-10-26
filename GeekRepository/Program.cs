@@ -94,6 +94,16 @@ builder.Services.AddDbContext<GeekRepository.Data.ContentCreatorV2DbContext>(opt
             "content_creator_v2"))
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// Website visitors (geek_visitors): geekatyourspot.com's visit records, served to GeekAPI through
+// repo/visitors/*. A schema in this database, not a second Mongo: Mongo is the crawl store only
+// (AGENTS.md, Jeff 2026-10-26). No MigrationsHistoryTable: geek_visitors is created and
+// maintained by Migrations/Sql/0042_geek_visitors_schema.sql, the same way geek_gtm is. Split
+// queries, because a session is read with its pages and their clicks.
+builder.Services.AddDbContext<GeekRepository.Data.VisitorsDbContext>(options => options
+    .UseNpgsql(connectionString, npgsql =>
+        npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery))
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddExceptionHandler<GeekRepository.Infrastructure.DbUpdateConcurrencyExceptionHandler>();

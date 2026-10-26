@@ -15,7 +15,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=build /app/publish .
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends wget ca-certificates \
+    && apt-get install -y --no-install-recommends wget ca-certificates tzdata \
     && wget -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb \
     && dpkg -i /tmp/packages-microsoft-prod.deb \
     && apt-get update \
