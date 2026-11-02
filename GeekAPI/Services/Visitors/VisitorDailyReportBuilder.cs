@@ -28,7 +28,9 @@ public static class VisitorDailyReportBuilder
         IReadOnlyList<VisitorSession> sessions,
         IReadOnlyList<VisitorProfile> profiles,
         VisitorFilterDay? drops,
-        IReadOnlyDictionary<Guid, double> visitorScores)
+        IReadOnlyDictionary<Guid, double> visitorScores,
+        IReadOnlySet<string>? excludedIps = null,
+        int sessionsLeftOut = 0)
     {
         var profileById = profiles.GroupBy(p => p.Id).ToDictionary(g => g.Key, g => g.First());
         var ordered = sessions.OrderByDescending(s => s.Score).ThenBy(s => s.StartedAt).ToList();
@@ -43,6 +45,14 @@ public static class VisitorDailyReportBuilder
         var sb = new StringBuilder();
         sb.Append("Website visitors for ").Append(VisitorClock.LongDay(day)).Append(" (America/New_York)\n\n");
 
+        if (excludedIps is { Count: > 0 })
+        {
+            sb.Append("LEFT OUT BY REQUEST\n");
+            sb.Append("Sessions from ").Append(string.Join(", ", excludedIps.OrderBy(ip => ip, StringComparer.Ordinal)))
+              .Append(" are not counted below: ").Append(sessionsLeftOut).Append(' ')
+              .Append(Plural(sessionsLeftOut, "session")).Append(" this day.\n\n");
+        }
+
         sb.Append("TOTALS\n");
         sb.Append("Visitors: ").Append(totals.Visitors)
           .Append(" (").Append(totals.NewVisitors).Append(" new, ").Append(totals.ReturningVisitors).Append(" returning)\n");
@@ -56,7 +66,8 @@ public static class VisitorDailyReportBuilder
             ? "none"
             : string.Join(", ", totals.Drops.OrderByDescending(d => d.Value).Select(d => $"{d.Key} {d.Value}"))).Append("\n\n");
 
-        if (NothingArrived(totals))
+        // Sessions left out by request did arrive, so their absence is not the site failing to send.
+        if (sessionsLeftOut == 0 && NothingArrived(totals))
         {
             sb.Append("NOTHING ARRIVED\n");
             sb.Append("No sessions and no dropped requests were recorded for this day. On a public site that means the site did not pass its visits on, not that nobody came. Check GEEK_API_URL and GEEK_BACKEND_API_KEY on Vercel, and that GeekAPI was reachable from the site.\n\n");

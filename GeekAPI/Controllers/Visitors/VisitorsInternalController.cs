@@ -49,10 +49,11 @@ public sealed class VisitorsInternalController : ControllerBase
 
     /// <summary>The day's report as text, composed from its sessions, for any day inside the 180-day retention.</summary>
     [HttpGet("reports/{date}")]
-    public async Task<IActionResult> Report(string date, CancellationToken ct)
+    public async Task<IActionResult> Report(string date, [FromQuery] string? excludeIps, CancellationToken ct)
     {
         if (!VisitorClock.TryParseDayKey(date, out var day)) return BadRequest(new { error = "date must be yyyy-MM-dd." });
-        var composed = await _composer.ComposeAsync(day, ct);
+        if (!VisitorIpExclusion.TryParse(excludeIps, out var excluded, out var excludeError)) return BadRequest(new { error = excludeError });
+        var composed = await _composer.ComposeAsync(day, excluded, ct);
         if (!composed.IsSuccess)
             return StatusCode(StatusCodes.Status502BadGateway, new { error = composed.Error });
         return Content(composed.Value!.Body, "text/plain; charset=utf-8");
@@ -71,13 +72,14 @@ public sealed class VisitorsInternalController : ControllerBase
 
     /// <summary>One of the day's three CSV files, composed from its sessions.</summary>
     [HttpGet("reports/{date}/{kind}.csv")]
-    public async Task<IActionResult> ReportCsv(string date, string kind, CancellationToken ct)
+    public async Task<IActionResult> ReportCsv(string date, string kind, [FromQuery] string? excludeIps, CancellationToken ct)
     {
         if (!VisitorClock.TryParseDayKey(date, out var day)) return BadRequest(new { error = "date must be yyyy-MM-dd." });
         if (kind is not ("sessions" or "pages" or "interactions"))
             return NotFound(new { error = "kind must be sessions, pages or interactions." });
+        if (!VisitorIpExclusion.TryParse(excludeIps, out var excluded, out var excludeError)) return BadRequest(new { error = excludeError });
 
-        var composed = await _composer.ComposeAsync(day, ct);
+        var composed = await _composer.ComposeAsync(day, excluded, ct);
         if (!composed.IsSuccess)
             return StatusCode(StatusCodes.Status502BadGateway, new { error = composed.Error });
 

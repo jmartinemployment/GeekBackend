@@ -14,7 +14,11 @@ public sealed class VisitorDailyReportComposer
 
     public VisitorDailyReportComposer(IVisitorRepositoryClient repo) => _repo = repo;
 
-    public async Task<Result<VisitorDailyReportContent>> ComposeAsync(DateOnly day, CancellationToken ct)
+    public Task<Result<VisitorDailyReportContent>> ComposeAsync(DateOnly day, CancellationToken ct) =>
+        ComposeAsync(day, VisitorIpExclusion.None, ct);
+
+    /// <summary>The day's report without the sessions from <paramref name="excludedIps"/>, which the report names.</summary>
+    public async Task<Result<VisitorDailyReportContent>> ComposeAsync(DateOnly day, IReadOnlySet<string> excludedIps, CancellationToken ct)
     {
         var (start, end) = VisitorClock.DayWindowUtc(day);
 
@@ -22,8 +26,13 @@ public sealed class VisitorDailyReportComposer
         // tail of it, and the visitor scores are summed over the whole of it.
         var recent = await _repo.ListSessionsAsync(start - VisitorDailyReportBuilder.VisitorScoreWindow, end, ct).ConfigureAwait(false);
         if (!recent.IsSuccess) return Result<VisitorDailyReportContent>.Failure(recent.Error ?? "Session read failed.");
-        var recentSessions = recent.Value ?? Array.Empty<VisitorSession>();
-        var daySessions = recentSessions.Where(s => s.StartedAt >= start && s.StartedAt < end).ToList();
+        var allRecent = recent.Value ?? Array.Empty<VisitorSession>();
+        bool InDay(VisitorSession s) => s.StartedAt >= start && s.StartedAt < end;
+
+        // Left out of the scores as well as the day, so an excluded IP adds nothing anywhere.
+        var sessionsLeftOut = allRecent.Count(s => InDay(s) && VisitorIpExclusion.Matches(s, excludedIps));
+        var recentSessions = allRecent.Where(s => !VisitorIpExclusion.Matches(s, excludedIps)).ToList();
+        var daySessions = recentSessions.Where(InDay).ToList();
 
         var visitorIds = daySessions.Select(s => s.VisitorId).Distinct().ToList();
         var profiles = await _repo.GetProfilesAsync(visitorIds, ct).ConfigureAwait(false);
@@ -39,7 +48,9 @@ public sealed class VisitorDailyReportComposer
             daySessions,
             profiles.Value ?? Array.Empty<VisitorProfile>(),
             drops.IsSuccess ? drops.Value : null,
-            VisitorDailyReportBuilder.VisitorScores(recentSessions));
+            VisitorDailyReportBuilder.VisitorScores(recentSessions),
+            excludedIps,
+            sessionsLeftOut);
         return Result<VisitorDailyReportContent>.Success(content);
     }
 }
