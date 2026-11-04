@@ -52,7 +52,9 @@ public partial class GccGenerateService
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         string? mustMentionBlock,
-        CancellationToken ct)
+        CancellationToken ct,
+        // The operator ticked "Also write image prompts". Off, no image-prompt call is made.
+        bool imagePrompts = false)
     {
         var llm = GetLlm(provider);
         var competitorAnalyses = await ResolveCompetitorAnalysesAsync(create, ct);
@@ -280,7 +282,7 @@ public partial class GccGenerateService
         // Image prompts attach here rather than in the caller, matching Tool and Blog -- the caller
         // ran them over the returned JSON, which only worked while this returned a bare document.
         document = await WithSectionImagePromptsAsync(
-            "pillar", create.Topic, document, section, provider, pillarWarnings, ct);
+            imagePrompts, "pillar", create.Topic, document, section, create, provider, pillarWarnings, ct);
 
         // Title, standfirst, meta description and TechArticle JSON-LD. v1's orchestrator produced
         // all of it for a pillar; the Create reimplementation returned a bare document, leaving

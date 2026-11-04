@@ -67,23 +67,26 @@ public class GccGenerateServiceImagePromptTests
             NullLogger<GccKnownToolsResolver>.Instance),
         new GccToolPageFanOutFixture.FakeExtractionBank());
 
+    private static Paragraph Text(string text) => new TextParagraph([new Run(text)]);
+
     private static string TwoSectionDocumentJson() =>
         JsonSerializer.Serialize(
             new ContentDocument(
-                Lede: new Section("h2", "Intro", [], null, []),
+                Lede: new Section("h2", "Intro", [Text("Late payroll filings cost a small firm penalties every quarter.")], null, []),
                 Sections:
                 [
-                    new Section("h2", "Overview", [], null, []),
-                    new Section("h2", "Details", [], null, []),
+                    new Section("h2", "Overview", [Text("Worker classification mistakes between W-2 staff and 1099 contractors.")], null, []),
+                    new Section("h2", "Details", [Text("Quarterly filings, deposits and the notices that follow a miss.")], null, []),
                 ]),
             GccDocumentJson.Options);
+
+    private static string ThreeScenes(string hero = "the hero", string overview = "the overview", string details = "the details") =>
+        $$"""{"prompts":[{"section":"Hero","prompt":"{{ScriptedBody.Scene(hero)}}"},{"section":"Section 1","prompt":"{{ScriptedBody.Scene(overview)}}"},{"section":"Section 2","prompt":"{{ScriptedBody.Scene(details)}}"}]}""";
 
     [Fact]
     public async Task HeroAndPerSectionPromptsAreMergedIntoTheDocumentPositionally()
     {
-        const string promptsResponse =
-            """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"overview image prompt"},{"section":"Section 2","prompt":"details image prompt"}]}""";
-        var provider = new ScriptedProvider(promptsResponse);
+        var provider = new ScriptedProvider(ThreeScenes());
         var service = Build(provider);
 
         var updatedJson = await service.GenerateSectionImagePromptsAsync(
@@ -92,12 +95,84 @@ public class GccGenerateServiceImagePromptTests
         var document = JsonSerializer.Deserialize<ContentDocument>(
             updatedJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 
-        Assert.Equal("hero image prompt", document.Lede.ImagePrompt);
-        Assert.Equal("overview image prompt", document.Sections[0].ImagePrompt);
-        Assert.Equal("details image prompt", document.Sections[1].ImagePrompt);
+        // The model's scene, then the closing the code appends: palette, lighting, no text.
+        Assert.Equal($"{ScriptedBody.Scene("the hero")} {GccImageStyle.Closing}", document.Lede.ImagePrompt);
+        Assert.Equal($"{ScriptedBody.Scene("the overview")} {GccImageStyle.Closing}", document.Sections[0].ImagePrompt);
+        Assert.Equal($"{ScriptedBody.Scene("the details")} {GccImageStyle.Closing}", document.Sections[1].ImagePrompt);
         // The rest of the document survives the round-trip untouched.
         Assert.Equal("Intro", document.Lede.Heading);
         Assert.Equal("Overview", document.Sections[0].Heading);
+    }
+
+    [Fact]
+    public async Task TheRequestShowsEachSectionsTextAndTheAudienceAndNoSizeThatContradictsAnother()
+    {
+        var provider = new ScriptedProvider(ThreeScenes());
+        var service = Build(provider);
+
+        await service.GenerateSectionImagePromptsAsync(
+            "pillar", "Payroll tax for small firms", TwoSectionDocumentJson(), null, ContentGeneratorProvider.OpenAi,
+            CancellationToken.None, audienceLines: "Audience notes: Florida construction company owners");
+
+        var request = Assert.Single(provider.Requests);
+        var system = request.Messages.First(m => m.Role == ChatRole.System).Content;
+        var user = request.Messages.First(m => m.Role == ChatRole.User).Content;
+        // What each picture is about is what the section says, not only its heading.
+        Assert.Contains("Late payroll filings cost a small firm penalties", user, StringComparison.Ordinal);
+        Assert.Contains("W-2 staff and 1099 contractors", user, StringComparison.Ordinal);
+        Assert.Contains("Quarterly filings, deposits", user, StringComparison.Ordinal);
+        Assert.Contains("Florida construction company owners", user, StringComparison.Ordinal);
+        // One style, one place: the palette is the code's to append, so the model is told not to write it.
+        Assert.Contains("A clean, flat-design 3D vector illustration of", system, StringComparison.Ordinal);
+        Assert.Contains("Do not write the palette", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("1200x630", system, StringComparison.Ordinal);
+        Assert.DoesNotContain("16:9", system, StringComparison.Ordinal);
+        Assert.DoesNotContain('\u2014', system);
+        // Image prompts are Utility work, and eleven scenes do not fit in the old 2048-token reply.
+        Assert.Equal(LlmTaskClass.Utility, request.TaskClass);
+        Assert.True(request.MaxOutputTokens > 2048);
+    }
+
+    [Fact]
+    public async Task ABriefThatGivesNoAudienceTellsTheModelNone()
+    {
+        var provider = new ScriptedProvider(ThreeScenes());
+        var service = Build(provider);
+
+        await service.GenerateSectionImagePromptsAsync(
+            "pillar", "Test Title", TwoSectionDocumentJson(), null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
+
+        var user = provider.Requests.Single().Messages.First(m => m.Role == ChatRole.User).Content;
+        Assert.DoesNotContain("Audience", user, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ASceneOutsideTheBandRefusesTheWholeSetAndAttachesNothing()
+    {
+        // The second scene is a few words. A sentence is not an image prompt, and nothing pads it.
+        var response =
+            $$"""{"prompts":[{"section":"Hero","prompt":"{{ScriptedBody.Scene("the hero")}}"},{"section":"Section 1","prompt":"a nice picture"},{"section":"Section 2","prompt":"{{ScriptedBody.Scene("the details")}}"}]}""";
+        var service = Build(new ScriptedProvider(response));
+
+        var ex = await Assert.ThrowsAsync<ContentGenerationException>(() =>
+            service.GenerateSectionImagePromptsAsync(
+                "pillar", "Test Title", TwoSectionDocumentJson(), null, ContentGeneratorProvider.OpenAi, CancellationToken.None));
+
+        Assert.Equal(ContentGenerationFailureKind.UnusableReply, ex.Kind);
+        Assert.Contains("the section 'Overview'", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("3 words", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Not attaching a partial set", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AWarningIsAddedToAShortPiecesOwnWarnings()
+    {
+        var withNone = GccGenerateService.AppendWarning("""{"subject":"Hi"}""", "first");
+        var withOne = GccGenerateService.AppendWarning(withNone, "second");
+
+        Assert.Equal(["first", "second"], GccGenerationCoordinator.WarningsOf(withOne));
+        using var doc = JsonDocument.Parse(withOne);
+        Assert.Equal("Hi", doc.RootElement.GetProperty("subject").GetString());
     }
 
     [Fact]

@@ -277,7 +277,7 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
             if (asked.Contains("image-generation prompts", StringComparison.Ordinal))
                 return ("image prompts", ScriptedBody.ImagePrompts());
             if (asked.Contains("\"negativePrompt\"", StringComparison.Ordinal) || page == "image")
-                return ("image prompt", """{"prompt":"A ledger on a desk.","style":"photo","negativePrompt":"text","aspectRatio":"16:9","imageModel":"m","stylePreset":"p","notes":"n"}""");
+                return ("image prompt", $$"""{"prompt":"{{ScriptedBody.Scene("a ledger on a desk")}}","style":"photo","negativePrompt":"text","aspectRatio":"3:2","imageModel":"m","stylePreset":"p","notes":"n"}""");
             if (page == "email")
                 return ("email", """{"subject":"A subject","body":"A body \u2014 short.","ctaLabel":"Read the guide"}""");
             if (page == "social")

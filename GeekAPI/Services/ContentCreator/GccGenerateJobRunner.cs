@@ -66,11 +66,14 @@ public sealed class GccGenerateJobRunner
         string? mustMentionBlock,
         string ownerUserId,
         // Only these partners' tool pages, by declared URL; null is every partner.
-        IReadOnlyList<string>? toolPartners = null)
+        IReadOnlyList<string>? toolPartners = null,
+        // "Also write image prompts" was ticked.
+        bool imagePrompts = false)
     {
         var job = _jobs.Create("generate", row.CreateId, ownerUserId, row.Id, row.ProjectId);
         _ = PushJobAsync(job.Id);
-        _ = Task.Run(() => RunAsync(job.Id, view, section, provider, outputTypes, mustMentionBlock, row, toolPartners));
+        _ = Task.Run(() => RunAsync(
+            job.Id, view, section, provider, outputTypes, mustMentionBlock, row, toolPartners, imagePrompts: imagePrompts));
         return job;
     }
 
@@ -86,11 +89,14 @@ public sealed class GccGenerateJobRunner
         ContentGeneratorProvider provider,
         IReadOnlyList<string> outputTypes,
         GccRepurposeSource source,
-        string ownerUserId)
+        string ownerUserId,
+        // "Also write image prompts" was ticked.
+        bool imagePrompts = false)
     {
         var job = _jobs.Create("generate", row.CreateId, ownerUserId, row.Id, row.ProjectId);
         _ = PushJobAsync(job.Id);
-        _ = Task.Run(() => RunAsync(job.Id, view, section, provider, outputTypes, mustMentionBlock: null, row, source: source));
+        _ = Task.Run(() => RunAsync(
+            job.Id, view, section, provider, outputTypes, mustMentionBlock: null, row, source: source, imagePrompts: imagePrompts));
         return job;
     }
 
@@ -104,7 +110,9 @@ public sealed class GccGenerateJobRunner
         GccGenerateJobDto? row,
         IReadOnlyList<string>? toolPartners = null,
         // The page a Repurpose writes from. Null is a Generate.
-        GccRepurposeSource? source = null)
+        GccRepurposeSource? source = null,
+        // "Also write image prompts" was ticked. Off, no image-prompt call is made.
+        bool imagePrompts = false)
     {
         // A new scope, because the request's scoped services (repository, generate service,
         // coordinator) are disposed the moment the 202 is written. Opened inside the try, so a scope
@@ -132,6 +140,7 @@ public sealed class GccGenerateJobRunner
                     provider = provider.ToString(),
                     requestedTypes = outputTypes ?? [],
                     toolPartners = toolPartners ?? [],
+                    imagePrompts,
                     briefRevisionId = row.BriefRevisionId,
                     topic = create.Topic,
                     // A Repurpose says which page it is written from, and how much of it there is.
@@ -156,7 +165,8 @@ public sealed class GccGenerateJobRunner
                     onTypeWarning: (contentType, warning) =>
                         BestEffortAsync(jobId, "warning", () => _notifier.PushWarningAsync(jobId, contentType, warning)),
                     briefRevision: briefRevision,
-                    toolPartners: toolPartners)
+                    toolPartners: toolPartners,
+                    imagePrompts: imagePrompts)
                 : await coordinator.RunRepurposeAsync(
                     repo, gen, create, section, provider, outputTypes, source,
                     CancellationToken.None,
@@ -164,7 +174,8 @@ public sealed class GccGenerateJobRunner
                         BestEffortAsync(jobId, "type outcome", () => _notifier.PushTypeAsync(jobId, contentType, produced, error)),
                     onTypeWarning: (contentType, warning) =>
                         BestEffortAsync(jobId, "warning", () => _notifier.PushWarningAsync(jobId, contentType, warning)),
-                    briefRevision: briefRevision);
+                    briefRevision: briefRevision,
+                    imagePrompts: imagePrompts);
 
             _jobs.Complete(jobId, result);
             if (GccRunLog.Current is { } completed)

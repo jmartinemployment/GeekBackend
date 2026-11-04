@@ -217,7 +217,8 @@ public sealed class GccGenerateShortPiecesTests
         Assert.Equal(("email-cold-outreach", Keyword, (Guid?)pillar.Id), (piece.Type, piece.Name, piece.ParentPageId));
         using var email = JsonDocument.Parse(piece.BodyDocumentJson);
         Assert.Equal("The close nobody else can read", email.RootElement.GetProperty("subject").GetString());
-        Assert.Equal("a ledger on a desk", email.RootElement.GetProperty("imagePrompt").GetProperty("prompt").GetString());
+        // "Also write image prompts" was not ticked: no call was made for one and the piece carries none.
+        Assert.False(email.RootElement.TryGetProperty("imagePrompt", out _));
 
         using var recorded = JsonDocument.Parse(JsonSerializer.Serialize(result, Web));
         Assert.Equal(1, recorded.RootElement.GetProperty("created").GetArrayLength());
@@ -361,8 +362,48 @@ public sealed class GccGenerateShortPiecesTests
         Assert.Equal(2, refusals.Count);
         Assert.StartsWith("blog: Refused: The evidence library returned nothing for", refusals[0]);
         Assert.StartsWith("tool: Refused: The evidence library returned nothing for", refusals[1]);
-        // Only the email's request and its image prompt were sent: no page was written without research.
+        // Only the email's request was sent: no page was written without research, and no image prompt
+        // was asked for because the box was not ticked.
+        Assert.Equal(1, model.Requests);
+    }
+
+    [Fact]
+    public async Task An_email_written_with_the_image_prompts_box_ticked_carries_one_that_ends_on_the_palette()
+    {
+        var model = new ByWhatIsWritten();
+        var repository = new ProjectRepository { Model = model };
+        repository.Hold("pillar", Keyword, PageBody("Closing the books", "The close runs on spreadsheets nobody else can read."));
+
+        await RunAsync(model, repository, ["email-cold-outreach"], grounding: null!, imagePrompts: true);
+
         Assert.Equal(2, model.Requests);
+        var piece = Assert.Single(Assert.Single(repository.Saves).Command.Pieces);
+        using var email = JsonDocument.Parse(piece.BodyDocumentJson);
+        Assert.Equal(
+            $"{ScriptedBody.Scene("a ledger on a desk")} {GccImageStyle.Closing}",
+            email.RootElement.GetProperty("imagePrompt").GetProperty("prompt").GetString());
+    }
+
+    [Fact]
+    public async Task A_piece_whose_image_prompt_was_asked_for_and_failed_is_saved_with_the_failure_on_the_run()
+    {
+        var model = new ByWhatIsWritten(imageReply: "I cannot write that.");
+        var repository = new ProjectRepository { Model = model };
+        repository.Hold("pillar", Keyword, PageBody("Closing the books", "The close runs on spreadsheets nobody else can read."));
+
+        var result = await RunAsync(model, repository, ["email-cold-outreach"], grounding: null!, imagePrompts: true);
+
+        // The email already succeeded and is kept. The failure is on the run, not only in a log.
+        var piece = Assert.Single(Assert.Single(repository.Saves).Command.Pieces);
+        using var email = JsonDocument.Parse(piece.BodyDocumentJson);
+        Assert.False(email.RootElement.TryGetProperty("imagePrompt", out _));
+        Assert.Contains(
+            GccGenerationCoordinator.WarningsOf(piece.BodyDocumentJson),
+            w => w.StartsWith("The image prompt was not written (", StringComparison.Ordinal));
+        using var recorded = JsonDocument.Parse(JsonSerializer.Serialize(result, Web));
+        Assert.Contains(
+            recorded.RootElement.GetProperty("warnings").EnumerateArray().Select(w => w.GetString()!),
+            w => w.StartsWith("email-cold-outreach: The image prompt was not written (", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -435,7 +476,7 @@ public sealed class GccGenerateShortPiecesTests
 
     private static Task<object> RunAsync(
         ByWhatIsWritten model, ProjectRepository repository, IReadOnlyList<string> types, GccGroundingResolver grounding,
-        Func<string, object?, string?, Task>? onTypeOutcome = null)
+        Func<string, object?, string?, Task>? onTypeOutcome = null, bool imagePrompts = false)
     {
         var service = BriefFieldReachTests.Build(
             model, GccPartnerExtractionFakes.NeverInvoked(new BriefFieldReachTests.FakeProviderFactory(model)), Project);
@@ -449,14 +490,15 @@ public sealed class GccGenerateShortPiecesTests
             types,
             mustMentionBlock: null,
             CancellationToken.None,
-            onTypeOutcome);
+            onTypeOutcome,
+            imagePrompts: imagePrompts);
     }
 
     /// <summary>
     /// The model for a whole run. A request is answered by what the run is writing when it is sent: a
     /// page's go to the scripted writer of that page, a piece's get the reply scripted for it.
     /// </summary>
-    private sealed class ByWhatIsWritten(string email = Email, string post = Post) : IContentGenerationProvider
+    private sealed class ByWhatIsWritten(string email = Email, string post = Post, string? imageReply = null) : IContentGenerationProvider
     {
         private readonly BriefFieldReachTests.Recorder pillar = new("pillar");
         private readonly BriefFieldReachTests.Recorder blog = new("blog");
@@ -464,6 +506,9 @@ public sealed class GccGenerateShortPiecesTests
 
         /// <summary>The types whose every request fails, as a writer that could not write the page.</summary>
         public HashSet<string> Fails { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>What the image-prompt call is answered with.</summary>
+        public string ImageReply { get; } = imageReply ?? $$"""{"prompt":"{{ScriptedBody.Scene("a ledger on a desk")}}"}""";
 
         /// <summary>The user prompt of every request that asked for a piece, with the piece it was for.</summary>
         public List<(string Type, string Sent)> PieceRequests { get; } = [];
@@ -485,7 +530,7 @@ public sealed class GccGenerateShortPiecesTests
                 return (writing == "blog" ? blog : pillar).CompleteAsync(request, cancellationToken);
 
             if (request.Messages[0].Content.Contains("image-generation prompt", StringComparison.Ordinal))
-                return Reply("""{"prompt":"a ledger on a desk"}""");
+                return Reply(ImageReply);
 
             lock (PieceRequests) PieceRequests.Add((writing, request.Messages[^1].Content));
             return Reply(GccRepurpose.IsEmail(writing) ? email : post);

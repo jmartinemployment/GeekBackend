@@ -503,6 +503,27 @@ public class GccGenerateServicePillarFaqTests
         Assert.All(TwoQuestions, q => Assert.Contains($"\"{q}\"", line, StringComparison.Ordinal));
     }
 
+    /// <summary>"Also write image prompts" is off unless ticked: a blog is written with no image-prompt call, and ticked it carries them.</summary>
+    [Fact]
+    public async Task TheBlogMakesNoImagePromptCallUnlessTheBoxIsTicked()
+    {
+        const string ledeReply = """{"ledeType":"summary","heading":"A","paragraphs":[{"type":"text","runs":[{"text":"Body."}]}]}""";
+        var plain = new RecordingProvider { LedeReply = ledeReply };
+        var ticked = new RecordingProvider { LedeReply = ledeReply };
+
+        var without = await Build(plain).GenerateBlogBodyAsync(
+            Create("{}") with { StartingContentType = "blog" },
+            null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+        var with = await Build(ticked).GenerateBlogBodyAsync(
+            Create("{}") with { StartingContentType = "blog" },
+            null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None, imagePrompts: true);
+
+        Assert.DoesNotContain(plain.SystemPromptsSeen, p => p.Contains("image-generation prompts", StringComparison.Ordinal));
+        Assert.DoesNotContain("\"imagePrompt\":\"", without, StringComparison.Ordinal);
+        Assert.Single(ticked.SystemPromptsSeen, p => p.Contains("image-generation prompts", StringComparison.Ordinal));
+        Assert.Contains("\"imagePrompt\":\"", with, StringComparison.Ordinal);
+    }
+
     /// <summary>The blog's questions are written from the answers entered under "Blog FAQ (optional)", and a question with none names that box.</summary>
     [Fact]
     public async Task TheBlogWritesItsQuestionsFromTheAnswersEnteredAndNamesItsOwnBoxForOneWithNone()

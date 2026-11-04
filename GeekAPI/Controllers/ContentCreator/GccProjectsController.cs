@@ -443,7 +443,8 @@ public class GccProjectsController : ControllerBase
             : ProjectView(project, row.CreateId, ownerUserId, requested[0], backing: null);
         var job = _generateRunner.StartForProject(
             row, writeUnder, section, provider, requested, mustMentionBlock, actor,
-            toolPartners: toolPartners.Count > 0 ? toolPartners : null);
+            toolPartners: toolPartners.Count > 0 ? toolPartners : null,
+            imagePrompts: request?.ImagePrompts ?? false);
 
         return Accepted(new { jobId = job.Id, projectId = id, status = job.Status });
     }
@@ -510,7 +511,9 @@ public class GccProjectsController : ControllerBase
         var writeUnder = gate.Backing is not null && gate.Backing.Id == row.CreateId
             ? gate.View
             : ProjectView(project, row.CreateId, ownerUserId, requested[0], backing: null);
-        var job = _generateRunner.StartRepurpose(row, writeUnder, gate.Section, provider, requested, source, actor);
+        var job = _generateRunner.StartRepurpose(
+            row, writeUnder, gate.Section, provider, requested, source, actor,
+            imagePrompts: request?.ImagePrompts ?? false);
 
         return Accepted(new { jobId = job.Id, projectId = id, pageId, status = job.Status });
     }
@@ -952,16 +955,22 @@ public class GccProjectsController : ControllerBase
         Guid? SourcePageId = null);
 
     /// <summary>What the browser sends to Repurpose a page: the short pieces to write from it.</summary>
-    public sealed record RepurposeRequest(IReadOnlyList<string>? OutputTypes, string? Provider);
+    /// <param name="ImagePrompts">"Also write image prompts" was ticked. Omitted is off: no piece makes
+    /// an image-prompt call.</param>
+    public sealed record RepurposeRequest(
+        IReadOnlyList<string>? OutputTypes, string? Provider, bool ImagePrompts = false);
 
     /// <summary>What the browser sends to Generate. AcknowledgeStaleGrounding is accepted for the
     /// contract's shape; Generate has no staleness gate that can fire (see GccController).</summary>
     /// <param name="Tools">When tool pages are among the output types: only these partners, each one
     /// of the project's declared partner URLs. Omitted or empty is every partner. Jeff, 2026-10-09:
     /// "Seeing as a single tool can fail, need a way to select just one tool."</param>
+    /// <param name="ImagePrompts">"Also write image prompts" was ticked. Omitted is off: no page and no
+    /// piece makes an image-prompt call.</param>
     public sealed record GenerateRequest(
         IReadOnlyList<string>? OutputTypes,
         string? Provider,
         bool AcknowledgeStaleGrounding = false,
-        IReadOnlyList<string>? Tools = null);
+        IReadOnlyList<string>? Tools = null,
+        bool ImagePrompts = false);
 }

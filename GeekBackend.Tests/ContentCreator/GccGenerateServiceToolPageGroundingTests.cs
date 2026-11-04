@@ -52,10 +52,9 @@ public class GccGenerateServiceToolPageGroundingTests
         """{"sections":[{"tag":"h2","heading":"Mapping your data before go-live","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget needs the vendor master mapped first."}]},{"type":"quote","runs":[{"text":"reduces setup time by half"}],"cite":"https://partner.test/widget"}],"href":null,"children":[]},{"tag":"h2","heading":"Judging Partner Widget against the alternatives","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget is priced per document."}]}],"href":null,"children":[]}]}""",
         """{"sections":[{"tag":"h2","heading":"Who Partner Widget suits","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget fits a team already on a ledger."}]}],"href":null,"children":[]},{"tag":"h2","heading":"What to do next with Partner Widget","paragraphs":[{"type":"text","runs":[{"text":"Partner Widget rewards a scoped pilot."}]},{"type":"text","runs":[{"text":"Book a free consultation.","href":"#consultationAppointment2xl"}]}],"href":null,"children":[]}]}""",
     ];
-    private const string ToolImagePromptsJson =
-        // One per H1 plus one per H2, with headroom for the optional FAQ section -- a short list is
-        // refused now rather than silently leaving sections without a prompt.
-        """{"prompts":[{"section":"Hero","prompt":"hero image prompt"},{"section":"Section 1","prompt":"capabilities image prompt"},{"section":"Section 2","prompt":"considerations image prompt"},{"section":"Section 3","prompt":"third image prompt"},{"section":"Section 4","prompt":"fourth image prompt"},{"section":"Section 5","prompt":"fifth image prompt"},{"section":"Section 6","prompt":"sixth image prompt"},{"section":"FAQ","prompt":"faq image prompt"}]}""";
+    // One per H1 plus one per H2, with headroom for the optional FAQ section -- a short list is
+    // refused now rather than silently leaving sections without a prompt.
+    private static readonly string ToolImagePromptsJson = ScriptedBody.ImagePrompts();
     private const string ToolMetadataJson =
         """{"departmentListExcerpt":"x","summary":"x","mainSummary":"x","heroSummary":"x","homeSummary":"x","blogSummary":"x","toolPageExcerpt":"x","advertisingSummary":"x","metaDescription":"x"}""";
     private const string ToolFaqJson =
@@ -288,6 +287,62 @@ public class GccGenerateServiceToolPageGroundingTests
         Assert.All(bodyPrompts, p => Assert.Contains(OwnSiteText, p, StringComparison.Ordinal));
         // A URL in the prompt is a URL that can end up on the page.
         Assert.All(bodyPrompts, p => Assert.DoesNotContain(RivalUrl, p, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AToolPageMakesNoImagePromptCallUnlessTheBoxIsTicked()
+    {
+        var provider = new ScriptedProvider();
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Integrations = [new GeekAPI.Services.ContentCreator.Partner.PartnerIntegrationItem(
+                "Slack", "Notifications", "API", "Slack integration")],
+        };
+        var service = Build(
+            provider, GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction));
+
+        var result = await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: Create(ResearchJsonWithAllThreeCrawlTypes()), passages: PartnerPassages());
+
+        Assert.DoesNotContain(
+            provider.Requests,
+            r => r.Messages.Any(m => m.Content.Contains("image-generation prompts", StringComparison.Ordinal)));
+        Assert.Null(result.Document.Lede.ImagePrompt);
+        Assert.All(result.Document.Sections, s => Assert.Null(s.ImagePrompt));
+    }
+
+    [Fact]
+    public async Task AToolPageWrittenWithTheBoxTickedCarriesPromptsThatEndOnThePalette()
+    {
+        var provider = new ScriptedProvider();
+        var extraction = GccPartnerExtractionFakes.EmptyPageExtraction with
+        {
+            Citables = [new GeekAPI.Services.ContentCreator.Partner.PartnerCitableItem(
+                "Partner Widget reduces setup time by half.", "reduces setup time by half")],
+            FeatureInventory = [new GeekAPI.Services.ContentCreator.Partner.PartnerFeatureItem(
+                "Automated setup wizard", "Onboarding", null, "automated setup wizard")],
+            Integrations = [new GeekAPI.Services.ContentCreator.Partner.PartnerIntegrationItem(
+                "Slack", "Notifications", "API", "Slack integration")],
+        };
+        var service = Build(
+            provider, GccPartnerExtractionFakes.Scripted(new FakeProviderFactory(provider), extraction));
+
+        var result = await service.GenerateToolPageAsync(
+            "Partner Widget", "brief", "context", "marketing", null,
+            ContentGeneratorProvider.OpenAi, CancellationToken.None,
+            create: Create(ResearchJsonWithAllThreeCrawlTypes()), passages: PartnerPassages(), imagePrompts: true);
+
+        Assert.Single(
+            provider.Requests,
+            r => r.Messages.Any(m => m.Content.Contains("image-generation prompts", StringComparison.Ordinal)));
+        Assert.EndsWith(GccImageStyle.Closing, result.Document.Lede.ImagePrompt, StringComparison.Ordinal);
+        Assert.All(result.Document.Sections, s => Assert.EndsWith(GccImageStyle.Closing, s.ImagePrompt, StringComparison.Ordinal));
     }
 
     [Fact]

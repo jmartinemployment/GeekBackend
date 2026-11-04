@@ -143,7 +143,7 @@ blog, tool and the deck have registered prompt sets.
    site and competitors); fan out over the types with `Task.WhenAll`, each through `GccGenerateService`; settle
    (`GccRunSettlement`); persist the pieces that wrote in one write; the job fails only when no type wrote anything.
 4. `GccGenerateService` (3,798 lines) writes: lede, batched body (two sections per call), FAQ, closing (`GccClosing`, built by
-   code), image prompts, metadata and JSON-LD; every draft is checked once by `GccDraftGuard` and either refused or shipped
+   code), image prompts (only when "Also write image prompts" is ticked), metadata and JSON-LD; every draft is checked once by `GccDraftGuard` and either refused or shipped
    with gaps reported. No retries.
    - **Every body call carries the page's whole evidence**, so the evidence decides a call's size. A passage the Library
      returns as a child is printed as its parent (`Context:`) and itself (`Specific detail:`); when the two are the same
@@ -257,7 +257,7 @@ page in front of the writer; from then until 2026-10-13 Repurpose was the only w
 2. `GccGenerateJobRunner.StartRepurpose` runs it as a Generate is run: own scope, run log, hub events.
 3. `GccGenerationCoordinator.RunRepurposeAsync`: **delete the page's pieces of the requested types**
    (`DELETE repo/content-creator/projects/{id}/pages/{pageId}/pieces?type=`); write each piece on its own through
-   `GccGenerateService.RepurposeEmailAsync` or `RepurposeSocialPostAsync`, then its image prompt; settle; save what wrote in
+   `GccGenerateService.RepurposeEmailAsync` or `RepurposeSocialPostAsync`, then its image prompt when "Also write image prompts" is ticked; settle; save what wrote in
    one write, each piece under the page (`GccGeneratedPiece.ParentPageId`) and carrying the page's name. The run fails only
    when no piece wrote.
 4. **What a writer is handed:** the page's text, whole (`GccRepurpose.SourceBlock`), and from the Brief the reader, the

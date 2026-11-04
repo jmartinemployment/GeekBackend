@@ -9,10 +9,11 @@ public static class ImagePromptDefaults
     public const int PillarHeight = 1024;
     public const string PillarStylePreset = "Illustration";
 
-    public const int SocialWidth = 1200;
-    public const int SocialHeight = 630;
-    public const string SocialStylePreset = "Dynamic";
+    /// <summary>The scene the model writes, before the closing is appended: asked for this many words.</summary>
+    public const int AskedMinWords = 90;
+    public const int AskedMaxWords = 130;
 
-    public const int PromptMinWords = 20;
-    public const int PromptMaxWords = 400;
+    /// <summary>What is accepted. Outside it the whole set is refused (GccImageStyle.Complete).</summary>
+    public const int SceneMinWords = 50;
+    public const int SceneMaxWords = 180;
 }

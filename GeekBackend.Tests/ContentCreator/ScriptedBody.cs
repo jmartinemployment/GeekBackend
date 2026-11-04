@@ -34,11 +34,22 @@ internal static class ScriptedBody
         """;
 
     /// <summary>
+    /// One scene as the model writes it: inside the band GccImageStyle.Complete accepts (50 to 180
+    /// words), distinct by <paramref name="subject"/>, and without the closing the code appends.
+    /// </summary>
+    internal static string Scene(string subject) =>
+        $"A clean, flat-design 3D vector illustration of {subject}, set against a transparent background. "
+        + "A small team gathers around a wide desk where tidy stacks of documents sit beside a glowing screen of "
+        + "simple shapes. One bold metaphor carries the point: a balanced scale holding a clock on one side and "
+        + "a stack of coins on the other, tilting back toward order. The composition is centred with generous "
+        + "space around the desk and a clear focal point at the scale.";
+
+    /// <summary>
     /// Image prompts with headroom. The service refuses a list shorter than one hero plus one per
     /// H2 — a short list used to be absorbed, leaving sections silently unprompted — and accepts a
     /// longer one, so a generous list is the fixture that does not depend on the batch count.
     /// </summary>
     internal static string ImagePrompts(int count = 16) =>
         $$"""{"prompts":[{{string.Join(",", Enumerable.Range(0, count).Select(i =>
-            $$"""{"section":"Section {{i}}","prompt":"image prompt {{i}}"}"""))}}]}""";
+            $$"""{"section":"Section {{i}}","prompt":"{{Scene($"picture {i}")}}"}"""))}}]}""";
 }

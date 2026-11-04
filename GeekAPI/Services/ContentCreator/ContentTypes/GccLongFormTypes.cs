@@ -33,13 +33,6 @@ public static class GccLongFormTypes
         Pillar, Blog, Comparison, Guide, Alternatives, TechArticle, Listicle, Local,
     };
 
-    private static readonly HashSet<string> HeroAndSectionImagePrompts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        Pillar, Blog, Tool, Comparison, CaseStudy, Guide, Alternatives,
-        TechArticle, Listicle, Service, Local, Whitepaper,
-        "email", "social", "ads",
-    };
-
     private static readonly HashSet<string> CmsPublishable = new(StringComparer.OrdinalIgnoreCase)
     {
         Pillar, Blog, Tool, Comparison, CaseStudy, Guide, Alternatives,
@@ -57,9 +50,6 @@ public static class GccLongFormTypes
 
     public static bool ExpectsFaqSection(string? contentType) =>
         !string.IsNullOrWhiteSpace(contentType) && ExpectsFaq.Contains(contentType.Trim());
-
-    public static bool UsesHeroAndSectionImagePrompts(string? contentType) =>
-        !string.IsNullOrWhiteSpace(contentType) && HeroAndSectionImagePrompts.Contains(contentType.Trim());
 
     public static bool IsCmsPublishable(string? contentType) =>
         !string.IsNullOrWhiteSpace(contentType) && CmsPublishable.Contains(contentType.Trim());

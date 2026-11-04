@@ -142,12 +142,25 @@ public sealed class GccShortFormReplyTests
     public async Task An_image_prompt_is_stored_with_every_field_the_call_asked_for()
     {
         var stored = await ImagePrompt(
-            """{"prompt":"A wide hero.","style":"Illustration","negativePrompt":"text","aspectRatio":"16:9","imageModel":"m","stylePreset":"Illustration","notes":""}""");
+            $$"""{"prompt":"{{ScriptedBody.Scene("a wide hero")}}","style":"Illustration","negativePrompt":"text","aspectRatio":"3:2","imageModel":"m","stylePreset":"Illustration","notes":""}""");
 
         using var doc = JsonDocument.Parse(stored);
-        Assert.Equal("A wide hero.", doc.RootElement.GetProperty("prompt").GetString());
-        Assert.Equal("16:9", doc.RootElement.GetProperty("aspectRatio").GetString());
+        // The model's scene, then the palette and lighting the code appends.
+        Assert.Equal(
+            $"{ScriptedBody.Scene("a wide hero")} {GccImageStyle.Closing}",
+            doc.RootElement.GetProperty("prompt").GetString());
+        Assert.Equal("3:2", doc.RootElement.GetProperty("aspectRatio").GetString());
         Assert.Equal("m", doc.RootElement.GetProperty("imageModel").GetString());
+    }
+
+    [Fact]
+    public async Task An_image_prompt_of_a_few_words_is_refused_and_not_saved()
+    {
+        var ex = await Assert.ThrowsAsync<ContentGenerationException>(() =>
+            ImagePrompt("""{"prompt":"A wide hero.","style":"Illustration","aspectRatio":"3:2"}"""));
+
+        Assert.Equal(ContentGenerationFailureKind.UnusableReply, ex.Kind);
+        Assert.Contains("the picture is 3 words", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -176,13 +189,15 @@ public sealed class GccShortFormReplyTests
     public async Task Section_image_prompts_in_a_fence_are_read()
     {
         var service = Service(
-            "```json\n{\"prompts\":[{\"section\":\"Hero\",\"prompt\":\"h\"},{\"section\":\"S1\",\"prompt\":\"a\"},{\"section\":\"S2\",\"prompt\":\"b\"}]}\n```",
+            "```json\n{\"prompts\":[{\"section\":\"Hero\",\"prompt\":\"" + ScriptedBody.Scene("h") + "\"},"
+            + "{\"section\":\"S1\",\"prompt\":\"" + ScriptedBody.Scene("a") + "\"},"
+            + "{\"section\":\"S2\",\"prompt\":\"" + ScriptedBody.Scene("b") + "\"}]}\n```",
             out _);
 
         var updated = await service.GenerateSectionImagePromptsAsync(
             "pillar", "Title", TwoSectionDocument(), null, ContentGeneratorProvider.OpenAi, CancellationToken.None);
 
-        Assert.Contains("\"imagePrompt\":\"a\"", updated, StringComparison.Ordinal);
+        Assert.Contains(ScriptedBody.Scene("a"), updated, StringComparison.Ordinal);
     }
 
     [Fact]

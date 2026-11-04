@@ -236,36 +236,58 @@ Pillar topic: {TITLE}
   Source: {source url}
 ```
 
-### A6. Section image prompts (one call per finished page; `GccGenerateService.GenerateSectionImagePromptsAsync`)
+### A6. Section image prompts (one call per finished page, only when "Also write image prompts" is ticked; `GccGenerateService.GenerateSectionImagePromptsAsync`)
 
-Temperature 0.7, max output 2,048. System:
+Off by default: Generate and Repurpose make no image-prompt call unless the box is ticked. Temperature 0.7, max output 8,192,
+task class Utility. The scene rules are `GccImageStyle.SceneRules`, shared with the single-picture call (A6b). System:
 
 ```
 You write AI image-generation prompts for B2B article figures.
-CRITICAL: Return EXACTLY ONE prompt for EACH listed section, in the exact order listed.
+CRITICAL: Return EXACTLY ONE prompt for EACH listed picture, in the exact order listed.
 
-VISUAL STYLE:
-- Flat vector / infographic, professional B2B tech aesthetic.
-- Default size: 1200x630. Style: professional illustration.
-- NO readable text, logos, or watermarks in the image.
-- Hero image for '{title}': establishing-shot composition, evokes the title's theme.
-- Section images: teaching diagrams appropriate to the section topic.
+SCENE (what you write, one paragraph per prompt, 90 to 130 words):
+- Open with: "A clean, flat-design 3D vector illustration of ..." and set it against either a transparent background or a solid dark navy background (#0B162A).
+- Name the concrete objects and the setting that the text you are given is about. Show its point as one bold visual metaphor, such as an hourglass leaking coins for lost time.
+- Take the people and the place from the audience lines when they are given. Never invent a place or a business the audience lines do not give.
+- Never put words in the picture. Do not quote a label, a heading or a document name to be drawn; show a document or a category as a colour and a shape.
+- No screenshots, dashboards or software screens (image models invent them), no logos, no watermarks.
+- Two prompts in one reply must not share a composition.
+- Do not write the palette, the lighting or the words "No text or labels". They are added after your scene.
+
+- The Hero picture is for the opening: show the whole page's problem, not one section's point.
 
 Respond with ONLY a single valid JSON object:
 {"prompts": [{"section": string, "prompt": string}]}
 ```
 
-User:
+User (the audience lines are the Brief's, `GccGenerateService.BriefAudienceLines`, and are left out when the Brief gives none; each
+section's text is clipped at a word near 500 characters):
 
 ```
 Article title: {title}
 Content type: {contentType}
+{audience lines}
 
-Sections requiring image prompts:
-- Hero: {title}
-- Section 1: {heading}
+Pictures requiring a prompt:
+- Hero. Opening text: {lede text}
+- Section 1: {heading}. Text: {section text} Covers: {child headings}.
 - …
 ```
+
+The code checks each scene is 50 to 180 words (a set with one outside it is refused, nothing attached), then appends
+`GccImageStyle.Closing` to every scene, so the palette is exact on every prompt:
+
+```
+The scene uses bold, minimal shapes with deep, crisp shadows and striking accents of vibrant brand orange (#C83803) and rich brand teak (#8C4E2A). The lighting is sharp and graphic with smooth gradients, a professional but approachable tech aesthetic. No text or labels.
+```
+
+### A6b. Single image prompt (the "Image prompt" content type, and the one picture a short piece carries when the box is ticked; `ContentPromptBuilder.BuildStandaloneImagePrompt`)
+
+Temperature 0.7, max output 1,024, task class Utility. System: "You write ONE AI image-generation prompt for a B2B content figure.
+Prompt text only, not pixels." then the same SCENE rules as A6, then "Prefer a wide establishing-shot composition that shows the
+topic's stakes.", the reply contract `{prompt, style, negativePrompt, aspectRatio, imageModel, stylePreset, notes}`, and
+`aspectRatio "3:2"` (the 1536x1024 of `ImagePromptDefaults`). The user message carries the topic, the Brief's fields (the standalone
+type) or the audience lines (a short piece), and the draft as context. The same 50 to 180 word check and the same closing apply.
 
 ### A7. Short-form prompts (not the three content types; same service)
 

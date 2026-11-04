@@ -224,7 +224,10 @@ public sealed class GccGenerationCoordinator
         GccBriefRevisionStamp? briefRevision = null,
         // When tool pages are requested: only these partners, by declared URL. Null is every partner.
         // Jeff, 2026-10-09: "Seeing as a single tool can fail, need a way to select just one tool."
-        IReadOnlyList<string>? toolPartners = null)
+        IReadOnlyList<string>? toolPartners = null,
+        // "Also write image prompts" was ticked. Off, no page and no piece makes an image-prompt call:
+        // they were written on every run, paid for, and read by nobody (Jeff, 2026-11-04).
+        bool imagePrompts = false)
     {
         var requested = NormalizeRequestedTypes(outputTypes);
         var refusal = ValidateRequestedTypes(requested);
@@ -252,7 +255,7 @@ public sealed class GccGenerationCoordinator
         {
             return await RunGenerateWithPiecesAsync(
                 repo, gen, create, section, provider, requested, mustMentionBlock, ct,
-                onTypeOutcome, onReadiness, onTypeWarning, briefRevision, toolPartners);
+                onTypeOutcome, onReadiness, onTypeWarning, briefRevision, toolPartners, imagePrompts);
         }
 
         // The old pages of every requested type go now, before a word is written (Jeff, 2026-10-06:
@@ -330,7 +333,7 @@ public sealed class GccGenerationCoordinator
                     throw new InvalidOperationException(evidenceRefusal);
                 return await GenerateOneAsync(
                     repo, gen, create, section, provider, type, mustMentionBlock,
-                    resolved.PartnerPassages, ct, recordReadiness, toolPartners);
+                    resolved.PartnerPassages, ct, recordReadiness, toolPartners, imagePrompts);
             })));
 
             return await SettleAndSaveAsync(
@@ -347,7 +350,7 @@ public sealed class GccGenerationCoordinator
             throw new InvalidOperationException(singleRefusal);
         var single = await GenerateOneAsync(
             repo, gen, create, section, provider, requested[0], mustMentionBlock,
-            resolvedSingle.PartnerPassages, ct, recordReadiness, toolPartners);
+            resolvedSingle.PartnerPassages, ct, recordReadiness, toolPartners, imagePrompts);
 
         var singlePieces = await WithMissingToolPagesNamedAsync(repo, gen, create, single.Pieces, requested, ct);
         var singleCreated = await PersistAllAsync(
@@ -424,7 +427,8 @@ public sealed class GccGenerationCoordinator
         Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness,
         Func<string, string, Task>? onTypeWarning,
         GccBriefRevisionStamp? briefRevision,
-        IReadOnlyList<string>? toolPartners)
+        IReadOnlyList<string>? toolPartners,
+        bool imagePrompts)
     {
         var projectId = create.ProjectId ?? throw new InvalidOperationException(NoProjectRefusal);
         var pageTypes = requested.Where(type => !GccRepurpose.IsShortType(type)).ToList();
@@ -480,7 +484,7 @@ public sealed class GccGenerationCoordinator
         {
             var written = await AttemptPagesAsync(
                 repo, gen, create, section, provider, pageTypes, mustMentionBlock,
-                groundingWarnings, recordReadiness, onTypeWarning, toolPartners, ct);
+                groundingWarnings, recordReadiness, onTypeWarning, toolPartners, imagePrompts, ct);
             pagesSettled = GccRunSettlement.SettlePart(written.Attempts);
             pagesSaved = await SaveWrittenAsync(
                 repo, gen, written.Create, pageTypes, pagesSettled.Pieces, groundingWarnings, provider,
@@ -531,7 +535,7 @@ public sealed class GccGenerationCoordinator
         var pieceAttempts = await Task.WhenAll(pieceTypes.Select(type => AttemptAsync(_logger, type, createId, async () =>
         {
             if (source is null) throw new InvalidOperationException(whyNoPiece!(type));
-            return await WritePieceAsync(gen, create, section, provider, type, source, ct);
+            return await WritePieceAsync(gen, create, section, provider, type, source, imagePrompts, ct);
         })));
         var piecesSettled = GccRunSettlement.SettlePart(pieceAttempts);
 
@@ -619,6 +623,7 @@ public sealed class GccGenerationCoordinator
         Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task> recordReadiness,
         Func<string, string, Task>? onTypeWarning,
         IReadOnlyList<string>? toolPartners,
+        bool imagePrompts,
         CancellationToken ct)
     {
         (GccCreateDto Create, IReadOnlyList<GccGroundedPassage> PartnerPassages, IReadOnlyList<string> Warnings, IReadOnlyList<string> PartnersWithoutPassages) resolved;
@@ -655,14 +660,15 @@ public sealed class GccGenerationCoordinator
                 throw new InvalidOperationException(evidenceRefusal);
             return await GenerateOneAsync(
                 repo, gen, grounded, section, provider, type, mustMentionBlock,
-                resolved.PartnerPassages, ct, recordReadiness, toolPartners);
+                resolved.PartnerPassages, ct, recordReadiness, toolPartners, imagePrompts);
         })));
         return (grounded, attempts);
     }
 
     /// <summary>
-    /// One short piece written from one page: the email, or a post or an ad for its platform, with its
-    /// image prompt. The one writer of a short piece, for a Generate and for a Repurpose.
+    /// One short piece written from one page: the email, or a post or an ad for its platform, with an
+    /// image prompt when "Also write image prompts" was ticked. The one writer of a short piece, for a
+    /// Generate and for a Repurpose.
     /// </summary>
     /// <remarks>The piece carries its page's name: a page has one piece of each type.</remarks>
     private async Task<TypeOutcome> WritePieceAsync(
@@ -672,6 +678,7 @@ public sealed class GccGenerationCoordinator
         ContentGeneratorProvider provider,
         string type,
         GccRepurposeSource source,
+        bool imagePrompts,
         CancellationToken ct)
     {
         var contentType = type.Trim().ToLowerInvariant();
@@ -680,14 +687,14 @@ public sealed class GccGenerationCoordinator
         {
             bodyJson = await gen.RepurposeEmailAsync(
                 create with { StartingContentType = "email" }, source, section, provider, ct);
-            bodyJson = await AddImagePromptForContentAsync(gen, "email", create.Topic, bodyJson, section, provider, ct);
+            if (imagePrompts) bodyJson = await AddImagePromptForContentAsync(gen, "email", create, bodyJson, provider, ct);
         }
         else
         {
             var platform = GccRepurpose.PlatformOf(type);
             bodyJson = await gen.RepurposeSocialPostAsync(
                 create with { StartingContentType = platform }, platform, source, section, provider, ct);
-            bodyJson = await AddImagePromptForContentAsync(gen, platform, create.Topic, bodyJson, section, provider, ct);
+            if (imagePrompts) bodyJson = await AddImagePromptForContentAsync(gen, platform, create, bodyJson, provider, ct);
         }
 
         return new TypeOutcome([new GeneratedPiece(contentType, bodyJson, source.Name)], []);
@@ -722,7 +729,9 @@ public sealed class GccGenerationCoordinator
         CancellationToken ct,
         Func<string, object?, string?, Task>? onTypeOutcome = null,
         Func<string, string, Task>? onTypeWarning = null,
-        GccBriefRevisionStamp? briefRevision = null)
+        GccBriefRevisionStamp? briefRevision = null,
+        // "Also write image prompts" was ticked: each piece carries one. Off, none is written.
+        bool imagePrompts = false)
     {
         var requested = NormalizeRequestedTypes(outputTypes);
         if (GccRepurpose.TypesRefusal(requested) is { } refusal) throw new InvalidOperationException(refusal);
@@ -739,7 +748,7 @@ public sealed class GccGenerationCoordinator
 
         var createId = create.Id;
         var attempts = await Task.WhenAll(requested.Select(type => AttemptAsync(
-            _logger, type, createId, () => WritePieceAsync(gen, create, section, provider, type, source, ct))));
+            _logger, type, createId, () => WritePieceAsync(gen, create, section, provider, type, source, imagePrompts, ct))));
 
         // Throws, saying why for each type, only when no type wrote anything.
         var settled = GccRunSettlement.Settle(attempts);
@@ -1034,7 +1043,8 @@ public sealed class GccGenerationCoordinator
         IReadOnlyList<GccGroundedPassage> passages,
         CancellationToken ct,
         Func<string, IReadOnlyList<GccGenerateService.GccPartnerToolReadiness>, Task>? onReadiness = null,
-        IReadOnlyList<string>? toolPartners = null)
+        IReadOnlyList<string>? toolPartners = null,
+        bool imagePrompts = false)
     {
         var contentType = requestedType.Trim().ToLowerInvariant();
         // Strips hyphens/spaces so "tech-article"/"techArticle" and "email-cold-outreach"/"email"
@@ -1051,7 +1061,8 @@ public sealed class GccGenerationCoordinator
                 // StartingContentType override as every other branch: without it a create first
                 // started as "tool" told the pillar writer "Starting content type: tool".
                 bodyJson = await gen.GeneratePillarBodyAsync(
-                    create with { StartingContentType = "pillar" }, section, provider, mustMentionBlock, ct);
+                    create with { StartingContentType = "pillar" }, section, provider, mustMentionBlock, ct,
+                    imagePrompts);
                 break;
 
             case "blog":
@@ -1064,7 +1075,8 @@ public sealed class GccGenerationCoordinator
                 // Image prompts, metadata and JSON-LD are all attached inside, the way the tool
                 // page does it -- the method returns a finished envelope, not a bare document.
                 bodyJson = await gen.GenerateBlogBodyAsync(
-                    create with { StartingContentType = "blog" }, section, provider, mustMentionBlock, ct);
+                    create with { StartingContentType = "blog" }, section, provider, mustMentionBlock, ct,
+                    imagePrompts);
                 break;
 
             // Both route through GenerateStartingContentAsync's own internal dispatch, which already
@@ -1079,7 +1091,8 @@ public sealed class GccGenerationCoordinator
                     onReadiness: onReadiness is null
                         ? null
                         : verdicts => onReadiness(contentType, verdicts),
-                    onlyPartners: toolPartners);
+                    onlyPartners: toolPartners,
+                    imagePrompts: imagePrompts);
 
                 var written = toolOutcomes.Where(o => o.Written).ToList();
                 var refused = toolOutcomes.Where(o => !o.Written).ToList();
@@ -1117,8 +1130,13 @@ public sealed class GccGenerationCoordinator
                 // StartingContentType override as every branch above, for the same reason.
                 bodyJson = await gen.GenerateStartingContentAsync(
                     create with { StartingContentType = contentType }, section, provider, ct, mustMentionBlock);
-                bodyJson = await gen.GenerateSectionImagePromptsAsync(
-                    contentType, create.Topic, bodyJson, section, provider, ct);
+                if (imagePrompts)
+                {
+                    bodyJson = await gen.GenerateSectionImagePromptsAsync(
+                        contentType, create.Topic, bodyJson, section, provider, ct,
+                        GccGenerateService.ImageAudienceLines(create));
+                }
+
                 break;
         }
 
@@ -1542,27 +1560,26 @@ public sealed class GccGenerationCoordinator
         + "so there is nowhere to save it. Nothing was generated.";
 
     /// <summary>
-    /// Attaches an <c>imagePrompt</c> field to a short-form body (email/social — a flat JSON
+    /// Attaches an <c>imagePrompt</c> field to a short-form body (email/social -- a flat JSON
     /// object, not a <see cref="ContentDocument"/>, so there's no Section to merge into the way
-    /// pillar/blog do). Previously computed the prompt via a real, paid LLM call and discarded
-    /// it unconditionally ("image prompts can be stored separately") -- every email/LinkedIn/
-    /// Facebook generation paid for a prompt nobody ever saw. Image-prompt failure still doesn't
-    /// fail the whole generation (the primary content already succeeded), but it's now logged
-    /// rather than silently swallowed, and cancellation propagates instead of being caught.
+    /// pillar/blog do). Called only when the operator ticked "Also write image prompts": it is an
+    /// extra paid call, and it used to run on every piece and be discarded, then stored where nobody
+    /// looked. The prompt is written from the piece and the Brief's audience. A failure does not fail
+    /// the piece, which already succeeded, but it is reported: it goes into the piece's own
+    /// <c>warnings</c>, which the run reports by type, as a long-form page's warnings are.
     /// </summary>
     private async Task<string> AddImagePromptForContentAsync(
         GccGenerateService gen,
         string contentType,
-        string topic,
+        GccCreateDto create,
         string contentJson,
-        SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         CancellationToken ct)
     {
         try
         {
             var imagePromptJson = await gen.GenerateImagePromptJsonAsync(
-                topic, null, contentJson, provider, ct);
+                create.Topic, GccGenerateService.ImageAudienceLines(create), contentJson, provider, ct);
             return GccGenerateService.MergeImagePromptField(contentJson, imagePromptJson);
         }
         catch (OperationCanceledException)
@@ -1571,11 +1588,10 @@ public sealed class GccGenerationCoordinator
         }
         catch (Exception ex)
         {
-            // Image prompt generation is optional -- the primary content already succeeded and
-            // must still be returned -- but a failure here should be visible, not silent.
             _logger.LogWarning(ex, "Image prompt generation failed for {ContentType}; content saved without one.", contentType);
             await GccRunLog.RecordIfAnyAsync("warning", new { step = "image prompt", contentType, fault = GccRunFault.Describe(ex) });
-            return contentJson;
+            return GccGenerateService.AppendWarning(
+                contentJson, $"The image prompt was not written ({ex.Message}). The piece is saved without it.");
         }
     }
 }

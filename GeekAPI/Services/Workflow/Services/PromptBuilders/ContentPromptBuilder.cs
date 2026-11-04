@@ -2647,26 +2647,22 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     {
         var system = new StringBuilder()
             .AppendLine("You write ONE AI image-generation prompt for a B2B content figure.")
-            .AppendLine("Prompt text only — not pixels.")
+            .AppendLine("Prompt text only, not pixels.")
             .AppendLine()
-            .AppendLine("VISUAL STYLE:")
-            .AppendLine("- Flat vector / infographic, professional fintech or B2B tech aesthetic.")
-            .AppendLine($"- Default size: {ImagePromptDefaults.PillarWidth}x{ImagePromptDefaults.PillarHeight}. Style: {ImagePromptDefaults.PillarStylePreset}.")
-            .AppendLine("- NO readable text, logos, or watermarks in the image.")
-            .AppendLine("- Prefer a wider establishing-shot hero composition that evokes the topic's theme and stakes.")
+            .AppendLine(GccImageStyle.SceneRules())
+            .AppendLine("- Prefer a wide establishing-shot composition that shows the topic's stakes.")
             .AppendLine()
-            .AppendLine("Respond with ONLY a single valid JSON object — no code fences:")
+            .AppendLine("Respond with ONLY a single valid JSON object, no code fences:")
             .AppendLine(
                 "{\"prompt\": string, \"style\": string, \"negativePrompt\": string, \"aspectRatio\": string, \"imageModel\": string, \"stylePreset\": string, \"notes\": string}")
-            .AppendLine($"Use imageModel \"{ImagePromptDefaults.DefaultImageModel}\" and stylePreset \"Illustration\" unless the brief clearly requires otherwise.")
-            .AppendLine("aspectRatio should be \"16:9\" for hero figures unless notes specify otherwise.")
+            .AppendLine($"The prompt field is the scene alone. Use imageModel \"{ImagePromptDefaults.DefaultImageModel}\" and stylePreset \"{ImagePromptDefaults.PillarStylePreset}\".")
+            .AppendLine($"Use aspectRatio \"3:2\" ({ImagePromptDefaults.PillarWidth}x{ImagePromptDefaults.PillarHeight}).")
             .ToString();
 
         var user = new StringBuilder()
-            .AppendLine($"Topic/title: {topic.Trim()}")
-            .AppendLine(BrandTones.ForWebpages());
+            .AppendLine($"Topic/title: {topic.Trim()}");
         if (!string.IsNullOrWhiteSpace(notes))
-            user.AppendLine($"Notes / brief: {notes.Trim()}");
+            user.AppendLine($"Audience and notes:\n{notes.Trim()}");
         if (!string.IsNullOrWhiteSpace(artifactContext))
         {
             var clipped = artifactContext.Length > 6000 ? artifactContext[..6000] : artifactContext;

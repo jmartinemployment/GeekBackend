@@ -128,7 +128,7 @@ Assert.Equal(3, provider.BodyCalls);
 Assert.Contains("People Also Ask", body.GetRawText(), StringComparison.Ordinal);
 ```
 
-**`An_image_prompt_failure_saves_the_guarded_draft_and_reports_it()`**
+**`An_image_prompt_failure_saves_the_guarded_draft_and_reports_it()`** (written with the "Also write image prompts" box ticked)
 
 ```csharp
 Assert.Contains("Planned section A", body.GetRawText(), StringComparison.Ordinal);

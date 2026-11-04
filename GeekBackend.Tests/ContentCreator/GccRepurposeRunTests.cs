@@ -57,10 +57,11 @@ public sealed class GccRepurposeRunTests(Xunit.Abstractions.ITestOutputHelper ou
             Assert.Equal(Page.Name, piece.Name);
         });
 
-        // Each piece is what this code wrote from the model's fields, with its image prompt.
+        // Each piece is what this code wrote from the model's fields. "Also write image prompts" was not
+        // ticked, so none carries one and no request asked for one.
         using var email = JsonDocument.Parse(save.Pieces[0].BodyDocumentJson);
         Assert.Equal("Cut approval time by 60%", email.RootElement.GetProperty("subject").GetString());
-        Assert.Equal("a ledger on a desk", email.RootElement.GetProperty("imagePrompt").GetProperty("prompt").GetString());
+        Assert.False(email.RootElement.TryGetProperty("imagePrompt", out _));
         using var post = JsonDocument.Parse(save.Pieces[1].BodyDocumentJson);
         Assert.Equal("Teams that route by rule cut approval time by 60%.", post.RootElement.GetProperty("text").GetString());
 
@@ -72,6 +73,24 @@ public sealed class GccRepurposeRunTests(Xunit.Abstractions.ITestOutputHelper ou
         Assert.Equal(3, recorded.RootElement.GetProperty("created").GetArrayLength());
         Assert.Equal(0, recorded.RootElement.GetProperty("refusals").GetArrayLength());
         Assert.Equal(0, recorded.RootElement.GetProperty("preflight").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Each_piece_carries_an_image_prompt_that_ends_on_the_palette_when_the_box_is_ticked()
+    {
+        var provider = new ByPiece(email: EmailFromThePage, post: PostFromThePage);
+        var repository = new PagesRepository();
+
+        await RunAsync(provider, repository, ["email-cold-outreach", "social"], imagePrompts: true);
+
+        var save = Assert.Single(repository.Saves);
+        Assert.All(save.Pieces, piece =>
+        {
+            using var body = JsonDocument.Parse(piece.BodyDocumentJson);
+            Assert.Equal(
+                $"{ScriptedBody.Scene("a ledger on a desk")} {GccImageStyle.Closing}",
+                body.RootElement.GetProperty("imagePrompt").GetProperty("prompt").GetString());
+        });
     }
 
     [Fact]
@@ -203,7 +222,7 @@ public sealed class GccRepurposeRunTests(Xunit.Abstractions.ITestOutputHelper ou
     private static Task<object> RunAsync(
         ByPiece provider, PagesRepository repository, IReadOnlyList<string> types,
         Func<string, object?, string?, Task>? onTypeOutcome = null,
-        GccRepurposeSource? page = null, string? briefJson = null)
+        GccRepurposeSource? page = null, string? briefJson = null, bool imagePrompts = false)
     {
         repository.Provider = provider;
         var coordinator = new GccGenerationCoordinator(grounding: null!, NullLogger<GccGenerationCoordinator>.Instance);
@@ -219,7 +238,8 @@ public sealed class GccRepurposeRunTests(Xunit.Abstractions.ITestOutputHelper ou
             types,
             page ?? Page,
             CancellationToken.None,
-            onTypeOutcome);
+            onTypeOutcome,
+            imagePrompts: imagePrompts);
     }
 
     /// <summary>The model, answering each request as what it was asked for: the email, a post or an ad,
@@ -242,7 +262,7 @@ public sealed class GccRepurposeRunTests(Xunit.Abstractions.ITestOutputHelper ou
             string reply;
             if (system.Contains("image-generation prompt", StringComparison.Ordinal))
             {
-                reply = """{"prompt":"a ledger on a desk"}""";
+                reply = $$"""{"prompt":"{{ScriptedBody.Scene("a ledger on a desk")}}"}""";
             }
             else
             {

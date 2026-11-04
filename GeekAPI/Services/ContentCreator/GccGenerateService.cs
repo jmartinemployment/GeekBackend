@@ -134,33 +134,6 @@ public partial class GccGenerateService
         GccSiteSection.ValidateSiteSectionGate(projectSiteRunId, section);
 
     /// <summary>
-    /// Per-H2 image-prompt gate: requires a primary long-form with at least one top-level section.
-    /// Call after ValidateSiteSectionGate when imagePrompt is among OutputTypes.
-    /// </summary>
-    public static void ValidateImagePromptRequiresLongForm(string startingContentType, bool hasLongForm, int h2Count)
-    {
-        if (!hasLongForm)
-            throw new InvalidOperationException(
-                $"{ToDisplayType(startingContentType)} must include at least one top-level section before generating image prompts");
-
-        if (h2Count == 0)
-            throw new InvalidOperationException(
-                $"{ToDisplayType(startingContentType)} must include at least one top-level section before generating image prompts");
-    }
-
-    private static string ToDisplayType(string raw)
-    {
-        var t = raw?.Trim().ToLowerInvariant();
-        return t switch
-        {
-            "pillar" => "Pillar",
-            "blog" => "Blog",
-            "techarticle" => "TechArticle",
-            _ => "Primary long-form"
-        };
-    }
-
-    /// <summary>
     /// Generate reads persisted BriefJson from the create only — not client request bodies.
     /// </summary>
     /// <remarks>
@@ -254,6 +227,35 @@ public partial class GccGenerateService
     }
 
     /// <summary>
+    /// The Brief's audience as the lines every request that carries it prints: the segment with its
+    /// details, then the notes. The one definition, read by <see cref="BuildBriefFieldsBlock"/> and by
+    /// the image-prompt calls, so a picture is told who the page is for in the words the writer was.
+    /// </summary>
+    internal static IEnumerable<string> BriefAudienceLines(BriefFields brief)
+    {
+        if (!string.IsNullOrWhiteSpace(brief.Segment))
+        {
+            var line = $"Audience segment: {BriefChoiceWords.Audience(brief.Segment)}";
+            if (brief.Details is { Count: > 0 })
+                line += $" ({string.Join(", ", brief.Details)})";
+            yield return line;
+        }
+        if (!string.IsNullOrWhiteSpace(brief.Notes))
+            yield return $"Audience notes: {brief.Notes} — if this conflicts with the segment above, follow the notes.";
+    }
+
+    /// <summary>
+    /// The audience lines an image-prompt request carries, or null when there is no create or the Brief
+    /// gives none. Null, not a generic line: a picture is not told an audience it was not given.
+    /// </summary>
+    internal static string? ImageAudienceLines(GccCreateDto? create)
+    {
+        if (create is null) return null;
+        var lines = BriefAudienceLines(ExtractBriefFields(create.BriefJson)).ToList();
+        return lines.Count == 0 ? null : string.Join("\n", lines);
+    }
+
+    /// <summary>
     /// The Brief as labeled prose, one line per populated field — never a raw JSON dump. Stage 3:
     /// dumping <c>create.BriefJson</c> verbatim meant every field arrived with equal, unweighted
     /// emphasis and no guidance on how to resolve a conflict between them; a model reads "follow
@@ -264,15 +266,8 @@ public partial class GccGenerateService
     {
         var sb = new StringBuilder();
         sb.AppendLine("=== BRIEF ===");
-        if (!string.IsNullOrWhiteSpace(brief.Segment))
-        {
-            var line = $"Audience segment: {BriefChoiceWords.Audience(brief.Segment)}";
-            if (brief.Details is { Count: > 0 })
-                line += $" ({string.Join(", ", brief.Details)})";
+        foreach (var line in BriefAudienceLines(brief))
             sb.AppendLine(line);
-        }
-        if (!string.IsNullOrWhiteSpace(brief.Notes))
-            sb.AppendLine($"Audience notes: {brief.Notes} — if this conflicts with the segment above, follow the notes.");
         if (!string.IsNullOrWhiteSpace(brief.Angle))
             sb.AppendLine(BriefChoiceWords.Angle(brief.Angle));
         if (!string.IsNullOrWhiteSpace(brief.PrimaryIntent))
@@ -917,7 +912,9 @@ public partial class GccGenerateService
         // Some of the partners instead of all of them, named by their declared URLs. Jeff,
         // 2026-10-09: "Seeing as a single tool can fail, need a way to select just one tool." Null or
         // empty means every partner, as before.
-        IReadOnlyList<string>? onlyPartners = null)
+        IReadOnlyList<string>? onlyPartners = null,
+        // The operator ticked "Also write image prompts": each tool page writes its own.
+        bool imagePrompts = false)
     {
         var partnerUrls = await PartnerUrlsForAsync(create, ct);
 
@@ -1020,7 +1017,8 @@ public partial class GccGenerateService
                     mustMentionBlock,
                     slice.Passages,
                     toolName: slice.ProductName,
-                    partnerExtraction: verdict.Extraction);
+                    partnerExtraction: verdict.Extraction,
+                    imagePrompts: imagePrompts);
                 outcomes.Add(new ToolPageOutcome(slice.ProductName, body, null));
             }
             catch (OperationCanceledException)
@@ -1068,7 +1066,10 @@ public partial class GccGenerateService
         // Extraction already run and already gated by the tool pre-flight. Passed down so a partner
         // that passed readiness is not extracted a second time to draft it. Null means extract here,
         // which is every non-tool type and every caller that did no pre-flight.
-        GccPartnerExtractionDocument? partnerExtraction = null)
+        GccPartnerExtractionDocument? partnerExtraction = null,
+        // The operator ticked "Also write image prompts". Read by the tool page; the standalone
+        // image-prompt type below is an explicit tick of its own and ignores it.
+        bool imagePrompts = false)
     {
         ValidateSiteSectionGate(create.ProjectSiteRunId, section);
         ValidateBriefRequired(create);
@@ -1085,13 +1086,17 @@ public partial class GccGenerateService
             // Topic only. This also required Notes, which the frontend never sends (createGccCreate
             // posts notes: null and collects none), so "Image prompt" -- an enabled picker option --
             // failed every generate it was part of, and under one-fails-all took the pillar and
-            // blog beside it down too. The brief is already required by ValidateBriefRequired above
-            // and is the context an image prompt is written from; notes are read when present.
+            // blog beside it down too. The brief is already required by ValidateBriefRequired above and
+            // every field of it is sent (BriefFieldReachTests); the research block, which this used to
+            // send as well for one picture, is not. Notes are read when present.
             if (string.IsNullOrWhiteSpace(create.Topic))
                 throw new InvalidOperationException("Standalone image prompt requires a topic.");
+            var imageNotes = BuildBriefFieldsBlock(ExtractBriefFields(create.BriefJson));
+            if (!string.IsNullOrWhiteSpace(mustMentionBlock))
+                imageNotes = $"{imageNotes}\n\n{mustMentionBlock}";
             return await GenerateImagePromptJsonAsync(
                 create.Topic,
-                string.IsNullOrWhiteSpace(create.Notes) ? briefBlock : $"{briefBlock}\n\n{create.Notes}",
+                string.IsNullOrWhiteSpace(create.Notes) ? imageNotes : $"{imageNotes}\n\n{create.Notes}",
                 null,
                 provider,
                 ct);
@@ -1124,7 +1129,8 @@ public partial class GccGenerateService
                 ct: ct,
                 create: create,
                 passages: passages,
-                extraction: partnerExtraction);
+                extraction: partnerExtraction,
+                imagePrompts: imagePrompts);
             return JsonSerializer.Serialize(new
             {
                 // "Ramp: Automated Approval Workflows": a tool is written within the keyword and the
@@ -1225,7 +1231,10 @@ public partial class GccGenerateService
             "the page's image prompt",
             "image prompt",
             static r => string.IsNullOrWhiteSpace(r.Prompt) ? "the reply carried no prompt" : null);
-        return JsonSerializer.Serialize(reply, JsonOpts);
+        // The model wrote the scene; the palette and lighting are appended here, and a scene outside the
+        // band is refused rather than saved.
+        return JsonSerializer.Serialize(
+            reply with { Prompt = GccImageStyle.Complete(reply.Prompt, "the picture") }, JsonOpts);
     }
 
     private sealed record StandaloneImagePromptReply(
@@ -1266,7 +1275,9 @@ public partial class GccGenerateService
         // A pre-flight's extraction for this same product and these same pages. Supplied, it replaces
         // the call below; the gate still runs on it, so a supplied document is verified here exactly
         // as a freshly extracted one is and this stays fail-closed at the drafting site.
-        GccPartnerExtractionDocument? extraction = null)
+        GccPartnerExtractionDocument? extraction = null,
+        // The operator ticked "Also write image prompts". Off, no image-prompt call is made.
+        bool imagePrompts = false)
     {
         var llmType = ToLlm(provider);
         var llm = GetLlm(provider);
@@ -1768,11 +1779,11 @@ public partial class GccGenerateService
             type: "tool page",
             numberEvidence: toolGuardInputs.NumberEvidence);
 
-        // Per-H2 image prompts. Tool pages are long-form (a ten-section outline, equal to Pillar,
-        // plus an optional FAQ section) and this is the revenue-critical content type. `section` is
-        // accepted but unused inside GenerateSectionImagePromptsAsync, so null is correct here.
+        // Per-H2 image prompts, when asked for. `section` is accepted but unused inside
+        // GenerateSectionImagePromptsAsync, so null is correct here.
         document = await WithSectionImagePromptsAsync(
-            "tool", name, document, null, provider, toolWarnings, ct, page: $"Tool page '{name}'");
+            imagePrompts, "tool", name, document, null, create, provider, toolWarnings, ct,
+            page: $"Tool page '{name}'");
 
         var wordCount = ContentDocumentText.CountWords(document);
 
@@ -1926,6 +1937,21 @@ public partial class GccGenerateService
         var imagePromptNode = System.Text.Json.Nodes.JsonNode.Parse(imagePromptJson)
             ?? throw new InvalidOperationException("Image prompt generation returned non-JSON content.");
         contentNode["imagePrompt"] = imagePromptNode;
+        return contentNode.ToJsonString();
+    }
+
+    /// <summary>
+    /// Adds one line to the <c>warnings</c> of a flat short-form body, creating the array when the body
+    /// has none. What a short piece is saved with that the operator should see, as a long-form page's
+    /// envelope carries (<see cref="GccGenerationCoordinator.WarningsOf"/> reads both the same way).
+    /// </summary>
+    public static string AppendWarning(string contentJson, string warning)
+    {
+        var contentNode = System.Text.Json.Nodes.JsonNode.Parse(contentJson)?.AsObject()
+            ?? throw new InvalidOperationException("Content body was not a JSON object.");
+        var warnings = contentNode["warnings"] as System.Text.Json.Nodes.JsonArray ?? new System.Text.Json.Nodes.JsonArray();
+        warnings.Add(warning);
+        contentNode["warnings"] = warnings;
         return contentNode.ToJsonString();
     }
 
@@ -2627,7 +2653,9 @@ public partial class GccGenerateService
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
         string? mustMentionBlock,
-        CancellationToken ct)
+        CancellationToken ct,
+        // The operator ticked "Also write image prompts". Off, no image-prompt call is made.
+        bool imagePrompts = false)
     {
         var llm = GetLlm(provider);
         var competitorAnalyses = await ResolveCompetitorAnalysesAsync(create, ct);
@@ -2835,7 +2863,7 @@ public partial class GccGenerateService
         // returned a bare ContentDocument -- it now returns the same envelope Tool does, so the
         // step has to happen before wrapping.
         document = await WithSectionImagePromptsAsync(
-            "blog", create.Topic, document, section, provider, blogWarnings, ct);
+            imagePrompts, "blog", create.Topic, document, section, create, provider, blogWarnings, ct);
         await AddKeywordPlacementAsync(
             "the blog", "blog", blogPromptCtx.Context.TargetKeyword, metadata.Title, blogMetaDescription, blogWarnings);
 
@@ -4136,19 +4164,25 @@ public partial class GccGenerateService
     /// known-good output. Saved and reported, the way the partner gap and the scheduler link already are.
     /// </remarks>
     private async Task<ContentDocument> WithSectionImagePromptsAsync(
+        bool imagePrompts,
         string contentType,
         string title,
         ContentDocument document,
         SiteSectionContextDto? section,
+        GccCreateDto? create,
         ContentGeneratorProvider provider,
         List<string> warnings,
         CancellationToken ct,
         string? page = null)
     {
+        // Off unless the operator ticked "Also write image prompts": no call, no cost, no warning.
+        if (!imagePrompts) return document;
+
         try
         {
             var withPrompts = await GenerateSectionImagePromptsAsync(
-                contentType, title, JsonSerializer.Serialize(document, CwDocumentJson), section, provider, ct);
+                contentType, title, JsonSerializer.Serialize(document, CwDocumentJson), section, provider, ct,
+                ImageAudienceLines(create));
             return JsonSerializer.Deserialize<ContentDocument>(withPrompts, CwDocumentJson) ?? document;
         }
         catch (OperationCanceledException)
@@ -4485,35 +4519,37 @@ public partial class GccGenerateService
     /// <summary>
     /// Generates one image prompt per top-level section (plus a hero for the lede) and merges
     /// them into the document's own <see cref="Section.ImagePrompt"/> fields, returning the
-    /// updated body JSON. Previously computed a real, paid LLM response here and then discarded
-    /// it -- every caller took the return value, generated a section-image-prompts call, and
-    /// never used the result. Every long-form generation was paying for image prompts nobody
-    /// ever saw.
+    /// updated body JSON. Called only when the operator ticked "Also write image prompts": it is an
+    /// extra paid call, and for a long time it ran on every page whether or not anyone read the
+    /// result. Each prompt is the model's scene for that section's own text, with the palette and
+    /// lighting appended by <see cref="GccImageStyle.Complete"/>.
     /// </summary>
+    /// <param name="audienceLines">The Brief's audience lines (<see cref="BriefAudienceLines"/>), or
+    /// null when the Brief gives none; a picture is not told an audience it was not given.</param>
     public async Task<string> GenerateSectionImagePromptsAsync(
         string contentType,
         string title,
         string body,
         SiteSectionContextDto? section,
         ContentGeneratorProvider provider,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? audienceLines = null)
     {
         var llm = GetLlm(provider);
-        var sections = ExtractSectionHeadings(body);
+        var document = JsonSerializer.Deserialize<ContentDocument>(body, CwDocumentJson)
+            ?? throw new InvalidOperationException("Could not read the generated body to write image prompts for it.");
+        var sections = document.Sections;
 
         if (sections.Count == 0)
             throw new InvalidOperationException("No sections found in content body.");
 
         var system = new StringBuilder()
             .AppendLine("You write AI image-generation prompts for B2B article figures.")
-            .AppendLine("CRITICAL: Return EXACTLY ONE prompt for EACH listed section, in the exact order listed.")
+            .AppendLine("CRITICAL: Return EXACTLY ONE prompt for EACH listed picture, in the exact order listed.")
             .AppendLine()
-            .AppendLine("VISUAL STYLE:")
-            .AppendLine("- Flat vector / infographic, professional B2B tech aesthetic.")
-            .AppendLine("- Default size: 1200x630. Style: professional illustration.")
-            .AppendLine("- NO readable text, logos, or watermarks in the image.")
-            .AppendLine($"- Hero image for '{title}': establishing-shot composition, evokes the title's theme.")
-            .AppendLine("- Section images: teaching diagrams appropriate to the section topic.")
+            .AppendLine(GccImageStyle.SceneRules())
+            .AppendLine()
+            .AppendLine("- The Hero picture is for the opening: show the whole page's problem, not one section's point.")
             .AppendLine()
             .AppendLine("Respond with ONLY a single valid JSON object:")
             .AppendLine("{\"prompts\": [{\"section\": string, \"prompt\": string}]}")
@@ -4521,20 +4557,29 @@ public partial class GccGenerateService
 
         var user = new StringBuilder()
             .AppendLine($"Article title: {title}")
-            .AppendLine($"Content type: {contentType}")
-            .AppendLine()
-            .AppendLine("Sections requiring image prompts:");
-
-        user.AppendLine($"- Hero: {title}");
+            .AppendLine($"Content type: {contentType}");
+        if (!string.IsNullOrWhiteSpace(audienceLines))
+            user.AppendLine(audienceLines);
+        user.AppendLine()
+            .AppendLine("Pictures requiring a prompt:")
+            .AppendLine($"- Hero. Opening text: {ImagePromptExcerpt(ContentDocumentText.ParagraphTexts(document.Lede))}");
         for (int i = 0; i < sections.Count; i++)
         {
-            user.AppendLine($"- Section {i + 1}: {sections[i]}");
+            var covers = sections[i].Children.Count == 0
+                ? string.Empty
+                : $" Covers: {string.Join("; ", sections[i].Children.Select(c => c.Heading))}.";
+            user.AppendLine(
+                $"- Section {i + 1}: {sections[i].Heading}. Text: "
+                + $"{ImagePromptExcerpt(ContentDocumentText.ParagraphTexts(sections[i]))}{covers}");
         }
 
         var request = new ChatCompletionRequest(
             Messages: [new ChatMessage(ChatRole.System, system), new ChatMessage(ChatRole.User, user.ToString())],
             Temperature: 0.7,
-            MaxOutputTokens: 2048);
+            // Eleven scenes of up to 130 words and their JSON do not fit in 2048 tokens.
+            MaxOutputTokens: 8192,
+            // Utility: image prompts, short, no prose a reader reads (ProviderModels).
+            TaskClass: LlmTaskClass.Utility);
 
         var result = await llm.CompleteAsync(request, ct);
 
@@ -4558,26 +4603,18 @@ public partial class GccGenerateService
                 $"Image prompts for {contentType}: expected {expectedPrompts} (one hero plus one per "
                 + $"H2), received {prompts.Count}. Not attaching a partial set.");
 
-        var document = JsonSerializer.Deserialize<ContentDocument>(body, CwDocumentJson)
-            ?? throw new InvalidOperationException("Could not re-read the generated body to attach image prompts.");
-
         // Positional, matching how the request was built: index 0 is always "Hero" (the lede),
-        // index 1.. line up with `sections` (ExtractSectionHeadings' order) one for one -- the
-        // system prompt requires "EXACTLY ONE prompt for EACH listed section, in the exact order
-        // listed", so trusting position over re-matching by name text is the reliable read.
-        var lede = document.Lede;
-        if (prompts.Count > 0 && !string.IsNullOrWhiteSpace(prompts[0].Prompt))
-            lede = lede with { ImagePrompt = prompts[0].Prompt };
+        // index 1.. line up with the document's top-level sections one for one -- the system prompt
+        // requires "EXACTLY ONE prompt for EACH listed picture, in the exact order listed", so
+        // trusting position over re-matching by name text is the reliable read. Every scene is
+        // checked and completed before any is attached: one outside the band refuses the set.
+        var lede = document.Lede with { ImagePrompt = GccImageStyle.Complete(prompts[0].Prompt, "the hero") };
 
-        var updatedSections = new List<Section>(document.Sections.Count);
-        for (var i = 0; i < document.Sections.Count; i++)
+        var updatedSections = new List<Section>(sections.Count);
+        for (var i = 0; i < sections.Count; i++)
         {
-            var promptIndex = i + 1; // offset by the Hero entry at index 0
-            var s = document.Sections[i];
-            updatedSections.Add(
-                promptIndex < prompts.Count && !string.IsNullOrWhiteSpace(prompts[promptIndex].Prompt)
-                    ? s with { ImagePrompt = prompts[promptIndex].Prompt }
-                    : s);
+            var prompt = GccImageStyle.Complete(prompts[i + 1].Prompt, $"the section '{sections[i].Heading}'");
+            updatedSections.Add(sections[i] with { ImagePrompt = prompt });
         }
 
         var updated = document with { Lede = lede, Sections = updatedSections };
@@ -4585,13 +4622,15 @@ public partial class GccGenerateService
     }
 
     /// <summary>
-    /// The H2 headings of a generated body. The body is a <see cref="ContentDocument"/>, so the
-    /// headings are read off the tree — no parse, no regex, nothing to guess. This replaced a
-    /// string scan that only ever worked while the body happened to be a string.
+    /// A section's text for the image-prompt request, clipped at a word so the request stays small
+    /// and the model is shown what the section says, not the whole page again.
     /// </summary>
-    private static List<string> ExtractSectionHeadings(string bodyJson)
+    private static string ImagePromptExcerpt(IEnumerable<string> paragraphs)
     {
-        var document = JsonSerializer.Deserialize<ContentDocument>(bodyJson, CwDocumentJson);
-        return document is null ? [] : [.. ContentDocumentText.TopLevelHeadings(document)];
+        const int max = 500;
+        var text = string.Join(" ", paragraphs).Trim();
+        if (text.Length <= max) return text;
+        var cut = text.LastIndexOf(' ', max);
+        return text[..(cut > 0 ? cut : max)].TrimEnd();
     }
 }

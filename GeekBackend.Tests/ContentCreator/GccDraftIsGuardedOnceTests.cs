@@ -154,10 +154,11 @@ public class GccDraftIsGuardedOnceTests
     }
 
     private static async Task<(JsonElement Body, IReadOnlyList<string> Warnings)> Pillar(
-        IContentGenerationProvider provider, string? briefJson = null)
+        IContentGenerationProvider provider, string? briefJson = null, bool imagePrompts = false)
     {
         var envelope = await Build(provider).GeneratePillarBodyAsync(
-            Create(briefJson), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None);
+            Create(briefJson), null, ContentGeneratorProvider.OpenAi, null, CancellationToken.None,
+            imagePrompts: imagePrompts);
         return Read(envelope);
     }
 
@@ -347,11 +348,38 @@ public class GccDraftIsGuardedOnceTests
     }
 
     [Fact]
+    public async Task A_pillar_written_without_the_image_prompts_box_makes_no_image_prompt_call()
+    {
+        var provider = new ScriptedProvider();
+
+        var (body, warnings) = await Pillar(provider);
+
+        Assert.DoesNotContain("image-generation prompts", provider.AllPrompts, StringComparison.Ordinal);
+        // The field is on every section as null; no section holds a prompt.
+        Assert.DoesNotContain("\"imagePrompt\":\"", body.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(warnings, w => w.Contains("Image prompts", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_pillar_written_with_the_image_prompts_box_carries_a_prompt_that_ends_on_the_palette()
+    {
+        var provider = new ScriptedProvider();
+
+        var (body, _) = await Pillar(provider, imagePrompts: true);
+
+        Assert.Contains("image-generation prompts", provider.AllPrompts, StringComparison.Ordinal);
+        var hero = body.GetProperty("lede").GetProperty("imagePrompt").GetString()!;
+        Assert.EndsWith(GccImageStyle.Closing, hero, StringComparison.Ordinal);
+        Assert.Contains(GccImageStyle.Orange, hero, StringComparison.Ordinal);
+        Assert.Contains(GccImageStyle.Teak, hero, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task An_image_prompt_failure_saves_the_guarded_draft_and_reports_it()
     {
         var provider = new FailingImagePromptsProvider(new ScriptedProvider());
 
-        var (body, warnings) = await Pillar(provider);
+        var (body, warnings) = await Pillar(provider, imagePrompts: true);
 
         Assert.Contains("Planned section A", body.GetRawText(), StringComparison.Ordinal);
         Assert.Contains(warnings, w => w.Contains("Image prompts were not written", StringComparison.Ordinal));
