@@ -14,6 +14,9 @@ public class ApiKeyMiddleware
         "/api/case-studies",
         "/api/departments",
         "/api/use-cases",
+        // GeekSocial's webhook endpoint. Meta cannot send our API key, so the delivery's own
+        // X-Hub-Signature-256 is what authenticates it (SocialWebhooksController / MetaEngagementReader).
+        "/api/social/webhooks/meta",
     };
 
     private readonly RequestDelegate _next;

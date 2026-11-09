@@ -178,6 +178,8 @@ builder.Services.AddGeekCrawler(builder.Configuration, builder.Environment);
 builder.Services.AddVisitors();
 // GeekSocial: the store over repo/social/* and the token protector (GEEK_SOCIAL_ENCRYPTION_KEY).
 builder.Services.AddSocialPersistence();
+// GeekSocial's Listener (the Facebook webhook reader) and the orchestrator's intake.
+builder.Services.AddSocialIntake();
 builder.Services.AddScoped<GeekAPI.Services.Rag.RagLibrary>();
 
 // GeekOAuth-issued JWT bearer. Originally added only so the v2 realtime hub could require

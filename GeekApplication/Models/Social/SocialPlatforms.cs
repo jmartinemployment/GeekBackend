@@ -102,10 +102,14 @@ public static class SocialFailureCodes
     /// <summary>The key that protects stored tokens is missing or unusable, so no token can be stored or read.</summary>
     public const string EncryptionUnavailable = "encryption_unavailable";
 
+    /// <summary>The platform's app settings (app id, secret, verify token) are not set on this service, so nothing can be verified or called until they are.</summary>
+    public const string NotConfigured = "not_configured";
+
     public static readonly IReadOnlyList<string> All = new[]
     {
         NotSupported, InvalidRequest, TokenInvalid, RateLimited, Forbidden, NotFound, PlatformRejected,
         PlatformUnavailable, OutcomeUnknown, InvalidSignature, Conflict, StoreUnavailable, EncryptionUnavailable,
+        NotConfigured,
     };
 
     public static bool IsKnown(string? code) => code is not null && All.Contains(code);
