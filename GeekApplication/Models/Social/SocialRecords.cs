@@ -111,6 +111,10 @@ public static class EngagementKinds
 public sealed class EngagementEvent
 {
     public Guid Id { get; set; }
+
+    /// <summary>The connected account the event belongs to. The store sets it from <see cref="PlatformAccountId"/>; a caller leaves it empty.</summary>
+    public Guid AccountId { get; set; }
+
     public string Platform { get; set; } = string.Empty;
 
     /// <summary>The id the platform gave this event, or a value derived from its content when it gives none. The de-duplication key.</summary>
@@ -130,6 +134,12 @@ public sealed class EngagementEvent
     public string? ReactionType { get; set; }
     public DateTime OccurredAt { get; set; }
     public DateTime ReceivedAt { get; set; }
+
+    /// <summary>When <see cref="Text"/> must be gone, or null when the platform sets no limit. Set by the store.</summary>
+    public DateTime? TextExpiresAt { get; set; }
+
+    /// <summary>When <see cref="AuthorDisplayName"/> must be gone, or null when the platform sets no limit. Set by the store.</summary>
+    public DateTime? AuthorExpiresAt { get; set; }
 }
 
 /// <summary>One comment as a read call returns it.</summary>
@@ -308,6 +318,9 @@ public sealed class ReplyDraft
 
     public DateTime CreatedAt { get; set; }
     public DateTime? DecidedAt { get; set; }
+
+    /// <summary>When the send began. A draft left sending across a restart has an unknown outcome.</summary>
+    public DateTime? SendingStartedAt { get; set; }
 }
 
 /// <summary>What the drafter is given for one comment: only what the reply needs.</summary>

@@ -92,6 +92,23 @@ public static class SocialFailureCodes
 
     /// <summary>A webhook did not carry a valid signature for its raw body. Nothing was stored.</summary>
     public const string InvalidSignature = "invalid_signature";
+
+    /// <summary>The store refused the write because of what it already holds: a reply already exists for that comment, or the draft is no longer in the state the caller read.</summary>
+    public const string Conflict = "conflict";
+
+    /// <summary>The store could not be reached or did not complete the call.</summary>
+    public const string StoreUnavailable = "store_unavailable";
+
+    /// <summary>The key that protects stored tokens is missing or unusable, so no token can be stored or read.</summary>
+    public const string EncryptionUnavailable = "encryption_unavailable";
+
+    public static readonly IReadOnlyList<string> All = new[]
+    {
+        NotSupported, InvalidRequest, TokenInvalid, RateLimited, Forbidden, NotFound, PlatformRejected,
+        PlatformUnavailable, OutcomeUnknown, InvalidSignature, Conflict, StoreUnavailable, EncryptionUnavailable,
+    };
+
+    public static bool IsKnown(string? code) => code is not null && All.Contains(code);
 }
 
 /// <summary>

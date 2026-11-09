@@ -1,9 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using GeekApplication.Interfaces;
 using GeekApplication.Interfaces.ContentCreator;
 using GeekApplication.Interfaces.ContentWriterV3;
 using GeekApplication.Interfaces.ContentWriterV4;
+using GeekApplication.Interfaces.Social;
 using GeekRepository.Infrastructure;
 using GeekRepository.Repositories;
 using GeekRepository.Repositories.Blog;
@@ -11,6 +13,7 @@ using GeekRepository.Repositories.Content;
 using GeekRepository.Repositories.ContentCreator;
 using GeekRepository.Repositories.ContentWriterV3;
 using GeekRepository.Repositories.ContentWriterV4;
+using GeekRepository.Repositories.Social;
 using GeekRepository.Repositories.Visitors;
 using GeekRepository.Services;
 
@@ -89,6 +92,11 @@ public static class ServiceRegistration
         // VisitorsDbContext, which Program.cs registers against DATABASE_URL. Not Mongo: Mongo is
         // the crawl store only (AGENTS.md, Jeff 2026-10-26).
         services.AddScoped<IVisitorRepository, VisitorRepository>();
+
+        // GeekSocial (geek_social): the same arrangement, through SocialDbContext. The clock is
+        // injected so retention deadlines and a draft's creation time are testable.
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<ISocialStore, SocialRepository>();
 
         return services;
     }

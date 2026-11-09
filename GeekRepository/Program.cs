@@ -104,6 +104,15 @@ builder.Services.AddDbContext<GeekRepository.Data.VisitorsDbContext>(options => 
         npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery))
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// GeekSocial (geek_social): the connected social accounts, the posts the agent published, the
+// engagement events that came back, the reply drafts and the audit trail, served to GeekAPI
+// through repo/social/*. A schema in this database, not a second Mongo (AGENTS.md, Jeff
+// 2026-10-26). No MigrationsHistoryTable: geek_social is created and maintained by
+// Migrations/Sql/0043_geek_social_schema.sql, the same way geek_visitors is.
+builder.Services.AddDbContext<GeekRepository.Data.SocialDbContext>(options => options
+    .UseNpgsql(connectionString)
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddExceptionHandler<GeekRepository.Infrastructure.DbUpdateConcurrencyExceptionHandler>();
