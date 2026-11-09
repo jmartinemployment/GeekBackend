@@ -1,4 +1,5 @@
 using GeekAPI.HttpClients;
+using GeekAPI.Services.Social.Connector;
 using GeekAPI.Services.Social.Meta;
 using GeekAPI.Services.Social.Orchestration;
 using GeekApplication.Interfaces.Social;
@@ -25,6 +26,7 @@ public static class SocialServiceRegistration
         });
 
         services.AddSingleton<SocialCredentialProtector>();
+        services.AddScoped<ISocialTokenProvider, SocialTokenProvider>();
         return services;
     }
 
