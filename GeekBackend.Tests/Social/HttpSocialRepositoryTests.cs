@@ -122,6 +122,7 @@ public class HttpSocialRepositoryTests
         Assert.False((await repo.ListPostsAsync(AccountId, 10)).IsSuccess);
         Assert.False((await repo.ListDraftsAsync(null, null, 10)).IsSuccess);
         Assert.False((await repo.ListAuditAsync(null, 10)).IsSuccess);
+        Assert.False((await repo.ListEventsAsync(TriageOutcomes.Untriaged, null, 10)).IsSuccess);
     }
 
     [Fact]
@@ -185,6 +186,8 @@ public class HttpSocialRepositoryTests
         await repo.ListPostsAsync(AccountId, 5);
         await repo.ListAuditAsync(AccountId, 7);
         await repo.ListAuditAsync(null, 7);
+        await repo.ListEventsAsync(TriageOutcomes.Untriaged, null, 50);
+        await repo.ListEventsAsync(TriageOutcomes.BlockedNoClearance, AccountId, 20);
 
         Assert.Equal(
             new[]
@@ -193,6 +196,8 @@ public class HttpSocialRepositoryTests
                 $"/repo/social/posts?accountId={AccountId}&limit=5",
                 $"/repo/social/audit?limit=7&accountId={AccountId}",
                 "/repo/social/audit?limit=7",
+                "/repo/social/events?limit=50&triageState=untriaged",
+                $"/repo/social/events?limit=20&triageState=blocked_no_clearance&accountId={AccountId}",
             },
             handler.Requests.Select(r => r.PathAndQuery).ToArray());
 
@@ -205,6 +210,46 @@ public class HttpSocialRepositoryTests
         Assert.Equal("pending", json.RootElement.GetProperty("from").GetString());
         Assert.Equal("approved", json.RootElement.GetProperty("to").GetString());
         Assert.EndsWith("Z", json.RootElement.GetProperty("at").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_triage_outcome_is_posted_to_the_event_and_a_lost_race_is_a_conflict()
+    {
+        var eventId = Guid.NewGuid();
+        var (repo, handler, _) = Build(_ => Json(new { id = eventId, triageOutcome = "reply_needed" }));
+
+        var recorded = await repo.RecordTriageOutcomeAsync(eventId, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, At = new DateTime(2026, 11, 9, 15, 0, 0, DateTimeKind.Utc) });
+
+        Assert.True(recorded.IsSuccess, recorded.Error);
+        Assert.Equal(TriageOutcomes.ReplyNeeded, recorded.Value!.TriageOutcome);
+        var sent = handler.Requests.Single();
+        Assert.Equal(HttpMethod.Post, sent.Method);
+        Assert.Equal($"/repo/social/events/{eventId}/triage", sent.PathAndQuery);
+        using var json = JsonDocument.Parse(sent.Body!);
+        Assert.Equal("reply_needed", json.RootElement.GetProperty("outcome").GetString());
+
+        var (loser, _, _) = Build(_ => Text(HttpStatusCode.Conflict, "The event's triage is already reply_needed."));
+        var lost = await loser.RecordTriageOutcomeAsync(eventId, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = DateTime.UtcNow });
+        Assert.Equal(SocialFailureCodes.Conflict, lost.ErrorCode);
+    }
+
+    [Fact]
+    public async Task A_refused_draft_travels_with_the_rules_it_broke()
+    {
+        var (repo, handler, _) = Build(_ => Json(new { id = Guid.NewGuid(), status = "rejected", reviewRefusal = new[] { ReviewRules.EmDash } }));
+
+        var created = await repo.CreateDraftAsync(new CreateReplyDraftCommand
+        {
+            EngagementEventId = Guid.NewGuid(),
+            Category = ReplyCategories.Question,
+            DraftText = "Thanks, that is a good point.",
+            ReviewRefusal = new List<string> { ReviewRules.EmDash },
+        });
+
+        Assert.True(created.IsSuccess, created.Error);
+        Assert.Equal(new[] { ReviewRules.EmDash }, created.Value!.ReviewRefusal);
+        using var json = JsonDocument.Parse(handler.Requests.Single().Body!);
+        Assert.Equal("em_dash", json.RootElement.GetProperty("reviewRefusal")[0].GetString());
     }
 
     [Fact]

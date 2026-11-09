@@ -54,13 +54,20 @@ public sealed class RecordSocialPostCommand
     public DateTime? PublishedAt { get; set; }
 }
 
-/// <summary>A draft a person will read. The event it answers must already be stored.</summary>
+/// <summary>
+/// A draft a person will read. The event it answers must already be stored. When the Reviewer refused
+/// the text, <see cref="ReviewRefusal"/> names the rules it broke and the store records the draft as
+/// rejected, so the operator sees what was refused and nothing can send it.
+/// </summary>
 public sealed class CreateReplyDraftCommand
 {
     public Guid EngagementEventId { get; set; }
     public string Category { get; set; } = ReplyCategories.Question;
     public string DraftText { get; set; } = string.Empty;
     public string? NeedsHumanReason { get; set; }
+
+    /// <summary>The <see cref="ReviewRules"/> the draft broke, or null when it passed.</summary>
+    public List<string>? ReviewRefusal { get; set; }
 }
 
 /// <summary>A person's edit of a draft that has not been decided.</summary>

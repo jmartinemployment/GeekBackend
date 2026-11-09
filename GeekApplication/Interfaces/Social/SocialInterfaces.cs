@@ -90,19 +90,65 @@ public interface ISocialAccountConnector
         SocialAccount account, SocialToken token, Uri callbackUrl, CancellationToken ct = default);
 }
 
+// The agents below are each one responsibility, and none calls another: the orchestrator carries one
+// agent's result to the next. Triage, the drafter and the post writer are the only three that call
+// Claude. A comment's text reaches only Triage and the drafter.
+
 /// <summary>
-/// Drafts a reply with Claude. It is not keyed by platform: one drafter serves them all.
+/// Decides what a comment is, with Claude. It is not keyed by platform: one implementation serves all.
+/// It returns whether a reply is needed, the category, and whether a person must write it instead of
+/// the drafter. It never writes reply text, never touches the store and never calls a platform.
 /// <para>
 /// A request carries another person's comment text, which is platform data. Where it may be sent is
 /// decided by the platforms' terms and not by this contract: LinkedIn has not agreed in writing that a
 /// member's comment may go to Claude (matrix section 1, item 1), and Meta's service-provider terms are
-/// open item M4. The implementation arrives with Phase 4 and takes an explicit operator clearance per
+/// open item M4. The implementation arrives with Phase 4a and takes an explicit operator clearance per
 /// platform before it sends any comment text; it fails closed without one.
 /// </para>
-/// The drafter returns a category and a draft. It never rewrites a draft to pass a check; a
-/// draft that fails one is rejected and shown to the operator.
+/// </summary>
+public interface IEngagementTriage
+{
+    Task<Result<TriageResult>> TriageAsync(TriageRequest request, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Writes a reply with Claude, for a comment Triage said needs one and did not reserve for a person.
+/// It is not keyed by platform: one drafter serves them all. It returns the reply text and nothing
+/// else: it does not decide the category or whether to reply. It never rewrites a draft to pass a
+/// check; the Reviewer refuses a draft that fails one and the operator sees it. The request carries
+/// the same comment text as <see cref="IEngagementTriage"/> and is held to the same clearance.
 /// </summary>
 public interface IReplyDrafter
 {
     Task<Result<ReplyDraftSuggestion>> DraftAsync(ReplyDraftRequest request, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Writes post copy for an article or link, one <see cref="PostCopy"/> per platform asked for, as a
+/// suggestion for a person to edit in the post form. It never posts and never makes an image.
+/// </summary>
+public interface IPostWriter
+{
+    Task<Result<PostCopySuggestion>> WriteAsync(PostCopyRequest request, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Checks any outbound text (a draft, an edit a person made, post copy) against the voice and safety
+/// rules in <see cref="ReviewRules"/>. It never rewrites. It is synchronous plain code and calls
+/// nothing: a refusal is a successful review with the rules broken, and a failed Result means it
+/// could not run.
+/// </summary>
+public interface IOutboundTextReviewer
+{
+    Result<OutboundTextReview> Review(OutboundText text);
+}
+
+/// <summary>
+/// Hands out a usable token for an account. It is the only component that decrypts a stored token. It
+/// renews a token that is within its renewal window when one is asked for, and marks the account
+/// reconnect_required when renewal fails, answering the request with that failure. There is no timer.
+/// </summary>
+public interface ISocialTokenProvider
+{
+    Task<Result<SocialToken>> GetTokenAsync(Guid accountId, CancellationToken ct = default);
 }

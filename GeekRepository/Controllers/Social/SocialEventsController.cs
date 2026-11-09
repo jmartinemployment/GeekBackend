@@ -29,4 +29,21 @@ public sealed class SocialEventsController : ControllerBase
     [HttpGet("{eventId:guid}")]
     public async Task<IActionResult> Get(Guid eventId, CancellationToken ct) =>
         SocialResults.ToAction(this, await _social.GetEventAsync(eventId, ct));
+
+    /// <summary>Events by where Triage left them. triageState is required: a triage outcome, or untriaged for the comments with none.</summary>
+    [HttpGet]
+    public async Task<IActionResult> List(
+        [FromQuery] string? triageState,
+        [FromQuery] Guid? accountId,
+        [FromQuery] int limit = 0,
+        CancellationToken ct = default) =>
+        SocialResults.ToAction(this, await _social.ListEventsAsync(triageState ?? string.Empty, accountId, limit, ct));
+
+    /// <summary>409 when the event's triage is already decided and not one an operator may re-run.</summary>
+    [HttpPost("{eventId:guid}/triage")]
+    public async Task<IActionResult> RecordTriage(Guid eventId, [FromBody] RecordTriageOutcomeCommand command, CancellationToken ct)
+    {
+        if (command is null) return BadRequest("An outcome is required.");
+        return SocialResults.ToAction(this, await _social.RecordTriageOutcomeAsync(eventId, command, ct));
+    }
 }

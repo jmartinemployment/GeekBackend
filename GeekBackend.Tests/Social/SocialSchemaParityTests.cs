@@ -81,6 +81,36 @@ public class SocialSchemaParityTests
         Assert.Equal(SocialFailureCodes.OutcomeUnknown, match.Groups[2].Value);
     }
 
+    [Fact]
+    public void The_triage_outcome_check_lists_exactly_the_outcomes_the_store_holds()
+    {
+        var match = Regex.Match(Sql, @"CONSTRAINT\s+ck_engagement_events_triage_outcome\s+CHECK\s*\(\s*triage_outcome\s+IS\s+NULL\s+OR\s+triage_outcome\s+IN\s*\(([^)]*)\)");
+        Assert.True(match.Success, "ck_engagement_events_triage_outcome is not in 0043 in the expected form.");
+        var listed = Regex.Matches(match.Groups[1].Value, "'([^']+)'").Select(m => m.Groups[1].Value);
+
+        Assert.Equal(Sorted(TriageOutcomes.All), Sorted(listed));
+        Assert.DoesNotContain(TriageOutcomes.Untriaged, TriageOutcomes.All);
+    }
+
+    [Fact]
+    public void Only_comment_events_are_triaged_and_the_recovery_index_reads_exactly_those_with_no_outcome()
+    {
+        Assert.Matches(@"ck_engagement_events_triage_is_comment\s+CHECK\s*\(\s*triage_outcome\s+IS\s+NULL\s+OR\s+kind\s*=\s*'comment_created'\s*\)", Sql);
+        Assert.Matches(@"ix_engagement_events_untriaged\s+ON\s+geek_social\.engagement_events\s*\(received_at\)\s+WHERE\s+triage_outcome\s+IS\s+NULL\s+AND\s+kind\s*=\s*'comment_created'", Sql);
+        Assert.Equal("comment_created", EngagementKinds.CommentCreated);
+    }
+
+    [Fact]
+    public void A_refused_draft_names_only_rules_the_reviewer_has_and_is_always_rejected()
+    {
+        var match = Regex.Match(Sql, @"review_refusal\s*<@\s*ARRAY\[([^\]]*)\]");
+        Assert.True(match.Success, "ck_reply_drafts_review_refusal is not in 0043.");
+        var listed = Regex.Matches(match.Groups[1].Value, "'([^']+)'").Select(m => m.Groups[1].Value);
+
+        Assert.Equal(Sorted(ReviewRules.All), Sorted(listed));
+        Assert.Matches($@"ck_reply_drafts_review_refusal\s+CHECK\s*\(\s*review_refusal\s+IS\s+NULL\s+OR\s*\(\s*status\s*=\s*'{ReplyDraftStatuses.Rejected}'", Sql);
+    }
+
     public static IEnumerable<object[]> Tables() => new[]
     {
         new object[] { typeof(SocialAccountRow), "social_accounts" },
@@ -141,7 +171,7 @@ public class SocialSchemaParityTests
     {
         yield return new object[] { "AccountColumns", "AccountReadRow", "social_accounts" };
         yield return new object[] { "PostColumns", nameof(SocialPost), "social_posts" };
-        yield return new object[] { "DraftColumns", nameof(ReplyDraft), "reply_drafts" };
+        yield return new object[] { "DraftColumns", "DraftReadRow", "reply_drafts" };
         yield return new object[] { "AuditColumns", nameof(ActionAudit), "action_audit" };
     }
 

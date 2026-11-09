@@ -21,6 +21,11 @@ public class SocialControllerMappingTests
         public Func<Result<SocialAccount>>? Account { get; init; }
         public Func<Result<ReplyDraft>>? Transition { get; init; }
         public Func<Result<bool>>? Event { get; init; }
+        public Func<Result<EngagementEvent>>? Triage { get; init; }
+        public Func<string, Result<IReadOnlyList<EngagementEvent>>>? ListEvents { get; init; }
+
+        public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) => Task.FromResult(Triage!());
+        public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(string triageState, Guid? accountId, int limit, CancellationToken ct = default) => Task.FromResult(ListEvents!(triageState));
 
         public Task<Result<SocialAccount>> GetAccountAsync(Guid accountId, CancellationToken ct = default) => Task.FromResult(Account!());
         public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default) => Task.FromResult(Transition!());
@@ -104,5 +109,41 @@ public class SocialControllerMappingTests
         var action = await controller.Record(new EngagementEvent(), CancellationToken.None);
 
         Assert.IsType<NotFoundObjectResult>(action);
+    }
+
+    [Fact]
+    public async Task A_triage_outcome_for_an_event_already_decided_is_a_409_with_the_reason()
+    {
+        var controller = new SocialEventsController(new ScriptedStore
+        {
+            Triage = () => Result<EngagementEvent>.Failure("The event's triage is already reply_needed.", SocialFailureCodes.Conflict),
+        });
+
+        var action = await controller.RecordTriage(
+            Guid.NewGuid(),
+            new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = DateTime.UtcNow },
+            CancellationToken.None);
+
+        var conflict = Assert.IsType<ConflictObjectResult>(action);
+        Assert.Equal("The event's triage is already reply_needed.", conflict.Value);
+    }
+
+    [Fact]
+    public async Task Listing_events_without_a_triage_state_asks_the_store_with_an_empty_one_and_gets_its_400()
+    {
+        string? asked = null;
+        var controller = new SocialEventsController(new ScriptedStore
+        {
+            ListEvents = state =>
+            {
+                asked = state;
+                return Result<IReadOnlyList<EngagementEvent>>.Failure("Unknown triage state ''.", SocialFailureCodes.InvalidRequest);
+            },
+        });
+
+        var action = await controller.List(triageState: null, accountId: null, limit: 0, CancellationToken.None);
+
+        Assert.Equal(string.Empty, asked);
+        Assert.IsType<BadRequestObjectResult>(action);
     }
 }

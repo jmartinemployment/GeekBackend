@@ -53,6 +53,9 @@ public sealed class EngagementEventRow
     public DateTime ReceivedAt { get; set; }
     public DateTime? TextExpiresAt { get; set; }
     public DateTime? AuthorExpiresAt { get; set; }
+    public string? TriageOutcome { get; set; }
+    public string? TriageFailureCode { get; set; }
+    public DateTime? TriagedAt { get; set; }
 }
 
 public sealed class ReplyDraftRow
@@ -64,6 +67,7 @@ public sealed class ReplyDraftRow
     public string Category { get; set; } = string.Empty;
     public string DraftText { get; set; } = string.Empty;
     public string? NeedsHumanReason { get; set; }
+    public List<string>? ReviewRefusal { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? SentPlatformCommentId { get; set; }
     public string? FailureCode { get; set; }

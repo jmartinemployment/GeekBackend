@@ -31,6 +31,21 @@ public interface ISocialStore
     /// <summary>The event with its text and author name, or without them once their retention has run out.</summary>
     Task<Result<EngagementEvent>> GetEventAsync(Guid eventId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Events by where Triage left them: a <see cref="TriageOutcomes"/> filter value, where
+    /// <see cref="TriageOutcomes.Untriaged"/> is the comment events with no outcome yet, oldest first, for
+    /// recovery after a restart. Any other filter is newest first. Text and names past their retention
+    /// are never returned.
+    /// </summary>
+    Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(string triageState, Guid? accountId, int limit, CancellationToken ct = default);
+
+    /// <summary>
+    /// Records what Triage decided on a comment event. It lands from no outcome, or from one an operator
+    /// may re-run (<see cref="TriageOutcomes.Rerunnable"/>); a decided event answers conflict. Only
+    /// comment_created events are triaged.
+    /// </summary>
+    Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default);
+
     // Reply drafts
     Task<Result<ReplyDraft>> CreateDraftAsync(CreateReplyDraftCommand command, CancellationToken ct = default);
     Task<Result<ReplyDraft>> GetDraftAsync(Guid draftId, CancellationToken ct = default);

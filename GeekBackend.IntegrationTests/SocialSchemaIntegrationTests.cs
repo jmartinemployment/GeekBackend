@@ -356,4 +356,100 @@ public sealed class SocialSchemaIntegrationTests
         var posts = await repo.ListPostsAsync(account.Id, 10);
         Assert.Contains(posts.Value!, p => p.Id == post.Value!.Id && p.LinkUrl == "https://geekatyourspot.com/blog/x");
     }
+
+    [Fact]
+    public async Task Triage_decides_a_comment_once_and_recovery_lists_only_the_comments_nobody_has_decided()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var clock = new MovableClock();
+        var repo = NewRepository(clock);
+        var account = await ConnectAsync(repo);
+
+        var comment = CommentOn(account);
+        Assert.True((await repo.RecordEventAsync(comment)).IsSuccess);
+        var reaction = CommentOn(account);
+        reaction.Kind = EngagementKinds.ReactionAdded;
+        reaction.PlatformCommentId = null;
+        reaction.ReactionType = SocialReactionTypes.Like;
+        reaction.Text = null;
+        Assert.True((await repo.RecordEventAsync(reaction)).IsSuccess);
+
+        // Recovery after a restart finds the comment, oldest first, and not the reaction.
+        var untriaged = await repo.ListEventsAsync(TriageOutcomes.Untriaged, account.Id, 50);
+        Assert.True(untriaged.IsSuccess, untriaged.Error);
+        Assert.Contains(untriaged.Value!, e => e.Id == comment.Id && e.TriageOutcome is null);
+        Assert.DoesNotContain(untriaged.Value!, e => e.Id == reaction.Id);
+
+        // Only a comment is triaged.
+        var notAComment = await repo.RecordTriageOutcomeAsync(reaction.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = T0 });
+        Assert.Equal(SocialFailureCodes.InvalidRequest, notAComment.ErrorCode);
+
+        // A failure keeps its code, shows in the operator's list, and an operator's re-run replaces it.
+        var failed = await repo.RecordTriageOutcomeAsync(comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, FailureCode = SocialFailureCodes.PlatformUnavailable, At = T0 });
+        Assert.True(failed.IsSuccess, failed.Error);
+        Assert.Equal(SocialFailureCodes.PlatformUnavailable, failed.Value!.TriageFailureCode);
+        Assert.Equal(T0, failed.Value.TriagedAt);
+        var failedList = await repo.ListEventsAsync(TriageOutcomes.Failed, account.Id, 50);
+        Assert.Contains(failedList.Value!, e => e.Id == comment.Id);
+        Assert.DoesNotContain((await repo.ListEventsAsync(TriageOutcomes.Untriaged, account.Id, 50)).Value!, e => e.Id == comment.Id);
+
+        var rerun = await repo.RecordTriageOutcomeAsync(comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, At = T0.AddMinutes(1) });
+        Assert.True(rerun.IsSuccess, rerun.Error);
+        Assert.Null(rerun.Value!.TriageFailureCode);
+
+        // A decided event is never decided twice, however the second caller got there.
+        var twice = await repo.RecordTriageOutcomeAsync(comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = T0.AddMinutes(2) });
+        Assert.Equal(SocialFailureCodes.Conflict, twice.ErrorCode);
+        Assert.Equal(TriageOutcomes.ReplyNeeded, (await repo.GetEventAsync(comment.Id)).Value!.TriageOutcome);
+
+        // The database refuses a failure code on an event that did not fail, and an outcome on a reaction.
+        var other = CommentOn(account);
+        Assert.True((await repo.RecordEventAsync(other)).IsSuccess);
+        Assert.Equal("23514", await SqlStateOfAsync(
+            "UPDATE geek_social.engagement_events SET triage_failure_code = 'store_unavailable' WHERE id = @id", ("id", other.Id)));
+        Assert.Equal("23514", await SqlStateOfAsync(
+            "UPDATE geek_social.engagement_events SET triage_outcome = 'no_reply_needed', triaged_at = now() WHERE id = @id", ("id", reaction.Id)));
+    }
+
+    [Fact]
+    public async Task A_draft_the_reviewer_refused_is_kept_rejected_with_its_rules_and_frees_the_comment()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var clock = new MovableClock();
+        var repo = NewRepository(clock);
+        var account = await ConnectAsync(repo, SocialPlatforms.Facebook);
+        var comment = CommentOn(account);
+        Assert.True((await repo.RecordEventAsync(comment)).IsSuccess);
+
+        var refused = await repo.CreateDraftAsync(new CreateReplyDraftCommand
+        {
+            EngagementEventId = comment.Id,
+            Category = ReplyCategories.Question,
+            DraftText = "That is a good point, and I agree.",
+            ReviewRefusal = new List<string> { ReviewRules.Smb, ReviewRules.EmDash },
+        });
+        Assert.True(refused.IsSuccess, refused.Error);
+        Assert.Equal(ReplyDraftStatuses.Rejected, refused.Value!.Status);
+        Assert.Equal(T0, refused.Value.DecidedAt);
+
+        // Read back through Dapper: text[] arrives as the rules, in order, and a passed draft carries none.
+        var read = (await repo.GetDraftAsync(refused.Value.Id)).Value!;
+        Assert.Equal(new[] { ReviewRules.EmDash, ReviewRules.Smb }, read.ReviewRefusal);
+        Assert.Contains((await repo.ListDraftsAsync(ReplyDraftStatuses.Rejected, account.Id, 50)).Value!, d => d.Id == refused.Value.Id && d.ReviewRefusal is { Count: 2 });
+
+        // A refused draft holds nothing: a new draft for the same comment can be made, and nothing moves the refused one.
+        var replacement = await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = comment.Id, Category = ReplyCategories.Question, DraftText = "Thanks for the question." });
+        Assert.True(replacement.IsSuccess, replacement.Error);
+        Assert.Null(replacement.Value!.ReviewRefusal);
+        var moved = await repo.TransitionDraftAsync(refused.Value.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Rejected, To = ReplyDraftStatuses.Approved, At = T0 });
+        Assert.Equal(SocialFailureCodes.InvalidRequest, moved.ErrorCode);
+
+        // The database refuses a rule it does not know, and a refused draft that is not rejected.
+        Assert.Equal("23514", await SqlStateOfAsync(
+            "UPDATE geek_social.reply_drafts SET review_refusal = ARRAY['swearing'] WHERE id = @id", ("id", refused.Value.Id)));
+        Assert.Equal("23514", await SqlStateOfAsync(
+            "UPDATE geek_social.reply_drafts SET status = 'pending' WHERE id = @id", ("id", refused.Value.Id)));
+    }
 }

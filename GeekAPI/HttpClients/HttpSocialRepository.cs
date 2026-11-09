@@ -81,6 +81,17 @@ public sealed class HttpSocialRepository : ISocialStore
     public Task<Result<EngagementEvent>> GetEventAsync(Guid eventId, CancellationToken ct = default) =>
         SendAsync<EngagementEvent>(HttpMethod.Get, $"repo/social/events/{eventId}", null, ct);
 
+    public async Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(string triageState, Guid? accountId, int limit, CancellationToken ct = default)
+    {
+        var path = new StringBuilder("repo/social/events?limit=").Append(limit)
+            .Append("&triageState=").Append(Uri.EscapeDataString(triageState ?? string.Empty));
+        if (accountId is not null) path.Append("&accountId=").Append(accountId.Value);
+        return AsReadOnly(await SendAsync<List<EngagementEvent>>(HttpMethod.Get, path.ToString(), null, ct).ConfigureAwait(false));
+    }
+
+    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) =>
+        SendAsync<EngagementEvent>(HttpMethod.Post, $"repo/social/events/{eventId}/triage", command, ct);
+
     // ----- Reply drafts -----
 
     public Task<Result<ReplyDraft>> CreateDraftAsync(CreateReplyDraftCommand command, CancellationToken ct = default) =>

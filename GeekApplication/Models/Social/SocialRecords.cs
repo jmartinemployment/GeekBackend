@@ -140,6 +140,14 @@ public sealed class EngagementEvent
 
     /// <summary>When <see cref="AuthorDisplayName"/> must be gone, or null when the platform sets no limit. Set by the store.</summary>
     public DateTime? AuthorExpiresAt { get; set; }
+
+    /// <summary>A <see cref="TriageOutcomes"/> value, or null before Triage has run. Set only by RecordTriageOutcome; a value a caller sends with a new event is ignored.</summary>
+    public string? TriageOutcome { get; set; }
+
+    /// <summary>The <see cref="SocialFailureCodes"/> value when <see cref="TriageOutcome"/> is failed.</summary>
+    public string? TriageFailureCode { get; set; }
+
+    public DateTime? TriagedAt { get; set; }
 }
 
 /// <summary>One comment as a read call returns it.</summary>
@@ -266,7 +274,8 @@ public static class ReplyCategories
 /// <summary>
 /// A draft's life: pending, then approved or rejected; an approved draft is sending, then sent or
 /// failed. A failed draft never becomes sending again, because a send is one attempt and never
-/// automatically retried.
+/// automatically retried. A draft the Reviewer refused is created rejected, with the rules it broke,
+/// so it is never pending and never sent.
 /// </summary>
 public static class ReplyDraftStatuses
 {
@@ -307,8 +316,11 @@ public sealed class ReplyDraft
     /// <summary>The drafted reply. Never edited by code after Claude wrote it; a person edits it or rejects it.</summary>
     public string DraftText { get; set; } = string.Empty;
 
-    /// <summary>Why a person must read this first, when the drafter said so.</summary>
+    /// <summary>Why a person must write this, when Triage said so. The draft text is then empty.</summary>
     public string? NeedsHumanReason { get; set; }
+
+    /// <summary>The <see cref="ReviewRules"/> the Reviewer refused this draft for, or null when it passed. A refused draft is rejected.</summary>
+    public List<string>? ReviewRefusal { get; set; }
 
     public string Status { get; set; } = ReplyDraftStatuses.Pending;
     public string? SentPlatformCommentId { get; set; }
@@ -329,6 +341,9 @@ public sealed class ReplyDraftRequest
     public string Platform { get; set; } = string.Empty;
     public string AccountDisplayName { get; set; } = string.Empty;
 
+    /// <summary>What Triage decided the comment is. The drafter takes it as given and does not decide it again.</summary>
+    public string Category { get; set; } = ReplyCategories.Question;
+
     /// <summary>Another person's comment text. See <see cref="Interfaces.Social.IReplyDrafter"/> for where it may go.</summary>
     public string CommentText { get; set; } = string.Empty;
 
@@ -338,15 +353,10 @@ public sealed class ReplyDraftRequest
     public string? AuthorDisplayName { get; set; }
 }
 
-/// <summary>The drafter's answer for one comment.</summary>
+/// <summary>The drafter's answer for one comment: the reply text and nothing else.</summary>
 public sealed class ReplyDraftSuggestion
 {
-    public string Category { get; set; } = ReplyCategories.Question;
-
-    /// <summary>The proposed reply, or empty when <see cref="NeedsHumanReason"/> says a person should answer.</summary>
     public string DraftText { get; set; } = string.Empty;
-
-    public string? NeedsHumanReason { get; set; }
 }
 
 public static class ActionKinds

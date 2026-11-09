@@ -73,7 +73,10 @@ public sealed class SocialRepository : ISocialStore
                e.occurred_at AS OccurredAt,
                e.received_at AS ReceivedAt,
                e.text_expires_at AS TextExpiresAt,
-               e.author_expires_at AS AuthorExpiresAt
+               e.author_expires_at AS AuthorExpiresAt,
+               e.triage_outcome AS TriageOutcome,
+               e.triage_failure_code AS TriageFailureCode,
+               e.triaged_at AS TriagedAt
         FROM geek_social.engagement_events e
         INNER JOIN geek_social.social_accounts a ON a.id = e.account_id
         """;
@@ -86,6 +89,7 @@ public sealed class SocialRepository : ISocialStore
         category AS Category,
         draft_text AS DraftText,
         needs_human_reason AS NeedsHumanReason,
+        review_refusal AS ReviewRefusal,
         status AS Status,
         sent_platform_comment_id AS SentPlatformCommentId,
         failure_code AS FailureCode,
@@ -359,10 +363,72 @@ public sealed class SocialRepository : ISocialStore
     public Task<Result<EngagementEvent>> GetEventAsync(Guid eventId, CancellationToken ct = default) =>
         GuardAsync("get an event", async () =>
         {
-            using var conn = await OpenAsync(ct).ConfigureAwait(false);
-            var row = await conn.QuerySingleOrDefaultAsync<EngagementEvent>(new CommandDefinition(
-                $"{EventSelect} WHERE e.id = @eventId", new { eventId, now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
+            var row = await ReadEventAsync(eventId, ct).ConfigureAwait(false);
             return row is null ? NotFound<EngagementEvent>("No such event.") : Result<EngagementEvent>.Success(row);
+        }, ct);
+
+    public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(string triageState, Guid? accountId, int limit, CancellationToken ct = default) =>
+        GuardAsync("list events", async () =>
+        {
+            if (!TriageOutcomes.IsKnownFilter(triageState))
+                return Invalid<IReadOnlyList<EngagementEvent>>($"Unknown triage state '{triageState}'.");
+
+            // Recovery reads the comments Triage never decided, oldest first; an operator's list is newest first.
+            var untriaged = triageState == TriageOutcomes.Untriaged;
+            var condition = untriaged
+                ? "e.triage_outcome IS NULL AND e.kind = 'comment_created'"
+                : "e.triage_outcome = @triageState";
+            var order = untriaged ? "e.received_at ASC" : "e.received_at DESC";
+
+            using var conn = await OpenAsync(ct).ConfigureAwait(false);
+            var rows = await conn.QueryAsync<EngagementEvent>(new CommandDefinition(
+                $"""
+                {EventSelect}
+                WHERE {condition}
+                  AND (@accountId::uuid IS NULL OR e.account_id = @accountId)
+                ORDER BY {order}
+                LIMIT @limit
+                """,
+                new { triageState, accountId, limit = ClampLimit(limit), now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
+            return Result<IReadOnlyList<EngagementEvent>>.Success(rows.ToList());
+        }, ct);
+
+    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) =>
+        GuardAsync("record a triage outcome", async () =>
+        {
+            if (command is null) return Invalid<EngagementEvent>("An outcome is required.");
+            if (!TriageOutcomes.IsKnown(command.Outcome)) return Invalid<EngagementEvent>("outcome must be a triage outcome.");
+            if (command.Outcome == TriageOutcomes.Failed && !SocialFailureCodes.IsKnown(command.FailureCode))
+                return Invalid<EngagementEvent>("A failed triage needs a known failureCode.");
+            if (command.Outcome != TriageOutcomes.Failed && command.FailureCode is not null)
+                return Invalid<EngagementEvent>("failureCode belongs only to a failed triage.");
+            if (command.At == default) return Invalid<EngagementEvent>("at is required.");
+
+            var outcome = command.Outcome;
+            var failure = command.FailureCode;
+            DateTime? triagedAt = SocialTime.Normalize(command.At);
+            var rerunnable = TriageOutcomes.Rerunnable.ToArray();
+
+            // Lands from no outcome, or from one an operator may re-run; a decided event is never decided twice.
+            var changed = await _db.Events
+                .Where(e => e.Id == eventId
+                    && e.Kind == EngagementKinds.CommentCreated
+                    && (e.TriageOutcome == null || rerunnable.Contains(e.TriageOutcome)))
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(e => e.TriageOutcome, outcome)
+                    .SetProperty(e => e.TriageFailureCode, failure)
+                    .SetProperty(e => e.TriagedAt, triagedAt), ct).ConfigureAwait(false);
+
+            if (changed == 0)
+            {
+                var current = await ReadEventAsync(eventId, ct).ConfigureAwait(false);
+                if (current is null) return NotFound<EngagementEvent>("No such event.");
+                if (current.Kind != EngagementKinds.CommentCreated) return Invalid<EngagementEvent>("Only comment events are triaged.");
+                return Conflict<EngagementEvent>($"The event's triage is already {current.TriageOutcome}.");
+            }
+
+            var recorded = await ReadEventAsync(eventId, ct).ConfigureAwait(false);
+            return recorded is null ? NotFound<EngagementEvent>("No such event.") : Result<EngagementEvent>.Success(recorded);
         }, ct);
 
     // ----- Reply drafts -----
@@ -376,12 +442,23 @@ public sealed class SocialRepository : ISocialStore
             if (string.IsNullOrWhiteSpace(command.DraftText) && string.IsNullOrWhiteSpace(command.NeedsHumanReason))
                 return Invalid<ReplyDraft>("A draft needs text, or the reason a person must answer.");
 
+            // A draft the Reviewer refused is recorded rejected, with the text that was refused and the rules it broke.
+            List<string>? refusal = null;
+            if (command.ReviewRefusal is not null)
+            {
+                if (command.ReviewRefusal.Count == 0) return Invalid<ReplyDraft>("reviewRefusal, when present, names at least one rule.");
+                if (command.ReviewRefusal.Any(rule => !ReviewRules.IsKnown(rule))) return Invalid<ReplyDraft>("reviewRefusal names a rule the Reviewer does not have.");
+                if (string.IsNullOrWhiteSpace(command.DraftText)) return Invalid<ReplyDraft>("A refused draft keeps the text that was refused.");
+                refusal = command.ReviewRefusal.Distinct().OrderBy(rule => rule, StringComparer.Ordinal).ToList();
+            }
+
             var source = await _db.Events.AsNoTracking()
                 .Where(e => e.Id == command.EngagementEventId)
                 .Select(e => new { e.AccountId, e.Platform })
                 .FirstOrDefaultAsync(ct).ConfigureAwait(false);
             if (source is null) return NotFound<ReplyDraft>("No such event.");
 
+            var created = SocialTime.Normalize(_time.GetUtcNow().UtcDateTime);
             var row = new ReplyDraftRow
             {
                 Id = Guid.NewGuid(),
@@ -391,8 +468,10 @@ public sealed class SocialRepository : ISocialStore
                 Category = command.Category,
                 DraftText = command.DraftText ?? string.Empty,
                 NeedsHumanReason = string.IsNullOrWhiteSpace(command.NeedsHumanReason) ? null : command.NeedsHumanReason.Trim(),
-                Status = ReplyDraftStatuses.Pending,
-                CreatedAt = SocialTime.Normalize(_time.GetUtcNow().UtcDateTime),
+                ReviewRefusal = refusal,
+                Status = refusal is null ? ReplyDraftStatuses.Pending : ReplyDraftStatuses.Rejected,
+                CreatedAt = created,
+                DecidedAt = refusal is null ? null : created,
             };
             _db.Drafts.Add(row);
             await _db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -413,7 +492,7 @@ public sealed class SocialRepository : ISocialStore
                 return Invalid<IReadOnlyList<ReplyDraft>>($"Unknown status '{status}'.");
 
             using var conn = await OpenAsync(ct).ConfigureAwait(false);
-            var rows = await conn.QueryAsync<ReplyDraft>(new CommandDefinition(
+            var rows = await conn.QueryAsync<DraftReadRow>(new CommandDefinition(
                 $"""
                 SELECT {DraftColumns} FROM geek_social.reply_drafts
                 WHERE (@status::text IS NULL OR status = @status)
@@ -422,7 +501,7 @@ public sealed class SocialRepository : ISocialStore
                 LIMIT @limit
                 """,
                 new { status, accountId, limit = ClampLimit(limit) }, cancellationToken: ct)).ConfigureAwait(false);
-            return Result<IReadOnlyList<ReplyDraft>>.Success(rows.ToList());
+            return Result<IReadOnlyList<ReplyDraft>>.Success(rows.Select(r => r.ToModel()).ToList());
         }, ct);
 
     public Task<Result<ReplyDraft>> EditDraftAsync(Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) =>
@@ -623,9 +702,17 @@ public sealed class SocialRepository : ISocialStore
     private async Task<ReplyDraft?> ReadDraftAsync(Guid draftId, CancellationToken ct)
     {
         using var conn = await OpenAsync(ct).ConfigureAwait(false);
-        return await conn.QuerySingleOrDefaultAsync<ReplyDraft>(new CommandDefinition(
+        var row = await conn.QuerySingleOrDefaultAsync<DraftReadRow>(new CommandDefinition(
             $"SELECT {DraftColumns} FROM geek_social.reply_drafts WHERE id = @draftId",
             new { draftId }, cancellationToken: ct)).ConfigureAwait(false);
+        return row?.ToModel();
+    }
+
+    private async Task<EngagementEvent?> ReadEventAsync(Guid eventId, CancellationToken ct)
+    {
+        using var conn = await OpenAsync(ct).ConfigureAwait(false);
+        return await conn.QuerySingleOrDefaultAsync<EngagementEvent>(new CommandDefinition(
+            $"{EventSelect} WHERE e.id = @eventId", new { eventId, now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
     }
 
     private async Task<IDbConnection> OpenAsync(CancellationToken ct)
@@ -739,6 +826,7 @@ public sealed class SocialRepository : ISocialStore
         Category = row.Category,
         DraftText = row.DraftText,
         NeedsHumanReason = row.NeedsHumanReason,
+        ReviewRefusal = row.ReviewRefusal?.ToList(),
         Status = row.Status,
         SentPlatformCommentId = row.SentPlatformCommentId,
         FailureCode = row.FailureCode,
@@ -786,6 +874,43 @@ public sealed class SocialRepository : ISocialStore
             SendsDisabled = SendsDisabled,
             TokenExpiresAt = TokenExpiresAt,
             ConnectedAt = ConnectedAt,
+        };
+    }
+
+    /// <summary>A draft as Dapper reads it: Postgres gives text[] as string[].</summary>
+    private sealed class DraftReadRow
+    {
+        public Guid Id { get; set; }
+        public Guid AccountId { get; set; }
+        public Guid EngagementEventId { get; set; }
+        public string Platform { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public string DraftText { get; set; } = string.Empty;
+        public string? NeedsHumanReason { get; set; }
+        public string[]? ReviewRefusal { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string? SentPlatformCommentId { get; set; }
+        public string? FailureCode { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime? DecidedAt { get; set; }
+        public DateTime? SendingStartedAt { get; set; }
+
+        public ReplyDraft ToModel() => new()
+        {
+            Id = Id,
+            AccountId = AccountId,
+            EngagementEventId = EngagementEventId,
+            Platform = Platform,
+            Category = Category,
+            DraftText = DraftText,
+            NeedsHumanReason = NeedsHumanReason,
+            ReviewRefusal = ReviewRefusal?.ToList(),
+            Status = Status,
+            SentPlatformCommentId = SentPlatformCommentId,
+            FailureCode = FailureCode,
+            CreatedAt = CreatedAt,
+            DecidedAt = DecidedAt,
+            SendingStartedAt = SendingStartedAt,
         };
     }
 

@@ -93,11 +93,24 @@ CREATE TABLE IF NOT EXISTS geek_social.engagement_events (
     received_at                timestamptz NOT NULL,
     text_expires_at            timestamptz NULL,
     author_expires_at          timestamptz NULL,
+    triage_outcome             text NULL,
+    triage_failure_code        text NULL,
+    triaged_at                 timestamptz NULL,
     CONSTRAINT ck_engagement_events_platform
         CHECK (platform IN ('facebook', 'instagram', 'linkedin_organization', 'linkedin_member')),
     CONSTRAINT ck_engagement_events_kind
         CHECK (kind IN ('comment_created', 'comment_edited', 'comment_deleted', 'comment_hidden',
-                        'comment_unhidden', 'reaction_added', 'reaction_removed', 'share', 'mention'))
+                        'comment_unhidden', 'reaction_added', 'reaction_removed', 'share', 'mention')),
+    -- Where Triage left a comment event. NULL until it has run; only comment_created is triaged.
+    CONSTRAINT ck_engagement_events_triage_outcome
+        CHECK (triage_outcome IS NULL
+               OR triage_outcome IN ('reply_needed', 'no_reply_needed', 'blocked_no_clearance', 'failed')),
+    CONSTRAINT ck_engagement_events_triage_failed_has_code
+        CHECK ((triage_outcome IS NOT DISTINCT FROM 'failed') = (triage_failure_code IS NOT NULL)),
+    CONSTRAINT ck_engagement_events_triaged_at
+        CHECK ((triage_outcome IS NULL) = (triaged_at IS NULL)),
+    CONSTRAINT ck_engagement_events_triage_is_comment
+        CHECK (triage_outcome IS NULL OR kind = 'comment_created')
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_engagement_events_platform_event
@@ -115,6 +128,11 @@ CREATE INDEX IF NOT EXISTS ix_engagement_events_author_expires
     ON geek_social.engagement_events (author_expires_at)
     WHERE author_display_name IS NOT NULL AND author_expires_at IS NOT NULL;
 
+-- Recovery after a restart reads only the comment events Triage has not decided, oldest first.
+CREATE INDEX IF NOT EXISTS ix_engagement_events_untriaged
+    ON geek_social.engagement_events (received_at)
+    WHERE triage_outcome IS NULL AND kind = 'comment_created';
+
 -- A reply Claude drafted for one event, waiting for a person.
 CREATE TABLE IF NOT EXISTS geek_social.reply_drafts (
     id                       uuid PRIMARY KEY,
@@ -124,6 +142,7 @@ CREATE TABLE IF NOT EXISTS geek_social.reply_drafts (
     category                 text NOT NULL,
     draft_text               text NOT NULL,
     needs_human_reason       text NULL,
+    review_refusal           text[] NULL,
     status                   text NOT NULL DEFAULT 'pending',
     sent_platform_comment_id text NULL,
     failure_code             text NULL,
@@ -139,12 +158,19 @@ CREATE TABLE IF NOT EXISTS geek_social.reply_drafts (
     CONSTRAINT ck_reply_drafts_sent_has_id
         CHECK (status <> 'sent' OR sent_platform_comment_id IS NOT NULL),
     CONSTRAINT ck_reply_drafts_failed_has_code
-        CHECK (status <> 'failed' OR failure_code IS NOT NULL)
+        CHECK (status <> 'failed' OR failure_code IS NOT NULL),
+    -- A draft the Reviewer refused is recorded rejected, with the rules it broke, and can never be sent.
+    CONSTRAINT ck_reply_drafts_review_refusal
+        CHECK (review_refusal IS NULL
+               OR (status = 'rejected'
+                   AND cardinality(review_refusal) > 0
+                   AND review_refusal <@ ARRAY['em_dash', 'smb', 'home_address', 'phone_number',
+                                               'email_address', 'unapproved_link', 'too_long']::text[]))
 );
 
 -- A comment is never answered twice. A live draft, a sent reply, or a send whose outcome is
--- unknown (the platform may have posted it) each hold the comment; a rejected draft, or a failure
--- where nothing was applied, does not, so a new draft can be made.
+-- unknown (the platform may have posted it) each hold the comment; a rejected draft (a draft the
+-- Reviewer refused is one), or a failure where nothing was applied, does not, so a new draft can be made.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_reply_drafts_one_answer_per_event
     ON geek_social.reply_drafts (engagement_event_id)
     WHERE status IN ('pending', 'approved', 'sending', 'sent') OR failure_code = 'outcome_unknown';

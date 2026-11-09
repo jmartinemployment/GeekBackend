@@ -121,6 +121,32 @@ public class SocialRepositoryValidationTests
     }
 
     [Fact]
+    public async Task A_refused_draft_names_real_rules_and_keeps_the_text_that_was_refused()
+    {
+        var repo = NewRepository();
+        var id = Guid.NewGuid();
+
+        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string>() }));
+        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string> { "swearing" } }));
+        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string> { ReviewRules.EmDash, "swearing" } }));
+        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = " ", NeedsHumanReason = "A person must answer.", ReviewRefusal = new List<string> { ReviewRules.EmDash } }));
+    }
+
+    [Fact]
+    public async Task A_triage_outcome_is_refused_unless_it_is_a_known_outcome_with_the_code_that_belongs_to_it()
+    {
+        var repo = NewRepository();
+        var id = Guid.NewGuid();
+
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = "maybe", At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Untriaged, At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, FailureCode = "oops", At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, FailureCode = SocialFailureCodes.RateLimited, At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded }));
+    }
+
+    [Fact]
     public async Task A_transition_is_refused_unless_the_state_machine_and_its_required_fields_allow_it()
     {
         var repo = NewRepository();
@@ -161,6 +187,8 @@ public class SocialRepositoryValidationTests
         var repo = NewRepository();
 
         AssertInvalid(await repo.ListDraftsAsync("archived", null, 10));
+        AssertInvalid(await repo.ListEventsAsync("archived", null, 10));
+        AssertInvalid(await repo.ListEventsAsync(string.Empty, null, 10));
         AssertInvalid(await repo.PurgeExpiredAsync(default));
         AssertInvalid(await repo.FailInterruptedSendsAsync(default));
     }
