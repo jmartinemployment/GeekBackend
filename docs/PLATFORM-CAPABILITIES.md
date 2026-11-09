@@ -1,6 +1,7 @@
 # GeekSocial platform capabilities (Phase 0 gate)
 
-Written 2026-11-08 from the official Meta and LinkedIn documentation. Nothing here was run against a
+Written 2026-11-08 from the official Meta and LinkedIn documentation; Instagram (section 2d) was added
+2026-11-09 from Meta's Instagram Platform pages. Nothing here was run against a
 live app: no Meta app, LinkedIn app or Community Management API access exists yet, so every row is
 "documented", not "proven". Proof is Phase 6.
 
@@ -28,6 +29,11 @@ around: no scraping, no session cookies, no unofficial APIs.
 4. **Facebook reactions are LIKE only.** A Page can like a comment; the reactions edge is read-only.
 5. **Native LinkedIn Articles and Newsletters cannot be published by API.** Link posts (article cards)
    can.
+6. **Instagram is a fourth platform (Jeff, 2026-11-09).** It publishes one hosted image, video, reel,
+   carousel or story: there are no link or text-only posts documented, so a post that points at a blog
+   article needs an image, and a link in a caption is not clickable. It can read, reply to and hide
+   comments. No reaction to a comment is documented, so the agent does not react on Instagram. Section
+   2d.
 
 ## 2. Matrix
 
@@ -76,6 +82,44 @@ A subscription ends when the subscribing member's grant expires or they stop bei
 | Reply, react | same endpoints as the organization, `actor` = person URN | `w_member_social` | Technically callable, but unusable: nothing can read the comments to answer |
 | Webhook or notification | none exists for members | n/a | BLOCKED |
 | Polling fallback | none possible without read access | n/a | BLOCKED, so none is built |
+
+### 2d. Instagram (professional account; Meta Instagram Platform pages read 2026-11-09)
+
+An Instagram **professional** account (Business or Creator) is required; a personal account cannot use
+the API. Meta documents three setups for the same account:
+
+| Setup | Needs | Host and token | Notes |
+|---|---|---|---|
+| Unified Login (Meta: "recommended for new integrations") | A business portfolio; Facebook Login for Business; no Facebook Page | `graph.facebook.com`; a Business Integration System User access token (SUAT) owned by the portfolio | Expiry is set when the login configuration is created; the Business Integration System User Access Token Management API manages it. The token stops working if the app leaves the portfolio or the account moves to another portfolio |
+| Instagram Login | No Page, no portfolio | `graph.instagram.com`; an Instagram User access token | `instagram_business_*` permissions; no hashtag search, product tagging or partnership ads |
+| Facebook Login | A Facebook Page linked to the account | `graph.facebook.com`; a Page access token | Hashtag search, product tagging, partnership ads |
+
+| Action | Endpoint | Permission | Tier | Status |
+|---|---|---|---|---|
+| Publish an image, video, reel, carousel or story | `POST /<IG_ID>/media` (container; `image_url` or `video_url`, `caption`, `media_type`), then `POST /<IG_ID>/media_publish` with `creation_id`; carousels hold up to 20 items; images must be JPEG; the media must be on a publicly reachable server | Instagram Login: `instagram_business_basic` + `instagram_business_content_publish`. Unified Login: `instagram_basic` + `instagram_content_publish`. Facebook Login adds `pages_read_engagement` | Standard (own account) | CONFIRMED |
+| Publish a link post or a text-only post | none documented | n/a | n/a | BLOCKED |
+| Schedule a post | none documented | n/a | n/a | BLOCKED |
+| Publishing limit | `GET /<IG_ID>/content_publishing_limit` returns the live figure | n/a | n/a | UNVERIFIED: one page says 100 API-published posts per 24 hours, another says 50 (I2) |
+| Read, reply to and hide comments | the comments edges of the media object | `instagram_business_manage_comments` ("comment reading, moderation, and replies") | Standard | CONFIRMED permission; the endpoints were not read (I4) |
+| React to a comment | none documented | n/a | n/a | BLOCKED |
+| Webhook: comments, mentions | subscription on the app; payloads must be signature-validated | field availability depends on the setup; `/documentation/instagram-platform/webhooks/fields` lists them | Standard | UNVERIFIED: fields not read, delivery in development mode not known (I3) |
+
+Instagram Login tokens: the authorization code lasts 1 hour and is single use; it is exchanged for a
+short-lived token (1 hour), then for a long-lived token (60 days). A long-lived token refreshes at
+`graph.instagram.com/refresh_access_token` once it is 24 hours old and not expired; each refresh gives
+another 60 days, and a token not refreshed within 60 days cannot be refreshed. Exchanging and refreshing
+happen on the server only.
+
+**Access tier.** Standard Access, the default, serves accounts the app owner owns or manages and has
+added to the app in the dashboard. Advanced Access (App Review and Business Verification) is for
+accounts the owner does not control. The agent uses Standard Access only; no App Review submission is
+made. (Meta's review checklist also lists a Marketing API Access Tier item. It is for ad accounts, needs
+500 test calls and is unrelated to this agent.)
+
+**Setup as Jeff reported it, 2026-11-09:** the Meta app `geekatyourspot-app` is connected to the
+Geek At Your Spot LLC business portfolio, has Facebook Login for Business, and Instagram is reported
+connected. Which of the three setups the dashboard used is not known and is settled when the connect flow
+is built (I1).
 
 ## 3. Webhook security (all must be implemented as written)
 
@@ -131,6 +175,12 @@ Meta (Platform Terms, developer policies; check the current versions):
 | L4 | Does our app get programmatic refresh tokens? | the portal and the token response |
 | L5 | May member comment text go to the Claude API? (section 1, item 1) | LinkedIn Developer Support Portal, in writing |
 | L6 | Is the 100-calls-per-member limit per day, and does the planned traffic fit? | the portal rate-limit view |
+| I1 | Which Instagram setup does the connect flow use, and does a Facebook Page have to be linked? The overview says Instagram Login and Unified Login need no Page; the publishing guide says the account must be connected to one | the Instagram product page in the app dashboard; one live publish |
+| I2 | The daily API publishing limit: 100 or 50 posts in 24 hours? | `GET /<IG_ID>/content_publishing_limit` on the connected account |
+| I3 | Which comment and mention webhook fields exist for the chosen setup, and do they fire in development mode? | the webhooks fields page; subscribe the account and comment on a post |
+| I4 | The exact endpoints for reading, replying to and hiding a comment, and for a reply's author | the Instagram comments reference pages; one live reply |
+| I5 | Can one Unified Login connection cover the Facebook Page and the Instagram account together, and how long does the SUAT last? | the login configuration page in the dashboard |
+| I6 | Is sending Instagram comment text to the Claude API permitted under Meta's service-provider terms? Same question as M4 | read both agreements; Jeff to confirm |
 
 ## 7. Setup path Jeff must start (longest first)
 
@@ -138,8 +188,10 @@ Meta (Platform Terms, developer policies; check the current versions):
    company Page, have the Page super admin verify it, then file the Community Management Development tier
    request. List the use cases to be demonstrated: Page Management, Profile Management, Employee
    Advocacy (this carries the webhooks).
-2. Meta: create a Business-type app, add Facebook Login for Business, add the test Page, keep the app in
-   development mode.
+2. Meta: the app exists (2026-11-09), is connected to the Geek At Your Spot LLC business portfolio, has
+   Facebook Login for Business, and Instagram is reported connected. Still to do: the Pages use case and
+   the Facebook test Page. Keep the app in development mode; no App Review submission, Data Protection
+   Assessment or Marketing API item is needed for the owner's own accounts.
 3. Both: have the privacy policy and business email ready; LinkedIn requires a valid privacy policy at
    Standard tier.
 
@@ -169,3 +221,9 @@ Meta (Platform Terms, developer policies; check the current versions):
 - Meta permissions: https://developers.facebook.com/docs/permissions
 - Meta access levels: https://developers.facebook.com/docs/graph-api/overview/access-levels
 - Meta Platform Terms: https://developers.facebook.com/terms
+- Instagram Platform overview (read 2026-11-09): https://developers.facebook.com/docs/instagram-platform/overview
+- Instagram API with Instagram Login (read 2026-11-09): https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login
+- Business Login for Instagram, tokens (read 2026-11-09): https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/business-login
+- Instagram content publishing (read 2026-11-09): https://developers.facebook.com/docs/instagram-platform/content-publishing
+- Instagram webhooks overview (read 2026-11-09): https://developers.facebook.com/docs/instagram-platform/webhooks
+- Instagram Unified Login authentication (read 2026-11-09): https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/authentication
