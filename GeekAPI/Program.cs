@@ -182,6 +182,11 @@ builder.Services.AddSocialPersistence();
 // GeekSocial's Listener (the Facebook webhook reader) and the orchestrator's intake.
 builder.Services.AddSocialIntake();
 builder.Services.AddScoped<GeekAPI.Services.Rag.RagLibrary>();
+// Geek-CRM: geek_crm on GeekRepository through repo/crm/* (docs/GEEK-CRM-DATA-MODEL.md).
+builder.Services.AddScoped<GeekApplication.Interfaces.Crm.ICrmStore>(sp =>
+    new GeekAPI.HttpClients.HttpCrmRepository(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepository"),
+        sp.GetRequiredService<ILogger<GeekAPI.HttpClients.HttpCrmRepository>>()));
 // Geek-Receptionist: Twilio missed-call text-back. Off unless TWILIO_ACCOUNT_SID is set; an invalid
 // configuration is logged and leaves it off rather than stopping GeekAPI.
 builder.Services.AddReceptionist(builder.Configuration);

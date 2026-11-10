@@ -85,4 +85,19 @@ public class InboundSmsTests
         Assert.Equal(HttpStatusCode.Forbidden, status);
         Assert.Empty(app.Sms.Sent);
     }
+
+    [Fact]
+    public async Task Reply_and_stop_are_recorded_in_the_crm_but_owner_texts_are_not()
+    {
+        using var app = new App();
+        var stop = Text("STOP");
+        stop["OptOutType"] = "STOP";
+        await app.PostTwilio("/sms/incoming", Text("Leak under the sink"));
+        await app.PostTwilio("/sms/incoming", stop);
+        await app.PostTwilio("/sms/incoming", Text("note to self", from: Settings.Owner));
+
+        Assert.Equal(
+            [$"text:SM1:{Settings.Caller}:Leak under the sink:0:", $"text:SM1:{Settings.Caller}:STOP:0:STOP"],
+            app.Crm.Calls.ToArray());
+    }
 }

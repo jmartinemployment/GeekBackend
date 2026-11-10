@@ -39,6 +39,29 @@ public sealed class FakeMediaDeleter : IMediaDeleter
     }
 }
 
+public sealed class FakeCrm : IReceptionistCrm
+{
+    public ConcurrentQueue<string> Calls { get; } = new();
+
+    public Task RecordMissedCallAsync(string callSid, string? caller, MissedCallOutcome outcome, string? textBody, CancellationToken ct)
+    {
+        Calls.Enqueue($"missed:{callSid}:{caller}:{outcome}:{(textBody is null ? "no-text" : "text")}");
+        return Task.CompletedTask;
+    }
+
+    public Task RecordInboundTextAsync(string messageSid, string? from, string body, int mediaCount, string? optOutType, CancellationToken ct)
+    {
+        Calls.Enqueue($"text:{messageSid}:{from}:{body}:{mediaCount}:{optOutType}");
+        return Task.CompletedTask;
+    }
+
+    public Task RecordVoicemailAsync(string callSid, string? caller, string recordingUrl, int? durationSeconds, CancellationToken ct)
+    {
+        Calls.Enqueue($"voicemail:{callSid}:{caller}:{durationSeconds}");
+        return Task.CompletedTask;
+    }
+}
+
 public static class Settings
 {
     public const string Token = "test-auth-token";
@@ -57,6 +80,7 @@ public sealed class App : IDisposable
     private readonly WebApplication _app;
     public FakeSms Sms { get; } = new();
     public FakeMediaDeleter Media { get; } = new();
+    public FakeCrm Crm { get; } = new();
 
     public App(Dictionary<string, string?>? overrides = null, bool configured = true)
     {
@@ -84,6 +108,7 @@ public sealed class App : IDisposable
         builder.Services.AddReceptionist(builder.Configuration);
         builder.Services.Replace(ServiceDescriptor.Singleton<ISmsSender>(Sms));
         builder.Services.Replace(ServiceDescriptor.Singleton<IMediaDeleter>(Media));
+        if (configured) builder.Services.Replace(ServiceDescriptor.Singleton<IReceptionistCrm>(Crm));
 
         _app = builder.Build();
         _app.MapReceptionist();
@@ -234,6 +259,21 @@ public class VoiceWebhookTests
         Assert.DoesNotContain("texting you", xml);
         Assert.Contains("Please leave a message after the tone.", xml);
         Assert.Contains("<Record", xml);
+    }
+
+    [Fact]
+    public async Task Missed_call_and_voicemail_are_recorded_in_the_crm()
+    {
+        using var app = new App(new() { ["CALL_MODE"] = "Forwarded" });
+        await app.PostTwilio("/voice/incoming", Call("CA9"));
+        var form = Call("CA9");
+        form["RecordingUrl"] = "https://api.twilio.com/recordings/RE9";
+        form["RecordingDuration"] = "21";
+        await app.PostTwilio("/voice/voicemail-complete", form);
+
+        Assert.Equal(
+            [$"missed:CA9:{Settings.Caller}:Texted:text", $"voicemail:CA9:{Settings.Caller}:21"],
+            app.Crm.Calls.ToArray());
     }
 
     [Fact]

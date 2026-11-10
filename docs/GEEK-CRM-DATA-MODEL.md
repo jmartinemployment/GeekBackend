@@ -1,6 +1,6 @@
 # Geek-CRM — Data Model (v0, for review)
 
-**Status:** draft for Jeff's review. No code yet.
+**Status:** v0 implemented (schema, store, receptionist writes, Apollo import). Custom properties and the NAICS/SIC lookup tables exist in the schema but have no API yet.
 **Schema:** `geek_crm` in GeekRepository (EF Core, PostgreSQL), reached only through GeekAPI.
 **First writer:** Geek-Receptionist (calls, texts, voicemails, AI qualification answers).
 **Later:** the Geek-CRM UI (see `Geek-CRM-Workspace/Plan.md`) grows on top of this, ported from the
@@ -223,12 +223,48 @@ All writes are idempotent on `external_ref` (Twilio SID), so Twilio retries neve
 
 ---
 
-## 6. Out of scope for v0
+## 6. Implementation (v0)
+
+| Piece | Where |
+|-------|-------|
+| Schema + seed (tenant #1, Sales pipeline) | `GeekRepository/Migrations/Sql/0050_geek_crm_schema.sql` (numbered 0050 to leave room for GeekSocial scripts) |
+| EF mapping | `GeekRepository/Data/CrmDbContext.cs`, `Data/Entities/Crm/CrmRows.cs` |
+| Store (tenant-scoped, Result-returning) | `GeekRepository/Repositories/Crm/CrmRepository.cs` behind `repo/crm/*` (`Controllers/Crm/CrmController.cs`) |
+| Contract | `GeekApplication/Interfaces/Crm/ICrmStore.cs`, `Models/Crm/*` (vocabularies mirror the SQL CHECKs) |
+| GeekAPI client | `GeekAPI/HttpClients/HttpCrmRepository.cs` |
+| Receptionist writes | `GeekAPI/Services/Receptionist/ReceptionistCrm.cs` — 3-second limit, never fails a call |
+| Apollo import + reads | `GeekAPI/Controllers/Crm/CrmController.cs`, `Services/Crm/ApolloCsv.cs` |
+
+### GeekAPI routes (X-API-Key, like every /api route)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/crm/imports/apollo?source=Apollo%20Batch%201` | Body = the Apollo "Export contacts" CSV (`Content-Type: text/csv`). Re-importing matches instead of duplicating |
+| GET | `/api/crm/participants?stage=lead&kind=organization&limit=50` | List |
+| GET | `/api/crm/participants/{id}` | One participant with contact points, links and the last 25 activities |
+| GET | `/api/crm/deals?openOnly=true` | Deals with their stage |
+
+All take an optional `tenantId`; the default is Geek @ Your Spot.
+
+```bash
+curl -X POST "https://api.geekatyourspot.com/api/crm/imports/apollo?source=Apollo%20Batch%201" \
+  -H "X-API-Key: $GEEK_BACKEND_API_KEY" -H "Content-Type: text/csv" --data-binary @apollo-export.csv
+```
+
+Apollo's revenue figures are its own estimates; the revenue band is only as good as they are.
+
+### Tests
+
+- `GeekBackend.Tests/Crm` — SQL CHECK lists vs vocabularies, table columns vs EF mapping, seed, phone/URL/code normalizing, Apollo parsing, the primary-contact rule.
+- `GeekBackend.Tests/Receptionist/CrmReceptionistRecorderTests.cs` — what a call, text, STOP and voicemail write; a failing or slow store never reaches the call.
+- `GeekBackend.IntegrationTests/CrmIntegrationTests.cs` (TEST_DATABASE_URL) — the script against Postgres: one person per caller, one activity per Twilio retry, STOP opt-out, import matching, the deal rule.
+
+## 7. Out of scope for v0
 
 Quotes, invoices, products, tickets, email sequences, forms, lists/segments UI, permissions beyond
 tenant + owner, file attachments. All are in `Geek-CRM-Workspace/Plan.md` for later phases.
 
-## 7. Decisions (Jeff, 2026-11-10)
+## 8. Decisions (Jeff, 2026-11-10)
 
 1. **Proposal sent** stage: included (deals may skip it).
 2. **`annual_revenue_band`**: kept, optional, filled from imports/enrichment; never asked by the AI.

@@ -14,6 +14,8 @@ using GeekRepository.Repositories.ContentCreator;
 using GeekRepository.Repositories.ContentWriterV3;
 using GeekRepository.Repositories.ContentWriterV4;
 using GeekRepository.Repositories.Social;
+using GeekRepository.Repositories.Crm;
+using GeekApplication.Interfaces.Crm;
 using GeekRepository.Repositories.Visitors;
 using GeekRepository.Services;
 
@@ -97,6 +99,9 @@ public static class ServiceRegistration
         // injected so retention deadlines and a draft's creation time are testable.
         services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<ISocialStore, SocialRepository>();
+
+        // Geek-CRM (geek_crm), through CrmDbContext.
+        services.AddScoped<ICrmStore, CrmRepository>();
 
         return services;
     }

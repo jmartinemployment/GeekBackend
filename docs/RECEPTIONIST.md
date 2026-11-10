@@ -104,6 +104,7 @@ While off, every path under the prefix answers **503** `receptionist_not_configu
 | `CALLER_TEXT` | | built-in | Text sent to missed callers; `{company}` is replaced. Must stay consistent with the A2P campaign samples |
 | `REPEAT_TEXT_MINUTES` | | `10` | Don't text the same caller again within this window (0–1440) |
 | `VALIDATE_TWILIO_SIGNATURE` | | `true` | Only `false` for local testing without Twilio |
+| `RECEPTIONIST_CRM_TENANT_ID` | | Geek @ Your Spot | Geek-CRM tenant the receptionist writes calls and texts to |
 
 Never commit these values; they live only in Railway variables.
 
@@ -186,9 +187,18 @@ dotnet test GeekBackend.Tests --filter "FullyQualifiedName~GeekBackend.Tests.Rec
 
 State (repeat-caller window, screening) is **in memory** and resets when GeekAPI restarts.
 
+## Geek-CRM
+
+Every missed call, text-back, inbound text, STOP/START and voicemail is also written to Geek-CRM
+(`geek_crm`, see [`GEEK-CRM-DATA-MODEL.md`](GEEK-CRM-DATA-MODEL.md)): the caller's number finds or
+creates a **lead**, and each event is an **activity** keyed by its Twilio SID, so a webhook retry
+records nothing twice. STOP sets `sms_opt_out` on the number. Writes go to tenant
+`RECEPTIONIST_CRM_TENANT_ID` (optional; Geek @ Your Spot when unset), give up after 3 seconds, and
+never change what the caller hears.
+
 ## Roadmap
 
-- Call and text history: a `geek_voice` schema in GeekRepository, reached through GeekAPI, with an owner dashboard
+- ~~Call and text history~~: done in Geek-CRM (`geek_crm`); an owner dashboard is next
 - Multi-tenant: one deployment, client identified by the number called (today: one business per configuration)
 - Business-hours rules (different text after hours)
 - AI voice receptionist: answer, capture the job details, book or escalate; text-back stays the fallback
