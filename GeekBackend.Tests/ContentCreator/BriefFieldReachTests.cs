@@ -1938,6 +1938,40 @@ public sealed class BriefFieldReachTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A blog post may carry a partner's own words, never required (Jeff, 2026-10-26: "not required, but
+    /// nice to have"); the pillar carries no quotation of the writer's own. Each body request is told its
+    /// own rule and never the other's, because a contradicting instruction is won by the longer one
+    /// (2026-10-20). Read through the real writers.
+    /// </summary>
+    [Theory]
+    [InlineData("pillar")]
+    [InlineData("blog")]
+    public async Task A_blog_body_request_welcomes_a_partner_quotation_and_a_pillar_body_request_forbids_one(string page)
+    {
+        var calls = await WriteAsync(page, CompleteBrief);
+        var bodies = calls
+            .Where(c => c.Label == "body call" || c.Label.StartsWith("body call #", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.NotEmpty(bodies);
+        foreach (var (label, text) in bodies)
+        {
+            var welcomes = text.Contains(ContentPromptBuilder.BlogQuotationInstruction, StringComparison.Ordinal);
+            var forbids = text.Contains("No block quotation of your own", StringComparison.Ordinal);
+            if (page == "blog")
+            {
+                Assert.True(welcomes, $"blog '{label}' is not told a partner's quotation is welcome.");
+                Assert.False(forbids, $"blog '{label}' is told no quotation of its own as well.");
+            }
+            else
+            {
+                Assert.True(forbids, $"pillar '{label}' is not told no quotation of its own.");
+                Assert.False(welcomes, $"pillar '{label}' is told a quotation is welcome as well.");
+            }
+        }
+    }
+
+    /// <summary>
     /// A block quotation the writer wrote out, through each page's real writer: one whose words are on a
     /// research page is kept as that page's own characters with the page as its cite, and one whose words
     /// are on no page is deleted, the page is saved, and its lines name the quotation and the heading it

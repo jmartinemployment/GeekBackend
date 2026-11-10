@@ -67,9 +67,16 @@ public class ContentPromptBuilderSectionBatchTests
         [.. BlogOutline().Select(c => SectionSlot.Cover(c))];
 
     private static string BlogBatch(int batchIndex, params string[] owned) =>
+        BlogBatchWithEvidence(batchIndex, evidenceBlock: null, owned);
+
+    /// <param name="evidenceBlock">The passages the Content Creator hands every blog body request; the
+    /// Workflow product's blog hands none. A name of its own, not an overload: with one, a call that
+    /// passes a single heading binds it as the evidence block.</param>
+    private static string BlogBatchWithEvidence(int batchIndex, string? evidenceBlock, params string[] owned) =>
         Rendered(new ContentPromptBuilder().BuildStandaloneBlogBodyPrompt(
             Context(),
             new BlogMetadataDraft("Title", "Meta", ["ai"], BlogOutline()),
+            evidenceBlock: evidenceBlock,
             sectionBatch: [.. owned.Select(c => SectionSlot.Cover(c))],
             batchIndex: batchIndex,
             fullOutline: BlogSlots()));
@@ -305,8 +312,26 @@ public class ContentPromptBuilderSectionBatchTests
             // blocks with the names swapped -- so the ban has to name it, not just ban headings.
             Assert.Contains("NO DEDICATED OR REPEATABLE FORMAT", prompt, StringComparison.Ordinal);
             Assert.Contains("not a paragraph per tool", prompt, StringComparison.Ordinal);
-            Assert.Contains("No block quotation of your own", prompt, StringComparison.Ordinal);
         }
+
+        // The pillar carries no quotation of the writer's own; a blog post may carry a partner's words
+        // (Jeff, 2026-10-26: "not required, but nice to have"). Each prompt prints its own rule and
+        // never the other's: a contradicting instruction is won by the longer one (2026-10-20).
+        var pillar = PillarBatch(0, "Where the hours go");
+        Assert.Contains("No block quotation of your own", pillar, StringComparison.Ordinal);
+        Assert.DoesNotContain("welcome but never required", pillar, StringComparison.Ordinal);
+
+        var blog = BlogBatchWithEvidence(0, "=== EVIDENCE ===\nA passage.", "Where the hours go");
+        Assert.Contains("A block quotation is welcome but never required", blog, StringComparison.Ordinal);
+        Assert.Contains("copied character for character from a passage", blog, StringComparison.Ordinal);
+        Assert.Contains("writes the page's address as its cite", blog, StringComparison.Ordinal);
+        Assert.DoesNotContain("No block quotation of your own", blog, StringComparison.Ordinal);
+
+        // The Workflow product's blog shares the builder, carries no passages and has no step that
+        // matches a quotation to one and writes its cite, so it keeps the pillar's rule.
+        var workflowBlog = BlogBatch(0, "Where the hours go");
+        Assert.Contains("No block quotation of your own", workflowBlog, StringComparison.Ordinal);
+        Assert.DoesNotContain("welcome but never required", workflowBlog, StringComparison.Ordinal);
     }
 
     [Fact]

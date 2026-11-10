@@ -467,12 +467,38 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         + "into how it removes that specific friction, in your own editorial voice. Do not reuse "
         + "vendor slogans, buzzwords or self-promotional phrasing from the source, and do not "
         + "describe the product in general -- only what it does about this problem.\n"
-        + "- No block quotation of your own: no pull-quote, no verbatim testimonial line; this is analysis "
-        + "in your voice. A point of law's quotation, where POINT OF LAW below asks for one, is the one "
-        + "exception. Claims still come from the supplied evidence, not from what you already believe "
-        + "about these products.\n"
+        + "- Claims come from the supplied evidence, not from what you already believe about these "
+        + "products.\n"
         + "- Every declared partner tool is discussed on this basis. A tool named without saying what "
         + "it solves has not been discussed.";
+
+    /// <summary>
+    /// The pillar's rule on quotations: none of the writer's own. A point of law's, where the request
+    /// asks for one, is the one exception. The blog's rule is <see cref="BlogQuotationInstruction"/>;
+    /// the two are printed by their own body prompts and never together, because a contradicting
+    /// instruction is won by the longer one (2026-10-20).
+    /// </summary>
+    private const string NoOwnQuotationInstruction =
+        "- No block quotation of your own: no pull-quote, no verbatim testimonial line; this is analysis "
+        + "in your voice. A point of law's quotation, where POINT OF LAW below asks for one, is the one "
+        + "exception.";
+
+    /// <summary>
+    /// The blog's rule on quotations (Jeff, 2026-10-26: a blog post may carry a block quotation, "not
+    /// required, but nice to have"). A quotation is a partner's own sentence copied from a passage the
+    /// request shows, and code matches it to that passage and writes the page's address as its cite,
+    /// the same way a point of law's is handled (<see cref="GccQuotations"/>); one that matches no
+    /// passage is deleted from the post. Never required: a post with none is complete.
+    /// </summary>
+    internal const string BlogQuotationInstruction =
+        "- A block quotation is welcome but never required: at most two on the post, of a partner's own "
+        + "words where they make the point better than your paraphrase would, each one sentence copied "
+        + "character for character from a passage in the evidence, with a sentence of yours before it "
+        + "saying whose page it comes from: {\"type\":\"quote\",\"runs\":[{\"text\":\"<the passage's "
+        + "sentence, character for character>\"}],\"cite\":null}. Code matches it to the passage and writes "
+        + "the page's address as its cite; a quotation that matches no passage is deleted from the post. "
+        + "Never a testimonial you compose, never a paraphrase inside quotation marks, never a competitor's "
+        + "words. A point of law's quotation, where POINT OF LAW below asks for one, is written the same way.";
 
     /// <summary>
     /// A point of law is a passage's words in a block quotation, or it is not stated; where the piece turns
@@ -500,6 +526,15 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
     /// <summary>The point-of-law rule for a request that carries an evidence block, and nothing for one that does not.</summary>
     private static string PointOfLawFor(string? evidenceBlock) =>
         string.IsNullOrWhiteSpace(evidenceBlock) ? string.Empty : PointOfLawInstruction;
+
+    /// <summary>
+    /// The blog's quotation rule for a request that carries an evidence block, and the pillar's rule of
+    /// none for one that does not: the Workflow product's blog shares this builder, carries no passages
+    /// and has no resolve step to match a quotation and write its cite, so a quotation there would land
+    /// with no source.
+    /// </summary>
+    private static string BlogQuotationFor(string? evidenceBlock) =>
+        string.IsNullOrWhiteSpace(evidenceBlock) ? NoOwnQuotationInstruction : BlogQuotationInstruction;
 
     internal const string PointOfLawInstruction =
         "A POINT OF LAW IS QUOTED FROM A PASSAGE, OR IT IS NOT STATED: what a statute, a regulation, an "
@@ -2431,6 +2466,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
                 "a section coming in at half of it has not finished making its point, it has not been written concisely.")
             .AppendLine(NoToolsSectionInstruction)
             .AppendLine(ToolsAsSolutionInstruction)
+            .AppendLine(BlogQuotationFor(evidenceBlock))
             .AppendLine(PointOfLawFor(evidenceBlock))
             .AppendLine();
 
@@ -3100,7 +3136,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
 
     private static readonly Regex SectionTagRegex = new(
         @"\[Section:\s*""(?<heading>[^""]+)""\]",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
 
     /// <summary>
     /// Lede-scoped notes: tagged with the current lede heading, or a section title that is not in
@@ -3204,7 +3240,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         var current = new StringBuilder();
         foreach (var line in lines)
         {
-            if (Regex.IsMatch(line, @"^\s*\d+\.\s+") && current.Length > 0)
+            if (Regex.IsMatch(line, @"^\s*\d+\.\s+", RegexOptions.None, TimeSpan.FromSeconds(2)) && current.Length > 0)
             {
                 yield return current.ToString().TrimEnd();
                 current.Clear();
@@ -3310,7 +3346,7 @@ public partial class ContentPromptBuilder : IContentPromptBuilder
         if (string.IsNullOrWhiteSpace(text))
             return string.Empty;
 
-        var normalized = Regex.Replace(text, @"\s+", " ").Trim();
+        var normalized = Regex.Replace(text, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(2)).Trim();
         return normalized.Length <= maxChars ? normalized : normalized[..maxChars].TrimEnd() + "…";
     }
 

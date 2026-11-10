@@ -654,6 +654,7 @@ Counted across the six generated prompts (the three types' ledes and bodies, sys
 - Do not reuse vendor slogans, buzzwords or self-promotional phrasing from the source, and do not describe the product in general -- only what it does about this problem.
 - - No block quotation of your own:
 - no pull-quote, no verbatim testimonial line; this is analysis in your voice.
+  (the pillar's line since 2026-10-26; the blog's reads "A block quotation is welcome but never required" and its negations are: never a testimonial you compose, never a paraphrase inside quotation marks, never a competitor's words)
 - A POINT OF LAW IS QUOTED FROM A PASSAGE, OR IT IS NOT STATED (2026-10-22, every body call of the pillar, the blog and the tool page): Copy it whole: do not shorten it, join sentences from different places, or change a word.
 - Where the piece turns on a point of law that no passage states, do not state it: name the agency that decides it (the IRS, the state's department of revenue, the state's labor department) and say in that same sentence that the reader's accountant or employment attorney makes the call.
 - In the sentence, never as a note, a disclaimer or a label.
