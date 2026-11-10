@@ -228,9 +228,10 @@ All writes are idempotent on `external_ref` (Twilio SID), so Twilio retries neve
 Quotes, invoices, products, tickets, email sequences, forms, lists/segments UI, permissions beyond
 tenant + owner, file attachments. All are in `Geek-CRM-Workspace/Plan.md` for later phases.
 
-## 7. Open questions for Jeff
+## 7. Decisions (Jeff, 2026-11-10)
 
-1. Pipeline stages: is *Proposal sent* needed, or straight from *Meeting booked* to *Won/Lost*?
-2. `annual_revenue_band` — keep, or ask only in qualification answers?
-3. Multi-tenant from day one (recommended, so it can be sold) — confirm.
-4. Import the Apollo Batch 1 list as `lead` participants with `source = import`?
+1. **Proposal sent** stage: included (deals may skip it).
+2. **`annual_revenue_band`**: kept, optional, filled from imports/enrichment; never asked by the AI.
+3. **Multi-tenant from day one**: yes. Every table carries `tenant_id`; every query is scoped by it.
+4. **Import Apollo Batch 1** as `lead` participants with `source = import`: yes (the reason for a CRM
+   instead of a spreadsheet).
