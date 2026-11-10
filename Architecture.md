@@ -99,11 +99,14 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 |---------|------|--------|
 | `/api/seo/internal/*` | `X-API-Key` + optional user headers | Proxies to `repo/seo/*` on GeekRepository |
 | `/api/case-studies`, `/api/departments`, `/api/use-cases` | Public read | Marketing/content |
+| `/api/receptionist/twilio/*` | `X-Twilio-Signature` (exempt from `X-API-Key`) | Geek-Receptionist missed-call text-back; see [`docs/RECEPTIONIST.md`](docs/RECEPTIONIST.md) |
 | `/api/auth/*`, `/hubs/sync` | — | **410 Gone** (use GeekOAuth) |
 
 **Outbound:** `HttpClient` `GeekRepository` → `REPO_URL` with `REPO_API_KEY` (interim; JWT S2S is target).
 
 **Does not:** Issue tokens, host login UI, or run Geek SEO product logic.
+
+**Product logic hosted here by decision:** Geek-Receptionist (Twilio missed-call text-back) was merged into GeekAPI on 2026-11-10 (Jeff) rather than run as its own Railway service. It is optional (off without `TWILIO_ACCOUNT_SID`), an invalid configuration turns it off with an error log instead of stopping GeekAPI, and it holds no data today. If it gains persistence, that goes in a `geek_voice` schema in GeekRepository, reached over HTTP like everything else.
 
 ---
 
@@ -200,6 +203,7 @@ GeekBackend **does not** store or expose login APIs after M4–M6/O2.
 | `GEEK_BACKEND_API_KEY` | Inbound trust for auth-storage and admin adapters |
 | `CORS_ORIGINS` | Browser origins allowed to call API |
 | `PORT` | Listen port |
+| `TWILIO_*`, `OWNER_CELL`, `COMPANY_NAME`, `PUBLIC_BASE_URL`, `CALL_MODE` | Geek-Receptionist (optional); full list in [`docs/RECEPTIONIST.md`](docs/RECEPTIONIST.md) |
 
 **GeekRepository**
 

@@ -9,6 +9,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Middleware;
 using GeekAPI.Services;
 using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.Receptionist;
 using GeekAPI.Services.Social;
 using GeekAPI.Services.Visitors;
 using GeekAPI.Services.Workflow.Hosting;
@@ -181,6 +182,9 @@ builder.Services.AddSocialPersistence();
 // GeekSocial's Listener (the Facebook webhook reader) and the orchestrator's intake.
 builder.Services.AddSocialIntake();
 builder.Services.AddScoped<GeekAPI.Services.Rag.RagLibrary>();
+// Geek-Receptionist: Twilio missed-call text-back. Off unless TWILIO_ACCOUNT_SID is set; an invalid
+// configuration is logged and leaves it off rather than stopping GeekAPI.
+builder.Services.AddReceptionist(builder.Configuration);
 
 // GeekOAuth-issued JWT bearer. Originally added only so the v2 realtime hub could require
 // [Authorize] (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade) — routes
@@ -360,6 +364,7 @@ app.UseAuthorization();
 app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 app.MapControllers();
+app.MapReceptionist();
 
 app.MapHub<GeekCrawlerRealtimeHub>("/hubs/geek-crawler-realtime");
 app.MapHub<WorkflowRealtimeHub>("/hubs/workflow-realtime");

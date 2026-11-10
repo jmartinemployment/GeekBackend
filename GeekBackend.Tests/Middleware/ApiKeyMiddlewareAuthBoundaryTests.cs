@@ -51,6 +51,30 @@ public class ApiKeyMiddlewareAuthBoundaryTests
         Assert.Equal(401, context.Response.StatusCode);
     }
 
+    [Theory]
+    // Geek-Receptionist's Twilio webhooks: Twilio cannot send our API key, and TwilioSignatureFilter
+    // authenticates these instead (GeekBackend.Tests/Receptionist covers the signature check).
+    [InlineData("/api/receptionist/twilio/voice/incoming", true)]
+    [InlineData("/api/receptionist/twilio/sms/incoming", true)]
+    // Only that prefix is exempt: a sibling route under /api/receptionist still needs credentials.
+    [InlineData("/api/receptionist/settings", false)]
+    [InlineData("/api/receptionist/twilio", false)]
+    public async Task Only_receptionist_twilio_webhooks_pass_without_an_api_key(string path, bool passes)
+    {
+        var reached = false;
+        var middleware = new ApiKeyMiddleware(
+            _ => { reached = true; return Task.CompletedTask; },
+            new TestEnvironment("Production"));
+
+        var context = new DefaultHttpContext();
+        context.Request.Path = path;
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(passes, reached);
+        if (!passes) Assert.Equal(401, context.Response.StatusCode);
+    }
+
     private sealed class TestEnvironment(string name) : IHostEnvironment
     {
         public string EnvironmentName { get; set; } = name;

@@ -38,6 +38,14 @@ public class ApiKeyMiddleware
             return;
         }
 
+        // Geek-Receptionist's Twilio webhooks. Twilio cannot send our API key; every route under this
+        // prefix is authenticated by X-Twilio-Signature (TwilioSignatureFilter) or answers 503.
+        if (normalizedPath.StartsWith(GeekAPI.Services.Receptionist.ReceptionistEndpoints.RoutePrefix + "/", StringComparison.OrdinalIgnoreCase))
+        {
+            await _next(context);
+            return;
+        }
+
         // SignalR hubs (e.g. /hubs/workflow-realtime) authenticate via JWT bearer + [Authorize] on
         // the hub itself — the WebSocket handshake can't carry X-API-Key/Authorization headers,
         // so this middleware steps aside for /hubs/* and lets the auth pipeline handle it.
