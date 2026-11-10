@@ -20,9 +20,9 @@ public static class ToneFocusAnalyzer
         "who","which","all","any","each","other","some","no","nor","just","only","up","out","off"
     };
 
-    private static readonly Regex WordPattern = new(@"[A-Za-z][A-Za-z\-']{2,}", RegexOptions.Compiled);
-    private static readonly Regex SentenceSplit = new(@"(?<=[\.!\?])\s+", RegexOptions.Compiled);
-    private static readonly Regex ContractionPattern = new(@"\b\w+'(?:re|ve|ll|d|s|t|m)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex WordPattern = new(@"[A-Za-z][A-Za-z\-']{2,}", RegexOptions.Compiled, TimeSpan.FromSeconds(2));
+    private static readonly Regex SentenceSplit = new(@"(?<=[\.!\?])\s+", RegexOptions.Compiled, TimeSpan.FromSeconds(2));
+    private static readonly Regex ContractionPattern = new(@"\b\w+'(?:re|ve|ll|d|s|t|m)\b", RegexOptions.Compiled | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
 
     public static string DetectFocus(IEnumerable<string> headings, IEnumerable<string> paragraphs, int topN = 6)
     {
@@ -67,7 +67,7 @@ public static class ToneFocusAnalyzer
         var avgSentenceLength = (double)words.Count / sentences.Count;
         var longWordRatio = words.Count(w => w.Length >= 9) / (double)words.Count;
         var contractionCount = ContractionPattern.Matches(allText).Count;
-        var secondPersonCount = Regex.Matches(allText, @"\byou\b|\byour\b", RegexOptions.IgnoreCase).Count;
+        var secondPersonCount = Regex.Matches(allText, @"\byou\b|\byour\b", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2)).Count;
 
         var casualSignal = contractionCount + secondPersonCount / 2.0;
         var technicalSignal = longWordRatio * 100 + Math.Max(0, avgSentenceLength - 18);

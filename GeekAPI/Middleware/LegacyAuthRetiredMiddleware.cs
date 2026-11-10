@@ -16,7 +16,7 @@ public sealed class LegacyAuthRetiredMiddleware(RequestDelegate next)
                 success = false,
                 error = "Legacy platform auth was retired. Use GeekOAuth for login and tokens.",
                 code = "legacy_auth_retired",
-            });
+            }, context.RequestAborted);
             return;
         }
 

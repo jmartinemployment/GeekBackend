@@ -242,7 +242,7 @@ public static class GcwSeoAnalyzer
     }
 
     private static List<string> Tokenize(string text) =>
-        Regex.Matches(text.ToLowerInvariant(), @"[a-z0-9']+")
+        Regex.Matches(text.ToLowerInvariant(), @"[a-z0-9']+", RegexOptions.None, TimeSpan.FromSeconds(2))
             .Select(m => m.Value)
             .Where(w => w.Length > 0)
             .ToList();
@@ -282,6 +282,6 @@ public static class GcwSeoAnalyzer
     private static string NormalizeForMatch(string value)
     {
         var lowered = value.ToLowerInvariant().Replace("&", " and ");
-        return Regex.Replace(lowered, @"\s+", " ").Trim();
+        return Regex.Replace(lowered, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(2)).Trim();
     }
 }

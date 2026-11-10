@@ -228,7 +228,7 @@ public static class GccKeywordRemap
             var kept = words.Where((_, k) => k != dropped).Select(WordPattern);
             var pattern = new Regex(
                 @"(?<![A-Za-z0-9])" + string.Join(@"\s+", kept) + @"(?![A-Za-z0-9])",
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
             variations.Add(new Variation(pattern, words, dropped));
         }
 
@@ -408,7 +408,7 @@ public static class GccKeywordRemap
     private static (string From, string To) Rewrite(string text, Match match, Variation variation)
     {
         var from = match.Value;
-        var matched = Regex.Split(from, @"\s+");
+        var matched = Regex.Split(from, @"\s+", RegexOptions.None, TimeSpan.FromSeconds(2));
         var dropped = variation.Words[variation.DroppedAt];
         var intrinsic = dropped.Skip(1).Any(char.IsUpper);
 

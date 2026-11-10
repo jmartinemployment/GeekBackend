@@ -23,7 +23,7 @@ public static class PillarHeadingContract
     /// ("Data Quality Assessments:") is recognised as the same section as "Data Quality
     /// Assessments".</summary>
     public static string HeadingKey(string? heading) =>
-        Regex.Replace(heading ?? string.Empty, @"\s+", " ")
+        Regex.Replace(heading ?? string.Empty, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(2))
             .Trim()
             .TrimEnd(':', '-', '—', '–', '.')
             .Trim()

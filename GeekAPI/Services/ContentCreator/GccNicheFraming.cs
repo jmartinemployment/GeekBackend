@@ -946,7 +946,7 @@ public static class GccNicheFramingReader
     {
         var paragraphs = new List<string>();
         var raw = (text ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
-        foreach (var block in Regex.Split(raw, @"\n\s*\n"))
+        foreach (var block in Regex.Split(raw, @"\n\s*\n", RegexOptions.None, TimeSpan.FromSeconds(2)))
         {
             // Soft-wrapped lines inside one paragraph join into one sentence rather than staying
             // broken: the writer is given prose to argue from, not a column of fragments.

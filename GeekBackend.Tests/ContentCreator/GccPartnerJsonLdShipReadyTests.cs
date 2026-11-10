@@ -52,7 +52,10 @@ public sealed class GccPartnerJsonLdShipReadyTests
             ["offers"] = new Dictionary<string, object?> { ["@type"] = "Offer", ["price"] = "49.00" },
         };
 
-        GccPartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(49.00m));
+        var exception = Record.Exception(() =>
+            GccPartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(49.00m)));
+
+        Assert.Null(exception);
     }
 
     [Fact]
@@ -73,6 +76,9 @@ public sealed class GccPartnerJsonLdShipReadyTests
     {
         var node = new Dictionary<string, object?> { ["@type"] = "SoftwareApplication" };
 
-        GccPartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(null));
+        var exception = Record.Exception(() =>
+            GccPartnerSoftwareApplicationJsonLd.EnsureShipReadyOrThrow(node, WithPricing(null)));
+
+        Assert.Null(exception);
     }
 }

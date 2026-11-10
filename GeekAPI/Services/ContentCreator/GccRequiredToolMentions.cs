@@ -299,7 +299,7 @@ public static class GccRequiredToolMentions
         var pattern = $@"(?<![A-Za-z0-9]){System.Text.RegularExpressions.Regex.Escape(name)}(?![A-Za-z0-9])";
         var capitalised = char.IsUpper(name[0]);
         foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
-                     text, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                     text, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2)))
         {
             if (!capitalised || char.IsUpper(match.Value[0])) return (match.Index, match.Length);
         }

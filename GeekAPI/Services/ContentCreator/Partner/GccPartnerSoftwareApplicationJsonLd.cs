@@ -165,7 +165,8 @@ public static class GccPartnerSoftwareApplicationJsonLd
 
             var unitMoney = System.Text.RegularExpressions.Regex.Match(
                 overage,
-                @"(\d+(?:\.\d+)?)");
+                @"(\d+(?:\.\d+)?)",
+                System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(2));
             if (unitMoney.Success
                 && decimal.TryParse(unitMoney.Groups[1].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var unitPrice))
             {

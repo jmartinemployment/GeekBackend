@@ -129,7 +129,7 @@ public static partial class GccSavedSerpParser
                 Hit("problem-solution");
             if (lower.Contains("guide") || lower.Contains("ultimate") || lower.Contains("complete ") || lower.Contains("manual"))
                 Hit("guide");
-            if (lower.Contains("best ") || lower.StartsWith("top ") || Regex.IsMatch(lower, @"\b\d+\s+(best|ways|tips|tools)"))
+            if (lower.Contains("best ") || lower.StartsWith("top ") || Regex.IsMatch(lower, @"\b\d+\s+(best|ways|tips|tools)", RegexOptions.None, TimeSpan.FromSeconds(2)))
                 Hit("listicle");
             if (lower.Contains("case study") || lower.Contains("we built") || lower.Contains("our experience"))
                 Hit("case-study");

@@ -16,7 +16,7 @@ internal static class PillarSectionClassifier
     /// </para>
     /// </summary>
     public static bool IsToolsListingHeading(string sectionHeading) =>
-        Regex.IsMatch(sectionHeading ?? string.Empty, @"\btools?\b", RegexOptions.IgnoreCase);
+        Regex.IsMatch(sectionHeading ?? string.Empty, @"\btools?\b", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
 
     public static bool IsToolsSection(string sectionHeading)
     {

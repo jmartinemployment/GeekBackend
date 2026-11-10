@@ -32,9 +32,9 @@ internal static class JsonReplySanitizer
     internal const string LiteralNewlinesRepair = "literal-newlines";
     internal const string StrayQuoteRepair = "stray-quote-before-object";
 
-    private static readonly Regex CodeFence = new(@"^```(?:json|html)?\s*|\s*```$", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex CodeFence = new(@"^```(?:json|html)?\s*|\s*```$", RegexOptions.Multiline | RegexOptions.Compiled, TimeSpan.FromSeconds(2));
 
-    private static readonly Regex StrayQuoteBeforeObject = new(@",(\s*)""\{""", RegexOptions.Compiled);
+    private static readonly Regex StrayQuoteBeforeObject = new(@",(\s*)""\{""", RegexOptions.Compiled, TimeSpan.FromSeconds(2));
 
     /// <summary>A text to try parsing, and the named repairs that produced it from the reply (none: as written).</summary>
     internal readonly record struct Candidate(string Text, IReadOnlyList<string> Repairs);

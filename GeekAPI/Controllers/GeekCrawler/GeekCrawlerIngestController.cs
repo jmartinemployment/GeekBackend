@@ -549,7 +549,7 @@ public class GeekCrawlerIngestController : ControllerBase
                         // is what let eleven crawls complete on 2026-09-24 with nothing indexed,
                         // no trace against any run, and a 502 on an unrelated endpoint as the
                         // first visible symptom hours later.
-                        var status = await _rag.EnqueueIndexAsync(run.Id).ConfigureAwait(false);
+                        var status = await _rag.EnqueueIndexAsync(run.Id, CancellationToken.None).ConfigureAwait(false);
                         if (status is null)
                         {
                             _logger.LogWarning(
@@ -564,7 +564,7 @@ public class GeekCrawlerIngestController : ControllerBase
                         _logger.LogWarning(
                             ex, "Geek-Crawler-Rag index trigger threw for {RunId}", run.Id);
                     }
-                });
+                }, CancellationToken.None);
             }
 
             return Ok(snapshot);

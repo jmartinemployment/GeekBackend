@@ -56,7 +56,7 @@ public class ApiKeyMiddleware
             }
 
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { success = false, error = "Authentication required for internal API." });
+            await context.Response.WriteAsJsonAsync(new { success = false, error = "Authentication required for internal API." }, context.RequestAborted);
             return;
         }
 
@@ -86,7 +86,7 @@ public class ApiKeyMiddleware
         if (!context.Request.Headers.TryGetValue(ApiKeyHeader, out var extractedApiKey))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { success = false, error = "API key is missing" });
+            await context.Response.WriteAsJsonAsync(new { success = false, error = "API key is missing" }, context.RequestAborted);
             return;
         }
 
@@ -94,7 +94,7 @@ public class ApiKeyMiddleware
         if (apiKey == null || apiKey != extractedApiKey.ToString())
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { success = false, error = "Invalid API key" });
+            await context.Response.WriteAsJsonAsync(new { success = false, error = "Invalid API key" }, context.RequestAborted);
             return;
         }
 
@@ -158,7 +158,7 @@ public class ApiKeyMiddleware
                 // Simple JSON parsing to extract sub
                 if (json.Contains("\"sub\""))
                 {
-                    var subMatch = System.Text.RegularExpressions.Regex.Match(json, @"""sub""\s*:\s*""([^""]+)""");
+                    var subMatch = System.Text.RegularExpressions.Regex.Match(json, @"""sub""\s*:\s*""([^""]+)""", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(2));
                     if (subMatch.Success && Guid.TryParse(subMatch.Groups[1].Value, out var userId))
                     {
                         ApplyBearerAuth(context, userId);

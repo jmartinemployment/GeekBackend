@@ -149,7 +149,7 @@ public class SiteCrawlerService : ISiteCrawlerService
         foreach (var node in nodes)
         {
             var text = HtmlEntity.DeEntitize(node.InnerText)?.Trim();
-            text = System.Text.RegularExpressions.Regex.Replace(text ?? string.Empty, @"\s+", " ");
+            text = System.Text.RegularExpressions.Regex.Replace(text ?? string.Empty, @"\s+", " ", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(2));
             if (!string.IsNullOrWhiteSpace(text) && text.Length > 2)
             {
                 headings.Add(text);
@@ -173,7 +173,7 @@ public class SiteCrawlerService : ISiteCrawlerService
             }
 
             var text = HtmlEntity.DeEntitize(node.InnerText)?.Trim();
-            text = System.Text.RegularExpressions.Regex.Replace(text ?? string.Empty, @"\s+", " ");
+            text = System.Text.RegularExpressions.Regex.Replace(text ?? string.Empty, @"\s+", " ", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(2));
             if (!string.IsNullOrWhiteSpace(text) && text.Length > 25)
             {
                 paragraphs.Add(text);
@@ -262,7 +262,7 @@ public class SiteCrawlerService : ISiteCrawlerService
     private static List<Uri> ParseUrlLocs(string xml, Uri rootUri)
     {
         var urls = new List<Uri>();
-        foreach (Match match in Regex.Matches(xml, @"<loc>\s*(.*?)\s*</loc>", RegexOptions.IgnoreCase))
+        foreach (Match match in Regex.Matches(xml, @"<loc>\s*(.*?)\s*</loc>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2)))
         {
             var loc = match.Groups[1].Value.Trim();
             if (!Uri.TryCreate(loc, UriKind.Absolute, out var absolute))

@@ -195,7 +195,7 @@ public sealed class GeekCrawlerSitemapSeeder
     private static List<string> ParseUrlLocs(string xml, Uri rootUri)
     {
         var urls = new List<string>();
-        foreach (Match match in Regex.Matches(xml, @"<loc>\s*(.*?)\s*</loc>", RegexOptions.IgnoreCase))
+        foreach (Match match in Regex.Matches(xml, @"<loc>\s*(.*?)\s*</loc>", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2)))
         {
             var loc = match.Groups[1].Value.Trim();
             if (!Uri.TryCreate(loc, UriKind.Absolute, out var absolute))

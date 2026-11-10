@@ -298,7 +298,7 @@ public static class GcwPolishAnalyzer
 
 
     private static List<string> Tokenize(string text) =>
-        Regex.Matches(text.ToLowerInvariant(), @"[a-z0-9']+")
+        Regex.Matches(text.ToLowerInvariant(), @"[a-z0-9']+", RegexOptions.None, TimeSpan.FromSeconds(2))
             .Select(m => m.Value)
             .Where(w => w.Length > 0)
             .ToList();
@@ -307,7 +307,7 @@ public static class GcwPolishAnalyzer
     {
         if (string.IsNullOrWhiteSpace(text))
             return [];
-        return Regex.Split(text, @"(?<=[.!?])\s+")
+        return Regex.Split(text, @"(?<=[.!?])\s+", RegexOptions.None, TimeSpan.FromSeconds(2))
             .Select(s => s.Trim())
             .Where(s => s.Length > 0)
             .ToList();

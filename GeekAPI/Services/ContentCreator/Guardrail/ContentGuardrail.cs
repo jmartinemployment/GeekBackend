@@ -36,7 +36,7 @@ public static class ContentGuardrail
     private static readonly IReadOnlyList<(Rule Rule, Regex Regex)> Compiled =
         Rules.Select(r => (r, new Regex(
             $@"\b{Regex.Escape(r.BannedPhrase)}\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled))).ToList();
+            RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromSeconds(2)))).ToList();
 
     public sealed record Result(ContentDocument Document, int FlaggedCount);
 
@@ -59,8 +59,8 @@ public static class ContentGuardrail
             };
         }
         // Normalize whitespace introduced by STRIP.
-        working = Regex.Replace(working, @"[ \t]{2,}", " ");
-        working = Regex.Replace(working, @"\s+([.,;:!?])", "$1");
+        working = Regex.Replace(working, @"[ \t]{2,}", " ", RegexOptions.None, TimeSpan.FromSeconds(2));
+        working = Regex.Replace(working, @"\s+([.,;:!?])", "$1", RegexOptions.None, TimeSpan.FromSeconds(2));
         return (working.Trim().Length == 0 ? text : working, flagged);
     }
 

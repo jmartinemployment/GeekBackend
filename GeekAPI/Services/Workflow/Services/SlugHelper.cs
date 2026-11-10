@@ -7,8 +7,8 @@ public static class SlugHelper
     public static string Slugify(string title)
     {
         var lower = title.Trim().ToLowerInvariant();
-        var withoutDiacritics = Regex.Replace(lower, @"[^a-z0-9\s-]", "");
-        var collapsed = Regex.Replace(withoutDiacritics, @"[\s-]+", "-").Trim('-');
+        var withoutDiacritics = Regex.Replace(lower, @"[^a-z0-9\s-]", "", RegexOptions.None, TimeSpan.FromSeconds(2));
+        var collapsed = Regex.Replace(withoutDiacritics, @"[\s-]+", "-", RegexOptions.None, TimeSpan.FromSeconds(2)).Trim('-');
         return string.IsNullOrWhiteSpace(collapsed) ? Guid.NewGuid().ToString("N")[..8] : collapsed;
     }
 

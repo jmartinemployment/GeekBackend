@@ -80,7 +80,7 @@ public static class GccCompetitorNames
         !string.IsNullOrEmpty(text) && names.Any(name => Regex.IsMatch(
             text,
             $@"(?<![A-Za-z0-9]){Regex.Escape(name)}(?![A-Za-z0-9])",
-            RegexOptions.IgnoreCase));
+            RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2)));
 
     /// <summary>
     /// <paramref name="text"/> with every whole-word occurrence of each name replaced. The text itself
@@ -97,7 +97,7 @@ public static class GccCompetitorNames
                 result,
                 $@"(?<![A-Za-z0-9]){Regex.Escape(name)}(?![A-Za-z0-9])",
                 replacement,
-                RegexOptions.IgnoreCase);
+                RegexOptions.IgnoreCase, TimeSpan.FromSeconds(2));
         }
 
         return result;

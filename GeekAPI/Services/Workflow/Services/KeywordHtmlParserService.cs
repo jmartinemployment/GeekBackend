@@ -92,6 +92,6 @@ public class KeywordHtmlParserService : IKeywordHtmlParserService
     private static string CleanText(string? raw)
     {
         var decoded = HtmlEntity.DeEntitize(raw) ?? string.Empty;
-        return Regex.Replace(decoded, @"\s+", " ").Trim();
+        return Regex.Replace(decoded, @"\s+", " ", RegexOptions.None, TimeSpan.FromSeconds(2)).Trim();
     }
 }

@@ -14,14 +14,14 @@ public static class LlmResponseJsonParser
     /// provider-facing schema from these exact options — the single source of truth for the real
     /// deserialization contract, so the schema can never silently drift from it.</summary>
     internal static readonly JsonSerializerOptions SectionJsonOptions = CreateSectionJsonOptions();
-    private static readonly Regex InlineLinkSyntax = new(@"\[([^\]]*)\]\(([^)]+)\)", RegexOptions.Compiled);
+    private static readonly Regex InlineLinkSyntax = new(@"\[([^\]]*)\]\(([^)]+)\)", RegexOptions.Compiled, TimeSpan.FromSeconds(2));
 
     /// <summary>Stray formatting symbols that should never appear in a plain-text field — see the
     /// content-hygiene validation pass in the design plan: cheap to check because there's no markup
     /// to balance, just stray symbols that shouldn't be there.</summary>
     private static readonly Regex LeakedMarkupSyntax = new(
         @"(\*\*|##+\s|\[[^\]]*\]\([^)]*\)|<[a-zA-Z/][^>]*>)",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, TimeSpan.FromSeconds(2));
 
     private static JsonSerializerOptions CreateSectionJsonOptions()
     {
@@ -437,7 +437,7 @@ public static class LlmResponseJsonParser
         }
 
         var unfenced = JsonReplySanitizer.StripCodeFence(rawContent);
-        var strictMatch = Regex.Match(unfenced, @"""text""\s*:\s*""((?:\\.|[^""\\])*)""", RegexOptions.Singleline);
+        var strictMatch = Regex.Match(unfenced, @"""text""\s*:\s*""((?:\\.|[^""\\])*)""", RegexOptions.Singleline, TimeSpan.FromSeconds(2));
         if (strictMatch.Success)
         {
             JsonRepairTrace.Note(label, [SalvageTextFieldRepair]);
@@ -445,7 +445,7 @@ public static class LlmResponseJsonParser
         }
 
         // Truncated or broken JSON — salvage the text field and ensure the link is present.
-        var salvageMatch = Regex.Match(unfenced, @"""text""\s*:\s*""(.*)", RegexOptions.Singleline);
+        var salvageMatch = Regex.Match(unfenced, @"""text""\s*:\s*""(.*)", RegexOptions.Singleline, TimeSpan.FromSeconds(2));
         if (salvageMatch.Success)
         {
             var salvaged = UnescapeJsonString(salvageMatch.Groups[1].Value.TrimEnd('"', ' ', '\r', '\n', '}'));

@@ -16,7 +16,7 @@ public sealed class LegacyAuthRetiredMiddleware(RequestDelegate next)
                 success = false,
                 error = "Legacy platform auth storage was retired. Use GeekOAuth.",
                 code = "legacy_auth_retired",
-            });
+            }, context.RequestAborted);
             return;
         }
 

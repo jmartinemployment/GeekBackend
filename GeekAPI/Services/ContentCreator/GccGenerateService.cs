@@ -2104,8 +2104,8 @@ public partial class GccGenerateService
     private static string Slugify(string value)
     {
         var s = value.Trim().ToLowerInvariant();
-        s = Regex.Replace(s, @"[^a-z0-9\s-]", "");
-        s = Regex.Replace(s, @"[\s-]+", "-").Trim('-');
+        s = Regex.Replace(s, @"[^a-z0-9\s-]", "", RegexOptions.None, TimeSpan.FromSeconds(2));
+        s = Regex.Replace(s, @"[\s-]+", "-", RegexOptions.None, TimeSpan.FromSeconds(2)).Trim('-');
         return string.IsNullOrEmpty(s) ? "tool" : s;
     }
 
@@ -4349,7 +4349,7 @@ public partial class GccGenerateService
     }
 
     /// <summary>The leading figure of a slot's depth ("600-850 words" is 600), or 0 when it has none.</summary>
-    private static readonly Regex SlotDepthLowerBound = new(@"^\s*(\d[\d,]*)", RegexOptions.Compiled);
+    private static readonly Regex SlotDepthLowerBound = new(@"^\s*(\d[\d,]*)", RegexOptions.Compiled, TimeSpan.FromSeconds(2));
 
     /// <summary>
     /// The words a batch owes: what each of its slots owes, summed. A slot owes its share of the page's

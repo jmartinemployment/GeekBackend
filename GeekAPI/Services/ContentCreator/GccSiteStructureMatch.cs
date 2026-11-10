@@ -441,8 +441,8 @@ public static partial class GccSiteStructureMatch
     internal static string Slugify(string value)
     {
         var s = value.Trim().ToLowerInvariant();
-        s = Regex.Replace(s, @"[^a-z0-9\s-]", "");
-        s = Regex.Replace(s, @"[\s-]+", "-").Trim('-');
+        s = Regex.Replace(s, @"[^a-z0-9\s-]", "", RegexOptions.None, TimeSpan.FromSeconds(2));
+        s = Regex.Replace(s, @"[\s-]+", "-", RegexOptions.None, TimeSpan.FromSeconds(2)).Trim('-');
         return string.IsNullOrEmpty(s) ? "tool" : s;
     }
 

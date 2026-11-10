@@ -317,21 +317,24 @@ public sealed class BlogRepository : IBlogRepository
         string? languageCode = null,
         CancellationToken ct = default)
     {
-        var sql = $"""
+        // A null @LanguageCode selects across all translations (ORDER BY picks one), which is the
+        // same result the optional language filter produced — kept as a compile-time constant query
+        // rather than runtime string formatting so the command text is never dynamically built.
+        const string sql = $"""
             SELECT
                 {SelectColumns}
             FROM geek_blog.posts p
             INNER JOIN geek_blog.post_translations pt ON pt.post_id = p.id
             {JoinClauses}
             WHERE p.id = @PostId
-            """ + (languageCode is not null ? " AND pt.language_code = @LanguageCode" : "") + """
-             ORDER BY pt.language_code
-             LIMIT 1
+              AND (@LanguageCode IS NULL OR pt.language_code = @LanguageCode)
+            ORDER BY pt.language_code
+            LIMIT 1
             """;
 
         var parameters = new DynamicParameters();
         parameters.Add("PostId", postId);
-        if (languageCode is not null) parameters.Add("LanguageCode", languageCode);
+        parameters.Add("LanguageCode", languageCode, System.Data.DbType.String);
 
         var command = new CommandDefinition(sql, parameters, _ambient.Transaction, cancellationToken: ct);
         return await _ambient.Connection.QueryFirstOrDefaultAsync<BlogPostFlatDto>(command);
@@ -362,30 +365,10 @@ public sealed class BlogRepository : IBlogRepository
         return rows.ToList();
     }
 
-    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetHomePagePillarsAsync(
-        string languageCode = "en", CancellationToken ct = default) =>
-        QueryCategorySummaryFunctionAsync("geek_blog.get_home_page_pillars", languageCode, ct);
-
-    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetPillarSummaryPageAsync(
-        string languageCode = "en", CancellationToken ct = default) =>
-        QueryCategorySummaryFunctionAsync("geek_blog.get_pillar_summary_page", languageCode, ct);
-
-    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetToolsSummaryPageAsync(
-        string languageCode = "en", CancellationToken ct = default) =>
-        QueryCategorySummaryFunctionAsync("geek_blog.get_tools_summary_page", languageCode, ct);
-
-    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetBlogSummaryPageAsync(
-        string languageCode = "en", CancellationToken ct = default) =>
-        QueryCategorySummaryFunctionAsync("geek_blog.get_blog_summary_page", languageCode, ct);
-
-    private async Task<IReadOnlyList<CategoryPostSummaryDto>> QueryCategorySummaryFunctionAsync(
-        string functionName, string languageCode, CancellationToken ct)
-    {
-        // Dapper's default mapping is case-insensitive but doesn't strip underscores, so the
-        // function's snake_case output (category_slug, category_name) needs explicit aliasing
-        // to match the PascalCase DTO properties — same convention as SelectColumns above.
-        var command = new CommandDefinition(
-            $"""
+    // Dapper's default mapping is case-insensitive but doesn't strip underscores, so the
+    // function's snake_case output (category_slug, category_name) needs explicit aliasing
+    // to match the PascalCase DTO properties — same convention as SelectColumns above.
+    private const string CategorySummarySelect = """
             SELECT
                 post_id        AS "PostId",
                 category_id    AS "CategoryId",
@@ -393,8 +376,52 @@ public sealed class BlogRepository : IBlogRepository
                 category_name  AS "CategoryName",
                 title          AS "Title",
                 summary        AS "Summary"
-            FROM {functionName}(@LanguageCode)
-            """,
+        """;
+
+    // The set-returning function name is a fixed identifier per call site, and SQL identifiers
+    // cannot be parameterized, so each query is a compile-time constant rather than a query whose
+    // table expression is formatted in at runtime.
+    private const string HomePagePillarsSql = $"""
+        {CategorySummarySelect}
+        FROM geek_blog.get_home_page_pillars(@LanguageCode)
+        """;
+
+    private const string PillarSummaryPageSql = $"""
+        {CategorySummarySelect}
+        FROM geek_blog.get_pillar_summary_page(@LanguageCode)
+        """;
+
+    private const string ToolsSummaryPageSql = $"""
+        {CategorySummarySelect}
+        FROM geek_blog.get_tools_summary_page(@LanguageCode)
+        """;
+
+    private const string BlogSummaryPageSql = $"""
+        {CategorySummarySelect}
+        FROM geek_blog.get_blog_summary_page(@LanguageCode)
+        """;
+
+    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetHomePagePillarsAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        QueryCategorySummaryAsync(HomePagePillarsSql, languageCode, ct);
+
+    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetPillarSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        QueryCategorySummaryAsync(PillarSummaryPageSql, languageCode, ct);
+
+    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetToolsSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        QueryCategorySummaryAsync(ToolsSummaryPageSql, languageCode, ct);
+
+    public Task<IReadOnlyList<CategoryPostSummaryDto>> GetBlogSummaryPageAsync(
+        string languageCode = "en", CancellationToken ct = default) =>
+        QueryCategorySummaryAsync(BlogSummaryPageSql, languageCode, ct);
+
+    private async Task<IReadOnlyList<CategoryPostSummaryDto>> QueryCategorySummaryAsync(
+        string sql, string languageCode, CancellationToken ct)
+    {
+        var command = new CommandDefinition(
+            sql,
             new { LanguageCode = languageCode },
             _ambient.Transaction,
             cancellationToken: ct);
