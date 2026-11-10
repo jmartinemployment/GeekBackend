@@ -1,0 +1,84 @@
+name: SonarQube Cloud
+
+# Code analysis for the GeekBackend .NET solution, run with SonarScanner for .NET
+# (the dotnet-sonarscanner local tool pinned in .config/dotnet-tools.json).
+#
+# One-time setup required to activate this (see .github/workflows/README-sonarcloud.md):
+#   1. Add a repo secret SONAR_TOKEN (SonarQube Cloud > My Account > Security, or a
+#      project analysis token for jmartinemployment_GeekBackend).
+#   2. In SonarQube Cloud, turn OFF Automatic Analysis for the project
+#      (Administration > Analysis Method). CI-based analysis and Automatic Analysis
+#      cannot both run — the scanner errors out if Automatic Analysis is still on.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Build & SonarQube Cloud analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history so new-code detection and blame are accurate)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17 (required by the Sonar scanner)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet and the Sonar scanner
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nuget/packages
+            ~/.sonar/cache
+          key: ${{ runner.os }}-sonar-nuget-${{ hashFiles('**/*.csproj', '.config/dotnet-tools.json') }}
+          restore-keys: |
+            ${{ runner.os }}-sonar-nuget-
+
+      - name: Restore local tools (dotnet-sonarscanner)
+        run: dotnet tool restore
+
+      - name: Begin SonarQube Cloud analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: >
+          dotnet sonarscanner begin
+          /k:"jmartinemployment_GeekBackend"
+          /o:"jmartinemployment"
+          /d:sonar.host.url="https://sonarcloud.io"
+          /d:sonar.token="$SONAR_TOKEN"
+
+      - name: Build the solution
+        run: dotnet build GEEKBACKEND.slnx --configuration Release --no-incremental
+
+      # --- Optional: test coverage ---------------------------------------------
+      # Analysis above already reports bugs, vulnerabilities, smells, security
+      # hotspots and duplication. To add C# line coverage, reference
+      # coverlet.collector in GeekBackend.Tests, emit OpenCover, and pass its path
+      # to `begin` as /d:sonar.cs.opencover.reportsPaths=...; then run the unit
+      # tests here (GeekBackend.IntegrationTests needs Postgres/Mongo, so exclude it):
+      #
+      #   - name: Unit tests with coverage
+      #     run: >
+      #       dotnet test GeekBackend.Tests/GeekBackend.Tests.csproj
+      #       --configuration Release --no-build
+      #       --collect:"XPlat Code Coverage" --settings coverlet.runsettings
+      # --------------------------------------------------------------------------
+
+      - name: End SonarQube Cloud analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"

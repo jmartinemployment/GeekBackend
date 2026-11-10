@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    Microsoft Roslyn analyzers, applied to every project in the solution.
+
+    - EnableNETAnalyzers   turns on Microsoft.CodeAnalysis.NetAnalyzers (the CAxxxx code-quality and
+                           security rules that ship with the .NET SDK).
+    - AnalysisLevel        pins the rule set to the newest shipped with the SDK.
+    - AnalysisMode         "Recommended" enables more rules than the curated default set, short of the
+                           full (noisy) "All". Raise to "All" to turn on every rule, lower to "Default".
+    - EnforceCodeStyleInBuild  runs the IDExxxx code-style analyzers during the build, not only in the IDE.
+
+    These run at build time only (no runtime effect) and are collected by the SonarScanner for .NET
+    MSBuild integration (.github/workflows/sonarcloud.yml), so the CI scan reports Roslyn CA/IDE
+    diagnostics to SonarQube Cloud alongside Sonar's own rules.
+
+    Findings surface as warnings; the build is never failed on them (no TreatWarningsAsErrors), so this
+    cannot break CI or local builds.
+  -->
+  <PropertyGroup>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>
