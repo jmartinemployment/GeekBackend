@@ -2,6 +2,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.Social.Connector;
 using GeekAPI.Services.Social.Meta;
 using GeekAPI.Services.Social.Orchestration;
+using GeekAPI.Services.Social.Review;
 using GeekApplication.Interfaces.Social;
 using GeekApplication.Models.Social;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -27,6 +28,16 @@ public static class SocialServiceRegistration
 
         services.AddSingleton<SocialCredentialProtector>();
         services.AddScoped<ISocialTokenProvider, SocialTokenProvider>();
+        return services;
+    }
+
+    /// <summary>
+    /// The agents that call nothing outside the process. The Reviewer is plain code with no state, so one
+    /// instance serves every caller.
+    /// </summary>
+    public static IServiceCollection AddSocialAgents(this IServiceCollection services)
+    {
+        services.AddSingleton<IOutboundTextReviewer, OutboundTextReviewer>();
         return services;
     }
 

@@ -112,6 +112,27 @@ public static class ReviewRules
     public static bool IsKnown(string? rule) => rule is not null && All.Contains(rule);
 }
 
+/// <summary>
+/// The longest text the Reviewer lets through. These are house limits and not a platform's: none of
+/// LinkedIn's Comments API page, Instagram's content-publishing guide or Meta's Graph comment reference
+/// states a maximum for a comment or reply (read 2026-11-10), so no platform figure is quoted here. The
+/// drafter and the Post Writer are told the same number the Reviewer enforces, so a draft over it is the
+/// model ignoring its instructions and is refused, never trimmed.
+/// </summary>
+public static class ReviewLimits
+{
+    public const int ReplyCharacters = 1000;
+    public const int PostCharacters = 2000;
+
+    /// <summary>The limit for an <see cref="OutboundTextKinds"/> value; an unknown kind is a bug and throws.</summary>
+    public static int For(string kind) => kind switch
+    {
+        OutboundTextKinds.Reply => ReplyCharacters,
+        OutboundTextKinds.Post => PostCharacters,
+        _ => throw new ArgumentException($"Unknown outbound text kind '{kind}'.", nameof(kind)),
+    };
+}
+
 /// <summary>Text about to leave the system, for the Reviewer to check.</summary>
 public sealed class OutboundText
 {

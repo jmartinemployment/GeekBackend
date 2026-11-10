@@ -181,6 +181,8 @@ builder.Services.AddVisitors();
 builder.Services.AddSocialPersistence();
 // GeekSocial's Listener (the Facebook webhook reader) and the orchestrator's intake.
 builder.Services.AddSocialIntake();
+// GeekSocial's Reviewer, the check every outbound reply and post passes before anyone sees it.
+builder.Services.AddSocialAgents();
 builder.Services.AddScoped<GeekAPI.Services.Rag.RagLibrary>();
 // Geek-Receptionist: Twilio missed-call text-back. Off unless TWILIO_ACCOUNT_SID is set; an invalid
 // configuration is logged and leaves it off rather than stopping GeekAPI.
