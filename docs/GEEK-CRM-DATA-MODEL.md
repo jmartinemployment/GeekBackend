@@ -17,19 +17,31 @@ plan's Express/Prisma to the platform stack.
 
 ## 2. Provenance (how this model was designed)
 
-Geek-CRM is Jeff's own product. This model is written from:
+Geek-CRM is Jeff's own sellable product. Jeff's decision (Nov 10, 2026): start from the
+underlying structure of his ACORD Property & Casualty CRM (Acord-PCS-CRM-Workspace), keep only
+what is generic, and make it his own:
 
-- Geek @ Your Spot's sales process and the receptionist's requirements;
-- publicly documented CRM concepts (contacts, companies, deals, pipelines, lifecycle stages,
-  activities, custom properties) common to HubSpot, Salesforce, Pipedrive and others;
-- the general **party pattern** (one record for "anyone we deal with", which is either a person or
-  an organization) found in standard data-modeling literature;
-- U.S. government classification standards: **NAICS** (Census Bureau) and **SIC**.
+- **Rename the entities** in his own vocabulary:
 
-ACORD insurance schemas were reviewed only to confirm which generic concepts are worth having
-(e.g. firmographic fields, a do-not-contact flag). **No ACORD element names, code lists, nesting
-or documentation are used.** Insurance concepts (policies, coverages, claims, beneficiaries,
-producers, tax identity) are out of scope.
+  | ACORD concept | Geek-CRM | In v0? |
+  |---|---|---|
+  | Party | Participant (person or organization) | Yes |
+  | Holding | Product (what a customer buys or holds) | Not yet; planned |
+
+- **Remove every insurance-specific entity** (policies, coverages, claims, beneficiaries,
+  producers, tax identity), because keeping them would make the product unsellable outside
+  insurance.
+- **Replace ACORD code lists** with Geek-CRM's own vocabularies, plus U.S. **NAICS** (Census
+  Bureau) and **SIC** industry codes.
+- **No ACORD element names, code lists or documentation are copied.**
+
+The rest comes from Geek @ Your Spot's sales process and the receptionist's requirements, and
+from publicly documented CRM concepts (contacts, companies, deals, pipelines, lifecycle stages,
+activities, custom properties) common to HubSpot, Salesforce and Pipedrive.
+
+Earlier advice in this design was a clean-room model; Jeff weighed it and chose the approach
+above. Before selling, check Jeff's ACORD license terms, which still govern the two insurance
+CRMs.
 
 ---
 
