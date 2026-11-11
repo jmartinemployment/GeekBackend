@@ -19,6 +19,7 @@ public sealed class MissedCallService(
     ISmsSender sms,
     ReceptionistOptions options,
     TimeProvider clock,
+    IReceptionistCrm crm,
     ILogger<MissedCallService> log)
 {
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastTexted = new();
@@ -34,7 +35,15 @@ public sealed class MissedCallService(
     /// <summary>True (once) if the owner accepted this call via screening.</summary>
     public bool ConsumeAccepted(string callSid) => _acceptedCalls.TryRemove(callSid, out _);
 
+    /// <summary>Texts the caller (when allowed), tells the owner, and records the call in Geek-CRM.</summary>
     public async Task<MissedCallOutcome> HandleMissedCallAsync(string callSid, string? caller, CancellationToken ct)
+    {
+        var outcome = await HandleCoreAsync(callSid, caller, ct);
+        await crm.RecordMissedCallAsync(callSid, caller, outcome, outcome is MissedCallOutcome.Texted or MissedCallOutcome.TextFailed ? options.CallerText : null, ct);
+        return outcome;
+    }
+
+    private async Task<MissedCallOutcome> HandleCoreAsync(string callSid, string? caller, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(caller) || !caller.StartsWith('+'))
         {

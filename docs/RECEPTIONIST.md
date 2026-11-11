@@ -104,6 +104,7 @@ While off, every path under the prefix answers **503** `receptionist_not_configu
 | `CALLER_TEXT` | | built-in | Text sent to missed callers; `{company}` is replaced. Must stay consistent with the A2P campaign samples |
 | `REPEAT_TEXT_MINUTES` | | `10` | Don't text the same caller again within this window (0–1440) |
 | `VALIDATE_TWILIO_SIGNATURE` | | `true` | Only `false` for local testing without Twilio |
+| `RECEPTIONIST_CRM_TENANT_ID` | | Geek @ Your Spot | Geek-CRM tenant the receptionist writes calls and texts to |
 
 Never commit these values; they live only in Railway variables.
 
@@ -186,9 +187,108 @@ dotnet test GeekBackend.Tests --filter "FullyQualifiedName~GeekBackend.Tests.Rec
 
 State (repeat-caller window, screening) is **in memory** and resets when GeekAPI restarts.
 
+## Geek-CRM
+
+Every missed call, text-back, inbound text, STOP/START and voicemail is also written to Geek-CRM
+(`geek_crm`, see [`GEEK-CRM-DATA-MODEL.md`](GEEK-CRM-DATA-MODEL.md)): the caller's number finds or
+creates a **lead**, and each event is an **activity** keyed by its Twilio SID, so a webhook retry
+records nothing twice. STOP sets `sms_opt_out` on the number. Writes go to tenant
+`RECEPTIONIST_CRM_TENANT_ID` (optional; Geek @ Your Spot when unset), give up after 3 seconds, and
+never change what the caller hears.
+
 ## Roadmap
 
-- Call and text history: a `geek_voice` schema in GeekRepository, reached through GeekAPI, with an owner dashboard
-- Multi-tenant: one deployment, client identified by the number called (today: one business per configuration)
+- ~~Call and text history~~: done in Geek-CRM (`geek_crm`); an owner dashboard is next
 - Business-hours rules (different text after hours)
-- AI voice receptionist: answer, capture the job details, book or escalate; text-back stays the fallback
+- AI voice receptionist and multi-tenant numbers: designed below (Nov 11, 2026); code waits until the
+  A2P Campaign decision
+
+## Planned: AI voice receptionist (not built)
+
+Decided with Jeff on 2026-11-11. Today's code only plays a greeting, records a voicemail and sends
+the text-back; none of the conversation below exists yet.
+
+### On Jeff's own line first
+
+- **Line:** 561-865-6990 becomes the published business number; the AI answers **every** call on it.
+- **Disclosure:** the first sentence says it is an AI. No call recording by default (Florida
+  requires everyone on the call to consent); a transcript is kept instead.
+- **Language:** English. Spanish is a possible add-on later.
+- **Unwanted calls** (sales pitches, robocalls): ended politely, logged.
+- **Existing customer with a problem it cannot answer:** takes a detailed message, marks it urgent in
+  Geek-CRM, emails Jeff, tells the caller when to expect a callback.
+
+### Qualifying a caller
+
+1. Find the **category** (Accounting, Business operations, Marketing, Sales, Bespoke), then the
+   **use case** (the pages under `geekatyourspot.com/use-cases/...`).
+2. Ask the **3–5 key questions** for that use case. The full lists (about 965 questions across 97
+   tool pages, in each page's "Is X right for your business?" section) are too long for a phone call;
+   the rest are emailed to the caller as a pre-meeting form.
+3. Answer **common questions** (the quoted, prospect-asked items in those lists) from the website's
+   content.
+4. Give a **ballpark estimate**, always called an estimate, with the final quote on the call.
+5. **Book a phone call** in Jeff's set hours, against his existing appointments (the website
+   scheduler's Google Calendar free/busy logic).
+6. **Follow up:** email confirmation plus the remaining questions; a text too once the Campaign is
+   approved.
+7. **Record:** lead, answers, summary and transcript in Geek-CRM; email summary to Jeff.
+
+Sales has no pages on the site yet, and Bespoke needs its questions finalized. Draft Bespoke
+questions: what are you trying to build or fix; what do you use today; who will use it and how many;
+what must it connect to; is there a deadline; is there a budget range.
+
+### Estimates
+
+Draft model (the working numbers live in Jeff's "Use-Case Pricing Draft" sheet, not here):
+
+- Estimate = use-case hours (Small / Medium / Large, sized from 2–3 of the key answers) × hourly rate
+  × (1 + demand uplift).
+- A **related** use case (same partner, e.g. Melio for payment execution and invoice approval, or
+  same subcategory) is priced at 60%.
+- **Monthly support** is recurring revenue and an upsell: a block of debugging hours (2/month to
+  start) plus the receptionist handling some customer service.
+- **Demand uplift** and the **start date** come from a project calendar: capacity 40 hours/week plus
+  20 surge; the uplift rises as the next weeks fill (draft: +10% over 75% booked, +25% into surge
+  hours). Until that calendar exists the uplift is set by hand. It will read active project status
+  from Geek-CRM.
+
+### Building blocks
+
+- Twilio **ConversationRelay** (about $0.07/min) connects the call to the AI model; GeekAPI hosts the
+  WebSocket.
+- Text-back stays the fallback when the AI or a dependency is down.
+
+## Planned: multi-tenant numbers (not built)
+
+Today one set of Twilio variables serves one business. Clients will be served two ways:
+
+- **Own account (cheapest):** the client's own Twilio account; they pay Twilio directly, and nothing
+  needs to move if they leave.
+- **Through Jeff's account:** one Twilio **subaccount per client**, never the main account, so usage,
+  billing and numbers stay separate.
+
+### Interfaces
+
+| Interface | Job |
+|---|---|
+| `ITelephonyAccountResolver` | From the called number, find the tenant and its Twilio account (`OwnAccount` or `Subaccount`) |
+| `INumberConfigurator` | Apply a number's webhooks, Messaging Service and settings from stored configuration; safe to re-run |
+| `IPhoneNumberMover` | `MoveBetweenSubaccountsAsync` (one API call, then reconfigure), `PortInAsync` (Twilio Port In API, in beta), `PrepareTransferOutAsync` (a checklist and a Geek-CRM task: moving to an unrelated Twilio account goes through Twilio Support) |
+
+Contracts go in GeekApplication, tenant telephony records in GeekRepository, Twilio calls in GeekAPI.
+
+### Rules
+
+- **Every move wipes the number's configuration**, including opt-outs and A2P registration, which is
+  why `INumberConfigurator` exists.
+- **Signature validation is per account:** each subaccount has its own auth token, so the filter
+  resolves the tenant before it validates.
+- **Secrets:** Jeff's main credentials stay in Railway; a client's own-account credentials are stored
+  encrypted, never in plain text in Postgres or a repo.
+- **A2P is per business:** each tenant tracks its own brand, Campaign and approval state; texting is
+  on only when approved, and a move resets it to "needs re-registration". Jeff's Campaign covers only
+  Geek @ Your Spot.
+- **Porting in:** US landline and mobile numbers can be ported to Twilio (a mobile number needs the
+  losing carrier's PIN); the number stops ringing on the old carrier when the port completes.
+- **Jeff's line is tenant #1**, the Geek @ Your Spot tenant already seeded in Geek-CRM.

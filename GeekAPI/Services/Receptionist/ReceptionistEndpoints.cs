@@ -50,6 +50,7 @@ public static class ReceptionistEndpoints
         services.AddSingleton<IMediaDeleter, TwilioMediaDeleter>();
         services.AddSingleton<InboundSmsService>();
         services.AddSingleton<TwilioSignatureFilter>();
+        services.AddSingleton<IReceptionistCrm, CrmReceptionistRecorder>();
         services.TryAddSingleton(TimeProvider.System);
         return services;
     }
@@ -154,12 +155,16 @@ public static class ReceptionistEndpoints
         });
 
         // 5. Voicemail recorded: send the owner the recording link.
-        voice.MapPost("/voicemail-complete", async (HttpRequest req, MissedCallService missed, CancellationToken ct) =>
+        voice.MapPost("/voicemail-complete", async (HttpRequest req, MissedCallService missed, IReceptionistCrm crm, CancellationToken ct) =>
         {
             var form = await req.ReadFormAsync(ct);
             var url = form["RecordingUrl"].ToString();
             if (!string.IsNullOrEmpty(url) && form["RecordingDuration"].ToString() is var duration && duration != "0")
+            {
                 await missed.NotifyVoicemailAsync(form["From"], url, duration, ct);
+                await crm.RecordVoicemailAsync(form["CallSid"].ToString(), form["From"].ToString(), url,
+                    int.TryParse(duration, out var seconds) ? seconds : null, ct);
+            }
 
             var response = new VoiceResponse();
             response.Say("Thank you. Goodbye.");
