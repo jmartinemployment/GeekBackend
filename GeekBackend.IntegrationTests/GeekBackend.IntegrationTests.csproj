@@ -28,6 +28,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Geek-CRM's contract model, shared with GeekBackend.Tests so both judge the same XSD. -->
+    <Compile Include="..\GeekBackend.Tests\Crm\CrmXsdContract.cs" Link="Crm\CrmXsdContract.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\GeekAPI\GeekAPI.csproj" Aliases="GeekApi" />
     <ProjectReference Include="..\GeekRepository\GeekRepository.csproj" Aliases="GeekRepo" />
     <ProjectReference Include="..\GeekApplication\GeekApplication.csproj" />

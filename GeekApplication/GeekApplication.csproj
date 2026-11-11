@@ -10,4 +10,9 @@
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Geek-CRM's canonical contract; tests and services load it by this logical name. -->
+    <EmbeddedResource Include="Schemas\GeekCrm.xsd" LogicalName="GeekApplication.Schemas.GeekCrm.xsd" />
+  </ItemGroup>
+
 </Project>

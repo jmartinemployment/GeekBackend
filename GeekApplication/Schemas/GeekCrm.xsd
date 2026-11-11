@@ -1,0 +1,1191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Geek-CRM's canonical contract (docs/GEEK-CRM-DATA-MODEL.md, "Canonical schema").
+
+  This schema describes all of Geek-CRM: what is built and what is planned. Every type carries a
+  phase marker in its appinfo (crm:phase, with status shipped or planned). Only shipped parts are
+  authoritative: the database CHECK lists, the C# vocabularies in GeekApplication/Models/Crm and
+  the table columns must match them exactly, and GeekBackend.Tests/Crm/SchemaContractTests.cs
+  fails when they do not. A planned part becomes authoritative in the same push as its migration,
+  when its marker flips to shipped.
+
+  Every schema change starts here. Element names are PascalCase and map one to one to snake_case
+  columns; crm:table names the table a type describes. A child row nested in its parent (a Stage
+  in its Pipeline, a LineItem in its Deal) carries its parent's id by nesting, named by
+  crm:parentKey, instead of repeating it as an element.
+
+  Tenant-defined custom properties are not described here: PropertyDefinition and PropertyValue
+  are, and each tenant's own keys and values are checked by the service against its definitions.
+
+  The schema validates XML documents as a contract. It does not replace database constraints or
+  API validation.
+
+  Versioning: the namespace carries no version. Additions stay 1.x; a removal or a rename is 2.0
+  and gets a new namespace ending in /v2.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:crm="https://geekatyourspot.com/schemas/geek-crm"
+           targetNamespace="https://geekatyourspot.com/schemas/geek-crm"
+           elementFormDefault="qualified"
+           version="1.0">
+
+  <!-- ===================== Shared types ===================== -->
+
+  <xs:simpleType name="Uuid">
+    <xs:annotation><xs:documentation>A lower-case UUID, as Postgres prints one.</xs:documentation></xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Money">
+    <xs:annotation><xs:documentation>An amount of money: numeric(12,2) in the database.</xs:documentation></xs:annotation>
+    <xs:restriction base="xs:decimal">
+      <xs:totalDigits value="12"/>
+      <xs:fractionDigits value="2"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Percent">
+    <xs:annotation><xs:documentation>A percentage from 0 to 100 with up to two decimals.</xs:documentation></xs:annotation>
+    <xs:restriction base="xs:decimal">
+      <xs:totalDigits value="5"/>
+      <xs:fractionDigits value="2"/>
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="100"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Hours">
+    <xs:annotation><xs:documentation>A number of hours, never negative.</xs:documentation></xs:annotation>
+    <xs:restriction base="xs:decimal">
+      <xs:totalDigits value="7"/>
+      <xs:fractionDigits value="2"/>
+      <xs:minInclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Quantity">
+    <xs:annotation><xs:documentation>How many of a product, more than zero.</xs:documentation></xs:annotation>
+    <xs:restriction base="xs:decimal">
+      <xs:totalDigits value="10"/>
+      <xs:fractionDigits value="2"/>
+      <xs:minExclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Json">
+    <xs:annotation><xs:documentation>A JSON value as text: a jsonb column.</xs:documentation></xs:annotation>
+    <xs:restriction base="xs:string"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="NaicsCodeValue">
+    <xs:annotation><xs:documentation>A U.S. NAICS code: two to six digits, or a sector range such as 31-33.</xs:documentation></xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{2}-[0-9]{2}|[0-9]{2,6}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="SicCodeValue">
+    <xs:annotation><xs:documentation>A U.S. SIC code: four digits.</xs:documentation></xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{4}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- ===================== Vocabularies ===================== -->
+
+  <xs:simpleType name="ParticipantKind">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>Whether a participant is a person or an organization. It never changes.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="person"/>
+      <xs:enumeration value="organization"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="LifecycleStage">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>Where a participant stands with the business. A prospect is a stage, not a kind.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="lead"/>
+      <xs:enumeration value="prospect"/>
+      <xs:enumeration value="customer"/>
+      <xs:enumeration value="former_customer"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ParticipantSource">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>How a participant first reached the business.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="phone_call"/>
+      <xs:enumeration value="text"/>
+      <xs:enumeration value="website"/>
+      <xs:enumeration value="referral"/>
+      <xs:enumeration value="import"/>
+      <xs:enumeration value="event"/>
+      <xs:enumeration value="outreach"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ContactPointKind">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>The type of a contact point.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="phone"/>
+      <xs:enumeration value="email"/>
+      <xs:enumeration value="address"/>
+      <xs:enumeration value="website"/>
+      <xs:enumeration value="social"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ContactPointLabel">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>What a contact point is used for.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="mobile"/>
+      <xs:enumeration value="work"/>
+      <xs:enumeration value="home"/>
+      <xs:enumeration value="main"/>
+      <xs:enumeration value="billing"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ParticipantLinkRole">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>How one participant relates to another. A partner organization (Melio, Intuit) is linked with partner.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="owner"/>
+      <xs:enumeration value="employee"/>
+      <xs:enumeration value="decision_maker"/>
+      <xs:enumeration value="billing_contact"/>
+      <xs:enumeration value="referred_by"/>
+      <xs:enumeration value="partner"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="OrganizationType">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>An organization's legal form.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="sole_proprietor"/>
+      <xs:enumeration value="llc"/>
+      <xs:enumeration value="partnership"/>
+      <xs:enumeration value="c_corporation"/>
+      <xs:enumeration value="s_corporation"/>
+      <xs:enumeration value="nonprofit"/>
+      <xs:enumeration value="government"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="RevenueBand">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>An organization's yearly revenue, as a band.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="under_250k"/>
+      <xs:enumeration value="250k_1m"/>
+      <xs:enumeration value="1m_5m"/>
+      <xs:enumeration value="5m_25m"/>
+      <xs:enumeration value="over_25m"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="MaritalStatus">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>Recorded only when the person gives it; never asked, never scored.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="single"/>
+      <xs:enumeration value="married"/>
+      <xs:enumeration value="domestic_partner"/>
+      <xs:enumeration value="divorced"/>
+      <xs:enumeration value="widowed"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="EducationLevel">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>Recorded only when the person gives it.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="high_school"/>
+      <xs:enumeration value="some_college"/>
+      <xs:enumeration value="associate"/>
+      <xs:enumeration value="bachelor"/>
+      <xs:enumeration value="master"/>
+      <xs:enumeration value="doctorate"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="StageOutcome">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>Whether a pipeline stage is still open, or closes a deal as won or lost.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="open"/>
+      <xs:enumeration value="won"/>
+      <xs:enumeration value="lost"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="DealParticipantRole">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>A participant's part in a deal. A deal cannot pass Qualified without a primary contact.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="primary_contact"/>
+      <xs:enumeration value="decision_maker"/>
+      <xs:enumeration value="influencer"/>
+      <xs:enumeration value="billing"/>
+      <xs:enumeration value="other"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ActivityChannel">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>How an activity happened.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="call"/>
+      <xs:enumeration value="sms"/>
+      <xs:enumeration value="voicemail"/>
+      <xs:enumeration value="email"/>
+      <xs:enumeration value="meeting"/>
+      <xs:enumeration value="note"/>
+      <xs:enumeration value="task"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ActivityDirection">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>Who started the exchange.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="inbound"/>
+      <xs:enumeration value="outbound"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ActivityOutcome">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>How an activity ended.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="answered"/>
+      <xs:enumeration value="missed"/>
+      <xs:enumeration value="texted_back"/>
+      <xs:enumeration value="voicemail_left"/>
+      <xs:enumeration value="booked"/>
+      <xs:enumeration value="no_show"/>
+      <xs:enumeration value="completed"/>
+      <xs:enumeration value="failed"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ActivityPriority">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo>
+      <xs:documentation>How soon a message needs attention; an existing customer's urgent message is urgent.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="normal"/>
+      <xs:enumeration value="urgent"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PropertyObjectType">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>The kind of record a custom property belongs to.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="person"/>
+      <xs:enumeration value="organization"/>
+      <xs:enumeration value="deal"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PropertyDataType">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>The type of a custom property's value; the service checks each value against it.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="text"/>
+      <xs:enumeration value="number"/>
+      <xs:enumeration value="date"/>
+      <xs:enumeration value="bool"/>
+      <xs:enumeration value="enum"/>
+      <xs:enumeration value="multi_enum"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ProductKind">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>
+        geek_saas: a Geek product sold by subscription (Geek-Receptionist, Geek-Social, Geek-CRM).
+        implementation: work done on a partner's platform (an invoice approval workflow on Melio, a QuickBooks setup).
+        partner_subscription: the partner's own software (Melio, QuickBooks Online).
+        support_plan: monthly support.
+        service: bespoke work.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="geek_saas"/>
+      <xs:enumeration value="implementation"/>
+      <xs:enumeration value="partner_subscription"/>
+      <xs:enumeration value="support_plan"/>
+      <xs:enumeration value="service"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ProductCategory">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>The receptionist's five categories, so its question bank can find a product.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="accounting"/>
+      <xs:enumeration value="business_operations"/>
+      <xs:enumeration value="marketing"/>
+      <xs:enumeration value="sales"/>
+      <xs:enumeration value="bespoke"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Billing">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>How often a product is billed.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="one_time"/>
+      <xs:enumeration value="monthly"/>
+      <xs:enumeration value="annual"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="HoldingStatus">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>Where a customer's holding stands. A tenant subscription uses the same list.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="proposed"/>
+      <xs:enumeration value="active"/>
+      <xs:enumeration value="paused"/>
+      <xs:enumeration value="cancelled"/>
+      <xs:enumeration value="ended"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PartnerArrangement">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>
+        How a customer gets a partner subscription.
+        customer_direct: the customer pays the partner; it is only tracked.
+        referral: the customer signed up through the business's referral link.
+        resold: the business buys it and bills the customer every month.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="customer_direct"/>
+      <xs:enumeration value="referral"/>
+      <xs:enumeration value="resold"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="EstimateSize">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>The size an estimate is priced at.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="small"/>
+      <xs:enumeration value="medium"/>
+      <xs:enumeration value="large"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Currency">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>US dollars only for now; another currency is an addition, not a change.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="USD"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ProjectStatus">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo>
+      <xs:documentation>Where a delivery project stands.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="scheduled"/>
+      <xs:enumeration value="active"/>
+      <xs:enumeration value="on_hold"/>
+      <xs:enumeration value="done"/>
+      <xs:enumeration value="cancelled"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TenantUserRole">
+    <xs:annotation>
+      <xs:appinfo><crm:phase status="planned">4</crm:phase></xs:appinfo>
+      <xs:documentation>owner can do everything; member works leads and deals but cannot edit the catalog or pricing or see sensitive properties.</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="owner"/>
+      <xs:enumeration value="member"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- ===================== Tables: v0 ===================== -->
+
+  <xs:complexType name="Tenant">
+    <xs:annotation>
+      <xs:appinfo><crm:table>tenants</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>A business using Geek-CRM. Geek @ Your Spot is tenant #1. Platform-scoped.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="Name" type="xs:string"/>
+      <xs:element name="Slug" type="xs:string"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Participant">
+    <xs:annotation>
+      <xs:appinfo><crm:table>participants</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>Anyone the business deals with, holding a Person or an Organization by kind.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="Kind" type="crm:ParticipantKind"/>
+      <xs:element name="DisplayName" type="xs:string"/>
+      <xs:element name="LifecycleStage" type="crm:LifecycleStage"/>
+      <xs:element name="Source" type="crm:ParticipantSource"/>
+      <xs:element name="SourceDetail" type="xs:string" minOccurs="0"/>
+      <xs:element name="OwnerUserId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="PreferredLanguage" type="xs:string" minOccurs="0"/>
+      <xs:element name="Notes" type="xs:string" minOccurs="0"/>
+      <xs:element name="ExternalId" type="xs:string" minOccurs="0"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="UpdatedAt" type="xs:dateTime"/>
+      <xs:element name="ArchivedAt" type="xs:dateTime" minOccurs="0"/>
+      <xs:element name="ImportBatchId" type="crm:Uuid" minOccurs="0">
+        <xs:annotation>
+          <xs:appinfo><crm:phase status="planned">1</crm:phase></xs:appinfo>
+          <xs:documentation>The import that created this row, so a batch can be reviewed and archived as a unit.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:choice>
+        <xs:element name="Person" type="crm:Person"/>
+        <xs:element name="Organization" type="crm:Organization"/>
+      </xs:choice>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Person">
+    <xs:annotation>
+      <xs:appinfo><crm:table>persons</crm:table><crm:parentKey>participant_id</crm:parentKey><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>A participant of kind person. Demographics are optional and recorded only when the person gives them.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="FirstName" type="xs:string" minOccurs="0"/>
+      <xs:element name="LastName" type="xs:string" minOccurs="0"/>
+      <xs:element name="PreferredName" type="xs:string" minOccurs="0"/>
+      <xs:element name="JobTitle" type="xs:string" minOccurs="0"/>
+      <xs:element name="BirthDate" type="xs:date" minOccurs="0"/>
+      <xs:element name="Gender" type="xs:string" minOccurs="0"/>
+      <xs:element name="MaritalStatus" type="crm:MaritalStatus" minOccurs="0"/>
+      <xs:element name="DependentsCount" type="xs:int" minOccurs="0"/>
+      <xs:element name="EducationLevel" type="crm:EducationLevel" minOccurs="0"/>
+      <xs:element name="Occupation" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Organization">
+    <xs:annotation>
+      <xs:appinfo><crm:table>organizations</crm:table><crm:parentKey>participant_id</crm:parentKey><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>A participant of kind organization. It may exist without any person.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="LegalName" type="xs:string"/>
+      <xs:element name="Dba" type="xs:string" minOccurs="0"/>
+      <xs:element name="OrganizationType" type="crm:OrganizationType" minOccurs="0"/>
+      <xs:element name="NaicsCode" type="crm:NaicsCodeValue" minOccurs="0"/>
+      <xs:element name="SicCode" type="crm:SicCodeValue" minOccurs="0"/>
+      <xs:element name="IndustryLabel" type="xs:string" minOccurs="0"/>
+      <xs:element name="EmployeeCount" type="xs:int" minOccurs="0"/>
+      <xs:element name="YearStarted" type="xs:int" minOccurs="0"/>
+      <xs:element name="AnnualRevenueBand" type="crm:RevenueBand" minOccurs="0"/>
+      <xs:element name="Website" type="xs:string" minOccurs="0"/>
+      <xs:element name="ServiceArea" type="xs:string" minOccurs="0"/>
+      <xs:element name="Description" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ContactPoint">
+    <xs:annotation>
+      <xs:appinfo><crm:table>contact_points</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>A phone, email, address, website or social profile. A phone is E.164; an email is lower case.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="ParticipantId" type="crm:Uuid"/>
+      <xs:element name="Kind" type="crm:ContactPointKind"/>
+      <xs:element name="Label" type="crm:ContactPointLabel"/>
+      <xs:element name="Value" type="xs:string"/>
+      <xs:element name="AddressLine1" type="xs:string" minOccurs="0"/>
+      <xs:element name="AddressLine2" type="xs:string" minOccurs="0"/>
+      <xs:element name="City" type="xs:string" minOccurs="0"/>
+      <xs:element name="Region" type="xs:string" minOccurs="0"/>
+      <xs:element name="PostalCode" type="xs:string" minOccurs="0"/>
+      <xs:element name="Country" type="xs:string" minOccurs="0"/>
+      <xs:element name="IsPrimary" type="xs:boolean"/>
+      <xs:element name="DoNotContact" type="xs:boolean"/>
+      <xs:element name="SmsOptOut" type="xs:boolean"/>
+      <xs:element name="VerifiedAt" type="xs:dateTime" minOccurs="0"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="ImportBatchId" type="crm:Uuid" minOccurs="0">
+        <xs:annotation>
+          <xs:appinfo><crm:phase status="planned">1</crm:phase></xs:appinfo>
+          <xs:documentation>The import that created this row.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ParticipantLink">
+    <xs:annotation>
+      <xs:appinfo><crm:table>participant_links</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>How one participant relates to another, such as a person who owns an organization.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="FromParticipantId" type="crm:Uuid"/>
+      <xs:element name="ToParticipantId" type="crm:Uuid"/>
+      <xs:element name="Role" type="crm:ParticipantLinkRole"/>
+      <xs:element name="IsPrimary" type="xs:boolean"/>
+      <xs:element name="StartedOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="EndedOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Pipeline">
+    <xs:annotation>
+      <xs:appinfo><crm:table>pipelines</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>A sales pipeline and its stages in order.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="Name" type="xs:string"/>
+      <xs:element name="IsDefault" type="xs:boolean"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="Stage" type="crm:Stage" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Stage">
+    <xs:annotation>
+      <xs:appinfo><crm:table>stages</crm:table><crm:parentKey>pipeline_id</crm:parentKey><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>One step of a pipeline.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="Name" type="xs:string"/>
+      <xs:element name="Position" type="xs:int"/>
+      <xs:element name="Outcome" type="crm:StageOutcome"/>
+      <xs:element name="ProbabilityPct" type="xs:int" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Deal">
+    <xs:annotation>
+      <xs:appinfo><crm:table>deals</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>An opportunity, with its line items, its stage history and the people on it.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="Name" type="xs:string"/>
+      <xs:element name="PipelineId" type="crm:Uuid"/>
+      <xs:element name="StageId" type="crm:Uuid"/>
+      <xs:element name="OrganizationParticipantId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="ProductCategory" type="xs:string">
+        <xs:annotation><xs:documentation>The key into the receptionist's qualification question bank.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="Qualification" type="crm:Json" minOccurs="0"/>
+      <xs:element name="EstimatedValue" type="crm:Money" minOccurs="0"/>
+      <xs:element name="RecurringValueMonthly" type="crm:Money" minOccurs="0"/>
+      <xs:element name="ExpectedCloseOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="OwnerUserId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="ClosedAt" type="xs:dateTime" minOccurs="0"/>
+      <xs:element name="LostReason" type="xs:string" minOccurs="0"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="UpdatedAt" type="xs:dateTime"/>
+      <xs:element name="EstimateGivenAt" type="xs:dateTime" minOccurs="0">
+        <xs:annotation>
+          <xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo>
+          <xs:documentation>When the caller was given an estimate.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="LineItem" type="crm:DealLineItem" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="StageChange" type="crm:DealStageChange" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="DealParticipant" type="crm:DealParticipant" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DealStageChange">
+    <xs:annotation>
+      <xs:appinfo><crm:table>deal_stage_history</crm:table><crm:parentKey>deal_id</crm:parentKey><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>One move of a deal from one stage to another.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="FromStageId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="ToStageId" type="crm:Uuid"/>
+      <xs:element name="ChangedAt" type="xs:dateTime"/>
+      <xs:element name="ChangedBy" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DealParticipant">
+    <xs:annotation>
+      <xs:appinfo><crm:table>deal_participants</crm:table><crm:parentKey>deal_id</crm:parentKey><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>A participant's part in a deal.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="ParticipantId" type="crm:Uuid"/>
+      <xs:element name="Role" type="crm:DealParticipantRole"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Activity">
+    <xs:annotation>
+      <xs:appinfo><crm:table>activities</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>Anything that happened: a call, text, voicemail, email, meeting, note or task.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="ParticipantId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="DealId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="Channel" type="crm:ActivityChannel"/>
+      <xs:element name="Direction" type="crm:ActivityDirection" minOccurs="0"/>
+      <xs:element name="OccurredAt" type="xs:dateTime"/>
+      <xs:element name="Subject" type="xs:string" minOccurs="0"/>
+      <xs:element name="Body" type="xs:string" minOccurs="0"/>
+      <xs:element name="Summary" type="xs:string" minOccurs="0"/>
+      <xs:element name="Transcript" type="xs:string" minOccurs="0"/>
+      <xs:element name="RecordingUrl" type="xs:string" minOccurs="0"/>
+      <xs:element name="DurationSeconds" type="xs:int" minOccurs="0"/>
+      <xs:element name="Outcome" type="crm:ActivityOutcome" minOccurs="0"/>
+      <xs:element name="ExternalRef" type="xs:string" minOccurs="0">
+        <xs:annotation><xs:documentation>The Twilio CallSid or MessageSid, so a retried webhook is one activity.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="DueAt" type="xs:dateTime" minOccurs="0"/>
+      <xs:element name="CompletedAt" type="xs:dateTime" minOccurs="0"/>
+      <xs:element name="CreatedBy" type="xs:string"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="StartsAt" type="xs:dateTime" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo><xs:documentation>When a booked meeting starts.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="EndsAt" type="xs:dateTime" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo><xs:documentation>When a booked meeting ends.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="CalendarEventId" type="xs:string" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo><xs:documentation>The booked meeting's id in the calendar.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="Priority" type="crm:ActivityPriority" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PropertyDefinition">
+    <xs:annotation>
+      <xs:appinfo><crm:table>property_definitions</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>A custom property a tenant defines. A sensitive one stays out of AI summaries and exports.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="ObjectType" type="crm:PropertyObjectType"/>
+      <xs:element name="Key" type="xs:string"/>
+      <xs:element name="Label" type="xs:string"/>
+      <xs:element name="DataType" type="crm:PropertyDataType"/>
+      <xs:element name="Options" type="crm:Json" minOccurs="0"/>
+      <xs:element name="IsSensitive" type="xs:boolean"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PropertyValue">
+    <xs:annotation>
+      <xs:appinfo><crm:table>property_values</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>One record's value for a custom property, checked by the service against its definition.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="DefinitionId" type="crm:Uuid"/>
+      <xs:element name="RecordId" type="crm:Uuid"/>
+      <xs:element name="Value" type="crm:Json"/>
+      <xs:element name="UpdatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="NaicsCode">
+    <xs:annotation>
+      <xs:appinfo><crm:table>naics_codes</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>One entry of the Census Bureau's NAICS list. Platform-scoped.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Code" type="crm:NaicsCodeValue"/>
+      <xs:element name="Title" type="xs:string"/>
+      <xs:element name="Level" type="xs:int"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="SicCode">
+    <xs:annotation>
+      <xs:appinfo><crm:table>sic_codes</crm:table><crm:phase status="shipped">v0</crm:phase></xs:appinfo>
+      <xs:documentation>One entry of the SIC list. Platform-scoped; loaded later.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Code" type="crm:SicCodeValue"/>
+      <xs:element name="Title" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ===================== Tables: planned ===================== -->
+
+  <xs:complexType name="Product">
+    <xs:annotation>
+      <xs:appinfo><crm:table>products</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>One entry of a tenant's catalog. Retired, never deleted, so a holding can point at a retired product.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="Name" type="xs:string"/>
+      <xs:element name="Code" type="xs:string"/>
+      <xs:element name="Kind" type="crm:ProductKind"/>
+      <xs:element name="Category" type="crm:ProductCategory"/>
+      <xs:element name="UseCasePath" type="xs:string" minOccurs="0"/>
+      <xs:element name="PartnerParticipantId" type="crm:Uuid" minOccurs="0">
+        <xs:annotation><xs:documentation>The partner organization; a related use case is one with the same partner.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="Billing" type="crm:Billing"/>
+      <xs:element name="IsActive" type="xs:boolean"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="UpdatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ProductPrice">
+    <xs:annotation>
+      <xs:appinfo><crm:table>product_prices</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>A product's price over a period. A price may be blank until it is set.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="ProductId" type="crm:Uuid"/>
+      <xs:element name="Size" type="crm:EstimateSize" minOccurs="0"/>
+      <xs:element name="Hours" type="crm:Hours" minOccurs="0"/>
+      <xs:element name="UnitPrice" type="crm:Money" minOccurs="0"/>
+      <xs:element name="RecurringPriceMonthly" type="crm:Money" minOccurs="0"/>
+      <xs:element name="Currency" type="crm:Currency"/>
+      <xs:element name="EffectiveFrom" type="xs:date"/>
+      <xs:element name="EffectiveTo" type="xs:date" minOccurs="0"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PricingRules">
+    <xs:annotation>
+      <xs:appinfo><crm:table>pricing_rules</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>A tenant's pricing rules; one row per tenant.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="HourlyRate" type="crm:Money" minOccurs="0"/>
+      <xs:element name="RelatedUseCasePct" type="crm:Percent"/>
+      <xs:element name="Currency" type="crm:Currency"/>
+      <xs:element name="UpdatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PricingUpliftTier">
+    <xs:annotation>
+      <xs:appinfo><crm:table>pricing_uplift_tiers</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>The price uplift from a level of booked capacity upward.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="BookedPctFrom" type="crm:Percent"/>
+      <xs:element name="UpliftPct" type="crm:Percent"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DealLineItem">
+    <xs:annotation>
+      <xs:appinfo><crm:table>deal_line_items</crm:table><crm:parentKey>deal_id</crm:parentKey><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>
+        A product on a deal, priced as sold. Line total = quantity x unit price x (1 - discount / 100),
+        rounded half away from zero. Frozen once the deal is won.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="ProductId" type="crm:Uuid"/>
+      <xs:element name="Quantity" type="crm:Quantity"/>
+      <xs:element name="UnitPrice" type="crm:Money"/>
+      <xs:element name="IsRecurring" type="xs:boolean"/>
+      <xs:element name="DiscountPct" type="crm:Percent"/>
+      <xs:element name="Currency" type="crm:Currency"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="Size" type="crm:EstimateSize" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+      </xs:element>
+      <xs:element name="Hours" type="crm:Hours" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+      </xs:element>
+      <xs:element name="HourlyRate" type="crm:Money" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+      </xs:element>
+      <xs:element name="DemandUpliftPct" type="crm:Percent" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+      </xs:element>
+      <xs:element name="IsEstimate" type="xs:boolean" minOccurs="0">
+        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+      </xs:element>
+      <xs:element name="EstimateInputs" type="crm:Json" minOccurs="0">
+        <xs:annotation>
+          <xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo>
+          <xs:documentation>What an estimate was based on: the capacity snapshot, the pricing rules in effect, and when.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CustomerHolding">
+    <xs:annotation>
+      <xs:appinfo><crm:table>customer_holdings</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>
+        What a customer holds and pays. A won deal creates one holding per line item. A customer may
+        hold the same product more than once, for example for two locations.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="ParticipantId" type="crm:Uuid"/>
+      <xs:element name="ProductId" type="crm:Uuid"/>
+      <xs:element name="DealId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="DealLineItemId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="Status" type="crm:HoldingStatus"/>
+      <xs:element name="StartOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="EndOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="Quantity" type="crm:Quantity"/>
+      <xs:element name="UnitPrice" type="crm:Money"/>
+      <xs:element name="DiscountPct" type="crm:Percent"/>
+      <xs:element name="RecurringAmountMonthly" type="crm:Money" minOccurs="0"/>
+      <xs:element name="OneTimeAmount" type="crm:Money" minOccurs="0"/>
+      <xs:element name="Currency" type="crm:Currency"/>
+      <xs:element name="Arrangement" type="crm:PartnerArrangement" minOccurs="0">
+        <xs:annotation><xs:documentation>Set only for a partner_subscription product.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="ReferralFee" type="crm:Money" minOccurs="0"/>
+      <xs:element name="ReferralFeeIsRecurring" type="xs:boolean" minOccurs="0"/>
+      <xs:element name="ReferralPaidOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="PartnerCostMonthly" type="crm:Money" minOccurs="0"/>
+      <xs:element name="ExternalRef" type="xs:string" minOccurs="0">
+        <xs:annotation><xs:documentation>For example a Twilio subaccount SID or a billing id.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="TenantSubscriptionId" type="crm:Uuid" minOccurs="0">
+        <xs:annotation><xs:documentation>The platform subscription this holding sold; checked by the repository, not by keyref.</xs:documentation></xs:annotation>
+      </xs:element>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="UpdatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="TenantSubscription">
+    <xs:annotation>
+      <xs:appinfo><crm:table>tenant_subscriptions</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:documentation>
+        Which tenant may use which multi-tenant Geek product. Platform-scoped: reached only through
+        repo/platform/* with the platform-admin key.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="SubscriberTenantId" type="crm:Uuid"/>
+      <xs:element name="ProductCode" type="xs:string"/>
+      <xs:element name="Plan" type="xs:string" minOccurs="0"/>
+      <xs:element name="Status" type="crm:HoldingStatus"/>
+      <xs:element name="StartOn" type="xs:date"/>
+      <xs:element name="EndOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Project">
+    <xs:annotation>
+      <xs:appinfo><crm:table>projects</crm:table><crm:phase status="planned">3</crm:phase></xs:appinfo>
+      <xs:documentation>A delivery project; its hours set capacity and feed the demand uplift.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="ParticipantId" type="crm:Uuid"/>
+      <xs:element name="DealId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="CustomerHoldingId" type="crm:Uuid" minOccurs="0"/>
+      <xs:element name="Status" type="crm:ProjectStatus"/>
+      <xs:element name="StartOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="TargetEndOn" type="xs:date" minOccurs="0"/>
+      <xs:element name="EstimatedHours" type="crm:Hours"/>
+      <xs:element name="HoursPerWeek" type="crm:Hours"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="UpdatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="TenantUser">
+    <xs:annotation>
+      <xs:appinfo><crm:table>tenant_users</crm:table><crm:phase status="planned">4</crm:phase></xs:appinfo>
+      <xs:documentation>A GeekOAuth user's membership of a tenant; the tenant of a signed-in request comes from here.</xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="Id" type="crm:Uuid"/>
+      <xs:element name="TenantId" type="crm:Uuid"/>
+      <xs:element name="UserId" type="crm:Uuid"/>
+      <xs:element name="Role" type="crm:TenantUserRole"/>
+      <xs:element name="CreatedAt" type="xs:dateTime"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ===================== Documents ===================== -->
+
+  <xs:element name="GeekCrmTenant">
+    <xs:annotation>
+      <xs:documentation>
+        One tenant's data. Every row's TenantId is this tenant, and every reference points at a row in
+        this document, so a reference to another tenant's row fails validation.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Tenant" type="crm:Tenant"/>
+        <xs:element name="Participant" type="crm:Participant" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="ContactPoint" type="crm:ContactPoint" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="ParticipantLink" type="crm:ParticipantLink" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="Pipeline" type="crm:Pipeline" minOccurs="0" maxOccurs="unbounded">
+          <xs:unique name="StageNameUnique"><xs:selector xpath="crm:Stage"/><xs:field xpath="crm:Name"/></xs:unique>
+        </xs:element>
+        <xs:element name="Product" type="crm:Product" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="ProductPrice" type="crm:ProductPrice" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="PricingRules" type="crm:PricingRules" minOccurs="0"/>
+        <xs:element name="PricingUpliftTier" type="crm:PricingUpliftTier" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="Deal" type="crm:Deal" minOccurs="0" maxOccurs="unbounded">
+          <xs:unique name="DealParticipantUnique">
+            <xs:selector xpath="crm:DealParticipant"/><xs:field xpath="crm:ParticipantId"/><xs:field xpath="crm:Role"/>
+          </xs:unique>
+        </xs:element>
+        <xs:element name="Activity" type="crm:Activity" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="PropertyDefinition" type="crm:PropertyDefinition" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="PropertyValue" type="crm:PropertyValue" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="CustomerHolding" type="crm:CustomerHolding" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="Project" type="crm:Project" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="TenantUser" type="crm:TenantUser" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+
+    <xs:key name="TenantKey"><xs:selector xpath="crm:Tenant"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:keyref name="RowTenant" refer="crm:TenantKey">
+      <xs:selector xpath="crm:Participant|crm:ContactPoint|crm:ParticipantLink|crm:Pipeline|crm:Pipeline/crm:Stage|crm:Product|crm:ProductPrice|crm:PricingRules|crm:PricingUpliftTier|crm:Deal|crm:Deal/crm:LineItem|crm:Deal/crm:StageChange|crm:Deal/crm:DealParticipant|crm:Activity|crm:PropertyDefinition|crm:PropertyValue|crm:CustomerHolding|crm:Project|crm:TenantUser"/>
+      <xs:field xpath="crm:TenantId"/>
+    </xs:keyref>
+
+    <xs:key name="ParticipantKey"><xs:selector xpath="crm:Participant"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ContactPointKey"><xs:selector xpath="crm:ContactPoint"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ParticipantLinkKey"><xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PipelineKey"><xs:selector xpath="crm:Pipeline"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="StageKey"><xs:selector xpath="crm:Pipeline/crm:Stage"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ProductKey"><xs:selector xpath="crm:Product"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ProductPriceKey"><xs:selector xpath="crm:ProductPrice"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PricingRulesKey"><xs:selector xpath="crm:PricingRules"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PricingUpliftTierKey"><xs:selector xpath="crm:PricingUpliftTier"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="DealKey"><xs:selector xpath="crm:Deal"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="DealLineItemKey"><xs:selector xpath="crm:Deal/crm:LineItem"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="DealStageChangeKey"><xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="DealParticipantKey"><xs:selector xpath="crm:Deal/crm:DealParticipant"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ActivityKey"><xs:selector xpath="crm:Activity"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PropertyDefinitionKey"><xs:selector xpath="crm:PropertyDefinition"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PropertyValueKey"><xs:selector xpath="crm:PropertyValue"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="CustomerHoldingKey"><xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ProjectKey"><xs:selector xpath="crm:Project"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="TenantUserKey"><xs:selector xpath="crm:TenantUser"/><xs:field xpath="crm:Id"/></xs:key>
+
+    <!-- Unique rules. A row missing one of the fields is skipped, as a partial index skips a NULL. -->
+    <xs:unique name="ParticipantExternalUnique">
+      <xs:selector xpath="crm:Participant"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Kind"/><xs:field xpath="crm:ExternalId"/>
+    </xs:unique>
+    <xs:unique name="ParticipantLinkPairRoleUnique">
+      <xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:FromParticipantId"/><xs:field xpath="crm:ToParticipantId"/><xs:field xpath="crm:Role"/>
+    </xs:unique>
+    <xs:unique name="ActivityExternalUnique">
+      <xs:selector xpath="crm:Activity"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ExternalRef"/><xs:field xpath="crm:Channel"/><xs:field xpath="crm:Outcome"/>
+    </xs:unique>
+    <xs:unique name="PropertyDefinitionKeyUnique">
+      <xs:selector xpath="crm:PropertyDefinition"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ObjectType"/><xs:field xpath="crm:Key"/>
+    </xs:unique>
+    <xs:unique name="PropertyValueUnique">
+      <xs:selector xpath="crm:PropertyValue"/><xs:field xpath="crm:DefinitionId"/><xs:field xpath="crm:RecordId"/>
+    </xs:unique>
+
+    <xs:keyref name="ContactPointParticipant" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:ContactPoint"/><xs:field xpath="crm:ParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="LinkFromParticipant" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:FromParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="LinkToParticipant" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:ToParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="ProductPartner" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:Product"/><xs:field xpath="crm:PartnerParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="ProductPriceProduct" refer="crm:ProductKey">
+      <xs:selector xpath="crm:ProductPrice"/><xs:field xpath="crm:ProductId"/>
+    </xs:keyref>
+    <xs:keyref name="DealPipeline" refer="crm:PipelineKey">
+      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:PipelineId"/>
+    </xs:keyref>
+    <xs:keyref name="DealStage" refer="crm:StageKey">
+      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:StageId"/>
+    </xs:keyref>
+    <xs:keyref name="DealOrganization" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:OrganizationParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="LineItemProduct" refer="crm:ProductKey">
+      <xs:selector xpath="crm:Deal/crm:LineItem"/><xs:field xpath="crm:ProductId"/>
+    </xs:keyref>
+    <xs:keyref name="StageChangeFrom" refer="crm:StageKey">
+      <xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:FromStageId"/>
+    </xs:keyref>
+    <xs:keyref name="StageChangeTo" refer="crm:StageKey">
+      <xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:ToStageId"/>
+    </xs:keyref>
+    <xs:keyref name="DealParticipantParticipant" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:Deal/crm:DealParticipant"/><xs:field xpath="crm:ParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="ActivityParticipant" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:Activity"/><xs:field xpath="crm:ParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="ActivityDeal" refer="crm:DealKey">
+      <xs:selector xpath="crm:Activity"/><xs:field xpath="crm:DealId"/>
+    </xs:keyref>
+    <xs:keyref name="PropertyValueDefinition" refer="crm:PropertyDefinitionKey">
+      <xs:selector xpath="crm:PropertyValue"/><xs:field xpath="crm:DefinitionId"/>
+    </xs:keyref>
+    <xs:keyref name="HoldingParticipant" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:ParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="HoldingProduct" refer="crm:ProductKey">
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:ProductId"/>
+    </xs:keyref>
+    <xs:keyref name="HoldingDeal" refer="crm:DealKey">
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:DealId"/>
+    </xs:keyref>
+    <xs:keyref name="HoldingLineItem" refer="crm:DealLineItemKey">
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:DealLineItemId"/>
+    </xs:keyref>
+    <xs:keyref name="ProjectParticipant" refer="crm:ParticipantKey">
+      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:ParticipantId"/>
+    </xs:keyref>
+    <xs:keyref name="ProjectDeal" refer="crm:DealKey">
+      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:DealId"/>
+    </xs:keyref>
+    <xs:keyref name="ProjectHolding" refer="crm:CustomerHoldingKey">
+      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:CustomerHoldingId"/>
+    </xs:keyref>
+  </xs:element>
+
+  <xs:element name="GeekCrmPlatform">
+    <xs:annotation>
+      <xs:documentation>The platform-scoped rows: tenants, their subscriptions to Geek products, and the industry lists.</xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Tenant" type="crm:Tenant" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="TenantSubscription" type="crm:TenantSubscription" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="NaicsCode" type="crm:NaicsCode" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="SicCode" type="crm:SicCode" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+
+    <xs:key name="PlatformTenantKey"><xs:selector xpath="crm:Tenant"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:unique name="PlatformTenantSlugUnique"><xs:selector xpath="crm:Tenant"/><xs:field xpath="crm:Slug"/></xs:unique>
+    <xs:key name="TenantSubscriptionKey"><xs:selector xpath="crm:TenantSubscription"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="NaicsCodeKey"><xs:selector xpath="crm:NaicsCode"/><xs:field xpath="crm:Code"/></xs:key>
+    <xs:key name="SicCodeKey"><xs:selector xpath="crm:SicCode"/><xs:field xpath="crm:Code"/></xs:key>
+    <xs:keyref name="SubscriptionTenant" refer="crm:PlatformTenantKey">
+      <xs:selector xpath="crm:TenantSubscription"/><xs:field xpath="crm:SubscriberTenantId"/>
+    </xs:keyref>
+  </xs:element>
+
+</xs:schema>

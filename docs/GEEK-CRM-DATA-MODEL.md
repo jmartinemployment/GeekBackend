@@ -1,6 +1,6 @@
 # Geek-CRM — Data Model (v0, for review)
 
-**Status:** v0 implemented (schema, store, receptionist writes, Apollo import). Custom properties and the NAICS/SIC lookup tables exist in the schema but have no API yet.
+**Status:** v0 implemented (schema, store, receptionist writes, Apollo import). Custom properties and the NAICS/SIC lookup tables exist in the schema but have no API yet. The canonical contract is `GeekApplication/Schemas/GeekCrm.xsd` (see §2).
 **Schema:** `geek_crm` in GeekRepository (EF Core, PostgreSQL), reached only through GeekAPI.
 **First writer:** Geek-Receptionist (calls, texts, voicemails, AI qualification answers).
 **Later:** the Geek-CRM UI (see `Geek-CRM-Workspace/Plan.md`) grows on top of this, ported from the
@@ -15,33 +15,43 @@ plan's Express/Prisma to the platform stack.
 3. Stay small: ~12 tables. Everything an individual business needs beyond the core is a
    **custom property**, not a schema change.
 
-## 2. Provenance (how this model was designed)
+## 2. Design basis
 
-Geek-CRM is Jeff's own sellable product. Jeff's decision (Nov 10, 2026): start from the
-underlying structure of his ACORD Property & Casualty CRM (Acord-PCS-CRM-Workspace), keep only
-what is generic, and make it his own:
+Geek-CRM is Jeff's own sellable product, and this model is its own design. It rests on three things:
 
-- **Rename the entities** in his own vocabulary:
+- **Geek @ Your Spot's sales process and the receptionist's requirements:** missed calls, text-backs,
+  voicemails, qualification answers, booked meetings.
+- **The party pattern:** one `participant` that is either a person or an organization, with the
+  relationships between them held in links rather than baked into either side. A prospect is a
+  lifecycle stage, not a type.
+- **Concepts every CRM shares:** contacts, companies, deals, pipelines, lifecycle stages, activities
+  and custom properties.
 
-  | ACORD concept | Geek-CRM | In v0? |
-  |---|---|---|
-  | Party | Participant (person or organization) | Yes |
-  | Holding | Product (what a customer buys or holds) | Not yet; planned |
+Every name and every vocabulary is Geek-CRM's own, enforced by CHECK constraints and by the
+canonical schema below. Nothing here is specific to an industry: a business that needs a field the
+core does not have adds a custom property, not a table.
 
-- **Remove every insurance-specific entity** (policies, coverages, claims, beneficiaries,
-  producers, tax identity), because keeping them would make the product unsellable outside
-  insurance.
-- **Replace ACORD code lists** with Geek-CRM's own vocabularies, plus U.S. **NAICS** (Census
-  Bureau) and **SIC** industry codes.
-- **No ACORD element names, code lists or documentation are copied.**
+What a customer buys or holds is `Product` (a catalog) and `customer_holdings` (what each customer
+holds). They are planned (see the XSD's phase markers) and are not in v0.
 
-The rest comes from Geek @ Your Spot's sales process and the receptionist's requirements, and
-from publicly documented CRM concepts (contacts, companies, deals, pipelines, lifecycle stages,
-activities, custom properties) common to HubSpot, Salesforce and Pipedrive.
+### Canonical schema
 
-Earlier advice in this design was a clean-room model; Jeff weighed it and chose the approach
-above. Before selling, check Jeff's ACORD license terms, which still govern the two insurance
-CRMs.
+`GeekApplication/Schemas/GeekCrm.xsd` (namespace `https://geekatyourspot.com/schemas/geek-crm`,
+embedded in GeekApplication) is the canonical contract for all of Geek-CRM: v0 and everything planned.
+**Where this document and the XSD differ, the XSD wins.**
+
+- Every type carries a phase marker and a `shipped` or `planned` status. Only shipped parts are
+  authoritative: the database CHECK lists, the C# vocabularies in `GeekApplication/Models/Crm` and the
+  table columns must equal them, and `GeekBackend.Tests/Crm/SchemaContractTests.cs` fails when they do
+  not. A planned type becomes authoritative in the same push as its migration, when its marker flips.
+- Every schema change starts in the XSD.
+- Element names are PascalCase and map one to one to the snake_case columns. A row nested in its
+  parent (a stage in its pipeline, a line item in its deal) carries its parent's id by nesting.
+- The XSD validates XML documents as a contract. It does not replace database constraints or API
+  validation, and it does not describe a tenant's custom properties: the service checks each tenant's
+  own keys and values against that tenant's definition records.
+- Versioning: the namespace carries no version; `version="1.0"` on the schema element does. Additions
+  stay 1.x. A removal or a rename is 2.0 and gets a new namespace ending in `/v2`.
 
 ---
 
@@ -242,7 +252,7 @@ All writes are idempotent on `external_ref` (Twilio SID), so Twilio retries neve
 | Schema + seed (tenant #1, Sales pipeline) | `GeekRepository/Migrations/Sql/0050_geek_crm_schema.sql` (numbered 0050 to leave room for GeekSocial scripts) |
 | EF mapping | `GeekRepository/Data/CrmDbContext.cs`, `Data/Entities/Crm/CrmRows.cs` |
 | Store (tenant-scoped, Result-returning) | `GeekRepository/Repositories/Crm/CrmRepository.cs` behind `repo/crm/*` (`Controllers/Crm/CrmController.cs`) |
-| Contract | `GeekApplication/Interfaces/Crm/ICrmStore.cs`, `Models/Crm/*` (vocabularies mirror the SQL CHECKs) |
+| Contract | `GeekApplication/Schemas/GeekCrm.xsd` (canonical), `GeekApplication/Interfaces/Crm/ICrmStore.cs`, `Models/Crm/*` (vocabularies equal the XSD enumerations and the SQL CHECKs) |
 | GeekAPI client | `GeekAPI/HttpClients/HttpCrmRepository.cs` |
 | Receptionist writes | `GeekAPI/Services/Receptionist/ReceptionistCrm.cs` — 3-second limit, never fails a call |
 | Apollo import + reads | `GeekAPI/Controllers/Crm/CrmController.cs`, `Services/Crm/ApolloCsv.cs` |
@@ -267,6 +277,7 @@ Apollo's revenue figures are its own estimates; the revenue band is only as good
 
 ### Tests
 
+- `GeekBackend.Tests/Crm/SchemaContractTests.cs` — the XSD compiles clean; shipped enumerations, columns, types and nullability equal the C# vocabularies, the script and the EF mapping; a sample tenant validates and a dangling reference, a duplicate id, another tenant's row and a bad enum value are rejected.
 - `GeekBackend.Tests/Crm` — SQL CHECK lists vs vocabularies, table columns vs EF mapping, seed, phone/URL/code normalizing, Apollo parsing, the primary-contact rule.
 - `GeekBackend.Tests/Receptionist/CrmReceptionistRecorderTests.cs` — what a call, text, STOP and voicemail write; a failing or slow store never reaches the call.
 - `GeekBackend.IntegrationTests/CrmIntegrationTests.cs` (TEST_DATABASE_URL) — the script against Postgres: one person per caller, one activity per Twilio retry, STOP opt-out, import matching, the deal rule.

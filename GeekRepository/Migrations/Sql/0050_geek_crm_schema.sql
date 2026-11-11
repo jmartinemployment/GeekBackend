@@ -5,14 +5,15 @@
 --
 -- Raw SQL rather than an EF migration, the same as geek_social, geek_visitors and geek_gtm.
 -- CrmDbContext maps every column by the snake_case of its property name. The CHECK constraints
--- repeat the vocabularies in GeekApplication/Models/Crm/CrmVocabulary.cs, and GeekBackend.Tests
--- compares the two lists.
+-- repeat the vocabularies in GeekApplication/Models/Crm/CrmVocabulary.cs and the enumerations in
+-- the XSD, and GeekBackend.Tests compares all three.
 --
 -- Multi-tenant from day one: every table carries tenant_id and every query is scoped by it.
 -- Geek @ Your Spot is tenant #1 (seeded below, id = CrmSeed.GeekAtYourSpotTenantId).
 --
--- Designed independently from Geek @ Your Spot's requirements, common CRM concepts and the
--- general party pattern; no ACORD names, code lists or structure.
+-- Designed from Geek @ Your Spot's requirements, common CRM concepts and the general party
+-- pattern. The canonical contract is GeekApplication/Schemas/GeekCrm.xsd; where this script and
+-- the XSD disagree about a shipped table, the XSD wins and the tests fail until they match.
 
 CREATE SCHEMA IF NOT EXISTS geek_crm;
 

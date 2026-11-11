@@ -1,6 +1,6 @@
 # GeekBackend Architecture
 
-GeekBackend is the **platform data gateway and content/SEO storage layer** for Geek products. It is **not** an authorization server. User login is **GeekOAuth** (`auth.geekatyourspot.com`). This repo ships two HTTP services and one shared contracts library.
+GeekBackend is the **platform data gateway and data plane** for Geek products: shared content, and the backend of each product that lives here (Content Creator, Geek-Crawler, GTM, Visitors, Geek-Social, Geek-CRM). It is **not** an authorization server. User login is **GeekOAuth** (`auth.geekatyourspot.com`). This repo ships two HTTP services and one shared contracts library.
 
 **2026-05-30 (platform decoupling):** Legacy **GeekAPI `/api/auth/*`**, **SyncHub**, and **GeekRepository `repo/auth/*`** are **removed** from code; legacy **auth DB tables** dropped via migration `0006`. GeekAPI exposes **SEO internal proxy** (`/api/seo/internal/*`), **content** APIs, and health. Identity: **GeekOAuth**. See Geek-SEO `plan-documents/PLATFORM-DECOUPLING.md`.
 
@@ -42,7 +42,7 @@ flowchart LR
 | Role (OAuth vocabulary) | Deployment | Responsibility |
 |-------------------------|------------|----------------|
 | **Authorization server** | `auth.geekatyourspot.com` (separate .NET service) | Issue tokens, OIDC discovery, login UI, client registry |
-| **Resource server (platform API)** | GeekAPI | API-key gate; `/api/seo/internal/*` proxy to repo; public content reads; no legacy `/api/auth/*` |
+| **Resource server (platform API)** | GeekAPI | API-key gate; each product's `/api/<product>/*` routes; public content reads; no legacy `/api/auth/*` |
 | **Resource server (data)** | GeekRepository | All PostgreSQL reads/writes; no product-facing HTTP except from GeekAPI |
 | **Client** | Each Geek product | OIDC against auth; **never** call GeekRepository directly |
 
@@ -50,7 +50,7 @@ flowchart LR
 
 1. **Only GeekAPI talks to GeekRepository** — no product service (OrderStack, RankPilot, etc.) holds `REPO_URL` or database credentials for platform auth/content.
 2. **No authorization server in GeekBackend** — no `/connect/*`, no OpenIddict issuer on GeekAPI.
-3. **Geek SEO product APIs** (AI, SERP, scoring, SignalR) live in **Geek-SEO / GeekSeoBackend**. **Geek SEO persistence** (`geek_seo` schema, `repo/seo/*`) lives in **GeekRepository**; GeekSeoBackend reaches it only via **GeekAPI** `api/seo/internal/*`.
+3. **Geek-SEO is not part of this data plane.** Geek-SEO was never an authorized service (Jeff, 2026-09-29). Its persistence layer (`SeoDbContext`, `repo/seo/*`, the `geek_seo` schema) was removed from GeekRepository, and nothing here is project-referenced to it or calls it: the rule is "copy, never reuse". See `docs/geekseo-repository-schema.md` (retired).
 4. **Long-running work uses push, not poll.** Job and crawl progress is delivered over **SignalR hubs on GeekAPI** (or Geek-SEO hubs for site analysis). Clients subscribe via hub `Join*` methods; REST GET is for snapshot, history, and reconnect catch-up only — **never on a timer**. Workers wake on `NOTIFY`/channel events with one-shot orphan recovery on startup — no continuous `SELECT pending` tickers. See [`content-creator-v2/plan/realtime-progress.md`](../content-creator-v2/plan/realtime-progress.md) and [`content-creator-v2/plan/correctness-and-fallbacks.md`](../content-creator-v2/plan/correctness-and-fallbacks.md).
 5. **Correctness over expediency.** No silent fallbacks; jobs must fail loud or reach a terminal/awaiting state.
 
@@ -93,11 +93,11 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 
 ## GeekAPI (today)
 
-**Purpose:** Platform API **gateway** — SEO internal proxy, public content reads, health. **Not** an authorization server; **not** legacy auth storage (retired May 2026).
+**Purpose:** Platform API **gateway** — product routes, public content reads, health. **Not** an authorization server; **not** legacy auth storage (retired May 2026).
 
 | Surface | Auth | Notes |
 |---------|------|--------|
-| `/api/seo/internal/*` | `X-API-Key` + optional user headers | Proxies to `repo/seo/*` on GeekRepository |
+| `/api/seo/internal/*` | `X-API-Key` + optional user headers | Forwards to `repo/seo/*`, which GeekRepository no longer serves (persistence retired 2026-09-29); the controller is left to a separate decision |
 | `/api/case-studies`, `/api/departments`, `/api/use-cases` | Public read | Marketing/content |
 | `/api/receptionist/twilio/*` | `X-Twilio-Signature` (exempt from `X-API-Key`) | Geek-Receptionist missed-call text-back; see [`docs/RECEPTIONIST.md`](docs/RECEPTIONIST.md) |
 | `/api/crm/*` | `X-API-Key` | Geek-CRM (`geek_crm` via `repo/crm/*`); see [`docs/GEEK-CRM-DATA-MODEL.md`](docs/GEEK-CRM-DATA-MODEL.md) |
@@ -113,12 +113,13 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 
 ## GeekRepository (today)
 
-**Purpose:** Data plane for **`geek_seo`** (product schema) and **shared content** tables. No legacy platform auth tables after migration `0006`.
+**Purpose:** The data plane. Shared content tables, and one schema per product that lives in GeekBackend. No legacy platform auth tables after migration `0006`, and no `geek_seo`.
 
-| Access style | Tables | Tooling |
-|--------------|--------|---------|
-| EF (`SeoDbContext`) | `geek_seo.*` | Migrations from **GeekSeo.Persistence** (Geek-SEO repo) |
+| Access style | Schemas | Tooling |
+|--------------|---------|---------|
 | EF (`AppDbContext`) | `departments`, `case_studies`, `use_cases`, … | Platform content migrations |
+| EF (product contexts) | Content Creator and the content-writer stores | Per-context EF mapping |
+| EF mapping over raw SQL scripts | `geek_gtm`, `geek_visitors`, `geek_social`, `geek_crm` | `Migrations/Sql/*.sql`, applied by `SqlMigrationRunner` (it records script names, not hashes) |
 
 Controllers use **InternalService** policy (`REPO_API_KEY` / `internal.api` scope).
 
@@ -175,15 +176,21 @@ GeekBackend **does not** store or expose login APIs after M4–M6/O2.
 
 - Departments, case studies, use cases — public read via GeekAPI; writes via authenticated platform routes as products require
 
-### Geek SEO data (in GeekRepository)
+### Product pattern (the default for every new product)
 
-- Schema `geek_seo`, EF migrations, `repo/seo/*` controllers — persistence only
-- GeekSeoBackend calls GeekAPI `api/seo/internal/*` (not GeekRepository directly)
+Decided Nov 11, 2026 (Jeff) and the one the code already enforces for Content Creator, GTM, Visitors, Geek-Social and Geek-CRM:
+
+1. **The backend stays in GeekBackend under strict product boundaries.** Each product has its own contracts (`GeekApplication/Models/<Product>`, `Interfaces/<Product>`), its own schema (`geek_<product>`) with its own numbered range of SQL scripts, its own DbContext and repository in GeekRepository (`repo/<product>/*`), and its own routes in GeekAPI (`/api/<product>/*`). It never reads or writes another product's tables; other products reach its data only through its contracts.
+2. **The UI is its own repository** (a Next.js app such as `geek-social`) with no database and no credentials of its own. It signs in through GeekOAuth and calls GeekAPI.
+3. **GeekAPI is the only path to GeekRepository** (hard rule 1). A product that is split out later still routes through GeekAPI, so there is no new Railway service per product.
+4. **A canonical contract per product** where the product is sold or shared (Geek-CRM: `GeekApplication/Schemas/GeekCrm.xsd`), kept equal to the database and the code by tests.
+
+Sellability comes from the boundaries: a clean copy-out stays possible ("copy, never reuse").
 
 ### Out of scope for GeekBackend
 
-- Geek SEO product logic (providers, workers, `/api/seo` routes) — **Geek-SEO / GeekSeoBackend**
-- Per-product business tables (restaurant, CRM, etc.) — respective product backends
+- Geek-SEO product logic and persistence (providers, workers, `/api/seo` product routes, the `geek_seo` schema).
+- Product UIs, which live in their own repositories.
 
 ---
 
@@ -237,7 +244,7 @@ GeekBackend **does not** store or expose login APIs after M4–M6/O2.
 
 ## Database cleanup (OAuth / OpenIddict era)
 
-On startup, `SqlMigrationRunner` applies `Migrations/Sql/0004_drop_oauth_openiddict_and_adapter_storage.sql` (issuer-era tables only; **not** `geek_seo`). Geek SEO tables are created by `ApplySeoMigrationsAsync`. **Greenfield:** the external authorization server owns client/token persistence; this database holds users, devices, platform content, and Geek SEO rows.
+On startup, `SqlMigrationRunner` applies `Migrations/Sql/0004_drop_oauth_openiddict_and_adapter_storage.sql` (issuer-era tables only). **Greenfield:** the external authorization server owns client/token persistence; this database holds platform content and the product schemas listed above. The `geek_seo` scripts (`0005`, `0007` to `0014`) remain in the folder as history; GeekRepository no longer maps or serves that schema.
 
 ---
 

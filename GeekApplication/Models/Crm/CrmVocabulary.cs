@@ -1,9 +1,9 @@
 namespace GeekApplication.Models.Crm;
 
-// Geek-CRM's fixed vocabularies (docs/GEEK-CRM-DATA-MODEL.md). Each list is repeated as a CHECK
-// constraint in GeekRepository/Migrations/Sql/0050_geek_crm_schema.sql, and GeekBackend.Tests
-// compares the two, so a value the code knows and the database refuses (or the reverse) fails the
-// build instead of a write.
+// Geek-CRM's fixed vocabularies (docs/GEEK-CRM-DATA-MODEL.md). Each list is declared in
+// GeekApplication/Schemas/GeekCrm.xsd, repeated as a CHECK constraint in
+// GeekRepository/Migrations/Sql/0050_geek_crm_schema.sql, and GeekBackend.Tests compares all three,
+// so a value one of them knows and another refuses fails the build instead of a write.
 
 public static class ParticipantKinds
 {
@@ -134,6 +134,25 @@ public static class ActivityOutcomes
     public const string Completed = "completed";
     public const string Failed = "failed";
     public static readonly IReadOnlyList<string> All = [Answered, Missed, TextedBack, VoicemailLeft, Booked, NoShow, Completed, Failed];
+}
+
+public static class PropertyObjectTypes
+{
+    public const string Person = "person";
+    public const string Organization = "organization";
+    public const string Deal = "deal";
+    public static readonly IReadOnlyList<string> All = [Person, Organization, Deal];
+}
+
+public static class PropertyDataTypes
+{
+    public const string Text = "text";
+    public const string Number = "number";
+    public const string Date = "date";
+    public const string Bool = "bool";
+    public const string Enum = "enum";
+    public const string MultiEnum = "multi_enum";
+    public static readonly IReadOnlyList<string> All = [Text, Number, Date, Bool, Enum, MultiEnum];
 }
 
 /// <summary>Stable failure codes every <c>ICrmStore</c> result carries; mapped to HTTP status by both sides.</summary>
