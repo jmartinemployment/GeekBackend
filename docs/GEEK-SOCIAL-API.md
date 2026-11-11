@@ -56,7 +56,7 @@ any the webhooks missed. Returns `{ "postsRead": 3, "commentsRead": 40, "stored"
 
 ## Connecting a Facebook Page
 
-1. `POST api/social/connect/meta/start` with `{ "redirectUri": "https://social.geekatyourspot.com/connect/meta/callback" }`
+1. `POST api/social/connect/meta/start` with `{ "redirectUri": "https://geek-social.geekatyourspot.com/connect/meta/callback" }`
    returns `{ "authorizationUrl": "https://www.facebook.com/..." }`. Send the browser there.
 2. Meta sends the browser back to `redirectUri` with `?code=...&state=...` (or `?error=...`).
 3. `POST api/social/connect/meta/complete` with `{ "code": "...", "state": "...", "redirectUri": "<the same address>" }`
@@ -170,7 +170,7 @@ the routes above.
 
 - Webhooks, object Page: callback `https://api.geekatyourspot.com/api/social/webhooks/meta`, the verify
   token above, field `feed`. Connecting a Page subscribes it; the callback itself is set here once.
-- Facebook Login for Business, "Valid OAuth Redirect URIs": `https://social.geekatyourspot.com/connect/meta/callback`
+- Facebook Login for Business, "Valid OAuth Redirect URIs": `https://geek-social.geekatyourspot.com/connect/meta/callback`
   (and `https://geek-social.vercel.app/connect/meta/callback`, `http://localhost:3006/connect/meta/callback`
   for testing).
 

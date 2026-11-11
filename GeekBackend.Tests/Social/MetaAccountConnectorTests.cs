@@ -17,7 +17,7 @@ public class MetaAccountConnectorTests
     private const string AppSecret = "PRIVATE-APP-SECRET";
     private const string ConfigId = "CONFIG1";
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 18, 0, 0, TimeSpan.Zero);
-    private static readonly Uri Redirect = new("https://social.geekatyourspot.com/connect/meta/callback");
+    private static readonly Uri Redirect = new("https://geek-social.geekatyourspot.com/connect/meta/callback");
 
     private static MetaOptions Options(bool configured = true) => MetaOptions.From(name => !configured ? null : name switch
     {
@@ -77,7 +77,7 @@ public class MetaAccountConnectorTests
         Assert.Contains($"client_id={AppId}", address, StringComparison.Ordinal);
         Assert.Contains($"config_id={ConfigId}", address, StringComparison.Ordinal);
         Assert.Contains("state=STATE1", address, StringComparison.Ordinal);
-        Assert.Contains("redirect_uri=https%3A%2F%2Fsocial.geekatyourspot.com%2Fconnect%2Fmeta%2Fcallback", address, StringComparison.Ordinal);
+        Assert.Contains("redirect_uri=https%3A%2F%2Fgeek-social.geekatyourspot.com%2Fconnect%2Fmeta%2Fcallback", address, StringComparison.Ordinal);
         Assert.Contains("response_type=code", address, StringComparison.Ordinal);
         Assert.DoesNotContain(AppSecret, address, StringComparison.Ordinal);
     }

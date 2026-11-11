@@ -18,7 +18,7 @@ namespace GeekBackend.Tests.Social;
 public class SocialConnectServiceTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 11, 18, 0, 0, TimeSpan.Zero);
-    private static readonly Uri Redirect = new("https://social.geekatyourspot.com/connect/meta/callback");
+    private static readonly Uri Redirect = new("https://geek-social.geekatyourspot.com/connect/meta/callback");
     private static readonly Uri Webhook = new("https://api.geekatyourspot.com/api/social/webhooks/meta");
 
     private sealed class FakeConnector : ISocialAccountConnector
