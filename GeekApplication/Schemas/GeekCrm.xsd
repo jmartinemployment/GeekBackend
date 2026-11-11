@@ -512,7 +512,6 @@
       <xs:element name="ArchivedAt" type="xs:dateTime" minOccurs="0"/>
       <xs:element name="ImportBatchId" type="crm:Uuid" minOccurs="0">
         <xs:annotation>
-          <xs:appinfo><crm:phase status="planned">1</crm:phase></xs:appinfo>
           <xs:documentation>The import that created this row, so a batch can be reviewed and archived as a unit.</xs:documentation>
         </xs:annotation>
       </xs:element>
@@ -588,7 +587,6 @@
       <xs:element name="CreatedAt" type="xs:dateTime"/>
       <xs:element name="ImportBatchId" type="crm:Uuid" minOccurs="0">
         <xs:annotation>
-          <xs:appinfo><crm:phase status="planned">1</crm:phase></xs:appinfo>
           <xs:documentation>The import that created this row.</xs:documentation>
         </xs:annotation>
       </xs:element>
@@ -764,6 +762,11 @@
       <xs:element name="Options" type="crm:Json" minOccurs="0"/>
       <xs:element name="IsSensitive" type="xs:boolean"/>
       <xs:element name="CreatedAt" type="xs:dateTime"/>
+      <xs:element name="RetiredAt" type="xs:dateTime" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Set when the property is retired: hidden from reads, refusing new values, its stored values kept for history.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
     </xs:sequence>
   </xs:complexType>
 
@@ -1054,31 +1057,36 @@
       </xs:sequence>
     </xs:complexType>
 
+    <!--
+      A key of a tenant-owned table is (TenantId, Id), and a reference to it carries the referencing row's
+      own TenantId first: the composite foreign keys of the tenant boundary. A reference whose id is absent
+      is not checked, as a composite key with a NULL column is not.
+    -->
     <xs:key name="TenantKey"><xs:selector xpath="crm:Tenant"/><xs:field xpath="crm:Id"/></xs:key>
     <xs:keyref name="RowTenant" refer="crm:TenantKey">
       <xs:selector xpath="crm:Participant|crm:ContactPoint|crm:ParticipantLink|crm:Pipeline|crm:Pipeline/crm:Stage|crm:Product|crm:ProductPrice|crm:PricingRules|crm:PricingUpliftTier|crm:Deal|crm:Deal/crm:LineItem|crm:Deal/crm:StageChange|crm:Deal/crm:DealParticipant|crm:Activity|crm:PropertyDefinition|crm:PropertyValue|crm:CustomerHolding|crm:Project|crm:TenantUser"/>
       <xs:field xpath="crm:TenantId"/>
     </xs:keyref>
 
-    <xs:key name="ParticipantKey"><xs:selector xpath="crm:Participant"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="ContactPointKey"><xs:selector xpath="crm:ContactPoint"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="ParticipantLinkKey"><xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="PipelineKey"><xs:selector xpath="crm:Pipeline"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="StageKey"><xs:selector xpath="crm:Pipeline/crm:Stage"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="ProductKey"><xs:selector xpath="crm:Product"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="ProductPriceKey"><xs:selector xpath="crm:ProductPrice"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="PricingRulesKey"><xs:selector xpath="crm:PricingRules"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="PricingUpliftTierKey"><xs:selector xpath="crm:PricingUpliftTier"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="DealKey"><xs:selector xpath="crm:Deal"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="DealLineItemKey"><xs:selector xpath="crm:Deal/crm:LineItem"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="DealStageChangeKey"><xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="DealParticipantKey"><xs:selector xpath="crm:Deal/crm:DealParticipant"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="ActivityKey"><xs:selector xpath="crm:Activity"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="PropertyDefinitionKey"><xs:selector xpath="crm:PropertyDefinition"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="PropertyValueKey"><xs:selector xpath="crm:PropertyValue"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="CustomerHoldingKey"><xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="ProjectKey"><xs:selector xpath="crm:Project"/><xs:field xpath="crm:Id"/></xs:key>
-    <xs:key name="TenantUserKey"><xs:selector xpath="crm:TenantUser"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ParticipantKey"><xs:selector xpath="crm:Participant"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ContactPointKey"><xs:selector xpath="crm:ContactPoint"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ParticipantLinkKey"><xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PipelineKey"><xs:selector xpath="crm:Pipeline"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="StageKey"><xs:selector xpath="crm:Pipeline/crm:Stage"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ProductKey"><xs:selector xpath="crm:Product"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ProductPriceKey"><xs:selector xpath="crm:ProductPrice"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PricingRulesKey"><xs:selector xpath="crm:PricingRules"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PricingUpliftTierKey"><xs:selector xpath="crm:PricingUpliftTier"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="DealKey"><xs:selector xpath="crm:Deal"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="DealLineItemKey"><xs:selector xpath="crm:Deal/crm:LineItem"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="DealStageChangeKey"><xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="DealParticipantKey"><xs:selector xpath="crm:Deal/crm:DealParticipant"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ActivityKey"><xs:selector xpath="crm:Activity"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PropertyDefinitionKey"><xs:selector xpath="crm:PropertyDefinition"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="PropertyValueKey"><xs:selector xpath="crm:PropertyValue"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="CustomerHoldingKey"><xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="ProjectKey"><xs:selector xpath="crm:Project"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
+    <xs:key name="TenantUserKey"><xs:selector xpath="crm:TenantUser"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Id"/></xs:key>
 
     <!-- Unique rules. A row missing one of the fields is skipped, as a partial index skips a NULL. -->
     <xs:unique name="ParticipantExternalUnique">
@@ -1098,70 +1106,70 @@
     </xs:unique>
 
     <xs:keyref name="ContactPointParticipant" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:ContactPoint"/><xs:field xpath="crm:ParticipantId"/>
+      <xs:selector xpath="crm:ContactPoint"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ParticipantId"/>
     </xs:keyref>
     <xs:keyref name="LinkFromParticipant" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:FromParticipantId"/>
+      <xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:FromParticipantId"/>
     </xs:keyref>
     <xs:keyref name="LinkToParticipant" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:ToParticipantId"/>
+      <xs:selector xpath="crm:ParticipantLink"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ToParticipantId"/>
     </xs:keyref>
     <xs:keyref name="ProductPartner" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:Product"/><xs:field xpath="crm:PartnerParticipantId"/>
+      <xs:selector xpath="crm:Product"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:PartnerParticipantId"/>
     </xs:keyref>
     <xs:keyref name="ProductPriceProduct" refer="crm:ProductKey">
-      <xs:selector xpath="crm:ProductPrice"/><xs:field xpath="crm:ProductId"/>
+      <xs:selector xpath="crm:ProductPrice"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ProductId"/>
     </xs:keyref>
     <xs:keyref name="DealPipeline" refer="crm:PipelineKey">
-      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:PipelineId"/>
+      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:PipelineId"/>
     </xs:keyref>
     <xs:keyref name="DealStage" refer="crm:StageKey">
-      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:StageId"/>
+      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:StageId"/>
     </xs:keyref>
     <xs:keyref name="DealOrganization" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:OrganizationParticipantId"/>
+      <xs:selector xpath="crm:Deal"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:OrganizationParticipantId"/>
     </xs:keyref>
     <xs:keyref name="LineItemProduct" refer="crm:ProductKey">
-      <xs:selector xpath="crm:Deal/crm:LineItem"/><xs:field xpath="crm:ProductId"/>
+      <xs:selector xpath="crm:Deal/crm:LineItem"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ProductId"/>
     </xs:keyref>
     <xs:keyref name="StageChangeFrom" refer="crm:StageKey">
-      <xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:FromStageId"/>
+      <xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:FromStageId"/>
     </xs:keyref>
     <xs:keyref name="StageChangeTo" refer="crm:StageKey">
-      <xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:ToStageId"/>
+      <xs:selector xpath="crm:Deal/crm:StageChange"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ToStageId"/>
     </xs:keyref>
     <xs:keyref name="DealParticipantParticipant" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:Deal/crm:DealParticipant"/><xs:field xpath="crm:ParticipantId"/>
+      <xs:selector xpath="crm:Deal/crm:DealParticipant"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ParticipantId"/>
     </xs:keyref>
     <xs:keyref name="ActivityParticipant" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:Activity"/><xs:field xpath="crm:ParticipantId"/>
+      <xs:selector xpath="crm:Activity"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ParticipantId"/>
     </xs:keyref>
     <xs:keyref name="ActivityDeal" refer="crm:DealKey">
-      <xs:selector xpath="crm:Activity"/><xs:field xpath="crm:DealId"/>
+      <xs:selector xpath="crm:Activity"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:DealId"/>
     </xs:keyref>
     <xs:keyref name="PropertyValueDefinition" refer="crm:PropertyDefinitionKey">
-      <xs:selector xpath="crm:PropertyValue"/><xs:field xpath="crm:DefinitionId"/>
+      <xs:selector xpath="crm:PropertyValue"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:DefinitionId"/>
     </xs:keyref>
     <xs:keyref name="HoldingParticipant" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:ParticipantId"/>
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ParticipantId"/>
     </xs:keyref>
     <xs:keyref name="HoldingProduct" refer="crm:ProductKey">
-      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:ProductId"/>
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ProductId"/>
     </xs:keyref>
     <xs:keyref name="HoldingDeal" refer="crm:DealKey">
-      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:DealId"/>
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:DealId"/>
     </xs:keyref>
     <xs:keyref name="HoldingLineItem" refer="crm:DealLineItemKey">
-      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:DealLineItemId"/>
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:DealLineItemId"/>
     </xs:keyref>
     <xs:keyref name="ProjectParticipant" refer="crm:ParticipantKey">
-      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:ParticipantId"/>
+      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:ParticipantId"/>
     </xs:keyref>
     <xs:keyref name="ProjectDeal" refer="crm:DealKey">
-      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:DealId"/>
+      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:DealId"/>
     </xs:keyref>
     <xs:keyref name="ProjectHolding" refer="crm:CustomerHoldingKey">
-      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:CustomerHoldingId"/>
+      <xs:selector xpath="crm:Project"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:CustomerHoldingId"/>
     </xs:keyref>
   </xs:element>
 

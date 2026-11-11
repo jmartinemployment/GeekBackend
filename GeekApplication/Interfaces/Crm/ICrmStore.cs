@@ -29,4 +29,24 @@ public interface ICrmStore
     Task<Result<CrmDeal>> MoveDealStageAsync(Guid dealId, MoveDealStageCommand command, CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<CrmDeal>>> ListDealsAsync(Guid tenantId, bool openOnly, int limit, CancellationToken ct = default);
+
+    // ----- Industry lookup (platform data; not tenant-scoped) -----
+
+    /// <summary>NAICS codes whose code starts with, or whose title contains, the query; optionally one level (2 to 6).</summary>
+    Task<Result<IReadOnlyList<CrmNaicsCode>>> SearchNaicsAsync(string? query, int? level, int limit, CancellationToken ct = default);
+
+    // ----- Custom properties -----
+
+    Task<Result<IReadOnlyList<CrmPropertyDefinition>>> ListPropertyDefinitionsAsync(Guid tenantId, string? objectType, bool includeRetired, bool includeSensitive, CancellationToken ct = default);
+
+    Task<Result<CrmPropertyDefinition>> CreatePropertyDefinitionAsync(CreatePropertyDefinitionCommand command, CancellationToken ct = default);
+
+    Task<Result<CrmPropertyDefinition>> UpdatePropertyDefinitionAsync(Guid definitionId, UpdatePropertyDefinitionCommand command, CancellationToken ct = default);
+
+    /// <summary>Hides the property and its values from reads and refuses new values; the stored values are kept for history.</summary>
+    Task<Result<CrmPropertyDefinition>> RetirePropertyDefinitionAsync(Guid tenantId, Guid definitionId, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<CrmPropertyValue>>> GetPropertyValuesAsync(Guid tenantId, string objectType, Guid recordId, bool includeSensitive, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<CrmPropertyValue>>> SetPropertyValuesAsync(SetPropertyValuesCommand command, CancellationToken ct = default);
 }

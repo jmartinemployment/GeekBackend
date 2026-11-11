@@ -51,6 +51,16 @@ public static partial class CrmText
         return host.StartsWith("www.", StringComparison.Ordinal) ? host[4..] : host;
     }
 
+    /// <summary>
+    /// Whether two websites are the same site: both normalize to a domain and the domains are equal.
+    /// acme.com is not notacme.com, acme.com.au or sub.acme.com; www. and the scheme do not count.
+    /// </summary>
+    public static bool SameDomain(string? a, string? b)
+    {
+        var left = Domain(a);
+        return left is not null && string.Equals(left, Domain(b), StringComparison.Ordinal);
+    }
+
     /// <summary>The first code of a list like "238220, 236118" when it has the expected digit count.</summary>
     public static string? FirstCode(string? raw, int digits)
     {

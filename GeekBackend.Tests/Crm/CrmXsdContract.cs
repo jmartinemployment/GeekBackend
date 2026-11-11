@@ -167,29 +167,44 @@ internal static class CrmXsdContract
             if (scope is not ("GeekCrmTenant" or "GeekCrmPlatform") && table.ParentKey is not null) columns.Add(table.ParentKey);
             found.Add($"{table.Table}({string.Join(",", Sorted(columns))})");
         }
+        // A tenant-owned table's key is (TenantId, Id), which the database holds as UNIQUE (tenant_id, id).
+        foreach (var key in Schema.Descendants(Xs + "key").Where(k => k.Elements(Xs + "field").Count() == 2))
+        {
+            var table = Tables.Single(t => t.Table == TableOfPath(key.Element(Xs + "selector")!.Attribute("xpath")!.Value));
+            if (!table.Shipped) continue;
+            found.Add($"{table.Table}({string.Join(",", Sorted(key.Elements(Xs + "field").Select(f => Snake(f.Attribute("xpath")!.Value))))})");
+        }
         return Sorted(found);
     }
 
-    /// <summary>Each shipped single-column foreign key as <c>child.column->parent</c>: a keyref, or a nesting.</summary>
+    /// <summary>
+    /// Each shipped foreign key as <c>child(cols)->parent(cols)</c>, columns in declared order: a keyref, or a
+    /// nesting. A nested table that has a tenant_id references its parent by (tenant_id, key) -> (tenant_id, id);
+    /// one without (persons, organizations) by its parent key alone.
+    /// </summary>
     public static string[] ForeignKeys()
     {
         var shipped = Tables.Where(t => t.Shipped).Select(t => t.Table).ToHashSet(StringComparer.Ordinal);
         var found = new HashSet<string>(StringComparer.Ordinal);
         foreach (var keyref in Schema.Descendants(Xs + "keyref"))
         {
-            var column = Snake(keyref.Element(Xs + "field")!.Attribute("xpath")!.Value);
+            var columns = string.Join(",", keyref.Elements(Xs + "field").Select(f => Snake(f.Attribute("xpath")!.Value)));
             var key = Schema.Descendants(Xs + "key").Single(k => k.Attribute("name")!.Value == Local(keyref.Attribute("refer")!.Value));
             var parent = TableOfPath(key.Element(Xs + "selector")!.Attribute("xpath")!.Value);
+            var parentColumns = string.Join(",", key.Elements(Xs + "field").Select(f => Snake(f.Attribute("xpath")!.Value)));
             foreach (var path in keyref.Element(Xs + "selector")!.Attribute("xpath")!.Value.Split('|'))
             {
                 var child = TableOfPath(path);
-                if (shipped.Contains(child) && shipped.Contains(parent)) found.Add($"{child}.{column}->{parent}");
+                if (shipped.Contains(child) && shipped.Contains(parent)) found.Add($"{child}({columns})->{parent}({parentColumns})");
             }
         }
         foreach (var table in Tables.Where(t => t.Shipped && t.ParentKey is not null))
         {
             var container = Schema.Elements(Xs + "complexType").Single(c => c.Descendants(Xs + "element").Any(e => e.Attribute("type")?.Value == "crm:" + table.TypeName));
-            found.Add($"{table.Table}.{table.ParentKey}->{Tables.Single(t => t.TypeName == container.Attribute("name")!.Value).Table}");
+            var parent = Tables.Single(t => t.TypeName == container.Attribute("name")!.Value).Table;
+            found.Add(table.Columns.Any(c => c.Column == "tenant_id")
+                ? $"{table.Table}(tenant_id,{table.ParentKey})->{parent}(tenant_id,id)"
+                : $"{table.Table}({table.ParentKey})->{parent}(id)");
         }
         return Sorted(found);
     }

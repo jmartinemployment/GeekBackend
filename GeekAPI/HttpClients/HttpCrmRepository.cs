@@ -57,6 +57,43 @@ public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository
         AsReadOnly(await SendAsync<List<CrmDeal>>(HttpMethod.Get,
             $"repo/crm/tenants/{tenantId}/deals?openOnly={(openOnly ? "true" : "false")}&limit={limit}", null, ct).ConfigureAwait(false));
 
+    public async Task<Result<IReadOnlyList<CrmNaicsCode>>> SearchNaicsAsync(string? query, int? level, int limit, CancellationToken ct = default)
+    {
+        var parts = new List<string> { $"limit={limit}" };
+        if (query is not null) parts.Add("q=" + Uri.EscapeDataString(query));
+        if (level is { } l) parts.Add($"level={l}");
+        return AsReadOnly(await SendAsync<List<CrmNaicsCode>>(HttpMethod.Get, $"repo/crm/lookups/naics?{string.Join('&', parts)}", null, ct).ConfigureAwait(false));
+    }
+
+    public async Task<Result<IReadOnlyList<CrmPropertyDefinition>>> ListPropertyDefinitionsAsync(Guid tenantId, string? objectType, bool includeRetired, bool includeSensitive, CancellationToken ct = default)
+    {
+        var parts = new List<string>
+        {
+            $"includeRetired={(includeRetired ? "true" : "false")}",
+            $"includeSensitive={(includeSensitive ? "true" : "false")}",
+        };
+        if (objectType is not null) parts.Add("objectType=" + Uri.EscapeDataString(objectType));
+        return AsReadOnly(await SendAsync<List<CrmPropertyDefinition>>(HttpMethod.Get,
+            $"repo/crm/tenants/{tenantId}/properties/definitions?{string.Join('&', parts)}", null, ct).ConfigureAwait(false));
+    }
+
+    public Task<Result<CrmPropertyDefinition>> CreatePropertyDefinitionAsync(CreatePropertyDefinitionCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmPropertyDefinition>(HttpMethod.Post, "repo/crm/properties/definitions", command, ct);
+
+    public Task<Result<CrmPropertyDefinition>> UpdatePropertyDefinitionAsync(Guid definitionId, UpdatePropertyDefinitionCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmPropertyDefinition>(HttpMethod.Put, $"repo/crm/properties/definitions/{definitionId}", command, ct);
+
+    public Task<Result<CrmPropertyDefinition>> RetirePropertyDefinitionAsync(Guid tenantId, Guid definitionId, CancellationToken ct = default) =>
+        SendAsync<CrmPropertyDefinition>(HttpMethod.Post, $"repo/crm/tenants/{tenantId}/properties/definitions/{definitionId}/retire", null, ct);
+
+    public async Task<Result<IReadOnlyList<CrmPropertyValue>>> GetPropertyValuesAsync(Guid tenantId, string objectType, Guid recordId, bool includeSensitive, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmPropertyValue>>(HttpMethod.Get,
+            $"repo/crm/tenants/{tenantId}/records/{Uri.EscapeDataString(objectType)}/{recordId}/properties?includeSensitive={(includeSensitive ? "true" : "false")}",
+            null, ct).ConfigureAwait(false));
+
+    public async Task<Result<IReadOnlyList<CrmPropertyValue>>> SetPropertyValuesAsync(SetPropertyValuesCommand command, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmPropertyValue>>(HttpMethod.Put, "repo/crm/records/properties", command, ct).ConfigureAwait(false));
+
     private static Result<IReadOnlyList<T>> AsReadOnly<T>(Result<List<T>> result) =>
         result.IsSuccess
             ? Result<IReadOnlyList<T>>.Success(result.Value!)

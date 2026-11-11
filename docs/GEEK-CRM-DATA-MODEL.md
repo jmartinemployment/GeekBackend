@@ -1,6 +1,6 @@
 # Geek-CRM — Data Model (v0, for review)
 
-**Status:** v0 implemented (schema, store, receptionist writes, Apollo import). Custom properties and the NAICS/SIC lookup tables exist in the schema but have no API yet. The canonical contract is `GeekApplication/Schemas/GeekCrm.xsd` (see §2).
+**Status:** v0 implemented (schema, store, receptionist writes, Apollo import). Custom properties and the NAICS lookup have an API (Phase 1); the SIC list is not loaded yet. The canonical contract is `GeekApplication/Schemas/GeekCrm.xsd` (see §2).
 **Schema:** `geek_crm` in GeekRepository (EF Core, PostgreSQL), reached only through GeekAPI.
 **First writer:** Geek-Receptionist (calls, texts, voicemails, AI qualification answers).
 **Later:** the Geek-CRM UI (see `Geek-CRM-Workspace/Plan.md`) grows on top of this, ported from the
@@ -90,6 +90,7 @@ Spot is tenant #1), `created_at`, `updated_at`. Soft delete via `archived_at` wh
 | `preferred_language` | text? | BCP-47, e.g. `en`, `es` |
 | `notes` | text? | |
 | `archived_at` | timestamptz? | Soft delete |
+| `import_batch_id` | uuid? | The import that created the row, so a batch can be reviewed and archived as a unit |
 
 ### 4.2 `person` (1:1 with participant, `kind = person`)
 
@@ -141,6 +142,7 @@ organizations with no primary contact; a Deal requires one (see 4.8).
 | `do_not_contact` | bool | Never call/email/text |
 | `sms_opt_out` | bool | Set when the person replies STOP (from Twilio) |
 | `verified_at` | timestamptz? | e.g. they replied from this number |
+| `import_batch_id` | uuid? | The import that created the row |
 
 Unique: `(tenant_id, kind, value)` for phone and email, so a caller's number finds the existing record.
 
@@ -219,15 +221,26 @@ Rule (app level): a deal cannot move past **Qualified** without a `primary_conta
 | `property_definition` | | `property_value` | |
 |---|---|---|---|
 | `object_type` | `person` \| `organization` \| `deal` | `definition_id` | FK |
-| `key`, `label` | text | `record_id` | uuid |
+| `key`, `label` | text; a key is lower case letters, digits and underscores | `record_id` | uuid |
 | `data_type` | `text`, `number`, `date`, `bool`, `enum`, `multi_enum` | `value` | jsonb |
-| `options` | jsonb (for enums) | | |
-| `is_sensitive` | bool — excluded from AI summaries and exports unless allowed | | |
+| `options` | jsonb list (required for `enum` and `multi_enum`) | | |
+| `is_sensitive` | bool; hidden from reads unless the caller may see it, never logged, kept out of AI summaries and exports | | |
+| `retired_at` | timestamptz?; a retired property is hidden and refuses new values, its stored values are kept for history | | |
+
+The service checks every value against its definition's `data_type` and `options` before writing, and
+writes all of a call's values or none. A date is `yyyy-MM-dd`; a `multi_enum` is a list of distinct
+options; text is at most 4,000 characters. A property's object type, key and data type never change.
+A key stays reserved after the property is retired. Removing an option that a stored value uses is
+refused. A property that does not exist, is retired, or is sensitive for a caller who may not see it
+is answered the same way (not found), so the answer never says which.
 
 ### 4.11 Lookups
 
-- `naics_code` (`code`, `title`, `level`) — loaded from the Census Bureau list.
-- `sic_code` (`code`, `title`) — optional, loaded from the federal list.
+- `naics_code` (`code`, `title`, `level`) — the Census Bureau's 2022 NAICS list, 2,125 codes (20 sectors
+  including the ranges 31-33, 44-45 and 48-49; 96 subsectors; 308 industry groups; 689 NAICS industries;
+  1,012 national industries), loaded by `0052_geek_crm_naics_load.sql`. `level` is the number of digits,
+  and 2 for a sector range. The script is idempotent.
+- `sic_code` (`code`, `title`) — optional, loaded later from the federal list.
 
 ---
 
@@ -259,9 +272,21 @@ All writes are idempotent on `external_ref` (Twilio SID), so Twilio retries neve
 
 ### GeekAPI routes (X-API-Key, like every /api route)
 
+`GET /api/crm/lookups/naics?q=&level=&limit=` searches the NAICS list: digits search by code prefix,
+words search titles, `level` is 2 to 6. Custom properties:
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/crm/imports/apollo?source=Apollo%20Batch%201` | Body = the Apollo "Export contacts" CSV (`Content-Type: text/csv`). Re-importing matches instead of duplicating |
+| GET, POST | `/api/crm/properties/definitions?objectType=` | List, create a custom property. `includeRetired=true` and `includeSensitive=true` widen the list |
+| PUT, DELETE | `/api/crm/properties/definitions/{id}` | Edit (label, options, sensitivity), retire |
+| GET, PUT | `/api/crm/{objectType}/{recordId}/properties` | Read, set values on a `person`, `organization` or `deal`. PUT body: `{"values": {"key": value, "other": null}}`; a null clears |
+
+A sensitive property is hidden unless the call passes `includeSensitive=true`. Every caller today holds
+the X-API-Key (a trusted server); when signed-in users arrive their role decides it.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/crm/imports/apollo?source=Apollo%20Batch%201&dryRun=false` | Body = the Apollo "Export contacts" CSV (`Content-Type: text/csv`). Re-importing matches instead of duplicating. `dryRun=true` returns the would-create and would-match counts and writes nothing |
 | GET | `/api/crm/participants?stage=lead&kind=organization&limit=50` | List |
 | GET | `/api/crm/participants/{id}` | One participant with contact points, links and the last 25 activities |
 | GET | `/api/crm/deals?openOnly=true` | Deals with their stage |
@@ -272,6 +297,12 @@ All take an optional `tenantId`; the default is Geek @ Your Spot.
 curl -X POST "https://api.geekatyourspot.com/api/crm/imports/apollo?source=Apollo%20Batch%201" \
   -H "X-API-Key: $GEEK_BACKEND_API_KEY" -H "Content-Type: text/csv" --data-binary @apollo-export.csv
 ```
+
+An import is one transaction: a failure partway leaves nothing behind, and a dry run does exactly the work
+of a real run and rolls it back. Every row a real run creates carries the `batchId` the answer returns
+(`import_batch_id`), so the batch can be reviewed and archived as a unit. An organization matches an
+existing one by case-insensitive name or by exact website domain (`acme.com` never matches `notacme.com`);
+a person matches by email, then by Apollo's person id.
 
 Apollo's revenue figures are its own estimates; the revenue band is only as good as they are.
 

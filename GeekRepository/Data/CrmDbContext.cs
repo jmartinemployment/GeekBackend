@@ -7,7 +7,7 @@ namespace GeekRepository.Data;
 /// The geek_crm schema (docs/GEEK-CRM-DATA-MODEL.md), served to GeekAPI through repo/crm/*.
 /// No EF migrations: the schema is created by Migrations/Sql/0050_geek_crm_schema.sql through
 /// SqlMigrationRunner, like geek_social. Every column is the snake_case of its property.
-/// Custom properties and the NAICS/SIC lookups exist in the schema but are not mapped yet.
+/// The SIC lookup exists in the schema but is not mapped yet.
 /// </summary>
 public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(options)
 {
@@ -25,6 +25,9 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
     public DbSet<CrmDealStageHistoryRow> DealStageHistory => Set<CrmDealStageHistoryRow>();
     public DbSet<CrmDealParticipantRow> DealParticipants => Set<CrmDealParticipantRow>();
     public DbSet<CrmActivityRow> Activities => Set<CrmActivityRow>();
+    public DbSet<CrmPropertyDefinitionRow> PropertyDefinitions => Set<CrmPropertyDefinitionRow>();
+    public DbSet<CrmPropertyValueRow> PropertyValues => Set<CrmPropertyValueRow>();
+    public DbSet<CrmNaicsCodeRow> NaicsCodes => Set<CrmNaicsCodeRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -45,6 +48,19 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
         modelBuilder.Entity<CrmDealStageHistoryRow>(e => { e.ToTable("deal_stage_history", Schema); e.HasKey(x => x.Id); });
         modelBuilder.Entity<CrmDealParticipantRow>(e => { e.ToTable("deal_participants", Schema); e.HasKey(x => x.Id); });
         modelBuilder.Entity<CrmActivityRow>(e => { e.ToTable("activities", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmPropertyDefinitionRow>(e =>
+        {
+            e.ToTable("property_definitions", Schema);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Options).HasColumnType("jsonb");
+        });
+        modelBuilder.Entity<CrmPropertyValueRow>(e =>
+        {
+            e.ToTable("property_values", Schema);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Value).HasColumnType("jsonb");
+        });
+        modelBuilder.Entity<CrmNaicsCodeRow>(e => { e.ToTable("naics_codes", Schema); e.HasKey(x => x.Code); });
 
         // Foreign keys without navigations: they exist so EF inserts a parent before its children
         // (a participant before its contact points, a deal before its stage history). The
@@ -67,6 +83,8 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
         Fk<CrmDealParticipantRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
         Fk<CrmActivityRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
         Fk<CrmActivityRow, CrmDealRow>(modelBuilder, x => x.DealId);
+        Fk<CrmPropertyDefinitionRow, CrmTenantRow>(modelBuilder, x => x.TenantId);
+        Fk<CrmPropertyValueRow, CrmPropertyDefinitionRow>(modelBuilder, x => x.DefinitionId);
 
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {

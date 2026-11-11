@@ -168,9 +168,14 @@ public sealed record ImportProspect(
 
 public sealed record ImportPhone(string E164, string Label);
 
-public sealed record ImportProspectsCommand(Guid TenantId, string SourceDetail, IReadOnlyList<ImportProspect> Prospects);
+/// <summary>
+/// <see cref="DryRun"/> runs the whole import and rolls it back: the counts are exactly what a real run
+/// would give and nothing is written. A real run is one transaction, so a failure partway leaves nothing.
+/// </summary>
+public sealed record ImportProspectsCommand(Guid TenantId, string SourceDetail, IReadOnlyList<ImportProspect> Prospects, bool DryRun = false);
 
-public sealed record ImportProspectsResult(int PeopleCreated, int OrganizationsCreated, int Matched, int Skipped, IReadOnlyList<string> Problems);
+/// <summary>BatchId stamps every row the import created (null for a dry run, which created none), so a batch can be reviewed and archived as a unit.</summary>
+public sealed record ImportProspectsResult(int PeopleCreated, int OrganizationsCreated, int Matched, int Skipped, IReadOnlyList<string> Problems, Guid? BatchId = null, bool DryRun = false);
 
 public sealed record CreateDealCommand(
     Guid TenantId,

@@ -21,7 +21,8 @@ public sealed class CrmIntegrationTests
     private static CrmRepository NewRepository()
     {
         var options = new DbContextOptionsBuilder<CrmDbContext>().UseNpgsql(IntegrationTestConfig.DatabaseUrl!).Options;
-        return new CrmRepository(new CrmDbContext(options), TimeProvider.System, NullLogger<CrmRepository>.Instance);
+        var db = new CrmDbContext(options);
+        return new CrmRepository(db, TimeProvider.System, NullLogger<CrmRepository>.Instance, new PostgresCrmTenantScope(db));
     }
 
     private static string RandomPhone() => "+1561" + Random.Shared.Next(2000000, 9999999).ToString(System.Globalization.CultureInfo.InvariantCulture);

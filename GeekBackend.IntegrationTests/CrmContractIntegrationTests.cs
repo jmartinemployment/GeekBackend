@@ -27,19 +27,24 @@ public sealed class CrmContractIntegrationTests
         ["numeric(12,2)"] = "numeric",
     };
 
+    /// <summary>The schema scripts, in order. The NAICS load is data, not schema, and has its own test.</summary>
+    private static readonly string[] SchemaScripts =
+        ["0050_geek_crm_schema.sql", "0051_geek_crm_import_batch_and_property_retire.sql", "0053_geek_crm_tenant_keys.sql"];
+
     private static async Task<NpgsqlConnection> ApplyCrmScriptAsync()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "Migrations", "Sql", "0050_geek_crm_schema.sql");
-        if (!File.Exists(path))
-        {
-            path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
-                "GeekRepository", "Migrations", "Sql", "0050_geek_crm_schema.sql"));
-        }
-
         var connection = new NpgsqlConnection(IntegrationTestConfig.DatabaseUrl);
         await connection.OpenAsync();
-        await using var apply = new NpgsqlCommand(await File.ReadAllTextAsync(path), connection);
-        await apply.ExecuteNonQueryAsync();
+        foreach (var name in SchemaScripts)
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Migrations", "Sql", name);
+            if (!File.Exists(path))
+            {
+                path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "GeekRepository", "Migrations", "Sql", name));
+            }
+            await using var apply = new NpgsqlCommand(await File.ReadAllTextAsync(path), connection);
+            await apply.ExecuteNonQueryAsync();
+        }
         return connection;
     }
 
@@ -119,14 +124,20 @@ public sealed class CrmContractIntegrationTests
         await using var connection = await ApplyCrmScriptAsync();
 
         var foreignKeys = await RowsAsync(connection, """
-            select c.relname, a.attname, p.relname
+            select c.relname,
+                   (select string_agg(a.attname::text, ',' order by u.ord)
+                      from unnest(k.conkey) with ordinality u(attnum, ord)
+                      join pg_attribute a on a.attrelid = k.conrelid and a.attnum = u.attnum),
+                   p.relname,
+                   (select string_agg(a.attname::text, ',' order by u.ord)
+                      from unnest(k.confkey) with ordinality u(attnum, ord)
+                      join pg_attribute a on a.attrelid = k.confrelid and a.attnum = u.attnum)
             from pg_constraint k
             join pg_class c on c.oid = k.conrelid
             join pg_class p on p.oid = k.confrelid
-            join pg_attribute a on a.attrelid = k.conrelid and a.attnum = k.conkey[1]
             where k.contype = 'f' and c.relnamespace = 'geek_crm'::regnamespace
             """);
-        Assert.Equal(ForeignKeys(), Sorted(foreignKeys.Select(r => $"{r[0]}.{r[1]}->{r[2]}")));
+        Assert.Equal(ForeignKeys(), Sorted(foreignKeys.Select(r => $"{r[0]}({r[1]})->{r[2]}({r[3]})")));
 
         var uniques = await RowsAsync(connection, """
             select t.relname, array_to_string(array_agg(a.attname::text order by a.attname::text), ',')
@@ -137,5 +148,27 @@ public sealed class CrmContractIntegrationTests
             group by i.indexrelid, t.relname
             """);
         Assert.Equal(Uniques(), Sorted(uniques.Select(r => $"{r[0]}({r[1]})")));
+    }
+
+    [Fact]
+    public async Task The_naics_load_puts_the_census_2022_list_in_the_table_and_a_second_run_changes_nothing()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await using var connection = await ApplyCrmScriptAsync();
+        var path = Path.Combine(AppContext.BaseDirectory, "Migrations", "Sql", "0052_geek_crm_naics_load.sql");
+        if (!File.Exists(path))
+        {
+            path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
+                "GeekRepository", "Migrations", "Sql", "0052_geek_crm_naics_load.sql"));
+        }
+        var script = await File.ReadAllTextAsync(path);
+
+        for (var run = 0; run < 2; run++)
+        {
+            await using var load = new NpgsqlCommand(script, connection);
+            await load.ExecuteNonQueryAsync();
+            var count = await RowsAsync(connection, "select count(*), count(*) filter (where level = 6) from geek_crm.naics_codes");
+            Assert.Equal((2125L, 1012L), ((long)count[0][0]!, (long)count[0][1]!));
+        }
     }
 }

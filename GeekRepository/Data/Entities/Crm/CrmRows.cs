@@ -27,6 +27,7 @@ public sealed class CrmParticipantRow
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
     public DateTime? ArchivedAt { get; set; }
+    public Guid? ImportBatchId { get; set; }
 }
 
 public sealed class CrmPersonRow
@@ -80,6 +81,7 @@ public sealed class CrmContactPointRow
     public bool SmsOptOut { get; set; }
     public DateTime? VerifiedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    public Guid? ImportBatchId { get; set; }
 }
 
 public sealed class CrmParticipantLinkRow
@@ -176,4 +178,35 @@ public sealed class CrmActivityRow
     public DateTime? CompletedAt { get; set; }
     public string CreatedBy { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+}
+
+public sealed class CrmPropertyDefinitionRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public string ObjectType { get; set; } = string.Empty;
+    public string Key { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string DataType { get; set; } = string.Empty;
+    public string? Options { get; set; }
+    public bool IsSensitive { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? RetiredAt { get; set; }
+}
+
+public sealed class CrmPropertyValueRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid DefinitionId { get; set; }
+    public Guid RecordId { get; set; }
+    public string Value { get; set; } = "null";
+    public DateTime UpdatedAt { get; set; }
+}
+
+public sealed class CrmNaicsCodeRow
+{
+    public string Code { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public int Level { get; set; }
 }

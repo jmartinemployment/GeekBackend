@@ -23,11 +23,15 @@ namespace GeekBackend.Tests.Crm;
 public class SchemaContractTests
 {
     private static readonly string Root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-    private static readonly string SqlPath = Path.Combine(Root, "GeekRepository", "Migrations", "Sql", "0050_geek_crm_schema.sql");
 
     // ----- the SQL script (0050), comments removed -----
 
-    private static string Sql => Regex.Replace(File.ReadAllText(SqlPath), @"--[^\n]*", string.Empty);
+    /// <summary>The schema scripts, in order, with comments removed: 0050 creates the tables and later scripts alter them. Data loads are not schema.</summary>
+    private static readonly string[] SchemaScripts = 
+        ["0050_geek_crm_schema.sql", "0051_geek_crm_import_batch_and_property_retire.sql", "0053_geek_crm_tenant_keys.sql"];
+
+    private static string Sql => string.Join("\n", SchemaScripts.Select(name =>
+        Regex.Replace(File.ReadAllText(Path.Combine(Root, "GeekRepository", "Migrations", "Sql", name)), @"--[^\n]*", string.Empty)));
 
     private sealed record SqlColumn(string Name, string Type, bool NotNull);
 
@@ -43,6 +47,15 @@ public class SchemaContractTests
                     Regex.Replace(m.Groups[2].Value, @"\s+", string.Empty),
                     m.Groups[3].Value.Contains("NOT NULL", StringComparison.Ordinal) || m.Groups[3].Value.Contains("PRIMARY KEY", StringComparison.Ordinal)))
                 .ToList();
+        }
+
+        foreach (Match alter in Regex.Matches(Sql,
+                     @"ALTER TABLE geek_crm\.(\w+)\s+ADD COLUMN IF NOT EXISTS ([a-z_0-9]+)\s+(uuid|text|boolean|integer|timestamptz|date|jsonb|numeric(?:\(\d+,\s*\d+\))?)([^;]*);"))
+        {
+            tables[alter.Groups[1].Value].Add(new SqlColumn(
+                alter.Groups[2].Value,
+                Regex.Replace(alter.Groups[3].Value, @"\s+", string.Empty),
+                alter.Groups[4].Value.Contains("NOT NULL", StringComparison.Ordinal)));
         }
         return tables;
     }
@@ -182,7 +195,7 @@ public class SchemaContractTests
         }
 
         // Not mapped yet (docs/GEEK-CRM-DATA-MODEL.md); when Phase 1 maps one, remove it from this list.
-        string[] unmappedForNow = ["property_definitions", "property_values", "naics_codes", "sic_codes"];
+        string[] unmappedForNow = ["sic_codes"];
         Assert.Equal(Sorted(unmappedForNow), Sorted(Tables.Where(t => t.Shipped).Select(t => t.Table).Except(mapped)));
     }
 
@@ -213,8 +226,17 @@ public class SchemaContractTests
     {
         var found = new List<string>();
         foreach (Match table in Regex.Matches(Sql, @"CREATE TABLE IF NOT EXISTS geek_crm\.(\w+)\s*\((.*?)\n\);", RegexOptions.Singleline))
-            foreach (Match fk in Regex.Matches(table.Groups[2].Value, @"^ {4}([a-z_0-9]+)\s+uuid[^\n]*REFERENCES geek_crm\.(\w+)", RegexOptions.Multiline))
-                found.Add($"{table.Groups[1].Value}.{fk.Groups[1].Value}->{fk.Groups[2].Value}");
+        {
+            foreach (Match fk in Regex.Matches(table.Groups[2].Value, @"^ {4}([a-z_0-9]+)\s+uuid[^\n]*REFERENCES geek_crm\.(\w+)\s*\((\w+)\)", RegexOptions.Multiline))
+            {
+                // A later script drops a single-column key by Postgres's default name and adds a composite one.
+                var defaultName = $"{table.Groups[1].Value}_{fk.Groups[1].Value}_fkey";
+                if (Sql.Contains($"DROP CONSTRAINT IF EXISTS {defaultName};", StringComparison.Ordinal)) continue;
+                found.Add($"{table.Groups[1].Value}({fk.Groups[1].Value})->{fk.Groups[2].Value}({fk.Groups[3].Value})");
+            }
+        }
+        foreach (Match fk in Regex.Matches(Sql, @"ALTER TABLE geek_crm\.(\w+)\s+ADD CONSTRAINT \w+\s+FOREIGN KEY \(([^)]*)\)\s+REFERENCES geek_crm\.(\w+)\s*\(([^)]*)\)"))
+            found.Add($"{fk.Groups[1].Value}({Regex.Replace(fk.Groups[2].Value, @"\s+", "")})->{fk.Groups[3].Value}({Regex.Replace(fk.Groups[4].Value, @"\s+", "")})");
         return Sorted(found);
     }
 
@@ -222,6 +244,39 @@ public class SchemaContractTests
     public void Every_foreign_key_in_the_script_is_a_reference_or_a_nesting_in_the_xsd_and_the_reverse()
     {
         Assert.Equal(SqlForeignKeys(), ForeignKeys());
+    }
+
+    // ----- tests: row-level security -----
+
+    private static readonly string[] PublicLists = ["naics_codes", "sic_codes"];
+
+    [Fact]
+    public void Every_shipped_table_that_holds_tenant_data_has_forced_row_level_security_and_a_policy_and_the_public_lists_have_none()
+    {
+        var script = Sql;
+        var tenantPolicy = "tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid";
+        foreach (var table in Tables.Where(t => t.Shipped))
+        {
+            var rls = $"ALTER TABLE geek_crm.{table.Table} ENABLE ROW LEVEL SECURITY;";
+            var forced = $"ALTER TABLE geek_crm.{table.Table} FORCE ROW LEVEL SECURITY;";
+            var policy = $"CREATE POLICY tenant_isolation ON geek_crm.{table.Table}";
+            if (PublicLists.Contains(table.Table))
+            {
+                Assert.DoesNotContain(rls, script, StringComparison.Ordinal);
+                Assert.DoesNotContain(policy, script, StringComparison.Ordinal);
+                continue;
+            }
+            Assert.Contains(rls, script, StringComparison.Ordinal);
+            Assert.Contains(forced, script, StringComparison.Ordinal);
+            Assert.Contains(policy, script, StringComparison.Ordinal);
+            if (table.Columns.Any(c => c.Column == "tenant_id"))
+            {
+                var at = script.IndexOf(policy, StringComparison.Ordinal);
+                var statement = script[at..script.IndexOf(';', at)];
+                Assert.Contains($"USING ({tenantPolicy})", statement, StringComparison.Ordinal);
+                Assert.Contains($"WITH CHECK ({tenantPolicy})", statement, StringComparison.Ordinal);
+            }
+        }
     }
 
     // ----- tests: documents -----
