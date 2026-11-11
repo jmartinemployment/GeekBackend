@@ -259,6 +259,24 @@ Draft model (the working numbers live in Jeff's "Use-Case Pricing Draft" sheet, 
   WebSocket.
 - Text-back stays the fallback when the AI or a dependency is down.
 
+### WebSocket and SignalR (agreed 2026-11-11)
+
+| Connection | Technology | Why |
+|---|---|---|
+| Twilio ⇄ GeekAPI (the live call) | Plain ASP.NET Core WebSocket, e.g. `/api/receptionist/twilio/relay` | ConversationRelay speaks its own JSON over a standard WebSocket; it cannot connect to a SignalR hub |
+| GeekAPI ⇄ browsers (live calls, transcripts, new leads) | SignalR: a new receptionist hub beside `/hubs/geek-crawler-realtime` and `/hubs/workflow-realtime` | The existing standard (`AddSignalR` is already in `Program.cs`) |
+
+The WebSocket handler stays thin: it turns Twilio messages into calls on ordinary services
+(Service → Repository), and anything a browser should see is pushed through the SignalR hub.
+
+### Booking calendar
+
+The website (Vercel) books into the calendar in its `GOOGLE_CALENDAR_ID` variable: 9–5 ET, 30-minute
+calls with a 30-minute buffer. Lunch (12–1) is a recurring busy event on that calendar, not code.
+GeekAPI runs on Railway and cannot read Vercel's variables, so at build time choose: the same
+calendar ID and Google credentials on GeekAPI's Railway service, or GeekAPI asks the website to list
+and book slots (one copy of the booking rules, but a dependency on the website).
+
 ## Planned: multi-tenant numbers (not built)
 
 Today one set of Twilio variables serves one business. Clients will be served two ways:
