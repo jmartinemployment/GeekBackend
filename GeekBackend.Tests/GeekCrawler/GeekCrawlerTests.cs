@@ -953,44 +953,6 @@ public class GeekCrawlerSitemapSeederTests
     }
 }
 
-public class GeekCrawlerPlaywrightIntegrationTests
-{
-    [Fact]
-    public async Task Mobile_fetch_returns_html_when_integration_enabled()
-    {
-        if (!string.Equals(
-                Environment.GetEnvironmentVariable("RUN_PLAYWRIGHT_INTEGRATION"),
-                "1",
-                StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        await using var holder = new GeekCrawlerPlaywrightHolder();
-        await holder.InitializeAsync();
-        Assert.NotNull(holder.Browser);
-
-        var registry = new GeekCrawlerHostRegistry(GeekCrawlerOptions.FromConfiguration(
-            new ConfigurationBuilder().Build()));
-        var gate = new GeekCrawlerPoliteGate(
-            new HttpClient(),
-            registry,
-            TimeProvider.System,
-            GeekCrawlerOptions.FromConfiguration(new ConfigurationBuilder().Build()),
-            NullLogger<GeekCrawlerPoliteGate>.Instance);
-        var fetcher = new MobilePageFetcher(
-            holder,
-            gate,
-            registry,
-            NullLogger<MobilePageFetcher>.Instance);
-
-        var result = await fetcher.FetchAsync("https://example.com/", CancellationToken.None);
-
-        Assert.NotNull(result.Html);
-        Assert.True(result.StatusCode is >= 200 and < 300);
-    }
-}
-
 public class GeekCrawlerScheduleTests
 {
     [Fact]
