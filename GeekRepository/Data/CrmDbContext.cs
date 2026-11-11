@@ -1,0 +1,81 @@
+using GeekRepository.Data.Entities.Crm;
+using Microsoft.EntityFrameworkCore;
+
+namespace GeekRepository.Data;
+
+/// <summary>
+/// The geek_crm schema (docs/GEEK-CRM-DATA-MODEL.md), served to GeekAPI through repo/crm/*.
+/// No EF migrations: the schema is created by Migrations/Sql/0050_geek_crm_schema.sql through
+/// SqlMigrationRunner, like geek_social. Every column is the snake_case of its property.
+/// Custom properties and the NAICS/SIC lookups exist in the schema but are not mapped yet.
+/// </summary>
+public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbContext(options)
+{
+    public const string Schema = "geek_crm";
+
+    public DbSet<CrmTenantRow> Tenants => Set<CrmTenantRow>();
+    public DbSet<CrmParticipantRow> Participants => Set<CrmParticipantRow>();
+    public DbSet<CrmPersonRow> Persons => Set<CrmPersonRow>();
+    public DbSet<CrmOrganizationRow> Organizations => Set<CrmOrganizationRow>();
+    public DbSet<CrmContactPointRow> ContactPoints => Set<CrmContactPointRow>();
+    public DbSet<CrmParticipantLinkRow> Links => Set<CrmParticipantLinkRow>();
+    public DbSet<CrmPipelineRow> Pipelines => Set<CrmPipelineRow>();
+    public DbSet<CrmStageRow> Stages => Set<CrmStageRow>();
+    public DbSet<CrmDealRow> Deals => Set<CrmDealRow>();
+    public DbSet<CrmDealStageHistoryRow> DealStageHistory => Set<CrmDealStageHistoryRow>();
+    public DbSet<CrmDealParticipantRow> DealParticipants => Set<CrmDealParticipantRow>();
+    public DbSet<CrmActivityRow> Activities => Set<CrmActivityRow>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<CrmTenantRow>(e => { e.ToTable("tenants", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmParticipantRow>(e => { e.ToTable("participants", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmPersonRow>(e => { e.ToTable("persons", Schema); e.HasKey(x => x.ParticipantId); });
+        modelBuilder.Entity<CrmOrganizationRow>(e => { e.ToTable("organizations", Schema); e.HasKey(x => x.ParticipantId); });
+        modelBuilder.Entity<CrmContactPointRow>(e => { e.ToTable("contact_points", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmParticipantLinkRow>(e => { e.ToTable("participant_links", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmPipelineRow>(e => { e.ToTable("pipelines", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmStageRow>(e => { e.ToTable("stages", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmDealRow>(e =>
+        {
+            e.ToTable("deals", Schema);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Qualification).HasColumnType("jsonb");
+        });
+        modelBuilder.Entity<CrmDealStageHistoryRow>(e => { e.ToTable("deal_stage_history", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmDealParticipantRow>(e => { e.ToTable("deal_participants", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmActivityRow>(e => { e.ToTable("activities", Schema); e.HasKey(x => x.Id); });
+
+        // Foreign keys without navigations: they exist so EF inserts a parent before its children
+        // (a participant before its contact points, a deal before its stage history). The
+        // database owns deletes (ON DELETE in 0050), so EF never cascades on its own.
+        Fk<CrmParticipantRow, CrmTenantRow>(modelBuilder, x => x.TenantId);
+        Fk<CrmPersonRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
+        Fk<CrmOrganizationRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
+        Fk<CrmContactPointRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
+        Fk<CrmParticipantLinkRow, CrmParticipantRow>(modelBuilder, x => x.FromParticipantId);
+        Fk<CrmParticipantLinkRow, CrmParticipantRow>(modelBuilder, x => x.ToParticipantId);
+        Fk<CrmPipelineRow, CrmTenantRow>(modelBuilder, x => x.TenantId);
+        Fk<CrmStageRow, CrmPipelineRow>(modelBuilder, x => x.PipelineId);
+        Fk<CrmDealRow, CrmPipelineRow>(modelBuilder, x => x.PipelineId);
+        Fk<CrmDealRow, CrmStageRow>(modelBuilder, x => x.StageId);
+        Fk<CrmDealRow, CrmParticipantRow>(modelBuilder, x => x.OrganizationParticipantId);
+        Fk<CrmDealStageHistoryRow, CrmDealRow>(modelBuilder, x => x.DealId);
+        Fk<CrmDealStageHistoryRow, CrmStageRow>(modelBuilder, x => x.FromStageId);
+        Fk<CrmDealStageHistoryRow, CrmStageRow>(modelBuilder, x => x.ToStageId);
+        Fk<CrmDealParticipantRow, CrmDealRow>(modelBuilder, x => x.DealId);
+        Fk<CrmDealParticipantRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
+        Fk<CrmActivityRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
+        Fk<CrmActivityRow, CrmDealRow>(modelBuilder, x => x.DealId);
+
+        foreach (var entity in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entity.GetProperties())
+                property.SetColumnName(SocialDbContext.ToSnakeCase(property.Name));
+        }
+    }
+
+    private static void Fk<TChild, TParent>(ModelBuilder modelBuilder, System.Linq.Expressions.Expression<Func<TChild, object?>> key)
+        where TChild : class where TParent : class =>
+        modelBuilder.Entity<TChild>().HasOne<TParent>().WithMany().HasForeignKey(key).OnDelete(DeleteBehavior.NoAction);
+}

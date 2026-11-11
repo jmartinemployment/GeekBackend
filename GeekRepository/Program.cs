@@ -113,6 +113,12 @@ builder.Services.AddDbContext<GeekRepository.Data.SocialDbContext>(options => op
     .UseNpgsql(connectionString)
     .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
+// Geek-CRM (geek_crm): participants, contact points, deals and activities, served to GeekAPI through
+// repo/crm/*. Created and maintained by Migrations/Sql/0050_geek_crm_schema.sql (docs/GEEK-CRM-DATA-MODEL.md).
+builder.Services.AddDbContext<GeekRepository.Data.CrmDbContext>(options => options
+    .UseNpgsql(connectionString)
+    .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
+
 builder.Services.AddGeekRepository(connectionString);
 builder.Services.AddGeekRepositoryAuth();
 builder.Services.AddExceptionHandler<GeekRepository.Infrastructure.DbUpdateConcurrencyExceptionHandler>();

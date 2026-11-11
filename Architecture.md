@@ -100,6 +100,7 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 | `/api/seo/internal/*` | `X-API-Key` + optional user headers | Proxies to `repo/seo/*` on GeekRepository |
 | `/api/case-studies`, `/api/departments`, `/api/use-cases` | Public read | Marketing/content |
 | `/api/receptionist/twilio/*` | `X-Twilio-Signature` (exempt from `X-API-Key`) | Geek-Receptionist missed-call text-back; see [`docs/RECEPTIONIST.md`](docs/RECEPTIONIST.md) |
+| `/api/crm/*` | `X-API-Key` | Geek-CRM (`geek_crm` via `repo/crm/*`); see [`docs/GEEK-CRM-DATA-MODEL.md`](docs/GEEK-CRM-DATA-MODEL.md) |
 | `/api/auth/*`, `/hubs/sync` | — | **410 Gone** (use GeekOAuth) |
 
 **Outbound:** `HttpClient` `GeekRepository` → `REPO_URL` with `REPO_API_KEY` (interim; JWT S2S is target).
