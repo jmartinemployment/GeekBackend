@@ -44,6 +44,17 @@ public class CrmReceptionistRecorderTests
         public Task<Result<CrmPropertyDefinition>> RetirePropertyDefinitionAsync(Guid tenantId, Guid definitionId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<IReadOnlyList<CrmPropertyValue>>> GetPropertyValuesAsync(Guid tenantId, string objectType, Guid recordId, bool includeSensitive, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<IReadOnlyList<CrmPropertyValue>>> SetPropertyValuesAsync(SetPropertyValuesCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<CrmProduct>>> ListProductsAsync(Guid tenantId, string? kind, bool includeRetired, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmProduct>> CreateProductAsync(CreateProductCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmProduct>> UpdateProductAsync(Guid productId, UpdateProductCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmDealLineItems>> ListLineItemsAsync(Guid tenantId, Guid dealId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmDealLineItems>> AddLineItemAsync(Guid dealId, AddLineItemCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmDealLineItems>> UpdateLineItemAsync(Guid dealId, Guid lineItemId, UpdateLineItemCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmDealLineItems>> DeleteLineItemAsync(Guid tenantId, Guid dealId, Guid lineItemId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<WinDealResult>> WinDealAsync(Guid tenantId, Guid dealId, string changedBy, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<CrmHolding>>> ListHoldingsAsync(Guid tenantId, Guid participantId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmHolding>> CreateHoldingAsync(CreateHoldingCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmHolding>> UpdateHoldingAsync(Guid holdingId, UpdateHoldingCommand command, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private static CrmReceptionistRecorder Recorder(FakeStore store)

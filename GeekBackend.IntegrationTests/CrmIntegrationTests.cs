@@ -142,4 +142,100 @@ public sealed class CrmIntegrationTests
         var listed = await NewRepository().ListDealsAsync(otherTenant, false, 200);
         Assert.DoesNotContain(listed.Value ?? [], d => d.Id == deal.Value.Id);
     }
+
+    // ----- Phase 2: the catalog, line items and winning a deal into holdings -----
+
+    /// <summary>Runs the work and then fails before the commit, as a crash partway through a win would: the transaction must roll back.</summary>
+    private sealed class FailAfterWorkScope(ICrmTenantScope inner) : ICrmTenantScope
+    {
+        public Task<T> RunAsync<T>(Guid tenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) =>
+            inner.RunAsync(tenantId, async () =>
+            {
+                await work();
+                throw new InvalidOperationException("The win failed after it wrote its holdings.");
+            }, keep, ct);
+    }
+
+    private static async Task<(Guid DealId, Guid ContactId, int Items)> DealWithLineItemsAsync(int items)
+    {
+        var unique = Guid.NewGuid().ToString("N")[..8];
+        var contact = await NewRepository().EnsureParticipantByPhoneAsync(new(Tenant, RandomPhone(), ParticipantSources.PhoneCall, "test"));
+        Assert.True(contact.IsSuccess, contact.Error);
+        var deal = await NewRepository().CreateDealAsync(new(Tenant, "Win test " + unique, "missed_call_text_back", null, contact.Value!.ParticipantId, null, null, null, null));
+        Assert.True(deal.IsSuccess, deal.Error);
+        for (var i = 0; i < items; i++)
+        {
+            var product = await NewRepository().CreateProductAsync(new(Tenant, $"Product {i} {unique}", $"p{i}-{unique}", ProductKinds.Service, ProductCategories.Accounting, null, null, i % 2 == 0 ? BillingPeriods.Monthly : BillingPeriods.OneTime));
+            Assert.True(product.IsSuccess, product.Error);
+            var added = await NewRepository().AddLineItemAsync(deal.Value!.Id, new(Tenant, product.Value!.Id, 1, 100m + i, null, 0));
+            Assert.True(added.IsSuccess, added.Error);
+        }
+        return (deal.Value!.Id, contact.Value.ParticipantId, items);
+    }
+
+    [Fact]
+    public async Task Winning_a_deal_makes_one_holding_per_line_item_and_a_second_win_makes_none()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var (dealId, contactId, n) = await DealWithLineItemsAsync(3);
+
+        var first = await NewRepository().WinDealAsync(Tenant, dealId, "test");
+        Assert.True(first.IsSuccess, first.Error);
+        Assert.Equal((n, n), (first.Value!.HoldingsCreated, first.Value.Holdings.Count));
+        Assert.Equal(StageOutcomes.Won, first.Value.Deal.StageOutcome);
+
+        var second = await NewRepository().WinDealAsync(Tenant, dealId, "test");
+        Assert.True(second.IsSuccess, second.Error);
+        Assert.Equal((0, n), (second.Value!.HoldingsCreated, second.Value.Holdings.Count));
+        Assert.Equal(n, (await NewRepository().ListHoldingsAsync(Tenant, contactId)).Value!.Count);
+    }
+
+    [Fact]
+    public async Task Two_wins_at_once_make_exactly_one_holding_per_line_item()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var (dealId, contactId, n) = await DealWithLineItemsAsync(4);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => NewRepository().WinDealAsync(Tenant, dealId, "test")));
+
+        Assert.All(results, r => Assert.True(r.IsSuccess, r.Error));
+        Assert.Equal(n, results.Sum(r => r.Value!.HoldingsCreated));
+        Assert.Equal(n, (await NewRepository().ListHoldingsAsync(Tenant, contactId)).Value!.Count);
+    }
+
+    [Fact]
+    public async Task A_win_that_fails_partway_leaves_no_holdings_and_the_old_stage()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var (dealId, contactId, _) = await DealWithLineItemsAsync(2);
+
+        var options = new DbContextOptionsBuilder<CrmDbContext>().UseNpgsql(IntegrationTestConfig.DatabaseUrl!).Options;
+        var db = new CrmDbContext(options);
+        var failing = new CrmRepository(db, TimeProvider.System, NullLogger<CrmRepository>.Instance, new FailAfterWorkScope(new PostgresCrmTenantScope(db)));
+        var failed = await failing.WinDealAsync(Tenant, dealId, "test");
+
+        Assert.False(failed.IsSuccess);
+        Assert.Empty((await NewRepository().ListHoldingsAsync(Tenant, contactId)).Value!);
+        var deals = await NewRepository().ListDealsAsync(Tenant, openOnly: true, 200);
+        Assert.Contains(deals.Value!, d => d.Id == dealId && d.StageOutcome == StageOutcomes.Open);
+    }
+
+    [Fact]
+    public async Task Another_tenant_sees_none_of_the_catalog_the_line_items_or_the_holdings()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var (dealId, contactId, _) = await DealWithLineItemsAsync(1);
+        await NewRepository().WinDealAsync(Tenant, dealId, "test");
+        var other = Guid.NewGuid();
+
+        Assert.Empty((await NewRepository().ListProductsAsync(other, null, true)).Value ?? []);
+        Assert.False((await NewRepository().ListLineItemsAsync(other, dealId)).IsSuccess);
+        Assert.False((await NewRepository().ListHoldingsAsync(other, contactId)).IsSuccess);
+        Assert.False((await NewRepository().WinDealAsync(other, dealId, "test")).IsSuccess);
+    }
 }
+

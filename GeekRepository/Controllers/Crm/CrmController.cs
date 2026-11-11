@@ -53,6 +53,52 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
     public async Task<IActionResult> ListDeals(Guid tenantId, [FromQuery] bool openOnly, [FromQuery] int limit, CancellationToken ct) =>
         ToAction(await crm.ListDealsAsync(tenantId, openOnly, limit, ct));
 
+    // ----- Catalog, deal line items and holdings (Phase 2) -----
+
+    [HttpGet("tenants/{tenantId:guid}/products")]
+    public async Task<IActionResult> ListProducts(Guid tenantId, [FromQuery] string? kind, [FromQuery] bool includeRetired, CancellationToken ct) =>
+        ToAction(await crm.ListProductsAsync(tenantId, kind, includeRetired, ct));
+
+    [HttpPost("products")]
+    public async Task<IActionResult> CreateProduct([FromBody] CreateProductCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A product is required.") : ToAction(await crm.CreateProductAsync(command, ct));
+
+    [HttpPut("products/{productId:guid}")]
+    public async Task<IActionResult> UpdateProduct(Guid productId, [FromBody] UpdateProductCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A product is required.") : ToAction(await crm.UpdateProductAsync(productId, command, ct));
+
+    [HttpGet("tenants/{tenantId:guid}/deals/{dealId:guid}/line-items")]
+    public async Task<IActionResult> ListLineItems(Guid tenantId, Guid dealId, CancellationToken ct) =>
+        ToAction(await crm.ListLineItemsAsync(tenantId, dealId, ct));
+
+    [HttpPost("deals/{dealId:guid}/line-items")]
+    public async Task<IActionResult> AddLineItem(Guid dealId, [FromBody] AddLineItemCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A line item is required.") : ToAction(await crm.AddLineItemAsync(dealId, command, ct));
+
+    [HttpPut("deals/{dealId:guid}/line-items/{lineItemId:guid}")]
+    public async Task<IActionResult> UpdateLineItem(Guid dealId, Guid lineItemId, [FromBody] UpdateLineItemCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A line item is required.") : ToAction(await crm.UpdateLineItemAsync(dealId, lineItemId, command, ct));
+
+    [HttpDelete("tenants/{tenantId:guid}/deals/{dealId:guid}/line-items/{lineItemId:guid}")]
+    public async Task<IActionResult> DeleteLineItem(Guid tenantId, Guid dealId, Guid lineItemId, CancellationToken ct) =>
+        ToAction(await crm.DeleteLineItemAsync(tenantId, dealId, lineItemId, ct));
+
+    [HttpPost("tenants/{tenantId:guid}/deals/{dealId:guid}/win")]
+    public async Task<IActionResult> WinDeal(Guid tenantId, Guid dealId, [FromQuery] string? changedBy, CancellationToken ct) =>
+        ToAction(await crm.WinDealAsync(tenantId, dealId, changedBy ?? "api", ct));
+
+    [HttpGet("tenants/{tenantId:guid}/participants/{participantId:guid}/holdings")]
+    public async Task<IActionResult> ListHoldings(Guid tenantId, Guid participantId, CancellationToken ct) =>
+        ToAction(await crm.ListHoldingsAsync(tenantId, participantId, ct));
+
+    [HttpPost("holdings")]
+    public async Task<IActionResult> CreateHolding([FromBody] CreateHoldingCommand command, CancellationToken ct) =>
+        command is null || command.Details is null ? BadRequest("A holding is required.") : ToAction(await crm.CreateHoldingAsync(command, ct));
+
+    [HttpPut("holdings/{holdingId:guid}")]
+    public async Task<IActionResult> UpdateHolding(Guid holdingId, [FromBody] UpdateHoldingCommand command, CancellationToken ct) =>
+        command is null || command.Details is null ? BadRequest("A holding is required.") : ToAction(await crm.UpdateHoldingAsync(holdingId, command, ct));
+
     // ----- Industry lookup and custom properties -----
 
     [HttpGet("lookups/naics")]

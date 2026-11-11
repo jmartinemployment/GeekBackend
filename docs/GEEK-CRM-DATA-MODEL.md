@@ -31,8 +31,9 @@ Every name and every vocabulary is Geek-CRM's own, enforced by CHECK constraints
 canonical schema below. Nothing here is specific to an industry: a business that needs a field the
 core does not have adds a custom property, not a table.
 
-What a customer buys or holds is `Product` (a catalog) and `customer_holdings` (what each customer
-holds). They are planned (see the XSD's phase markers) and are not in v0.
+What a customer buys or holds is `products` (a per-tenant catalog) and `customer_holdings` (what each
+customer holds), with `deal_line_items` on a deal. They arrived in Phase 2 (script 0054, sections 4.12 to
+4.14); `tenant_subscriptions` is still planned, with the multi-tenant work.
 
 ### Canonical schema
 
@@ -65,6 +66,10 @@ Participant ──1:1── Person
      ├──< ParticipantLink >──   (Maria —Owner→ Boca Dental)
      ├──< PropertyValue         (custom properties)
      └──< Activity              (calls, texts, voicemails, meetings, notes)
+
+Product ──► Participant (partner organization, optional)
+Product ──< ProductPrice ; Tenant ──1:1── PricingRules ; Tenant ──< PricingUpliftTier
+Deal ──< DealLineItem ──► Product ; Deal ──win──► CustomerHolding (one per line item) ──► Participant, Product
 
 Pipeline ──< Stage
 Deal ──► Pipeline/Stage ; Deal ──< DealParticipant >── Participant ; Deal ──< Activity
@@ -245,6 +250,54 @@ A key stays reserved after the property is retired. Removing an option that a st
 refused. A property that does not exist, is retired, or is sensitive for a caller who may not see it
 is answered the same way (not found), so the answer never says which.
 
+### 4.12 Catalog: `products`, `product_prices`, `pricing_rules`, `pricing_uplift_tiers`
+
+`products` is the tenant's catalog: `name`, `code` (lower-case kebab, unique per tenant), `kind`
+(`geek_saas`, `implementation`, `partner_subscription`, `support_plan`, `service`), `category`
+(`accounting`, `business_operations`, `marketing`, `sales`, `bespoke`), `use_case_path` (the
+`/use-cases/...` page), `partner_participant_id` (an organization of the same tenant; a related use case is
+one with the same partner), `billing` (`one_time`, `monthly`, `annual`) and `is_active`. A product is
+retired (`is_active = false`), never deleted, so a holding can point at a retired product; a retired product
+cannot be added to a new deal or held by a new customer. Code and kind never change after create.
+
+Prices are not on the product. `product_prices` carries `size` (small, medium, large, or empty for a flat
+price), `hours`, `unit_price`, `recurring_price_monthly` (each may be blank until set), `currency` (USD)
+and `effective_from` / `effective_to`, so a won deal keeps the price it was sold at. `pricing_rules` is one
+row per tenant (`hourly_rate`, `related_use_case_pct`, default 60) and `pricing_uplift_tiers` holds the
+`booked_pct_from` and `uplift_pct` pairs. These three tables exist and are mapped but have no routes yet:
+Phase 3's estimates read them, and the "Use-Case Pricing Draft" sheet is imported into them once.
+
+### 4.13 `deal_line_items`
+
+`deal_id`, `product_id`, `quantity`, `unit_price`, `is_recurring`, `discount_pct`, `currency`. A line total
+is `quantity x unit_price x (1 - discount_pct / 100)`, rounded half away from zero to cents. When a deal
+has line items its `estimated_value` is the sum of its one-time line totals and its
+`recurring_value_monthly` the sum of its recurring ones (a line is recurring by default when its product
+bills monthly). Once a deal is won its line items are frozen: add, change and delete are refused (conflict).
+Later changes are made on the holdings, or on a new deal.
+
+### 4.14 `customer_holdings`
+
+What a customer holds and pays: `participant_id` (usually the organization), `product_id`, optional
+`deal_id` and `deal_line_item_id`, `status` (`proposed`, `active`, `paused`, `cancelled`, `ended`),
+`start_on` / `end_on`, `quantity`, `unit_price`, `discount_pct` (as sold), `recurring_amount_monthly`,
+`one_time_amount`, `external_ref` and `tenant_subscription_id` (a plain column until the platform table
+exists). A customer may hold the same product more than once (two locations), so there is no unique key on
+participant plus product.
+
+A `partner_subscription` holding records how the customer gets it in `arrangement`: `customer_direct` (the
+customer pays the partner; only tracked), `referral` (`referral_fee`, `referral_fee_is_recurring`,
+`referral_paid_on`) or `resold` (the business bills the customer; `partner_cost_monthly` against
+`recurring_amount_monthly` gives the margin). Other kinds leave `arrangement` empty, and the referral and
+cost fields are refused unless they match the arrangement.
+
+**Win.** `POST /api/crm/deals/{id}/win` locks the deal row (`SELECT ... FOR UPDATE`), moves it to its Won
+stage and creates one `active` holding per line item, never consolidated, each copying the product,
+quantity, price and discount as sold and recording its `deal_line_item_id`. `UNIQUE (tenant_id,
+deal_line_item_id)` and the lock mean a repeat or a concurrent call creates nothing extra. It is one
+transaction: if anything fails, the stage change and every holding roll back. A deal with no line items, or
+with neither an organization nor a primary contact to hold them, is refused.
+
 ### 4.11 Lookups
 
 - `naics_code` (`code`, `title`, `level`) — the Census Bureau's 2022 NAICS list, 2,125 codes (20 sectors
@@ -301,6 +354,10 @@ the X-API-Key (a trusted server); when signed-in users arrive their role decides
 | GET | `/api/crm/participants?stage=lead&kind=organization&limit=50` | List |
 | GET | `/api/crm/participants/{id}` | One participant with contact points, links and the last 25 activities |
 | GET | `/api/crm/deals?openOnly=true` | Deals with their stage |
+| GET, POST, PUT | `/api/crm/products?kind=&includeRetired=` , `/api/crm/products/{id}` | The catalog (PUT retires with `isActive: false`) |
+| GET, POST, PUT | `/api/crm/participants/{id}/holdings`, `.../holdings/{holdingId}` | A customer's holdings |
+| GET, POST, PUT, DELETE | `/api/crm/deals/{id}/line-items`, `.../line-items/{lineItemId}` | A deal's line items; the answer carries the deal's new totals |
+| POST | `/api/crm/deals/{id}/win` | Moves the deal to Won and creates its holdings in one transaction; a repeat creates nothing |
 
 All take an optional `tenantId`; the default is Geek @ Your Spot.
 
@@ -326,7 +383,7 @@ Apollo's revenue figures are its own estimates; the revenue band is only as good
 
 ## 7. Out of scope for v0
 
-Quotes, invoices, products, tickets, email sequences, forms, lists/segments UI, permissions beyond
+Quotes, invoices, tickets, email sequences, forms, lists/segments UI, permissions beyond
 tenant + owner, file attachments. All are in `Geek-CRM-Workspace/Plan.md` for later phases.
 
 ## 8. Decisions (Jeff, 2026-11-10)

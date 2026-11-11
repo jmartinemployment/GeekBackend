@@ -1,3 +1,5 @@
+using GeekApplication.Models.Crm;
+
 namespace GeekRepository.Data.Entities.Crm;
 
 // One class per table of the geek_crm schema (Migrations/Sql/0050_geek_crm_schema.sql).
@@ -210,3 +212,96 @@ public sealed class CrmNaicsCodeRow
     public string Title { get; set; } = string.Empty;
     public int Level { get; set; }
 }
+
+public sealed class CrmProductRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public string Kind { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
+    public string? UseCasePath { get; set; }
+    public Guid? PartnerParticipantId { get; set; }
+    public string Billing { get; set; } = string.Empty;
+    public bool IsActive { get; set; } = true;
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public sealed class CrmProductPriceRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid ProductId { get; set; }
+    public string? Size { get; set; }
+    public decimal? Hours { get; set; }
+    public decimal? UnitPrice { get; set; }
+    public decimal? RecurringPriceMonthly { get; set; }
+    public string Currency { get; set; } = Currencies.Usd;
+    public DateOnly EffectiveFrom { get; set; }
+    public DateOnly? EffectiveTo { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public sealed class CrmPricingRulesRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public decimal? HourlyRate { get; set; }
+    public decimal RelatedUseCasePct { get; set; } = 60m;
+    public string Currency { get; set; } = Currencies.Usd;
+    public DateTime UpdatedAt { get; set; }
+}
+
+public sealed class CrmPricingUpliftTierRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public decimal BookedPctFrom { get; set; }
+    public decimal UpliftPct { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public sealed class CrmDealLineItemRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid DealId { get; set; }
+    public Guid ProductId { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public bool IsRecurring { get; set; }
+    public decimal DiscountPct { get; set; }
+    public string Currency { get; set; } = Currencies.Usd;
+    public DateTime CreatedAt { get; set; }
+}
+
+public sealed class CrmCustomerHoldingRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid ParticipantId { get; set; }
+    public Guid ProductId { get; set; }
+    public Guid? DealId { get; set; }
+    public Guid? DealLineItemId { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateOnly? StartOn { get; set; }
+    public DateOnly? EndOn { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal DiscountPct { get; set; }
+    public decimal? RecurringAmountMonthly { get; set; }
+    public decimal? OneTimeAmount { get; set; }
+    public string Currency { get; set; } = Currencies.Usd;
+    public string? Arrangement { get; set; }
+    public decimal? ReferralFee { get; set; }
+    public bool? ReferralFeeIsRecurring { get; set; }
+    public DateOnly? ReferralPaidOn { get; set; }
+    public decimal? PartnerCostMonthly { get; set; }
+    public string? ExternalRef { get; set; }
+    public Guid? TenantSubscriptionId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+

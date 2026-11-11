@@ -64,6 +64,73 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
     // A sensitive property is hidden unless the caller asks for it with includeSensitive=true. Today every
     // caller holds the X-API-Key (a trusted server); when signed-in users arrive, their role decides it.
 
+    // ----- Catalog, deal line items and holdings (Phase 2) -----
+
+    [HttpGet("products")]
+    public async Task<IActionResult> ListProducts([FromQuery] string? kind, [FromQuery] bool includeRetired, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.ListProductsAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, kind, includeRetired, ct));
+
+    [HttpPost("products")]
+    public async Task<IActionResult> CreateProduct([FromBody] CreateProductRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null
+            ? BadRequest("A product is required.")
+            : ToAction(await crm.CreateProductAsync(new CreateProductCommand(
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.Name ?? string.Empty, body.Code ?? string.Empty, body.Kind ?? string.Empty,
+                body.Category ?? string.Empty, body.UseCasePath, body.PartnerParticipantId, body.Billing ?? string.Empty), ct));
+
+    /// <summary>Everything but the code and the kind can change; a product is retired with isActive = false, never deleted.</summary>
+    [HttpPut("products/{productId:guid}")]
+    public async Task<IActionResult> UpdateProduct(Guid productId, [FromBody] UpdateProductRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null
+            ? BadRequest("A product is required.")
+            : ToAction(await crm.UpdateProductAsync(productId, new UpdateProductCommand(
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.Name ?? string.Empty, body.Category ?? string.Empty, body.UseCasePath,
+                body.PartnerParticipantId, body.Billing ?? string.Empty, body.IsActive), ct));
+
+    [HttpGet("deals/{dealId:guid}/line-items")]
+    public async Task<IActionResult> ListLineItems(Guid dealId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.ListLineItemsAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, dealId, ct));
+
+    [HttpPost("deals/{dealId:guid}/line-items")]
+    public async Task<IActionResult> AddLineItem(Guid dealId, [FromBody] LineItemRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null || body.ProductId is null
+            ? BadRequest("A line item needs a product.")
+            : ToAction(await crm.AddLineItemAsync(dealId, new AddLineItemCommand(
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.ProductId.Value, body.Quantity ?? 0m, body.UnitPrice ?? -1m, body.IsRecurring, body.DiscountPct ?? 0m), ct));
+
+    [HttpPut("deals/{dealId:guid}/line-items/{lineItemId:guid}")]
+    public async Task<IActionResult> UpdateLineItem(Guid dealId, Guid lineItemId, [FromBody] LineItemRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null || body.IsRecurring is null
+            ? BadRequest("A line item needs quantity, unitPrice and isRecurring.")
+            : ToAction(await crm.UpdateLineItemAsync(dealId, lineItemId, new UpdateLineItemCommand(
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.Quantity ?? 0m, body.UnitPrice ?? -1m, body.IsRecurring.Value, body.DiscountPct ?? 0m), ct));
+
+    [HttpDelete("deals/{dealId:guid}/line-items/{lineItemId:guid}")]
+    public async Task<IActionResult> DeleteLineItem(Guid dealId, Guid lineItemId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.DeleteLineItemAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, dealId, lineItemId, ct));
+
+    /// <summary>Moves the deal to Won and makes one active holding per line item, in one transaction. A repeat call makes nothing new.</summary>
+    [HttpPost("deals/{dealId:guid}/win")]
+    public async Task<IActionResult> WinDeal(Guid dealId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.WinDealAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, dealId, "api", ct));
+
+    [HttpGet("participants/{participantId:guid}/holdings")]
+    public async Task<IActionResult> ListHoldings(Guid participantId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.ListHoldingsAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, participantId, ct));
+
+    [HttpPost("participants/{participantId:guid}/holdings")]
+    public async Task<IActionResult> CreateHolding(Guid participantId, [FromBody] HoldingRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null || body.ProductId is null
+            ? BadRequest("A holding needs a product.")
+            : ToAction(await crm.CreateHoldingAsync(new CreateHoldingCommand(
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, participantId, body.ProductId.Value, body.ToDetails()), ct));
+
+    [HttpPut("participants/{participantId:guid}/holdings/{holdingId:guid}")]
+    public async Task<IActionResult> UpdateHolding(Guid participantId, Guid holdingId, [FromBody] HoldingRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null
+            ? BadRequest("A holding is required.")
+            : ToAction(await crm.UpdateHoldingAsync(holdingId, new UpdateHoldingCommand(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.ToDetails()), ct));
+
     [HttpGet("properties/definitions")]
     public async Task<IActionResult> ListPropertyDefinitions([FromQuery] string? objectType, [FromQuery] bool includeRetired, [FromQuery] bool includeSensitive, [FromQuery] Guid? tenantId, CancellationToken ct) =>
         ToAction(await crm.ListPropertyDefinitionsAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, objectType, includeRetired, includeSensitive, ct));
@@ -120,3 +187,33 @@ public sealed record CreatePropertyDefinitionRequest(string? ObjectType, string?
 public sealed record UpdatePropertyDefinitionRequest(string? Label, IReadOnlyList<string>? Options, bool IsSensitive);
 
 public sealed record SetPropertyValuesRequest(IReadOnlyDictionary<string, JsonElement>? Values);
+
+public sealed record CreateProductRequest(string? Name, string? Code, string? Kind, string? Category, string? UseCasePath, Guid? PartnerParticipantId, string? Billing);
+
+public sealed record UpdateProductRequest(string? Name, string? Category, string? UseCasePath, Guid? PartnerParticipantId, string? Billing, bool IsActive);
+
+/// <summary>A missing quantity or unit price is refused by the store's rules, not defaulted.</summary>
+public sealed record LineItemRequest(Guid? ProductId, decimal? Quantity, decimal? UnitPrice, bool? IsRecurring, decimal? DiscountPct);
+
+/// <summary>A holding as a caller sends it; quantity, unit price and status are required, so a missing one is refused rather than defaulted.</summary>
+public sealed record HoldingRequest(
+    Guid? ProductId,
+    string? Status,
+    DateOnly? StartOn,
+    DateOnly? EndOn,
+    decimal? Quantity,
+    decimal? UnitPrice,
+    decimal? DiscountPct,
+    decimal? RecurringAmountMonthly,
+    decimal? OneTimeAmount,
+    string? Arrangement,
+    decimal? ReferralFee,
+    bool? ReferralFeeIsRecurring,
+    DateOnly? ReferralPaidOn,
+    decimal? PartnerCostMonthly,
+    string? ExternalRef)
+{
+    public HoldingDetails ToDetails() => new(
+        Status ?? string.Empty, StartOn, EndOn, Quantity ?? 0m, UnitPrice ?? -1m, DiscountPct ?? 0m, RecurringAmountMonthly, OneTimeAmount,
+        Arrangement, ReferralFee, ReferralFeeIsRecurring, ReferralPaidOn, PartnerCostMonthly, ExternalRef);
+}

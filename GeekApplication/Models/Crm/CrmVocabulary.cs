@@ -170,3 +170,63 @@ public static class CrmSeed
     /// <summary>Geek @ Your Spot, tenant #1.</summary>
     public static readonly Guid GeekAtYourSpotTenantId = Guid.Parse("6e0c2a3a-7f4e-4b8e-9d51-5a1c0f6b2a01");
 }
+
+public static class ProductKinds
+{
+    public const string GeekSaas = "geek_saas";
+    public const string Implementation = "implementation";
+    public const string PartnerSubscription = "partner_subscription";
+    public const string SupportPlan = "support_plan";
+    public const string Service = "service";
+    public static readonly IReadOnlyList<string> All = [GeekSaas, Implementation, PartnerSubscription, SupportPlan, Service];
+}
+
+public static class ProductCategories
+{
+    public const string Accounting = "accounting";
+    public const string BusinessOperations = "business_operations";
+    public const string Marketing = "marketing";
+    public const string Sales = "sales";
+    public const string Bespoke = "bespoke";
+    public static readonly IReadOnlyList<string> All = [Accounting, BusinessOperations, Marketing, Sales, Bespoke];
+}
+
+public static class BillingPeriods
+{
+    public const string OneTime = "one_time";
+    public const string Monthly = "monthly";
+    public const string Annual = "annual";
+    public static readonly IReadOnlyList<string> All = [OneTime, Monthly, Annual];
+}
+
+public static class HoldingStatuses
+{
+    public const string Proposed = "proposed";
+    public const string Active = "active";
+    public const string Paused = "paused";
+    public const string Cancelled = "cancelled";
+    public const string Ended = "ended";
+    public static readonly IReadOnlyList<string> All = [Proposed, Active, Paused, Cancelled, Ended];
+}
+
+public static class PartnerArrangements
+{
+    public const string CustomerDirect = "customer_direct";
+    public const string Referral = "referral";
+    public const string Resold = "resold";
+    public static readonly IReadOnlyList<string> All = [CustomerDirect, Referral, Resold];
+}
+
+public static class EstimateSizes
+{
+    public const string Small = "small";
+    public const string Medium = "medium";
+    public const string Large = "large";
+    public static readonly IReadOnlyList<string> All = [Small, Medium, Large];
+}
+
+public static class Currencies
+{
+    public const string Usd = "USD";
+    public static readonly IReadOnlyList<string> All = [Usd];
+}

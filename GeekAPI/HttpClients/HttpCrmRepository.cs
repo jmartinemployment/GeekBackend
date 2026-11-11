@@ -94,6 +94,43 @@ public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository
     public async Task<Result<IReadOnlyList<CrmPropertyValue>>> SetPropertyValuesAsync(SetPropertyValuesCommand command, CancellationToken ct = default) =>
         AsReadOnly(await SendAsync<List<CrmPropertyValue>>(HttpMethod.Put, "repo/crm/records/properties", command, ct).ConfigureAwait(false));
 
+    public async Task<Result<IReadOnlyList<CrmProduct>>> ListProductsAsync(Guid tenantId, string? kind, bool includeRetired, CancellationToken ct = default)
+    {
+        var parts = new List<string> { $"includeRetired={(includeRetired ? "true" : "false")}" };
+        if (kind is not null) parts.Add("kind=" + Uri.EscapeDataString(kind));
+        return AsReadOnly(await SendAsync<List<CrmProduct>>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/products?{string.Join('&', parts)}", null, ct).ConfigureAwait(false));
+    }
+
+    public Task<Result<CrmProduct>> CreateProductAsync(CreateProductCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmProduct>(HttpMethod.Post, "repo/crm/products", command, ct);
+
+    public Task<Result<CrmProduct>> UpdateProductAsync(Guid productId, UpdateProductCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmProduct>(HttpMethod.Put, $"repo/crm/products/{productId}", command, ct);
+
+    public Task<Result<CrmDealLineItems>> ListLineItemsAsync(Guid tenantId, Guid dealId, CancellationToken ct = default) =>
+        SendAsync<CrmDealLineItems>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/deals/{dealId}/line-items", null, ct);
+
+    public Task<Result<CrmDealLineItems>> AddLineItemAsync(Guid dealId, AddLineItemCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmDealLineItems>(HttpMethod.Post, $"repo/crm/deals/{dealId}/line-items", command, ct);
+
+    public Task<Result<CrmDealLineItems>> UpdateLineItemAsync(Guid dealId, Guid lineItemId, UpdateLineItemCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmDealLineItems>(HttpMethod.Put, $"repo/crm/deals/{dealId}/line-items/{lineItemId}", command, ct);
+
+    public Task<Result<CrmDealLineItems>> DeleteLineItemAsync(Guid tenantId, Guid dealId, Guid lineItemId, CancellationToken ct = default) =>
+        SendAsync<CrmDealLineItems>(HttpMethod.Delete, $"repo/crm/tenants/{tenantId}/deals/{dealId}/line-items/{lineItemId}", null, ct);
+
+    public Task<Result<WinDealResult>> WinDealAsync(Guid tenantId, Guid dealId, string changedBy, CancellationToken ct = default) =>
+        SendAsync<WinDealResult>(HttpMethod.Post, $"repo/crm/tenants/{tenantId}/deals/{dealId}/win?changedBy={Uri.EscapeDataString(changedBy)}", null, ct);
+
+    public async Task<Result<IReadOnlyList<CrmHolding>>> ListHoldingsAsync(Guid tenantId, Guid participantId, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmHolding>>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/participants/{participantId}/holdings", null, ct).ConfigureAwait(false));
+
+    public Task<Result<CrmHolding>> CreateHoldingAsync(CreateHoldingCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmHolding>(HttpMethod.Post, "repo/crm/holdings", command, ct);
+
+    public Task<Result<CrmHolding>> UpdateHoldingAsync(Guid holdingId, UpdateHoldingCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmHolding>(HttpMethod.Put, $"repo/crm/holdings/{holdingId}", command, ct);
+
     private static Result<IReadOnlyList<T>> AsReadOnly<T>(Result<List<T>> result) =>
         result.IsSuccess
             ? Result<IReadOnlyList<T>>.Success(result.Value!)

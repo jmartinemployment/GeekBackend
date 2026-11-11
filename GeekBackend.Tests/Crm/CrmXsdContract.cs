@@ -118,6 +118,16 @@ internal static class CrmXsdContract
         ["ck_activities_outcome"] = "ActivityOutcome",
         ["ck_property_definitions_object"] = "PropertyObjectType",
         ["ck_property_definitions_type"] = "PropertyDataType",
+        ["ck_products_kind"] = "ProductKind",
+        ["ck_products_category"] = "ProductCategory",
+        ["ck_products_billing"] = "Billing",
+        ["ck_product_prices_size"] = "EstimateSize",
+        ["ck_product_prices_currency"] = "Currency",
+        ["ck_pricing_rules_currency"] = "Currency",
+        ["ck_deal_line_items_currency"] = "Currency",
+        ["ck_customer_holdings_status"] = "HoldingStatus",
+        ["ck_customer_holdings_currency"] = "Currency",
+        ["ck_customer_holdings_arrangement"] = "PartnerArrangement",
     };
 
     /// <summary>The SQL type an XSD element type maps to, as the script writes it with spaces removed.</summary>
@@ -141,6 +151,9 @@ internal static class CrmXsdContract
         {
             "Uuid" => "uuid",
             "Money" => "numeric(12,2)",
+            "Percent" => "numeric(5,2)",
+            "Hours" => "numeric(7,2)",
+            "Quantity" => "numeric(10,2)",
             "Json" => "jsonb",
             "NaicsCodeValue" or "SicCodeValue" => "text",
             _ => throw new NotSupportedException($"No SQL type is agreed for {xsdType}."),

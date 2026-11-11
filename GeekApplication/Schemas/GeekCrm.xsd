@@ -353,7 +353,7 @@
 
   <xs:simpleType name="ProductKind">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>
         geek_saas: a Geek product sold by subscription (Geek-Receptionist, Geek-Social, Geek-CRM).
         implementation: work done on a partner's platform (an invoice approval workflow on Melio, a QuickBooks setup).
@@ -373,7 +373,7 @@
 
   <xs:simpleType name="ProductCategory">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>The receptionist's five categories, so its question bank can find a product.</xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -387,7 +387,7 @@
 
   <xs:simpleType name="Billing">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>How often a product is billed.</xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -399,7 +399,7 @@
 
   <xs:simpleType name="HoldingStatus">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>Where a customer's holding stands. A tenant subscription uses the same list.</xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -413,7 +413,7 @@
 
   <xs:simpleType name="PartnerArrangement">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>
         How a customer gets a partner subscription.
         customer_direct: the customer pays the partner; it is only tracked.
@@ -430,7 +430,7 @@
 
   <xs:simpleType name="EstimateSize">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>The size an estimate is priced at.</xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -442,7 +442,7 @@
 
   <xs:simpleType name="Currency">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>US dollars only for now; another currency is an addition, not a change.</xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -812,7 +812,7 @@
 
   <xs:complexType name="Product">
     <xs:annotation>
-      <xs:appinfo><crm:table>products</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>products</crm:table><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>One entry of a tenant's catalog. Retired, never deleted, so a holding can point at a retired product.</xs:documentation>
     </xs:annotation>
     <xs:sequence>
@@ -835,7 +835,7 @@
 
   <xs:complexType name="ProductPrice">
     <xs:annotation>
-      <xs:appinfo><crm:table>product_prices</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>product_prices</crm:table><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>A product's price over a period. A price may be blank until it is set.</xs:documentation>
     </xs:annotation>
     <xs:sequence>
@@ -855,7 +855,7 @@
 
   <xs:complexType name="PricingRules">
     <xs:annotation>
-      <xs:appinfo><crm:table>pricing_rules</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>pricing_rules</crm:table><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>A tenant's pricing rules; one row per tenant.</xs:documentation>
     </xs:annotation>
     <xs:sequence>
@@ -870,7 +870,7 @@
 
   <xs:complexType name="PricingUpliftTier">
     <xs:annotation>
-      <xs:appinfo><crm:table>pricing_uplift_tiers</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>pricing_uplift_tiers</crm:table><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>The price uplift from a level of booked capacity upward.</xs:documentation>
     </xs:annotation>
     <xs:sequence>
@@ -884,7 +884,7 @@
 
   <xs:complexType name="DealLineItem">
     <xs:annotation>
-      <xs:appinfo><crm:table>deal_line_items</crm:table><crm:parentKey>deal_id</crm:parentKey><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>deal_line_items</crm:table><crm:parentKey>deal_id</crm:parentKey><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>
         A product on a deal, priced as sold. Line total = quantity x unit price x (1 - discount / 100),
         rounded half away from zero. Frozen once the deal is won.
@@ -926,7 +926,7 @@
 
   <xs:complexType name="CustomerHolding">
     <xs:annotation>
-      <xs:appinfo><crm:table>customer_holdings</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>customer_holdings</crm:table><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>
         What a customer holds and pays. A won deal creates one holding per line item. A customer may
         hold the same product more than once, for example for two locations.
@@ -1103,6 +1103,15 @@
     </xs:unique>
     <xs:unique name="PropertyValueUnique">
       <xs:selector xpath="crm:PropertyValue"/><xs:field xpath="crm:DefinitionId"/><xs:field xpath="crm:RecordId"/>
+    </xs:unique>
+    <xs:unique name="ProductCodeUnique">
+      <xs:selector xpath="crm:Product"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:Code"/>
+    </xs:unique>
+    <xs:unique name="PricingRulesTenantUnique">
+      <xs:selector xpath="crm:PricingRules"/><xs:field xpath="crm:TenantId"/>
+    </xs:unique>
+    <xs:unique name="HoldingLineItemUnique">
+      <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:DealLineItemId"/>
     </xs:unique>
 
     <xs:keyref name="ContactPointParticipant" refer="crm:ParticipantKey">

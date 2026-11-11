@@ -28,6 +28,12 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
     public DbSet<CrmPropertyDefinitionRow> PropertyDefinitions => Set<CrmPropertyDefinitionRow>();
     public DbSet<CrmPropertyValueRow> PropertyValues => Set<CrmPropertyValueRow>();
     public DbSet<CrmNaicsCodeRow> NaicsCodes => Set<CrmNaicsCodeRow>();
+    public DbSet<CrmProductRow> Products => Set<CrmProductRow>();
+    public DbSet<CrmProductPriceRow> ProductPrices => Set<CrmProductPriceRow>();
+    public DbSet<CrmPricingRulesRow> PricingRules => Set<CrmPricingRulesRow>();
+    public DbSet<CrmPricingUpliftTierRow> PricingUpliftTiers => Set<CrmPricingUpliftTierRow>();
+    public DbSet<CrmDealLineItemRow> DealLineItems => Set<CrmDealLineItemRow>();
+    public DbSet<CrmCustomerHoldingRow> CustomerHoldings => Set<CrmCustomerHoldingRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -61,6 +67,12 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
             e.Property(x => x.Value).HasColumnType("jsonb");
         });
         modelBuilder.Entity<CrmNaicsCodeRow>(e => { e.ToTable("naics_codes", Schema); e.HasKey(x => x.Code); });
+        modelBuilder.Entity<CrmProductRow>(e => { e.ToTable("products", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmProductPriceRow>(e => { e.ToTable("product_prices", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmPricingRulesRow>(e => { e.ToTable("pricing_rules", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmPricingUpliftTierRow>(e => { e.ToTable("pricing_uplift_tiers", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmDealLineItemRow>(e => { e.ToTable("deal_line_items", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmCustomerHoldingRow>(e => { e.ToTable("customer_holdings", Schema); e.HasKey(x => x.Id); });
 
         // Foreign keys without navigations: they exist so EF inserts a parent before its children
         // (a participant before its contact points, a deal before its stage history). The
@@ -85,6 +97,17 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
         Fk<CrmActivityRow, CrmDealRow>(modelBuilder, x => x.DealId);
         Fk<CrmPropertyDefinitionRow, CrmTenantRow>(modelBuilder, x => x.TenantId);
         Fk<CrmPropertyValueRow, CrmPropertyDefinitionRow>(modelBuilder, x => x.DefinitionId);
+        Fk<CrmProductRow, CrmTenantRow>(modelBuilder, x => x.TenantId);
+        Fk<CrmProductRow, CrmParticipantRow>(modelBuilder, x => x.PartnerParticipantId);
+        Fk<CrmProductPriceRow, CrmProductRow>(modelBuilder, x => x.ProductId);
+        Fk<CrmPricingRulesRow, CrmTenantRow>(modelBuilder, x => x.TenantId);
+        Fk<CrmPricingUpliftTierRow, CrmTenantRow>(modelBuilder, x => x.TenantId);
+        Fk<CrmDealLineItemRow, CrmDealRow>(modelBuilder, x => x.DealId);
+        Fk<CrmDealLineItemRow, CrmProductRow>(modelBuilder, x => x.ProductId);
+        Fk<CrmCustomerHoldingRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
+        Fk<CrmCustomerHoldingRow, CrmProductRow>(modelBuilder, x => x.ProductId);
+        Fk<CrmCustomerHoldingRow, CrmDealRow>(modelBuilder, x => x.DealId);
+        Fk<CrmCustomerHoldingRow, CrmDealLineItemRow>(modelBuilder, x => x.DealLineItemId);
 
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {

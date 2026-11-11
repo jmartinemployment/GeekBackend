@@ -16,7 +16,7 @@ namespace GeekRepository.Repositories.Crm;
 /// land together or not at all. Every method answers a Result and nothing throws past it: a database
 /// failure is store_unavailable, logged by operation and never with a person's details.
 /// </summary>
-public sealed class CrmRepository(CrmDbContext db, TimeProvider clock, ILogger<CrmRepository> logger, ICrmTenantScope scope) : ICrmStore
+public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, ILogger<CrmRepository> logger, ICrmTenantScope scope) : ICrmStore
 {
     public const int DefaultListLimit = 50;
     public const int MaxListLimit = 200;

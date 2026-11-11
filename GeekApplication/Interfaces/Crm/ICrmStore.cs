@@ -49,4 +49,33 @@ public interface ICrmStore
     Task<Result<IReadOnlyList<CrmPropertyValue>>> GetPropertyValuesAsync(Guid tenantId, string objectType, Guid recordId, bool includeSensitive, CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<CrmPropertyValue>>> SetPropertyValuesAsync(SetPropertyValuesCommand command, CancellationToken ct = default);
+
+    // ----- Catalog, deal line items, holdings (Phase 2) -----
+
+    Task<Result<IReadOnlyList<CrmProduct>>> ListProductsAsync(Guid tenantId, string? kind, bool includeRetired, CancellationToken ct = default);
+
+    Task<Result<CrmProduct>> CreateProductAsync(CreateProductCommand command, CancellationToken ct = default);
+
+    Task<Result<CrmProduct>> UpdateProductAsync(Guid productId, UpdateProductCommand command, CancellationToken ct = default);
+
+    Task<Result<CrmDealLineItems>> ListLineItemsAsync(Guid tenantId, Guid dealId, CancellationToken ct = default);
+
+    /// <summary>Adds a product to a deal; the deal's estimated value and monthly recurring value become the sums of its line items. Refused once the deal is won.</summary>
+    Task<Result<CrmDealLineItems>> AddLineItemAsync(Guid dealId, AddLineItemCommand command, CancellationToken ct = default);
+
+    Task<Result<CrmDealLineItems>> UpdateLineItemAsync(Guid dealId, Guid lineItemId, UpdateLineItemCommand command, CancellationToken ct = default);
+
+    Task<Result<CrmDealLineItems>> DeleteLineItemAsync(Guid tenantId, Guid dealId, Guid lineItemId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves the deal to its Won stage and creates one active holding per line item, in one transaction. A repeat
+    /// call creates nothing. Refused when the deal has no line items or no organization or primary contact to hold them.
+    /// </summary>
+    Task<Result<WinDealResult>> WinDealAsync(Guid tenantId, Guid dealId, string changedBy, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<CrmHolding>>> ListHoldingsAsync(Guid tenantId, Guid participantId, CancellationToken ct = default);
+
+    Task<Result<CrmHolding>> CreateHoldingAsync(CreateHoldingCommand command, CancellationToken ct = default);
+
+    Task<Result<CrmHolding>> UpdateHoldingAsync(Guid holdingId, UpdateHoldingCommand command, CancellationToken ct = default);
 }
