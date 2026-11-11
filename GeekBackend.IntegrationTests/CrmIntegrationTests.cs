@@ -108,4 +108,38 @@ public sealed class CrmIntegrationTests
         Assert.Equal((StageOutcomes.Lost, "no budget"), (lost.Value!.StageOutcome, lost.Value.LostReason));
         Assert.NotNull(lost.Value.ClosedAt);
     }
+
+    [Fact]
+    public async Task A_read_that_sets_no_tenant_sees_no_rows()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+
+        // The seeded tenant has a pipeline, so a table that returns rows to a connection with no
+        // tenant set is a boundary that row-level security is not enforcing (a superuser or BYPASSRLS role).
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        await using var role = new Npgsql.NpgsqlCommand("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user", conn);
+        Assert.False((bool)(await role.ExecuteScalarAsync())!, "The test role bypasses row-level security, so this check proves nothing.");
+
+        await using var count = new Npgsql.NpgsqlCommand("SELECT count(*) FROM geek_crm.pipelines", conn);
+        Assert.Equal(0L, (long)(await count.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
+    public async Task One_tenant_cannot_read_or_move_another_tenants_deal()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+
+        var deal = await NewRepository().CreateDealAsync(new(Tenant, "Isolation deal", "missed_call_text_back", null, null, null, null, null, null));
+        Assert.True(deal.IsSuccess, deal.Error);
+
+        var otherTenant = Guid.NewGuid();
+        var moved = await NewRepository().MoveDealStageAsync(deal.Value!.Id, new(otherTenant, "Lost", "no budget", "test"));
+        Assert.False(moved.IsSuccess);
+
+        var listed = await NewRepository().ListDealsAsync(otherTenant, false, 200);
+        Assert.DoesNotContain(listed.Value ?? [], d => d.Id == deal.Value.Id);
+    }
 }

@@ -77,6 +77,17 @@ Deal ──► Pipeline/Stage ; Deal ──< DealParticipant >── Participant
 Common columns on every table: `id uuid`, `tenant_id uuid` (multi-tenant from day one; Geek @ Your
 Spot is tenant #1), `created_at`, `updated_at`. Soft delete via `archived_at` where noted.
 
+**The tenant boundary is enforced by the database, not only by the service** (`0053_geek_crm_tenant_keys.sql`).
+Each tenant table has `UNIQUE (tenant_id, id)` and every foreign key between tenant tables is composite
+on `(tenant_id, <column>)`, so a row cannot point at another tenant's row. Row-level security is on and
+forced for those tables, with one policy: `tenant_id = current_setting('app.tenant_id')::uuid`. Every
+store operation runs in one transaction that sets `app.tenant_id` first (`ICrmTenantScope`,
+`Repositories/Crm/CrmTenantScope.cs`), so a query that forgets its tenant filter still sees one tenant.
+A read with no tenant set returns no rows. Row-level security does not apply to a superuser or a role
+with BYPASSRLS; GeekRepository's role must be neither, and the script needs Postgres 15 or later (it
+uses `ON DELETE SET NULL (column)`). Numbering: 0051 is the additive columns, 0052 the NAICS load, 0053
+the tenant keys and row-level security.
+
 ### 4.1 `participant` — anyone we deal with
 
 | Column | Type | Notes |
