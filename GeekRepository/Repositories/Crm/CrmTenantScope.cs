@@ -14,6 +14,12 @@ public interface ICrmTenantScope
 {
     /// <summary>Runs <paramref name="work"/>; commits when <paramref name="keep"/> says so for its result, otherwise rolls back.</summary>
     Task<T> RunAsync<T>(Guid tenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct);
+
+    /// <summary>
+    /// A platform operation (a tenant subscription): the same transaction, with the platform flag set as well as the
+    /// seller's tenant, so it may read the platform table and write the seller's records in one step.
+    /// </summary>
+    Task<T> RunPlatformAsync<T>(Guid sellerTenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct);
 }
 
 /// <summary>
@@ -23,10 +29,15 @@ public interface ICrmTenantScope
 /// </summary>
 public sealed class PostgresCrmTenantScope(CrmDbContext db) : ICrmTenantScope
 {
-    public async Task<T> RunAsync<T>(Guid tenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct)
+    public Task<T> RunAsync<T>(Guid tenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) => RunAsync(tenantId, false, work, keep, ct);
+
+    public Task<T> RunPlatformAsync<T>(Guid sellerTenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) => RunAsync(sellerTenantId, true, work, keep, ct);
+
+    private async Task<T> RunAsync<T>(Guid tenantId, bool platform, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         await db.Database.ExecuteSqlRawAsync("SELECT set_config('app.tenant_id', {0}, true)", [tenantId.ToString()], ct);
+        if (platform) await db.Database.ExecuteSqlRawAsync("SELECT set_config('app.platform', 'on', true)", [], ct);
         var result = await work();
         if (keep(result))
             await transaction.CommitAsync(ct);

@@ -34,6 +34,7 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
     public DbSet<CrmPricingUpliftTierRow> PricingUpliftTiers => Set<CrmPricingUpliftTierRow>();
     public DbSet<CrmDealLineItemRow> DealLineItems => Set<CrmDealLineItemRow>();
     public DbSet<CrmCustomerHoldingRow> CustomerHoldings => Set<CrmCustomerHoldingRow>();
+    public DbSet<CrmTenantSubscriptionRow> TenantSubscriptions => Set<CrmTenantSubscriptionRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -73,6 +74,7 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
         modelBuilder.Entity<CrmPricingUpliftTierRow>(e => { e.ToTable("pricing_uplift_tiers", Schema); e.HasKey(x => x.Id); });
         modelBuilder.Entity<CrmDealLineItemRow>(e => { e.ToTable("deal_line_items", Schema); e.HasKey(x => x.Id); });
         modelBuilder.Entity<CrmCustomerHoldingRow>(e => { e.ToTable("customer_holdings", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmTenantSubscriptionRow>(e => { e.ToTable("tenant_subscriptions", Schema); e.HasKey(x => x.Id); });
 
         // Foreign keys without navigations: they exist so EF inserts a parent before its children
         // (a participant before its contact points, a deal before its stage history). The
@@ -108,6 +110,7 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
         Fk<CrmCustomerHoldingRow, CrmProductRow>(modelBuilder, x => x.ProductId);
         Fk<CrmCustomerHoldingRow, CrmDealRow>(modelBuilder, x => x.DealId);
         Fk<CrmCustomerHoldingRow, CrmDealLineItemRow>(modelBuilder, x => x.DealLineItemId);
+        Fk<CrmTenantSubscriptionRow, CrmTenantRow>(modelBuilder, x => x.SubscriberTenantId);
 
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {

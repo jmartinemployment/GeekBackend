@@ -55,6 +55,13 @@ public class CrmReceptionistRecorderTests
         public Task<Result<IReadOnlyList<CrmHolding>>> ListHoldingsAsync(Guid tenantId, Guid participantId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<CrmHolding>> CreateHoldingAsync(CreateHoldingCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<CrmHolding>> UpdateHoldingAsync(Guid holdingId, UpdateHoldingCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<CrmProductPrice>>> ListPricesAsync(Guid tenantId, Guid productId, bool includeHistory, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmProductPrice>> GetPriceInEffectAsync(Guid tenantId, Guid productId, string? size, DateOnly? on, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmProductPrice>> SetPriceAsync(Guid productId, SetProductPriceCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmPricingRules>> GetPricingRulesAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmPricingRules>> SetPricingRulesAsync(SetPricingRulesCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<CrmUpliftTier>>> ListUpliftTiersAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<CrmUpliftTier>>> ReplaceUpliftTiersAsync(ReplaceUpliftTiersCommand command, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private static CrmReceptionistRecorder Recorder(FakeStore store)

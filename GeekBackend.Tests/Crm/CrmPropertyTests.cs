@@ -115,6 +115,7 @@ public class CrmPropertyTests
     private sealed class NoTenantScope : ICrmTenantScope
     {
         public Task<T> RunAsync<T>(Guid tenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) => work();
+        public Task<T> RunPlatformAsync<T>(Guid sellerTenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) => work();
     }
 
     private sealed class Store : IDisposable

@@ -96,18 +96,29 @@ public sealed partial class CrmRepository
     public Task<Result<CrmDealLineItems>> AddLineItemAsync(Guid dealId, AddLineItemCommand command, CancellationToken ct = default) =>
         RunAsync("add_line_item", command.TenantId, async () =>
         {
-            var problem = CrmProductRules.ValidateLineItem(command.Quantity, command.UnitPrice, command.DiscountPct);
+            var problem = CrmProductRules.ValidateLineItem(command.Quantity, command.UnitPrice ?? 0m, command.DiscountPct);
             if (problem is not null) return Invalid<CrmDealLineItems>(problem);
-            var (deal, stage, refusal) = await LockOpenDealAsync<CrmDealLineItems>(command.TenantId, dealId, ct);
+            if (command.Size is not null && !EstimateSizes.All.Contains(command.Size)) return Invalid<CrmDealLineItems>($"Unknown size '{command.Size}'.");
+            var (deal, _, refusal) = await LockOpenDealAsync<CrmDealLineItems>(command.TenantId, dealId, ct);
             if (refusal is not null) return refusal;
             var product = await db.Products.AsNoTracking().FirstOrDefaultAsync(p => p.Id == command.ProductId && p.TenantId == command.TenantId, ct);
             if (product is null) return NotFound<CrmDealLineItems>("Product not found.");
             if (!product.IsActive) return Invalid<CrmDealLineItems>("A retired product cannot be added to a deal.");
 
+            var recurring = command.IsRecurring ?? product.Billing == BillingPeriods.Monthly;
+            var unitPrice = command.UnitPrice;
+            if (unitPrice is null)
+            {
+                var price = await FindPriceInEffectAsync(command.TenantId, product.Id, command.Size, DateOnly.FromDateTime(Now()), ct);
+                unitPrice = recurring ? price?.RecurringPriceMonthly : price?.UnitPrice;
+                if (unitPrice is null)
+                    return Invalid<CrmDealLineItems>($"No {(recurring ? "monthly" : "one-time")} price is set for '{product.Name}'{(command.Size is null ? string.Empty : $" ({command.Size})")}. Set one, or give a unit price.");
+            }
+
             db.DealLineItems.Add(new CrmDealLineItemRow
             {
                 Id = Guid.NewGuid(), TenantId = command.TenantId, DealId = deal!.Id, ProductId = product.Id, Quantity = command.Quantity,
-                UnitPrice = command.UnitPrice, IsRecurring = command.IsRecurring ?? product.Billing == BillingPeriods.Monthly,
+                UnitPrice = unitPrice.Value, IsRecurring = recurring,
                 DiscountPct = command.DiscountPct, Currency = Currencies.Usd, CreatedAt = Now(),
             });
             await db.SaveChangesAsync(ct);

@@ -33,7 +33,7 @@ core does not have adds a custom property, not a table.
 
 What a customer buys or holds is `products` (a per-tenant catalog) and `customer_holdings` (what each
 customer holds), with `deal_line_items` on a deal. They arrived in Phase 2 (script 0054, sections 4.12 to
-4.14); `tenant_subscriptions` is still planned, with the multi-tenant work.
+4.14), and `tenant_subscriptions` (script 0055, section 4.15).
 
 ### Canonical schema
 
@@ -264,8 +264,20 @@ Prices are not on the product. `product_prices` carries `size` (small, medium, l
 price), `hours`, `unit_price`, `recurring_price_monthly` (each may be blank until set), `currency` (USD)
 and `effective_from` / `effective_to`, so a won deal keeps the price it was sold at. `pricing_rules` is one
 row per tenant (`hourly_rate`, `related_use_case_pct`, default 60) and `pricing_uplift_tiers` holds the
-`booked_pct_from` and `uplift_pct` pairs. These three tables exist and are mapped but have no routes yet:
-Phase 3's estimates read them, and the "Use-Case Pricing Draft" sheet is imported into them once.
+`booked_pct_from` and `uplift_pct` pairs. Phase 3's estimates read these three tables, and the "Use-Case Pricing Draft" sheet is imported into
+them once. How they behave:
+
+- **History.** Setting a price (`POST /api/crm/products/{id}/prices`) starts it on `effectiveFrom` and ends the
+  price in effect for the same size the day before. A date on or before the start of an existing price for that
+  size is refused: a price is never edited in place, so a won deal's price is always findable. Each size has its
+  own history; no size means a flat price. The product row is locked while a price is set, so two changes cannot overlap.
+- **Lookup.** `GET /api/crm/products/{id}/price?size=&on=` answers the price in effect on a date (today when omitted),
+  or 404 when none is set. A row with blank prices means "not priced yet".
+- **Line items use it.** A new line item with no `unitPrice` takes the monthly price when it is recurring and the one-time
+  price otherwise (for its `size`, when given). A missing or blank price refuses the line; nothing is guessed.
+- **Rules and tiers.** `GET`/`PUT /api/crm/pricing-rules` (one row per tenant; 404 until set, never defaulted) and
+  `GET`/`PUT /api/crm/pricing-uplift-tiers` (a PUT replaces the whole list in one transaction; a booked level appears
+  once, enforced by a unique key).
 
 ### 4.13 `deal_line_items`
 
@@ -297,6 +309,20 @@ quantity, price and discount as sold and recording its `deal_line_item_id`. `UNI
 deal_line_item_id)` and the lock mean a repeat or a concurrent call creates nothing extra. It is one
 transaction: if anything fails, the stage change and every holding roll back. A deal with no line items, or
 with neither an organization nor a primary contact to hold them, is refused.
+
+### 4.15 `tenant_subscriptions` (platform-scoped)
+
+Which tenant may use which multi-tenant Geek product: `subscriber_tenant_id`, `product_code`, `plan`, `status`
+(the holding statuses), `start_on`, `end_on`. It belongs to the platform, so it has no `tenant_id` and its gate
+is different: reachable only through `/api/platform/subscriptions` with the usual `X-API-Key` **and** an
+`X-Platform-Admin-Key` equal to `GEEK_PLATFORM_ADMIN_KEY` (unset means the routes answer 503, never open), and
+in the database by forced row-level security whose only policy asks for `app.platform = 'on'`, which only a
+platform operation sets. A tenant-scoped transaction cannot read a subscription.
+
+`product_code` must be an active `geek_saas` product of the selling tenant (Geek @ Your Spot, tenant #1); the
+subscriber tenant must exist; a tenant has one live (proposed, active, paused) subscription per product.
+Creating one may link the seller's own holding of that product (`holdingId`), which sets
+`customer_holdings.tenant_subscription_id` in the same transaction; a holding links once.
 
 ### 4.11 Lookups
 
@@ -357,6 +383,9 @@ the X-API-Key (a trusted server); when signed-in users arrive their role decides
 | GET, POST, PUT | `/api/crm/products?kind=&includeRetired=` , `/api/crm/products/{id}` | The catalog (PUT retires with `isActive: false`) |
 | GET, POST, PUT | `/api/crm/participants/{id}/holdings`, `.../holdings/{holdingId}` | A customer's holdings |
 | GET, POST, PUT, DELETE | `/api/crm/deals/{id}/line-items`, `.../line-items/{lineItemId}` | A deal's line items; the answer carries the deal's new totals |
+| GET, POST | `/api/crm/products/{id}/prices`, `/api/crm/products/{id}/price` | Price history, set a price, the price in effect |
+| GET, PUT | `/api/crm/pricing-rules`, `/api/crm/pricing-uplift-tiers` | The tenant's pricing rules and uplift tiers |
+| GET, POST, PUT | `/api/platform/subscriptions`, `.../{id}` | Tenant subscriptions; needs `X-Platform-Admin-Key` as well |
 | POST | `/api/crm/deals/{id}/win` | Moves the deal to Won and creates its holdings in one transaction; a repeat creates nothing |
 
 All take an optional `tenantId`; the default is Geek @ Your Spot.

@@ -148,6 +148,9 @@ public sealed class CrmIntegrationTests
     /// <summary>Runs the work and then fails before the commit, as a crash partway through a win would: the transaction must roll back.</summary>
     private sealed class FailAfterWorkScope(ICrmTenantScope inner) : ICrmTenantScope
     {
+        public Task<T> RunPlatformAsync<T>(Guid sellerTenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) =>
+            inner.RunPlatformAsync(sellerTenantId, work, keep, ct);
+
         public Task<T> RunAsync<T>(Guid tenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) =>
             inner.RunAsync(tenantId, async () =>
             {
@@ -236,6 +239,80 @@ public sealed class CrmIntegrationTests
         Assert.False((await NewRepository().ListLineItemsAsync(other, dealId)).IsSuccess);
         Assert.False((await NewRepository().ListHoldingsAsync(other, contactId)).IsSuccess);
         Assert.False((await NewRepository().WinDealAsync(other, dealId, "test")).IsSuccess);
+    }
+
+    // ----- Phase 2, the rest: prices, and the platform table's gate -----
+
+    [Fact]
+    public async Task A_price_change_keeps_history_and_a_booked_level_is_held_once_by_the_database()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var unique = Guid.NewGuid().ToString("N")[..8];
+        var product = (await NewRepository().CreateProductAsync(new(Tenant, "Setup " + unique, "setup-" + unique, ProductKinds.Service, ProductCategories.Accounting, null, null, BillingPeriods.OneTime))).Value!;
+
+        Assert.True((await NewRepository().SetPriceAsync(product.Id, new(Tenant, null, null, 100m, null, new DateOnly(2026, 1, 1)))).IsSuccess);
+        Assert.True((await NewRepository().SetPriceAsync(product.Id, new(Tenant, null, null, 120m, null, new DateOnly(2026, 7, 1)))).IsSuccess);
+        Assert.Equal(100m, (await NewRepository().GetPriceInEffectAsync(Tenant, product.Id, null, new DateOnly(2026, 3, 1))).Value!.UnitPrice);
+        Assert.Equal(120m, (await NewRepository().GetPriceInEffectAsync(Tenant, product.Id, null, new DateOnly(2026, 8, 1))).Value!.UnitPrice);
+
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+        await using (var set = new Npgsql.NpgsqlCommand("SELECT set_config('app.tenant_id', @t, true)", conn, tx))
+        {
+            set.Parameters.AddWithValue("t", Tenant.ToString());
+            await set.ExecuteScalarAsync();
+        }
+        await using var first = new Npgsql.NpgsqlCommand("INSERT INTO geek_crm.pricing_uplift_tiers (id, tenant_id, booked_pct_from, uplift_pct, created_at) VALUES (gen_random_uuid(), @t, 33.33, 5, now())", conn, tx);
+        first.Parameters.AddWithValue("t", Tenant);
+        await first.ExecuteNonQueryAsync();
+        await using var second = new Npgsql.NpgsqlCommand("INSERT INTO geek_crm.pricing_uplift_tiers (id, tenant_id, booked_pct_from, uplift_pct, created_at) VALUES (gen_random_uuid(), @t, 33.33, 9, now())", conn, tx);
+        second.Parameters.AddWithValue("t", Tenant);
+        var duplicate = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => second.ExecuteNonQueryAsync());
+        Assert.Equal(Npgsql.PostgresErrorCodes.UniqueViolation, duplicate.SqlState);
+    }
+
+    [Fact]
+    public async Task A_subscription_is_visible_to_a_platform_operation_and_to_nothing_else()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var unique = Guid.NewGuid().ToString("N")[..8];
+        var subscriber = Guid.NewGuid();
+
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        await using (var tx = await conn.BeginTransactionAsync())
+        {
+            await using var flag = new Npgsql.NpgsqlCommand("SELECT set_config('app.platform', 'on', true)", conn, tx);
+            await flag.ExecuteScalarAsync();
+            await using var insert = new Npgsql.NpgsqlCommand("INSERT INTO geek_crm.tenants (id, name, slug, created_at) VALUES (@id, @name, @slug, now())", conn, tx);
+            insert.Parameters.AddWithValue("id", subscriber);
+            insert.Parameters.AddWithValue("name", "Subscriber " + unique);
+            insert.Parameters.AddWithValue("slug", "sub-" + unique);
+            await insert.ExecuteNonQueryAsync();
+            await tx.CommitAsync();
+        }
+
+        var code = "geek-receptionist-" + unique;
+        var product = await NewRepository().CreateProductAsync(new(Tenant, "Receptionist " + unique, code, ProductKinds.GeekSaas, ProductCategories.BusinessOperations, null, null, BillingPeriods.Monthly));
+        Assert.True(product.IsSuccess, product.Error);
+
+        var platform = NewRepository();
+        var made = await platform.CreateSubscriptionAsync(new(subscriber, code, "Starter", HoldingStatuses.Active, new DateOnly(2026, 11, 11), null, null));
+        Assert.True(made.IsSuccess, made.Error);
+        Assert.Contains((await platform.ListSubscriptionsAsync(subscriber)).Value!, s => s.Id == made.Value!.Id);
+
+        // A tenant-scoped transaction (the seller's own tenant, no platform flag) sees no subscription at all.
+        await using var tenantTx = await conn.BeginTransactionAsync();
+        await using (var set = new Npgsql.NpgsqlCommand("SELECT set_config('app.tenant_id', @t, true)", conn, tenantTx))
+        {
+            set.Parameters.AddWithValue("t", Tenant.ToString());
+            await set.ExecuteScalarAsync();
+        }
+        await using var count = new Npgsql.NpgsqlCommand("SELECT count(*) FROM geek_crm.tenant_subscriptions", conn, tenantTx);
+        Assert.Equal(0L, (long)(await count.ExecuteScalarAsync())!);
     }
 }
 

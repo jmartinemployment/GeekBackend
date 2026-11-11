@@ -99,6 +99,36 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
     public async Task<IActionResult> UpdateHolding(Guid holdingId, [FromBody] UpdateHoldingCommand command, CancellationToken ct) =>
         command is null || command.Details is null ? BadRequest("A holding is required.") : ToAction(await crm.UpdateHoldingAsync(holdingId, command, ct));
 
+    // ----- Prices, pricing rules and uplift tiers (Phase 2) -----
+
+    [HttpGet("tenants/{tenantId:guid}/products/{productId:guid}/prices")]
+    public async Task<IActionResult> ListPrices(Guid tenantId, Guid productId, [FromQuery] bool includeHistory, CancellationToken ct) =>
+        ToAction(await crm.ListPricesAsync(tenantId, productId, includeHistory, ct));
+
+    [HttpGet("tenants/{tenantId:guid}/products/{productId:guid}/price")]
+    public async Task<IActionResult> GetPriceInEffect(Guid tenantId, Guid productId, [FromQuery] string? size, [FromQuery] DateOnly? on, CancellationToken ct) =>
+        ToAction(await crm.GetPriceInEffectAsync(tenantId, productId, size, on, ct));
+
+    [HttpPost("products/{productId:guid}/prices")]
+    public async Task<IActionResult> SetPrice(Guid productId, [FromBody] SetProductPriceCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A price is required.") : ToAction(await crm.SetPriceAsync(productId, command, ct));
+
+    [HttpGet("tenants/{tenantId:guid}/pricing-rules")]
+    public async Task<IActionResult> GetPricingRules(Guid tenantId, CancellationToken ct) =>
+        ToAction(await crm.GetPricingRulesAsync(tenantId, ct));
+
+    [HttpPut("pricing-rules")]
+    public async Task<IActionResult> SetPricingRules([FromBody] SetPricingRulesCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("Pricing rules are required.") : ToAction(await crm.SetPricingRulesAsync(command, ct));
+
+    [HttpGet("tenants/{tenantId:guid}/pricing-uplift-tiers")]
+    public async Task<IActionResult> ListUpliftTiers(Guid tenantId, CancellationToken ct) =>
+        ToAction(await crm.ListUpliftTiersAsync(tenantId, ct));
+
+    [HttpPut("pricing-uplift-tiers")]
+    public async Task<IActionResult> ReplaceUpliftTiers([FromBody] ReplaceUpliftTiersCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A tier list is required.") : ToAction(await crm.ReplaceUpliftTiersAsync(command, ct));
+
     // ----- Industry lookup and custom properties -----
 
     [HttpGet("lookups/naics")]

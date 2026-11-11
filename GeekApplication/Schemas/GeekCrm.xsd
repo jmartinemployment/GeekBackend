@@ -968,7 +968,7 @@
 
   <xs:complexType name="TenantSubscription">
     <xs:annotation>
-      <xs:appinfo><crm:table>tenant_subscriptions</crm:table><crm:phase status="planned">2</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>tenant_subscriptions</crm:table><crm:phase status="shipped">2</crm:phase></xs:appinfo>
       <xs:documentation>
         Which tenant may use which multi-tenant Geek product. Platform-scoped: reached only through
         repo/platform/* with the platform-admin key.
@@ -1109,6 +1109,9 @@
     </xs:unique>
     <xs:unique name="PricingRulesTenantUnique">
       <xs:selector xpath="crm:PricingRules"/><xs:field xpath="crm:TenantId"/>
+    </xs:unique>
+    <xs:unique name="UpliftTierBookedUnique">
+      <xs:selector xpath="crm:PricingUpliftTier"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:BookedPctFrom"/>
     </xs:unique>
     <xs:unique name="HoldingLineItemUnique">
       <xs:selector xpath="crm:CustomerHolding"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:DealLineItemId"/>

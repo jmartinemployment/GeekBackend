@@ -96,7 +96,7 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
         body is null || body.ProductId is null
             ? BadRequest("A line item needs a product.")
             : ToAction(await crm.AddLineItemAsync(dealId, new AddLineItemCommand(
-                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.ProductId.Value, body.Quantity ?? 0m, body.UnitPrice ?? -1m, body.IsRecurring, body.DiscountPct ?? 0m), ct));
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.ProductId.Value, body.Quantity ?? 0m, body.UnitPrice, body.IsRecurring, body.DiscountPct ?? 0m, body.Size), ct));
 
     [HttpPut("deals/{dealId:guid}/line-items/{lineItemId:guid}")]
     public async Task<IActionResult> UpdateLineItem(Guid dealId, Guid lineItemId, [FromBody] LineItemRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
@@ -130,6 +130,48 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
         body is null
             ? BadRequest("A holding is required.")
             : ToAction(await crm.UpdateHoldingAsync(holdingId, new UpdateHoldingCommand(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.ToDetails()), ct));
+
+    // ----- Prices, pricing rules and uplift tiers (Phase 2) -----
+
+    /// <summary>A product's prices, newest first; <c>includeHistory=true</c> adds the ended ones.</summary>
+    [HttpGet("products/{productId:guid}/prices")]
+    public async Task<IActionResult> ListPrices(Guid productId, [FromQuery] bool includeHistory, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.ListPricesAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, productId, includeHistory, ct));
+
+    /// <summary>The price in effect on <c>on</c> (today when omitted) for <c>size</c> (a flat price when omitted); 404 when none is set.</summary>
+    [HttpGet("products/{productId:guid}/price")]
+    public async Task<IActionResult> GetPriceInEffect(Guid productId, [FromQuery] string? size, [FromQuery] DateOnly? on, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.GetPriceInEffectAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, productId, size, on, ct));
+
+    /// <summary>Sets a price from <c>effectiveFrom</c>; the price in effect for that size ends the day before. History is kept.</summary>
+    [HttpPost("products/{productId:guid}/prices")]
+    public async Task<IActionResult> SetPrice(Guid productId, [FromBody] SetPriceRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null || body.EffectiveFrom is null
+            ? BadRequest("A price needs effectiveFrom.")
+            : ToAction(await crm.SetPriceAsync(productId, new SetProductPriceCommand(
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.Size, body.Hours, body.UnitPrice, body.RecurringPriceMonthly, body.EffectiveFrom.Value), ct));
+
+    [HttpGet("pricing-rules")]
+    public async Task<IActionResult> GetPricingRules([FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.GetPricingRulesAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, ct));
+
+    [HttpPut("pricing-rules")]
+    public async Task<IActionResult> SetPricingRules([FromBody] SetPricingRulesRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null || body.RelatedUseCasePct is null
+            ? BadRequest("Pricing rules need relatedUseCasePct.")
+            : ToAction(await crm.SetPricingRulesAsync(new SetPricingRulesCommand(
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.HourlyRate, body.RelatedUseCasePct.Value), ct));
+
+    [HttpGet("pricing-uplift-tiers")]
+    public async Task<IActionResult> ListUpliftTiers([FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.ListUpliftTiersAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, ct));
+
+    /// <summary>Replaces the whole tier list (an empty list clears it) in one transaction.</summary>
+    [HttpPut("pricing-uplift-tiers")]
+    public async Task<IActionResult> ReplaceUpliftTiers([FromBody] ReplaceUpliftTiersRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body?.Tiers is null
+            ? BadRequest("A tier list is required.")
+            : ToAction(await crm.ReplaceUpliftTiersAsync(new ReplaceUpliftTiersCommand(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.Tiers), ct));
 
     [HttpGet("properties/definitions")]
     public async Task<IActionResult> ListPropertyDefinitions([FromQuery] string? objectType, [FromQuery] bool includeRetired, [FromQuery] bool includeSensitive, [FromQuery] Guid? tenantId, CancellationToken ct) =>
@@ -193,7 +235,14 @@ public sealed record CreateProductRequest(string? Name, string? Code, string? Ki
 public sealed record UpdateProductRequest(string? Name, string? Category, string? UseCasePath, Guid? PartnerParticipantId, string? Billing, bool IsActive);
 
 /// <summary>A missing quantity or unit price is refused by the store's rules, not defaulted.</summary>
-public sealed record LineItemRequest(Guid? ProductId, decimal? Quantity, decimal? UnitPrice, bool? IsRecurring, decimal? DiscountPct);
+/// <summary>On a new line item, an omitted unitPrice means the catalog price in effect (for size, when the product is priced by size).</summary>
+public sealed record LineItemRequest(Guid? ProductId, decimal? Quantity, decimal? UnitPrice, bool? IsRecurring, decimal? DiscountPct, string? Size = null);
+
+public sealed record SetPriceRequest(string? Size, decimal? Hours, decimal? UnitPrice, decimal? RecurringPriceMonthly, DateOnly? EffectiveFrom);
+
+public sealed record SetPricingRulesRequest(decimal? HourlyRate, decimal? RelatedUseCasePct);
+
+public sealed record ReplaceUpliftTiersRequest(IReadOnlyList<UpliftTierInput>? Tiers);
 
 /// <summary>A holding as a caller sends it; quantity, unit price and status are required, so a missing one is refused rather than defaulted.</summary>
 public sealed record HoldingRequest(

@@ -305,3 +305,15 @@ public sealed class CrmCustomerHoldingRow
     public DateTime UpdatedAt { get; set; }
 }
 
+public sealed class CrmTenantSubscriptionRow
+{
+    public Guid Id { get; set; }
+    public Guid SubscriberTenantId { get; set; }
+    public string ProductCode { get; set; } = string.Empty;
+    public string? Plan { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateOnly StartOn { get; set; }
+    public DateOnly? EndOn { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+

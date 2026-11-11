@@ -54,8 +54,12 @@ public sealed record CrmDealLineItem(
 /// <summary>A line item with the deal's totals after it, so a caller sees the sums the deal now carries.</summary>
 public sealed record CrmDealLineItems(Guid DealId, IReadOnlyList<CrmDealLineItem> Items, decimal? EstimatedValue, decimal? RecurringValueMonthly);
 
-/// <summary>The price is the one the deal is sold at; IsRecurring defaults to the product's billing being monthly.</summary>
-public sealed record AddLineItemCommand(Guid TenantId, Guid ProductId, decimal Quantity, decimal UnitPrice, bool? IsRecurring, decimal DiscountPct);
+/// <summary>
+/// The price the deal is sold at. IsRecurring defaults to the product's billing being monthly. When UnitPrice is
+/// omitted the catalog price in effect today is used (the monthly price for a recurring line, the one-time price
+/// otherwise, for Size when the product is priced by size); if none is set, the line is refused rather than guessed.
+/// </summary>
+public sealed record AddLineItemCommand(Guid TenantId, Guid ProductId, decimal Quantity, decimal? UnitPrice, bool? IsRecurring, decimal DiscountPct, string? Size = null);
 
 public sealed record UpdateLineItemCommand(Guid TenantId, decimal Quantity, decimal UnitPrice, bool IsRecurring, decimal DiscountPct);
 
@@ -107,6 +111,49 @@ public sealed record CreateHoldingCommand(Guid TenantId, Guid ParticipantId, Gui
 
 public sealed record UpdateHoldingCommand(Guid TenantId, HoldingDetails Details);
 
+// ----- Prices, pricing rules and uplift tiers -----
+
+public sealed record CrmProductPrice(
+    Guid Id,
+    Guid ProductId,
+    string? Size,
+    decimal? Hours,
+    decimal? UnitPrice,
+    decimal? RecurringPriceMonthly,
+    string Currency,
+    DateOnly EffectiveFrom,
+    DateOnly? EffectiveTo,
+    DateTime CreatedAt);
+
+/// <summary>
+/// Sets a product's price from a date (a price may be left blank until it is set). The price in effect for the same
+/// size is ended the day before; a date on or before the start of an existing price is refused, because history is kept.
+/// </summary>
+public sealed record SetProductPriceCommand(Guid TenantId, string? Size, decimal? Hours, decimal? UnitPrice, decimal? RecurringPriceMonthly, DateOnly EffectiveFrom);
+
+public sealed record CrmPricingRules(Guid Id, decimal? HourlyRate, decimal RelatedUseCasePct, string Currency, DateTime UpdatedAt);
+
+public sealed record SetPricingRulesCommand(Guid TenantId, decimal? HourlyRate, decimal RelatedUseCasePct);
+
+public sealed record CrmUpliftTier(Guid Id, decimal BookedPctFrom, decimal UpliftPct);
+
+public sealed record UpliftTierInput(decimal BookedPctFrom, decimal UpliftPct);
+
+/// <summary>Replaces the tenant's whole tier list in one transaction; a booked level appears once.</summary>
+public sealed record ReplaceUpliftTiersCommand(Guid TenantId, IReadOnlyList<UpliftTierInput> Tiers);
+
+// ----- Tenant subscriptions (platform-scoped) -----
+
+public sealed record CrmTenantSubscription(Guid Id, Guid SubscriberTenantId, string ProductCode, string? Plan, string Status, DateOnly StartOn, DateOnly? EndOn, DateTime CreatedAt);
+
+/// <summary>
+/// A tenant may use a multi-tenant Geek product. ProductCode must be an active geek_saas product of the selling tenant.
+/// HoldingId, when given, links the selling tenant's own holding of that product to the subscription.
+/// </summary>
+public sealed record CreateTenantSubscriptionCommand(Guid SubscriberTenantId, string ProductCode, string? Plan, string Status, DateOnly StartOn, DateOnly? EndOn, Guid? HoldingId);
+
+public sealed record UpdateTenantSubscriptionCommand(string? Plan, string Status, DateOnly? EndOn);
+
 /// <summary>What winning a deal did. Created is false on a repeat call, which makes nothing new.</summary>
 public sealed record WinDealResult(CrmDeal Deal, IReadOnlyList<CrmHolding> Holdings, int HoldingsCreated);
 
@@ -144,6 +191,39 @@ public static class CrmProductRules
         if (quantity <= 0 || quantity > 99_999_999.99m || decimal.Round(quantity, 2) != quantity) return "Quantity is more than zero, with at most two decimals.";
         if (!MoneyOk(unitPrice)) return "Unit price is zero or more, with at most two decimals.";
         if (discountPct < 0 || discountPct > 100 || decimal.Round(discountPct, 2) != discountPct) return "Discount is from 0 to 100, with at most two decimals.";
+        return null;
+    }
+
+    public static string? ValidatePrice(string? size, decimal? hours, decimal? unitPrice, decimal? recurring)
+    {
+        if (size is not null && !EstimateSizes.All.Contains(size)) return $"Unknown size '{size}'. Use one of: {string.Join(", ", EstimateSizes.All)}, or leave it empty for a flat price.";
+        if (hours is { } h && (h < 0 || h > 99_999.99m || decimal.Round(h, 2) != h)) return "Hours is zero or more, with at most two decimals.";
+        if (!MoneyOk(unitPrice) || !MoneyOk(recurring)) return "Prices are zero or more, with at most two decimals.";
+        return null;
+    }
+
+    public static string? ValidatePricingRules(decimal? hourlyRate, decimal relatedPct)
+    {
+        if (!MoneyOk(hourlyRate)) return "The hourly rate is zero or more, with at most two decimals.";
+        if (relatedPct < 0 || relatedPct > 100 || decimal.Round(relatedPct, 2) != relatedPct) return "The related use case percentage is from 0 to 100, with at most two decimals.";
+        return null;
+    }
+
+    public static string? ValidateUpliftTiers(IReadOnlyList<UpliftTierInput>? tiers)
+    {
+        if (tiers is null) return "A tier list is required (it may be empty).";
+        foreach (var t in tiers)
+            if (t.BookedPctFrom is < 0 or > 100 || t.UpliftPct is < 0 or > 100 || decimal.Round(t.BookedPctFrom, 2) != t.BookedPctFrom || decimal.Round(t.UpliftPct, 2) != t.UpliftPct)
+                return "Booked and uplift percentages are from 0 to 100, with at most two decimals.";
+        return tiers.Select(t => t.BookedPctFrom).Distinct().Count() == tiers.Count ? null : "A booked level can appear only once.";
+    }
+
+    public static string? ValidateSubscription(string productCode, string status, DateOnly startOn, DateOnly? endOn, string? plan)
+    {
+        if (string.IsNullOrWhiteSpace(productCode) || !CodeIsLowerKebab(productCode.Trim())) return "A subscription needs a product code.";
+        if (!HoldingStatuses.All.Contains(status)) return $"Unknown status '{status}'. Use one of: {string.Join(", ", HoldingStatuses.All)}.";
+        if (endOn is { } end && end < startOn) return "A subscription cannot end before it starts.";
+        if (plan is not null && (string.IsNullOrWhiteSpace(plan) || plan.Length > NameLimit)) return $"A plan is at most {NameLimit} characters.";
         return null;
     }
 

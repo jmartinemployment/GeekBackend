@@ -16,7 +16,7 @@ namespace GeekRepository.Repositories.Crm;
 /// land together or not at all. Every method answers a Result and nothing throws past it: a database
 /// failure is store_unavailable, logged by operation and never with a person's details.
 /// </summary>
-public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, ILogger<CrmRepository> logger, ICrmTenantScope scope) : ICrmStore
+public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, ILogger<CrmRepository> logger, ICrmTenantScope scope) : ICrmStore, ICrmPlatformStore
 {
     public const int DefaultListLimit = 50;
     public const int MaxListLimit = 200;
@@ -791,12 +791,13 @@ public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, I
     /// runs without one). The transaction commits when the result is a success that <paramref name="discard"/> does not
     /// discard, and rolls back otherwise, so a refused operation leaves nothing behind.
     /// </summary>
-    private async Task<Result<T>> RunAsync<T>(string operation, Guid? tenantId, Func<Task<Result<T>>> work, CancellationToken ct, Func<T, bool>? discard = null)
+    private async Task<Result<T>> RunAsync<T>(string operation, Guid? tenantId, Func<Task<Result<T>>> work, CancellationToken ct, Func<T, bool>? discard = null, bool platform = false)
     {
         try
         {
             if (tenantId is not { } tenant) return await work();
-            return await scope.RunAsync(tenant, work, result => result.IsSuccess && !(discard?.Invoke(result.Value!) ?? false), ct);
+            Func<Result<T>, bool> keep = result => result.IsSuccess && !(discard?.Invoke(result.Value!) ?? false);
+            return await (platform ? scope.RunPlatformAsync(tenant, work, keep, ct) : scope.RunAsync(tenant, work, keep, ct));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {

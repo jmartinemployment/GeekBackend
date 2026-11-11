@@ -28,7 +28,7 @@ public class SchemaContractTests
 
     /// <summary>The schema scripts, in order, with comments removed: 0050 creates the tables and later scripts alter them. Data loads are not schema.</summary>
     private static readonly string[] SchemaScripts = 
-        ["0050_geek_crm_schema.sql", "0051_geek_crm_import_batch_and_property_retire.sql", "0053_geek_crm_tenant_keys.sql", "0054_geek_crm_products.sql"];
+        ["0050_geek_crm_schema.sql", "0051_geek_crm_import_batch_and_property_retire.sql", "0053_geek_crm_tenant_keys.sql", "0054_geek_crm_products.sql", "0055_geek_crm_pricing_and_subscriptions.sql"];
 
     private static string Sql => string.Join("\n", SchemaScripts.Select(name =>
         Regex.Replace(File.ReadAllText(Path.Combine(Root, "GeekRepository", "Migrations", "Sql", name)), @"--[^\n]*", string.Empty)));
@@ -267,6 +267,18 @@ public class SchemaContractTests
             var rls = $"ALTER TABLE geek_crm.{table.Table} ENABLE ROW LEVEL SECURITY;";
             var forced = $"ALTER TABLE geek_crm.{table.Table} FORCE ROW LEVEL SECURITY;";
             var policy = $"CREATE POLICY tenant_isolation ON geek_crm.{table.Table}";
+            if (table.Table == "tenant_subscriptions")
+            {
+                // Platform data: no tenant_id, so no tenant policy; only the platform flag opens it.
+                Assert.Contains(rls, script, StringComparison.Ordinal);
+                Assert.Contains(forced, script, StringComparison.Ordinal);
+                var platformPolicy = script.IndexOf($"CREATE POLICY platform_access ON geek_crm.{table.Table}", StringComparison.Ordinal);
+                Assert.True(platformPolicy >= 0, "tenant_subscriptions has no platform_access policy.");
+                Assert.DoesNotContain(policy, script, StringComparison.Ordinal);
+                var statement = script[platformPolicy..script.IndexOf(';', platformPolicy)];
+                Assert.Contains("nullif(current_setting('app.platform', true), '') = 'on'", statement, StringComparison.Ordinal);
+                continue;
+            }
             if (PublicLists.Contains(table.Table))
             {
                 Assert.DoesNotContain(rls, script, StringComparison.Ordinal);

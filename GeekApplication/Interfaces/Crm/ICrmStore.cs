@@ -78,4 +78,23 @@ public interface ICrmStore
     Task<Result<CrmHolding>> CreateHoldingAsync(CreateHoldingCommand command, CancellationToken ct = default);
 
     Task<Result<CrmHolding>> UpdateHoldingAsync(Guid holdingId, UpdateHoldingCommand command, CancellationToken ct = default);
+
+    // ----- Prices, pricing rules, uplift tiers (Phase 2) -----
+
+    /// <summary>A product's prices, newest first; history (ended prices) only when asked.</summary>
+    Task<Result<IReadOnlyList<CrmProductPrice>>> ListPricesAsync(Guid tenantId, Guid productId, bool includeHistory, CancellationToken ct = default);
+
+    /// <summary>The price in effect on a date (today when null) for a size, or not_found when none is set.</summary>
+    Task<Result<CrmProductPrice>> GetPriceInEffectAsync(Guid tenantId, Guid productId, string? size, DateOnly? on, CancellationToken ct = default);
+
+    Task<Result<CrmProductPrice>> SetPriceAsync(Guid productId, SetProductPriceCommand command, CancellationToken ct = default);
+
+    /// <summary>The tenant's pricing rules, or not_found until they are set; nothing is defaulted.</summary>
+    Task<Result<CrmPricingRules>> GetPricingRulesAsync(Guid tenantId, CancellationToken ct = default);
+
+    Task<Result<CrmPricingRules>> SetPricingRulesAsync(SetPricingRulesCommand command, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<CrmUpliftTier>>> ListUpliftTiersAsync(Guid tenantId, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<CrmUpliftTier>>> ReplaceUpliftTiersAsync(ReplaceUpliftTiersCommand command, CancellationToken ct = default);
 }

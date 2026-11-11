@@ -13,7 +13,7 @@ namespace GeekAPI.HttpClients;
 /// GeekRepository included) is store_unavailable. Logs carry the route and status, never a body:
 /// bodies hold people's names and numbers.
 /// </summary>
-public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository> logger) : ICrmStore
+public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository> logger) : ICrmStore, ICrmPlatformStore
 {
     private const int MessageLimit = 300;
 
@@ -130,6 +130,43 @@ public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository
 
     public Task<Result<CrmHolding>> UpdateHoldingAsync(Guid holdingId, UpdateHoldingCommand command, CancellationToken ct = default) =>
         SendAsync<CrmHolding>(HttpMethod.Put, $"repo/crm/holdings/{holdingId}", command, ct);
+
+    public async Task<Result<IReadOnlyList<CrmProductPrice>>> ListPricesAsync(Guid tenantId, Guid productId, bool includeHistory, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmProductPrice>>(HttpMethod.Get,
+            $"repo/crm/tenants/{tenantId}/products/{productId}/prices?includeHistory={(includeHistory ? "true" : "false")}", null, ct).ConfigureAwait(false));
+
+    public Task<Result<CrmProductPrice>> GetPriceInEffectAsync(Guid tenantId, Guid productId, string? size, DateOnly? on, CancellationToken ct = default)
+    {
+        var parts = new List<string>();
+        if (size is not null) parts.Add("size=" + Uri.EscapeDataString(size));
+        if (on is { } date) parts.Add("on=" + date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+        return SendAsync<CrmProductPrice>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/products/{productId}/price?{string.Join('&', parts)}", null, ct);
+    }
+
+    public Task<Result<CrmProductPrice>> SetPriceAsync(Guid productId, SetProductPriceCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmProductPrice>(HttpMethod.Post, $"repo/crm/products/{productId}/prices", command, ct);
+
+    public Task<Result<CrmPricingRules>> GetPricingRulesAsync(Guid tenantId, CancellationToken ct = default) =>
+        SendAsync<CrmPricingRules>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/pricing-rules", null, ct);
+
+    public Task<Result<CrmPricingRules>> SetPricingRulesAsync(SetPricingRulesCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmPricingRules>(HttpMethod.Put, "repo/crm/pricing-rules", command, ct);
+
+    public async Task<Result<IReadOnlyList<CrmUpliftTier>>> ListUpliftTiersAsync(Guid tenantId, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmUpliftTier>>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/pricing-uplift-tiers", null, ct).ConfigureAwait(false));
+
+    public async Task<Result<IReadOnlyList<CrmUpliftTier>>> ReplaceUpliftTiersAsync(ReplaceUpliftTiersCommand command, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmUpliftTier>>(HttpMethod.Put, "repo/crm/pricing-uplift-tiers", command, ct).ConfigureAwait(false));
+
+    public async Task<Result<IReadOnlyList<CrmTenantSubscription>>> ListSubscriptionsAsync(Guid? subscriberTenantId, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmTenantSubscription>>(HttpMethod.Get,
+            subscriberTenantId is { } id ? $"repo/platform/subscriptions?subscriberTenantId={id}" : "repo/platform/subscriptions", null, ct).ConfigureAwait(false));
+
+    public Task<Result<CrmTenantSubscription>> CreateSubscriptionAsync(CreateTenantSubscriptionCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmTenantSubscription>(HttpMethod.Post, "repo/platform/subscriptions", command, ct);
+
+    public Task<Result<CrmTenantSubscription>> UpdateSubscriptionAsync(Guid subscriptionId, UpdateTenantSubscriptionCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmTenantSubscription>(HttpMethod.Put, $"repo/platform/subscriptions/{subscriptionId}", command, ct);
 
     private static Result<IReadOnlyList<T>> AsReadOnly<T>(Result<List<T>> result) =>
         result.IsSuccess

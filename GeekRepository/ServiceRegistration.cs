@@ -102,7 +102,9 @@ public static class ServiceRegistration
 
         // Geek-CRM (geek_crm), through CrmDbContext.
         services.AddScoped<ICrmTenantScope, PostgresCrmTenantScope>();
-        services.AddScoped<ICrmStore, CrmRepository>();
+        services.AddScoped<CrmRepository>();
+        services.AddScoped<ICrmStore>(sp => sp.GetRequiredService<CrmRepository>());
+        services.AddScoped<ICrmPlatformStore>(sp => sp.GetRequiredService<CrmRepository>());
 
         return services;
     }

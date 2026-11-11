@@ -128,6 +128,7 @@ internal static class CrmXsdContract
         ["ck_customer_holdings_status"] = "HoldingStatus",
         ["ck_customer_holdings_currency"] = "Currency",
         ["ck_customer_holdings_arrangement"] = "PartnerArrangement",
+        ["ck_tenant_subscriptions_status"] = "HoldingStatus",
     };
 
     /// <summary>The SQL type an XSD element type maps to, as the script writes it with spaces removed.</summary>
