@@ -156,7 +156,9 @@ LinkedIn (data storage requirements, doc version 2026-10; "the shortest duration
 Meta (Platform Terms, developer policies; check the current versions):
 - Platform Data may go to a service provider only after that provider agrees in writing to process it
   solely for us and at our direction. Anthropic's commercial terms must be checked against that before
-  Facebook comment text is sent to Claude (M4).
+  Facebook comment text is sent to Claude (M4). Until a platform is named in `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS`
+  (a comma list of platform names on GeekAPI), no comment text from it is sent and each comment is held
+  as `blocked_no_clearance`; a name that is not a platform stops GeekAPI from starting.
 - Delete user data on request or when the user no longer has an account; the Data Protection Assessment
   asks about deletion practices.
 
@@ -167,20 +169,20 @@ Meta (Platform Terms, developer policies; check the current versions):
 | M1 | Does `POST /{comment-id}/comments` create a reply as the Page? The Pages API guide says yes, the Graph reference says create is unsupported | one live reply on the test Page, before Phase 4 |
 | M2 | Which permissions does reading comments actually need (`pages_read_engagement` vs `pages_read_user_content`)? | request both; test with each removed |
 | M3 | Does the `feed` webhook deliver comment and reaction events while the app is in development mode with a role-holding admin? | subscribe the test Page and post a comment |
-| M4 | Is sending Facebook comment text to the Claude API permitted under Meta's service-provider terms and Anthropic's agreement? | read both agreements; Jeff to confirm |
+| M4 | Is sending Facebook comment text to the Claude API permitted under Meta's service-provider terms and Anthropic's agreement? | read both agreements; Jeff to confirm, then add `facebook` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
 | M5 | Does removing a person from a Page role invalidate the Page token? | not documented; handle error 190 either way |
 | L1 | Scope names: `r_organization_social` / `w_organization_social` vs `*_feed` | shown in the developer portal once the product is approved |
 | L2 | Is the webhooks use case approved with Development tier, or only at Standard? | the access request form |
 | L3 | Is `w_member_social` granted by Community Management (Profile Management) or only by Share on LinkedIn, which cannot share an app with Community Management? | the portal after the app is created |
 | L4 | Does our app get programmatic refresh tokens? | the portal and the token response |
-| L5 | May member comment text go to the Claude API? (section 1, item 1) | LinkedIn Developer Support Portal, in writing |
+| L5 | May member comment text go to the Claude API? (section 1, item 1) | LinkedIn Developer Support Portal, in writing, then add `linkedin_organization` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
 | L6 | Is the 100-calls-per-member limit per day, and does the planned traffic fit? | the portal rate-limit view |
 | I1 | Which Instagram setup does the connect flow use, and does a Facebook Page have to be linked? The overview says Instagram Login and Unified Login need no Page; the publishing guide says the account must be connected to one | the Instagram product page in the app dashboard; one live publish |
 | I2 | The daily API publishing limit: 100 or 50 posts in 24 hours? | `GET /<IG_ID>/content_publishing_limit` on the connected account |
 | I3 | Which comment and mention webhook fields exist for the chosen setup, and do they fire in development mode? | the webhooks fields page; subscribe the account and comment on a post |
 | I4 | The exact endpoints for reading, replying to and hiding a comment, and for a reply's author | the Instagram comments reference pages; one live reply |
 | I5 | Can one Unified Login connection cover the Facebook Page and the Instagram account together, and how long does the SUAT last? | the login configuration page in the dashboard |
-| I6 | Is sending Instagram comment text to the Claude API permitted under Meta's service-provider terms? Same question as M4 | read both agreements; Jeff to confirm |
+| I6 | Is sending Instagram comment text to the Claude API permitted under Meta's service-provider terms? Same question as M4 | read both agreements; Jeff to confirm, then add `instagram` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
 
 ## 7. Setup path Jeff must start (longest first)
 

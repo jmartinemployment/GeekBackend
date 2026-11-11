@@ -1,5 +1,10 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Social;
+using GeekAPI.Services.Social.Drafting;
+using GeekAPI.Services.Social.LanguageModel;
+using GeekAPI.Services.Social.Review;
+using GeekAPI.Services.Social.Triage;
+using GeekAPI.Services.Workflow.Providers;
 using GeekApplication.Interfaces.Social;
 using GeekRepository;
 using GeekRepository.Auth;
@@ -63,6 +68,25 @@ public class SocialRegistrationTests
 
         // Resolving it must not throw; using it without a key answers a failed Result (see the protector tests).
         Assert.NotNull(provider.GetRequiredService<SocialCredentialProtector>());
+    }
+
+    [Fact]
+    public void GeekAPI_resolves_the_agents_with_claude_as_the_default_model_client()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddOptions();
+        services.AddSingleton(new LlmConcurrencyGate(1));
+        services.AddSocialAgents();
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+        using var scope = provider.CreateScope();
+
+        Assert.IsType<EngagementTriage>(scope.ServiceProvider.GetRequiredService<IEngagementTriage>());
+        Assert.IsType<ReplyDrafter>(scope.ServiceProvider.GetRequiredService<IReplyDrafter>());
+        Assert.IsType<ClaudeSocialModelClient>(scope.ServiceProvider.GetRequiredService<ISocialModelClient>());
+        Assert.IsType<OutboundTextReviewer>(provider.GetRequiredService<IOutboundTextReviewer>());
+        Assert.Same(provider.GetRequiredService<SocialClaudeClearance>(), scope.ServiceProvider.GetRequiredService<SocialClaudeClearance>());
     }
 
     private static IEnumerable<Type> SocialControllers() =>

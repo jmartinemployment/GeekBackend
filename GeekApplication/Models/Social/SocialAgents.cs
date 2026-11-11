@@ -182,3 +182,30 @@ public sealed class PostCopySuggestion
 {
     public List<PostCopy> Copies { get; set; } = new();
 }
+
+/// <summary>
+/// One call to the language model behind <see cref="Interfaces.Social.ISocialModelClient"/>: a system
+/// prompt, one user turn, and the single tool the model is made to answer with. The user turn may carry
+/// another person's comment text, so this type is never logged and its <see cref="ToString"/> names only
+/// the purpose.
+/// </summary>
+public sealed class SocialModelRequest
+{
+    /// <summary>A short name for the step making the call (for example "triage"), used in log lines in place of any text.</summary>
+    public string Purpose { get; set; } = string.Empty;
+
+    public string SystemPrompt { get; set; } = string.Empty;
+    public string UserMessage { get; set; } = string.Empty;
+
+    /// <summary>The tool the model is forced to call; its input is the answer.</summary>
+    public string ToolName { get; set; } = string.Empty;
+
+    public string ToolDescription { get; set; } = string.Empty;
+
+    /// <summary>The JSON Schema of the tool's input.</summary>
+    public string InputSchemaJson { get; set; } = string.Empty;
+
+    public int MaxOutputTokens { get; set; }
+
+    public override string ToString() => $"SocialModelRequest({Purpose})";
+}

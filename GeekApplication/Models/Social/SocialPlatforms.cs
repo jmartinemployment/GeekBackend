@@ -105,11 +105,17 @@ public static class SocialFailureCodes
     /// <summary>The platform's app settings (app id, secret, verify token) are not set on this service, so nothing can be verified or called until they are.</summary>
     public const string NotConfigured = "not_configured";
 
+    /// <summary>The platform has no operator clearance to send comment text to the language model, so nothing was sent. The operator records one with GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS.</summary>
+    public const string ClearanceRequired = "clearance_required";
+
+    /// <summary>The language model could not be reached, refused, or answered outside the schema it was given. One attempt; nothing is retried.</summary>
+    public const string ModelFailed = "model_failed";
+
     public static readonly IReadOnlyList<string> All = new[]
     {
         NotSupported, InvalidRequest, TokenInvalid, RateLimited, Forbidden, NotFound, PlatformRejected,
         PlatformUnavailable, OutcomeUnknown, InvalidSignature, Conflict, StoreUnavailable, EncryptionUnavailable,
-        NotConfigured,
+        NotConfigured, ClearanceRequired, ModelFailed,
     };
 
     public static bool IsKnown(string? code) => code is not null && All.Contains(code);

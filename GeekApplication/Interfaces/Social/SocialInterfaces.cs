@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GeekApplication.Models.Social;
 
 namespace GeekApplication.Interfaces.Social;
@@ -151,4 +152,18 @@ public interface IOutboundTextReviewer
 public interface ISocialTokenProvider
 {
     Task<Result<SocialToken>> GetTokenAsync(Guid accountId, CancellationToken ct = default);
+}
+
+/// <summary>
+/// The language model Triage, the drafter and the post writer call. Claude is the implementation
+/// registered by default; another provider is another class behind this interface, and the agents do
+/// not change. One call is one attempt and is never retried. Every failure is a failed Result
+/// (<see cref="SocialFailureCodes.ModelFailed"/>, or <see cref="SocialFailureCodes.NotConfigured"/> when
+/// the key or model is not set) and is logged by the implementation; a log line never carries the
+/// prompt, the comment or the model's answer.
+/// </summary>
+public interface ISocialModelClient
+{
+    /// <summary>Sends the request and returns the input the model gave the forced tool.</summary>
+    Task<Result<JsonElement>> CallToolAsync(SocialModelRequest request, CancellationToken ct = default);
 }

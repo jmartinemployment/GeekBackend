@@ -351,6 +351,9 @@ public sealed class ReplyDraftRequest
     public string? PostText { get; set; }
 
     public string? AuthorDisplayName { get; set; }
+
+    /// <summary>The only links the reply may carry; the Reviewer refuses any other. Empty means none.</summary>
+    public List<string> ApprovedLinks { get; set; } = new();
 }
 
 /// <summary>The drafter's answer for one comment: the reply text and nothing else.</summary>

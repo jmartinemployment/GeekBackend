@@ -22,6 +22,12 @@ internal sealed class FakeSocialStore : ISocialStore
     public Func<Guid, Result<SocialAccount>>? OnMarkReconnectRequired { get; set; }
     public Func<ConnectSocialAccountCommand, Result<SocialAccount>>? OnConnectAccount { get; set; }
     public Func<ActionAudit, Result<ActionAudit>>? OnRecordAudit { get; set; }
+    public Func<Guid, int, Result<IReadOnlyList<SocialPost>>>? OnListPosts { get; set; }
+    public Func<Guid, RecordTriageOutcomeCommand, Result<EngagementEvent>>? OnRecordTriageOutcome { get; set; }
+    public Func<CreateReplyDraftCommand, Result<ReplyDraft>>? OnCreateDraft { get; set; }
+
+    /// <summary>Every store write a test may read back, in the order it was made: "draft" or "outcome".</summary>
+    public List<string> Writes { get; } = new();
 
     public List<EngagementEvent> RecordedEvents { get; } = new();
 
@@ -67,9 +73,19 @@ internal sealed class FakeSocialStore : ISocialStore
     public Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(CancellationToken ct = default) => NotUsed<IReadOnlyList<SocialAccount>>();
     public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) => NotUsed<SocialAccount>();
     public Task<Result<SocialPost>> RecordPostAsync(RecordSocialPostCommand command, CancellationToken ct = default) => NotUsed<SocialPost>();
-    public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid accountId, int limit, CancellationToken ct = default) => NotUsed<IReadOnlyList<SocialPost>>();
-    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) => NotUsed<EngagementEvent>();
-    public Task<Result<ReplyDraft>> CreateDraftAsync(CreateReplyDraftCommand command, CancellationToken ct = default) => NotUsed<ReplyDraft>();
+    public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid accountId, int limit, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnListPosts, nameof(ListPostsAsync))(accountId, limit));
+    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default)
+    {
+        Writes.Add("outcome");
+        return Task.FromResult(Scripted(OnRecordTriageOutcome, nameof(RecordTriageOutcomeAsync))(eventId, command));
+    }
+
+    public Task<Result<ReplyDraft>> CreateDraftAsync(CreateReplyDraftCommand command, CancellationToken ct = default)
+    {
+        Writes.Add("draft");
+        return Task.FromResult(Scripted(OnCreateDraft, nameof(CreateDraftAsync))(command));
+    }
     public Task<Result<ReplyDraft>> GetDraftAsync(Guid draftId, CancellationToken ct = default) => NotUsed<ReplyDraft>();
     public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(string? status, Guid? accountId, int limit, CancellationToken ct = default) => NotUsed<IReadOnlyList<ReplyDraft>>();
     public Task<Result<ReplyDraft>> EditDraftAsync(Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) => NotUsed<ReplyDraft>();

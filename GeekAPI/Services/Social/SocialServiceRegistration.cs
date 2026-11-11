@@ -1,8 +1,11 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Social.Connector;
+using GeekAPI.Services.Social.Drafting;
+using GeekAPI.Services.Social.LanguageModel;
 using GeekAPI.Services.Social.Meta;
 using GeekAPI.Services.Social.Orchestration;
 using GeekAPI.Services.Social.Review;
+using GeekAPI.Services.Social.Triage;
 using GeekApplication.Interfaces.Social;
 using GeekApplication.Models.Social;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -32,12 +35,21 @@ public static class SocialServiceRegistration
     }
 
     /// <summary>
-    /// The agents that call nothing outside the process. The Reviewer is plain code with no state, so one
-    /// instance serves every caller.
+    /// The agents. The Reviewer is plain code with no state, so one instance serves every caller.
+    /// Triage and the drafter reach the language model through <see cref="ISocialModelClient"/>, whose
+    /// default is Claude (<see cref="ClaudeSocialModelClient"/>); it uses the Anthropic settings and the
+    /// global <see cref="Workflow.Providers.LlmConcurrencyGate"/> that AddWorkflow registers. The
+    /// clearance is read here, once: a platform name in it that does not exist stops the service from
+    /// starting, and an empty one clears nothing.
     /// </summary>
     public static IServiceCollection AddSocialAgents(this IServiceCollection services)
     {
+        services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IOutboundTextReviewer, OutboundTextReviewer>();
+        services.AddSingleton(SocialClaudeClearance.FromEnvironment());
+        services.AddHttpClient<ISocialModelClient, ClaudeSocialModelClient>();
+        services.AddScoped<IEngagementTriage, EngagementTriage>();
+        services.AddScoped<IReplyDrafter, ReplyDrafter>();
         return services;
     }
 
