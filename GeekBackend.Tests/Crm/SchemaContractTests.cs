@@ -28,7 +28,7 @@ public class SchemaContractTests
 
     /// <summary>The schema scripts, in order, with comments removed: 0050 creates the tables and later scripts alter them. Data loads are not schema.</summary>
     private static readonly string[] SchemaScripts = 
-        ["0050_geek_crm_schema.sql", "0051_geek_crm_import_batch_and_property_retire.sql", "0053_geek_crm_tenant_keys.sql", "0054_geek_crm_products.sql", "0055_geek_crm_pricing_and_subscriptions.sql"];
+        ["0050_geek_crm_schema.sql", "0051_geek_crm_import_batch_and_property_retire.sql", "0053_geek_crm_tenant_keys.sql", "0054_geek_crm_products.sql", "0055_geek_crm_pricing_and_subscriptions.sql", "0056_geek_crm_receptionist.sql"];
 
     private static string Sql => string.Join("\n", SchemaScripts.Select(name =>
         Regex.Replace(File.ReadAllText(Path.Combine(Root, "GeekRepository", "Migrations", "Sql", name)), @"--[^\n]*", string.Empty)));
@@ -86,6 +86,8 @@ public class SchemaContractTests
         ["PartnerArrangement"] = PartnerArrangements.All,
         ["EstimateSize"] = EstimateSizes.All,
         ["Currency"] = Currencies.All,
+        ["ActivityPriority"] = ActivityPriorities.All,
+        ["ProjectStatus"] = ProjectStatuses.All,
     };
 
     // ----- tests: the schema itself -----

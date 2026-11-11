@@ -64,6 +64,8 @@ public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, I
                 return Invalid<RecordActivityResult>($"Unknown outcome '{command.Outcome}'.");
             if (string.IsNullOrWhiteSpace(command.CreatedBy))
                 return Invalid<RecordActivityResult>("createdBy is required.");
+            if (command.Priority is not null && !ActivityPriorities.All.Contains(command.Priority))
+                return Invalid<RecordActivityResult>($"Unknown priority '{command.Priority}'.");
             if (!await TenantExistsAsync(command.TenantId, ct))
                 return NotFound<RecordActivityResult>("Unknown tenant.");
             if (command.ParticipantId is { } pid &&
@@ -91,12 +93,13 @@ public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, I
                 ExternalRef = command.ExternalRef,
                 CreatedBy = command.CreatedBy,
                 CreatedAt = Now(),
+                Priority = command.Priority,
             };
             db.Activities.Add(row);
             // A unique violation aborts the whole transaction, so the insert is made behind a savepoint
             // that the race below rolls back to before it reads the other insert.
-            var transaction = db.Database.CurrentTransaction!;
-            await transaction.CreateSavepointAsync("record_activity", ct);
+            var transaction = db.Database.CurrentTransaction;
+            if (transaction is not null) await transaction.CreateSavepointAsync("record_activity", ct);
             try
             {
                 await db.SaveChangesAsync(ct);
@@ -104,16 +107,18 @@ public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, I
             catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
             {
                 // A retry raced this one in: the other insert is the activity.
-                await transaction.RollbackToSavepointAsync("record_activity", ct);
+                if (transaction is not null) await transaction.RollbackToSavepointAsync("record_activity", ct);
                 db.ChangeTracker.Clear();
                 if (await FindActivityAsync(command, ct) is { } raced)
                     return Result<RecordActivityResult>.Success(new RecordActivityResult(raced, false));
                 throw;
             }
 
-            if (command.ParticipantId is { } touched)
-                await db.Participants.Where(p => p.Id == touched)
-                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.UpdatedAt, row.CreatedAt), ct);
+            if (command.ParticipantId is { } touched && await db.Participants.FirstOrDefaultAsync(p => p.Id == touched, ct) is { } participant)
+            {
+                participant.UpdatedAt = row.CreatedAt;
+                await db.SaveChangesAsync(ct);
+            }
 
             return Result<RecordActivityResult>.Success(new RecordActivityResult(row.Id, true));
         }, ct);
@@ -777,11 +782,11 @@ public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, I
 
     private static CrmActivity ToActivity(CrmActivityRow a) => new(
         a.Id, a.ParticipantId, a.DealId, a.Channel, a.Direction, a.OccurredAt, a.Subject, a.Body, a.Summary,
-        a.RecordingUrl, a.DurationSeconds, a.Outcome, a.ExternalRef, a.CreatedBy);
+        a.RecordingUrl, a.DurationSeconds, a.Outcome, a.ExternalRef, a.CreatedBy, a.Priority, a.StartsAt, a.EndsAt, a.CalendarEventId);
 
     private static CrmDeal ToDeal(CrmDealRow d, CrmStageRow s) => new(
         d.Id, d.Name, d.PipelineId, d.StageId, s.Name, s.Outcome, d.OrganizationParticipantId, d.ProductCategory,
-        d.Qualification, d.EstimatedValue, d.RecurringValueMonthly, d.ExpectedCloseOn, d.ClosedAt, d.LostReason, d.CreatedAt);
+        d.Qualification, d.EstimatedValue, d.RecurringValueMonthly, d.ExpectedCloseOn, d.ClosedAt, d.LostReason, d.CreatedAt, d.EstimateGivenAt);
 
     private static Result<T> Invalid<T>(string message) => Result<T>.Failure(message, CrmFailureCodes.InvalidRequest);
     private static Result<T> NotFound<T>(string message) => Result<T>.Failure(message, CrmFailureCodes.NotFound);

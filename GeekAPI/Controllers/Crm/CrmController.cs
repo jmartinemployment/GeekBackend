@@ -173,6 +173,47 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
             ? BadRequest("A tier list is required.")
             : ToAction(await crm.ReplaceUpliftTiersAsync(new ReplaceUpliftTiersCommand(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.Tiers), ct));
 
+    // ----- The AI voice receptionist: projects, capacity, activities, intake (Phase 3) -----
+
+    /// <summary>
+    /// One call writes the caller, their contact points, a deal with estimate line items, the call and the booked meeting, in one
+    /// transaction. Repeating a call SID writes nothing and answers what the first run wrote (created = false).
+    /// </summary>
+    [HttpPost("receptionist/intake")]
+    public async Task<IActionResult> ReceptionistIntake([FromBody] ReceptionistIntakeRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null || body.OccurredAt is null
+            ? BadRequest("An intake needs callSid, phone, productCategory, priority and occurredAt.")
+            : ToAction(await crm.ReceptionistIntakeAsync(new ReceptionistIntakeCommand(
+                tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.CallSid ?? string.Empty, body.Phone ?? string.Empty, body.FirstName, body.LastName, body.Email,
+                body.ProductCategory ?? string.Empty, body.Qualification, body.Products ?? [], body.Summary, body.Transcript, body.RecordingUrl,
+                body.DurationSeconds, body.OccurredAt.Value, body.Priority ?? string.Empty, body.Meeting), ct));
+
+    [HttpGet("projects")]
+    public async Task<IActionResult> ListProjects([FromQuery] string? status, [FromQuery] Guid? participantId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.ListProjectsAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, status, participantId, ct));
+
+    [HttpPost("projects")]
+    public async Task<IActionResult> CreateProject([FromBody] ProjectRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null || body.ParticipantId is null
+            ? BadRequest("A project needs a participantId.")
+            : ToAction(await crm.CreateProjectAsync(new CreateProjectCommand(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.ParticipantId.Value, body.ToDetails()), ct));
+
+    [HttpPut("projects/{projectId:guid}")]
+    public async Task<IActionResult> UpdateProject(Guid projectId, [FromBody] ProjectRequest? body, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        body is null
+            ? BadRequest("A project is required.")
+            : ToAction(await crm.UpdateProjectAsync(projectId, new UpdateProjectCommand(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, body.ToDetails()), ct));
+
+    /// <summary>Booked hours per week against 40 base + 20 surge, the uplift each week carries, and the earliest week with base capacity free. An estimate, never a reservation.</summary>
+    [HttpGet("capacity")]
+    public async Task<IActionResult> GetCapacity([FromQuery] int weeks, [FromQuery] DateOnly? asOf, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.GetCapacityAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, weeks <= 0 ? CrmCapacityRules.DefaultWeeks : weeks, asOf, ct));
+
+    /// <summary><c>?priority=urgent</c> lists the messages that need attention first.</summary>
+    [HttpGet("activities")]
+    public async Task<IActionResult> ListActivities([FromQuery] string? priority, [FromQuery] string? channel, [FromQuery] int limit, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await crm.ListActivitiesAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, priority, channel, limit, ct));
+
     [HttpGet("properties/definitions")]
     public async Task<IActionResult> ListPropertyDefinitions([FromQuery] string? objectType, [FromQuery] bool includeRetired, [FromQuery] bool includeSensitive, [FromQuery] Guid? tenantId, CancellationToken ct) =>
         ToAction(await crm.ListPropertyDefinitionsAsync(tenantId ?? CrmSeed.GeekAtYourSpotTenantId, objectType, includeRetired, includeSensitive, ct));
@@ -265,4 +306,27 @@ public sealed record HoldingRequest(
     public HoldingDetails ToDetails() => new(
         Status ?? string.Empty, StartOn, EndOn, Quantity ?? 0m, UnitPrice ?? -1m, DiscountPct ?? 0m, RecurringAmountMonthly, OneTimeAmount,
         Arrangement, ReferralFee, ReferralFeeIsRecurring, ReferralPaidOn, PartnerCostMonthly, ExternalRef);
+}
+
+public sealed record ReceptionistIntakeRequest(
+    string? CallSid,
+    string? Phone,
+    string? FirstName,
+    string? LastName,
+    string? Email,
+    string? ProductCategory,
+    JsonElement? Qualification,
+    IReadOnlyList<IntakeProduct>? Products,
+    string? Summary,
+    string? Transcript,
+    string? RecordingUrl,
+    int? DurationSeconds,
+    DateTime? OccurredAt,
+    string? Priority,
+    IntakeMeeting? Meeting);
+
+/// <summary>A project as a caller sends it; status, estimated hours and hours per week are required, so a missing one is refused rather than defaulted.</summary>
+public sealed record ProjectRequest(Guid? ParticipantId, string? Status, DateOnly? StartOn, DateOnly? TargetEndOn, decimal? EstimatedHours, decimal? HoursPerWeek, Guid? DealId, Guid? CustomerHoldingId)
+{
+    public ProjectDetails ToDetails() => new(Status ?? string.Empty, StartOn, TargetEndOn, EstimatedHours ?? -1m, HoursPerWeek ?? -1m, DealId, CustomerHoldingId);
 }

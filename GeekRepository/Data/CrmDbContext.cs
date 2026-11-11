@@ -35,6 +35,7 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
     public DbSet<CrmDealLineItemRow> DealLineItems => Set<CrmDealLineItemRow>();
     public DbSet<CrmCustomerHoldingRow> CustomerHoldings => Set<CrmCustomerHoldingRow>();
     public DbSet<CrmTenantSubscriptionRow> TenantSubscriptions => Set<CrmTenantSubscriptionRow>();
+    public DbSet<CrmProjectRow> Projects => Set<CrmProjectRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -72,7 +73,13 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
         modelBuilder.Entity<CrmProductPriceRow>(e => { e.ToTable("product_prices", Schema); e.HasKey(x => x.Id); });
         modelBuilder.Entity<CrmPricingRulesRow>(e => { e.ToTable("pricing_rules", Schema); e.HasKey(x => x.Id); });
         modelBuilder.Entity<CrmPricingUpliftTierRow>(e => { e.ToTable("pricing_uplift_tiers", Schema); e.HasKey(x => x.Id); });
-        modelBuilder.Entity<CrmDealLineItemRow>(e => { e.ToTable("deal_line_items", Schema); e.HasKey(x => x.Id); });
+        modelBuilder.Entity<CrmDealLineItemRow>(e =>
+        {
+            e.ToTable("deal_line_items", Schema);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.EstimateInputs).HasColumnType("jsonb");
+        });
+        modelBuilder.Entity<CrmProjectRow>(e => { e.ToTable("projects", Schema); e.HasKey(x => x.Id); });
         modelBuilder.Entity<CrmCustomerHoldingRow>(e => { e.ToTable("customer_holdings", Schema); e.HasKey(x => x.Id); });
         modelBuilder.Entity<CrmTenantSubscriptionRow>(e => { e.ToTable("tenant_subscriptions", Schema); e.HasKey(x => x.Id); });
 
@@ -111,6 +118,10 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options) : DbCon
         Fk<CrmCustomerHoldingRow, CrmDealRow>(modelBuilder, x => x.DealId);
         Fk<CrmCustomerHoldingRow, CrmDealLineItemRow>(modelBuilder, x => x.DealLineItemId);
         Fk<CrmTenantSubscriptionRow, CrmTenantRow>(modelBuilder, x => x.SubscriberTenantId);
+        Fk<CrmProjectRow, CrmTenantRow>(modelBuilder, x => x.TenantId);
+        Fk<CrmProjectRow, CrmParticipantRow>(modelBuilder, x => x.ParticipantId);
+        Fk<CrmProjectRow, CrmDealRow>(modelBuilder, x => x.DealId);
+        Fk<CrmProjectRow, CrmCustomerHoldingRow>(modelBuilder, x => x.CustomerHoldingId);
 
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {

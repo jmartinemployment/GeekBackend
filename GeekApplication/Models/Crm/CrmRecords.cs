@@ -59,7 +59,11 @@ public sealed record CrmActivity(
     int? DurationSeconds,
     string? Outcome,
     string? ExternalRef,
-    string CreatedBy);
+    string CreatedBy,
+    string? Priority = null,
+    DateTime? StartsAt = null,
+    DateTime? EndsAt = null,
+    string? CalendarEventId = null);
 
 public sealed record CrmParticipant(
     Guid Id,
@@ -105,7 +109,8 @@ public sealed record CrmDeal(
     DateOnly? ExpectedCloseOn,
     DateTime? ClosedAt,
     string? LostReason,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    DateTime? EstimateGivenAt = null);
 
 // ----- Commands -----
 
@@ -132,7 +137,8 @@ public sealed record RecordActivityCommand(
     int? DurationSeconds,
     string? Outcome,
     string? ExternalRef,
-    string CreatedBy);
+    string CreatedBy,
+    string? Priority = null);
 
 public sealed record RecordActivityResult(Guid ActivityId, bool Created);
 

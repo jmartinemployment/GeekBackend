@@ -137,6 +137,7 @@ public sealed class CrmDealRow
     public string? LostReason { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public DateTime? EstimateGivenAt { get; set; }
 }
 
 public sealed class CrmDealStageHistoryRow
@@ -180,6 +181,10 @@ public sealed class CrmActivityRow
     public DateTime? CompletedAt { get; set; }
     public string CreatedBy { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public DateTime? StartsAt { get; set; }
+    public DateTime? EndsAt { get; set; }
+    public string? CalendarEventId { get; set; }
+    public string? Priority { get; set; }
 }
 
 public sealed class CrmPropertyDefinitionRow
@@ -275,6 +280,12 @@ public sealed class CrmDealLineItemRow
     public decimal DiscountPct { get; set; }
     public string Currency { get; set; } = Currencies.Usd;
     public DateTime CreatedAt { get; set; }
+    public string? Size { get; set; }
+    public decimal? Hours { get; set; }
+    public decimal? HourlyRate { get; set; }
+    public decimal? DemandUpliftPct { get; set; }
+    public bool? IsEstimate { get; set; }
+    public string? EstimateInputs { get; set; }
 }
 
 public sealed class CrmCustomerHoldingRow
@@ -315,5 +326,21 @@ public sealed class CrmTenantSubscriptionRow
     public DateOnly StartOn { get; set; }
     public DateOnly? EndOn { get; set; }
     public DateTime CreatedAt { get; set; }
+}
+
+public sealed class CrmProjectRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid ParticipantId { get; set; }
+    public Guid? DealId { get; set; }
+    public Guid? CustomerHoldingId { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateOnly? StartOn { get; set; }
+    public DateOnly? TargetEndOn { get; set; }
+    public decimal EstimatedHours { get; set; }
+    public decimal HoursPerWeek { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 

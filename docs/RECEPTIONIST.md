@@ -250,8 +250,11 @@ Draft model (the working numbers live in Jeff's "Use-Case Pricing Draft" sheet, 
   start) plus the receptionist handling some customer service.
 - **Demand uplift** and the **start date** come from a project calendar: capacity 40 hours/week plus
   20 surge; the uplift rises as the next weeks fill (draft: +10% over 75% booked, +25% into surge
-  hours). Until that calendar exists the uplift is set by hand. It will read active project status
-  from Geek-CRM.
+  hours). The calendar now exists in Geek-CRM: `GET /api/crm/capacity?weeks=8` reads booked hours per week
+  from project rows, and `POST /api/crm/receptionist/intake` applies the uplift of the earliest week with free
+  base capacity when it prices the estimate. The number is always an estimate: intake reserves no hours, only
+  scheduling a project does (docs/GEEK-CRM-DATA-MODEL.md 4.16). The intake's price for a use case is the catalog
+  price for its size (which carries its hours), not hours times the hourly rate; the rate is recorded on the line.
 
 ### Building blocks
 

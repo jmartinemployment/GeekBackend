@@ -314,5 +314,80 @@ public sealed class CrmIntegrationTests
         await using var count = new Npgsql.NpgsqlCommand("SELECT count(*) FROM geek_crm.tenant_subscriptions", conn, tenantTx);
         Assert.Equal(0L, (long)(await count.ExecuteScalarAsync())!);
     }
+
+    // ----- Phase 3: capacity, projects and intake -----
+
+    [Fact]
+    public async Task Simultaneous_schedules_for_one_tenant_never_pass_sixty_hours_in_any_week()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var contact = (await NewRepository().EnsureParticipantByPhoneAsync(new(Tenant, RandomPhone(), ParticipantSources.PhoneCall, "test"))).Value!.ParticipantId;
+        // A week far from any other test's, so the count below is this test's alone.
+        var monday = CrmCapacityRules.WeekStart(new DateOnly(2031, 3, 3));
+        var details = new ProjectDetails(ProjectStatuses.Scheduled, monday, monday.AddDays(6), 25, 25, null, null);
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => NewRepository().CreateProjectAsync(new(Tenant, contact, details))));
+
+        Assert.Equal(2, results.Count(r => r.IsSuccess));
+        Assert.All(results.Where(r => !r.IsSuccess), r => Assert.Equal(CrmFailureCodes.Conflict, r.ErrorCode));
+        var week = (await NewRepository().GetCapacityAsync(Tenant, 1, monday)).Value!.Weeks.Single();
+        Assert.Equal(50m, week.BookedHours);
+    }
+
+    [Fact]
+    public async Task Simultaneous_hour_changes_never_pass_sixty_hours_and_a_decrease_always_succeeds()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var contact = (await NewRepository().EnsureParticipantByPhoneAsync(new(Tenant, RandomPhone(), ParticipantSources.PhoneCall, "test"))).Value!.ParticipantId;
+        var monday = CrmCapacityRules.WeekStart(new DateOnly(2032, 3, 1));
+        ProjectDetails At(decimal pace) => new(ProjectStatuses.Scheduled, monday, monday.AddDays(6), pace, pace, null, null);
+        var a = (await NewRepository().CreateProjectAsync(new(Tenant, contact, At(30)))).Value!;
+        var b = (await NewRepository().CreateProjectAsync(new(Tenant, contact, At(20)))).Value!;
+
+        var raises = await Task.WhenAll(NewRepository().UpdateProjectAsync(a.Id, new(Tenant, At(35))), NewRepository().UpdateProjectAsync(b.Id, new(Tenant, At(35))));
+        Assert.Equal(1, raises.Count(r => r.IsSuccess));
+        var booked = (await NewRepository().GetCapacityAsync(Tenant, 1, monday)).Value!.Weeks.Single().BookedHours;
+        Assert.InRange(booked, 1m, CrmCapacityRules.MaxHoursPerWeek);
+
+        var lower = await NewRepository().UpdateProjectAsync(a.Id, new(Tenant, At(5)));
+        Assert.True(lower.IsSuccess, lower.Error);
+    }
+
+    [Fact]
+    public async Task Capacity_is_computed_from_the_real_project_rows()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var contact = (await NewRepository().EnsureParticipantByPhoneAsync(new(Tenant, RandomPhone(), ParticipantSources.PhoneCall, "test"))).Value!.ParticipantId;
+        var monday = CrmCapacityRules.WeekStart(new DateOnly(2033, 3, 7));
+        await NewRepository().CreateProjectAsync(new(Tenant, contact, new(ProjectStatuses.Active, monday, monday.AddDays(13), 80, 40, null, null)));
+        await NewRepository().CreateProjectAsync(new(Tenant, contact, new(ProjectStatuses.OnHold, monday, monday.AddDays(13), 80, 40, null, null)));
+
+        var read = (await NewRepository().GetCapacityAsync(Tenant, 3, monday)).Value!;
+        Assert.Equal([40m, 40m, 0m], read.Weeks.Select(w => w.BookedHours));
+        Assert.Equal(monday.AddDays(14), read.EarliestStartOn);
+    }
+
+    [Fact]
+    public async Task The_same_call_sid_twice_writes_one_of_each_row_and_urgent_messages_are_filterable()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var sid = "CA" + Guid.NewGuid().ToString("N");
+        var command = new ReceptionistIntakeCommand(Tenant, sid, RandomPhone(), "Test", "Caller", null, "ai_receptionist", null, [], "Summary", null, null, 60,
+            DateTime.UtcNow, ActivityPriorities.Urgent, new IntakeMeeting(DateTime.UtcNow.AddDays(2), DateTime.UtcNow.AddDays(2).AddMinutes(30), "evt-" + sid));
+
+        var first = await NewRepository().ReceptionistIntakeAsync(command);
+        var again = await NewRepository().ReceptionistIntakeAsync(command);
+        Assert.True(first.IsSuccess, first.Error);
+        Assert.True(first.Value!.Created);
+        Assert.False(again.Value!.Created);
+        Assert.Equal((first.Value.DealId, first.Value.CallActivityId, first.Value.MeetingActivityId), (again.Value.DealId, again.Value.CallActivityId, again.Value.MeetingActivityId));
+
+        var urgent = (await NewRepository().ListActivitiesAsync(Tenant, ActivityPriorities.Urgent, null, 200)).Value!;
+        Assert.Equal(2, urgent.Count(a => a.ExternalRef == sid));
+    }
 }
 

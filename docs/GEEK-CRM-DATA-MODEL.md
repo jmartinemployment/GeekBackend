@@ -324,6 +324,24 @@ subscriber tenant must exist; a tenant has one live (proposed, active, paused) s
 Creating one may link the seller's own holding of that product (`holdingId`), which sets
 `customer_holdings.tenant_subscription_id` in the same transaction; a holding links once.
 
+### 4.16 Projects and capacity (Phase 3, script 0056)
+
+`projects`: `participant_id`, optional `deal_id` and `customer_holding_id`, `status` (`scheduled`, `active`, `on_hold`,
+`done`, `cancelled`), `start_on`, `target_end_on`, `estimated_hours`, `hours_per_week`. Projects stay in Geek-CRM: they
+set delivery capacity and feed the demand uplift. A project holds hours only while it is `scheduled` or `active`, from
+the Monday of its start to the Monday of its last day (its target end, or its start plus enough weeks for its hours at its
+pace); it then needs a start date.
+
+Capacity is **40 base + 20 surge hours a week** (`GET /api/crm/capacity?weeks=8`, up to 52). The read lists, per
+Monday-start week, the booked hours, the booked percentage of the 40 base hours, the uplift that percentage carries
+(the uplift tier with the highest `booked_pct_from` at or below it), and the first week with base capacity free. It takes no
+lock, so its number is always an estimate, never a reservation.
+
+Hours are claimed only by writing a project. Creating one, or changing any project, takes
+`pg_advisory_xact_lock(hashtextextended('geek_crm.capacity:' || tenant_id, 0))` for the transaction, so two schedules
+cannot both claim the last surge hours. A decrease (the same or a shorter span at the same or fewer hours a week) never
+fails; anything else fails with a conflict naming the first week it would take past 60 hours.
+
 ### 4.11 Lookups
 
 - `naics_code` (`code`, `title`, `level`) — the Census Bureau's 2022 NAICS list, 2,125 codes (20 sectors
@@ -345,6 +363,21 @@ Creating one may link the seller's own holding of that product (`holdingId`), wh
 | AI receptionist call (later) | Person/organization fields it learned; `deal` in **New** or **Qualified** with `product_category` + `qualification`; `activity(call, summary, transcript)`; **Meeting booked** if they booked |
 
 All writes are idempotent on `external_ref` (Twilio SID), so Twilio retries never duplicate.
+
+**Intake (Phase 3).** `POST /api/crm/receptionist/intake` writes, in one transaction: the caller (found by phone, or created
+as a lead person), their phone and optional email, a deal in the first stage of the default pipeline (`product_category`,
+`qualification` answers as a JSON object keyed by question id), estimate line items, the call activity (`outcome = answered`,
+`summary`, `transcript`, `priority`) and, when a meeting was booked, a `meeting` activity (`outcome = booked`, `starts_at`,
+`ends_at`, `calendar_event_id`). A second call with the same CallSid writes nothing and answers the first result
+(`created = false`).
+
+**The estimate.** Each requested product (by catalog code and size) is priced at the catalog price in effect today: the monthly
+price for a monthly product, the one-time price otherwise. One-time work priced by hours is raised by the uplift of the
+earliest week with free base capacity. A second use case with the same partner is priced at `related_use_case_pct` of its
+price (recorded as the line's discount). Each line stores `size`, `hours`, `hourly_rate`, `demand_uplift_pct`,
+`is_estimate = true` and `estimate_inputs` (the price used, the pricing rules, the capacity week and a timestamp), and the deal
+gets `estimate_given_at` and the sums. A product that is unknown or has no price is left out and named in `problems`; nothing
+is guessed.
 
 ---
 
@@ -386,6 +419,10 @@ the X-API-Key (a trusted server); when signed-in users arrive their role decides
 | GET, POST | `/api/crm/products/{id}/prices`, `/api/crm/products/{id}/price` | Price history, set a price, the price in effect |
 | GET, PUT | `/api/crm/pricing-rules`, `/api/crm/pricing-uplift-tiers` | The tenant's pricing rules and uplift tiers |
 | GET, POST, PUT | `/api/platform/subscriptions`, `.../{id}` | Tenant subscriptions; needs `X-Platform-Admin-Key` as well |
+| POST | `/api/crm/receptionist/intake` | One call writes the caller, their contact points, a deal with estimate line items, the call and the meeting; idempotent on the Twilio CallSid |
+| GET, POST, PUT | `/api/crm/projects`, `/api/crm/projects/{id}` | Projects; a change that would pass 60 hours in a week is a conflict |
+| GET | `/api/crm/capacity?weeks=8` | Booked hours per week against 40 + 20 surge, the uplift, the earliest start |
+| GET | `/api/crm/activities?priority=urgent&channel=&limit=` | Activities, newest first; urgent ones filterable |
 | POST | `/api/crm/deals/{id}/win` | Moves the deal to Won and creates its holdings in one transaction; a repeat creates nothing |
 
 All take an optional `tenantId`; the default is Geek @ Your Spot.

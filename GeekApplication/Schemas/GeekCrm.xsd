@@ -315,7 +315,7 @@
 
   <xs:simpleType name="ActivityPriority">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo>
       <xs:documentation>How soon a message needs attention; an existing customer's urgent message is urgent.</xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -452,7 +452,7 @@
 
   <xs:simpleType name="ProjectStatus">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo>
       <xs:documentation>Where a delivery project stands.</xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -667,7 +667,7 @@
       <xs:element name="UpdatedAt" type="xs:dateTime"/>
       <xs:element name="EstimateGivenAt" type="xs:dateTime" minOccurs="0">
         <xs:annotation>
-          <xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo>
+          <xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo>
           <xs:documentation>When the caller was given an estimate.</xs:documentation>
         </xs:annotation>
       </xs:element>
@@ -733,16 +733,16 @@
       <xs:element name="CreatedBy" type="xs:string"/>
       <xs:element name="CreatedAt" type="xs:dateTime"/>
       <xs:element name="StartsAt" type="xs:dateTime" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo><xs:documentation>When a booked meeting starts.</xs:documentation></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo><xs:documentation>When a booked meeting starts.</xs:documentation></xs:annotation>
       </xs:element>
       <xs:element name="EndsAt" type="xs:dateTime" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo><xs:documentation>When a booked meeting ends.</xs:documentation></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo><xs:documentation>When a booked meeting ends.</xs:documentation></xs:annotation>
       </xs:element>
       <xs:element name="CalendarEventId" type="xs:string" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo><xs:documentation>The booked meeting's id in the calendar.</xs:documentation></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo><xs:documentation>The booked meeting's id in the calendar.</xs:documentation></xs:annotation>
       </xs:element>
       <xs:element name="Priority" type="crm:ActivityPriority" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo></xs:annotation>
       </xs:element>
     </xs:sequence>
   </xs:complexType>
@@ -901,23 +901,23 @@
       <xs:element name="Currency" type="crm:Currency"/>
       <xs:element name="CreatedAt" type="xs:dateTime"/>
       <xs:element name="Size" type="crm:EstimateSize" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo></xs:annotation>
       </xs:element>
       <xs:element name="Hours" type="crm:Hours" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo></xs:annotation>
       </xs:element>
       <xs:element name="HourlyRate" type="crm:Money" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo></xs:annotation>
       </xs:element>
       <xs:element name="DemandUpliftPct" type="crm:Percent" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo></xs:annotation>
       </xs:element>
       <xs:element name="IsEstimate" type="xs:boolean" minOccurs="0">
-        <xs:annotation><xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo></xs:annotation>
+        <xs:annotation><xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo></xs:annotation>
       </xs:element>
       <xs:element name="EstimateInputs" type="crm:Json" minOccurs="0">
         <xs:annotation>
-          <xs:appinfo><crm:phase status="planned">3</crm:phase></xs:appinfo>
+          <xs:appinfo><crm:phase status="shipped">3</crm:phase></xs:appinfo>
           <xs:documentation>What an estimate was based on: the capacity snapshot, the pricing rules in effect, and when.</xs:documentation>
         </xs:annotation>
       </xs:element>
@@ -988,7 +988,7 @@
 
   <xs:complexType name="Project">
     <xs:annotation>
-      <xs:appinfo><crm:table>projects</crm:table><crm:phase status="planned">3</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>projects</crm:table><crm:phase status="shipped">3</crm:phase></xs:appinfo>
       <xs:documentation>A delivery project; its hours set capacity and feed the demand uplift.</xs:documentation>
     </xs:annotation>
     <xs:sequence>

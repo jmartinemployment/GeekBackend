@@ -97,4 +97,23 @@ public interface ICrmStore
     Task<Result<IReadOnlyList<CrmUpliftTier>>> ListUpliftTiersAsync(Guid tenantId, CancellationToken ct = default);
 
     Task<Result<IReadOnlyList<CrmUpliftTier>>> ReplaceUpliftTiersAsync(ReplaceUpliftTiersCommand command, CancellationToken ct = default);
+
+    // ----- The AI voice receptionist: projects, capacity, activities, intake (Phase 3) -----
+
+    Task<Result<IReadOnlyList<CrmProject>>> ListProjectsAsync(Guid tenantId, string? status, Guid? participantId, CancellationToken ct = default);
+
+    /// <summary>Takes the tenant's capacity lock, so two schedules cannot both claim the last hours; refused when any week would pass 40 + 20 hours.</summary>
+    Task<Result<CrmProject>> CreateProjectAsync(CreateProjectCommand command, CancellationToken ct = default);
+
+    /// <summary>Takes the same lock for every change. A decrease never fails; an increase (or a longer or later span) fails if it would take any week past 60 hours.</summary>
+    Task<Result<CrmProject>> UpdateProjectAsync(Guid projectId, UpdateProjectCommand command, CancellationToken ct = default);
+
+    /// <summary>Booked hours per week for the next weeks, read without a lock: an estimate, never a reservation.</summary>
+    Task<Result<CrmCapacity>> GetCapacityAsync(Guid tenantId, int weeks, DateOnly? asOf, CancellationToken ct = default);
+
+    Task<Result<IReadOnlyList<CrmActivity>>> ListActivitiesAsync(Guid tenantId, string? priority, string? channel, int limit, CancellationToken ct = default);
+
+    /// <summary>One call writes the caller, their contact points, a deal with estimate line items, the call and the meeting; a repeat with the same CallSid writes nothing.</summary>
+    Task<Result<ReceptionistIntakeResult>> ReceptionistIntakeAsync(ReceptionistIntakeCommand command, CancellationToken ct = default);
 }
+

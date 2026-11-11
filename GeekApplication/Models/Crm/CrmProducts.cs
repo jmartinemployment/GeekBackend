@@ -49,7 +49,12 @@ public sealed record CrmDealLineItem(
     decimal DiscountPct,
     string Currency,
     decimal LineTotal,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string? Size = null,
+    decimal? Hours = null,
+    decimal? HourlyRate = null,
+    decimal? DemandUpliftPct = null,
+    bool? IsEstimate = null);
 
 /// <summary>A line item with the deal's totals after it, so a caller sees the sums the deal now carries.</summary>
 public sealed record CrmDealLineItems(Guid DealId, IReadOnlyList<CrmDealLineItem> Items, decimal? EstimatedValue, decimal? RecurringValueMonthly);

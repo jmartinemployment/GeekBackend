@@ -230,3 +230,21 @@ public static class Currencies
     public const string Usd = "USD";
     public static readonly IReadOnlyList<string> All = [Usd];
 }
+
+public static class ActivityPriorities
+{
+    public const string Normal = "normal";
+    public const string Urgent = "urgent";
+    public static readonly IReadOnlyList<string> All = [Normal, Urgent];
+}
+
+public static class ProjectStatuses
+{
+    public const string Scheduled = "scheduled";
+    public const string Active = "active";
+    public const string OnHold = "on_hold";
+    public const string Done = "done";
+    public const string Cancelled = "cancelled";
+    public static readonly IReadOnlyList<string> All = [Scheduled, Active, OnHold, Done, Cancelled];
+}
+

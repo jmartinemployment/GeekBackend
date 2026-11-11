@@ -62,6 +62,12 @@ public class CrmReceptionistRecorderTests
         public Task<Result<CrmPricingRules>> SetPricingRulesAsync(SetPricingRulesCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<IReadOnlyList<CrmUpliftTier>>> ListUpliftTiersAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<IReadOnlyList<CrmUpliftTier>>> ReplaceUpliftTiersAsync(ReplaceUpliftTiersCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<CrmProject>>> ListProjectsAsync(Guid tenantId, string? status, Guid? participantId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmProject>> CreateProjectAsync(CreateProjectCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmProject>> UpdateProjectAsync(Guid projectId, UpdateProjectCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<CrmCapacity>> GetCapacityAsync(Guid tenantId, int weeks, DateOnly? asOf, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<CrmActivity>>> ListActivitiesAsync(Guid tenantId, string? priority, string? channel, int limit, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<ReceptionistIntakeResult>> ReceptionistIntakeAsync(ReceptionistIntakeCommand command, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
     private static CrmReceptionistRecorder Recorder(FakeStore store)

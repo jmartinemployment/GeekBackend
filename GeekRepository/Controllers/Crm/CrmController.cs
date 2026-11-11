@@ -129,6 +129,32 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
     public async Task<IActionResult> ReplaceUpliftTiers([FromBody] ReplaceUpliftTiersCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A tier list is required.") : ToAction(await crm.ReplaceUpliftTiersAsync(command, ct));
 
+    // ----- The AI voice receptionist: projects, capacity, activities, intake (Phase 3) -----
+
+    [HttpGet("tenants/{tenantId:guid}/projects")]
+    public async Task<IActionResult> ListProjects(Guid tenantId, [FromQuery] string? status, [FromQuery] Guid? participantId, CancellationToken ct) =>
+        ToAction(await crm.ListProjectsAsync(tenantId, status, participantId, ct));
+
+    [HttpPost("projects")]
+    public async Task<IActionResult> CreateProject([FromBody] CreateProjectCommand command, CancellationToken ct) =>
+        command is null || command.Details is null ? BadRequest("A project is required.") : ToAction(await crm.CreateProjectAsync(command, ct));
+
+    [HttpPut("projects/{projectId:guid}")]
+    public async Task<IActionResult> UpdateProject(Guid projectId, [FromBody] UpdateProjectCommand command, CancellationToken ct) =>
+        command is null || command.Details is null ? BadRequest("A project is required.") : ToAction(await crm.UpdateProjectAsync(projectId, command, ct));
+
+    [HttpGet("tenants/{tenantId:guid}/capacity")]
+    public async Task<IActionResult> GetCapacity(Guid tenantId, [FromQuery] int weeks, [FromQuery] DateOnly? asOf, CancellationToken ct) =>
+        ToAction(await crm.GetCapacityAsync(tenantId, weeks <= 0 ? CrmCapacityRules.DefaultWeeks : weeks, asOf, ct));
+
+    [HttpGet("tenants/{tenantId:guid}/activities")]
+    public async Task<IActionResult> ListActivities(Guid tenantId, [FromQuery] string? priority, [FromQuery] string? channel, [FromQuery] int limit, CancellationToken ct) =>
+        ToAction(await crm.ListActivitiesAsync(tenantId, priority, channel, limit, ct));
+
+    [HttpPost("receptionist/intake")]
+    public async Task<IActionResult> ReceptionistIntake([FromBody] ReceptionistIntakeCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("An intake is required.") : ToAction(await crm.ReceptionistIntakeAsync(command, ct));
+
     // ----- Industry lookup and custom properties -----
 
     [HttpGet("lookups/naics")]

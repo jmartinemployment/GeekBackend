@@ -119,7 +119,7 @@ public sealed partial class CrmRepository
             {
                 Id = Guid.NewGuid(), TenantId = command.TenantId, DealId = deal!.Id, ProductId = product.Id, Quantity = command.Quantity,
                 UnitPrice = unitPrice.Value, IsRecurring = recurring,
-                DiscountPct = command.DiscountPct, Currency = Currencies.Usd, CreatedAt = Now(),
+                DiscountPct = command.DiscountPct, Currency = Currencies.Usd, CreatedAt = Now(), Size = command.Size,
             });
             await db.SaveChangesAsync(ct);
             return Result<CrmDealLineItems>.Success(await SumDealAsync(deal, ct));
@@ -344,7 +344,7 @@ public sealed partial class CrmRepository
 
     private static CrmDealLineItem ToLineItem(CrmDealLineItemRow i, string productName) => new(
         i.Id, i.DealId, i.ProductId, productName, i.Quantity, i.UnitPrice, i.IsRecurring, i.DiscountPct, i.Currency,
-        CrmProductRules.LineTotal(i.Quantity, i.UnitPrice, i.DiscountPct), i.CreatedAt);
+        CrmProductRules.LineTotal(i.Quantity, i.UnitPrice, i.DiscountPct), i.CreatedAt, i.Size, i.Hours, i.HourlyRate, i.DemandUpliftPct, i.IsEstimate);
 
     private static CrmHolding ToHolding(CrmCustomerHoldingRow h, CrmProductRow p) => new(
         h.Id, h.ParticipantId, h.ProductId, p.Name, p.Kind, h.DealId, h.DealLineItemId, h.Status, h.StartOn, h.EndOn, h.Quantity,

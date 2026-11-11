@@ -168,6 +168,35 @@ public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository
     public Task<Result<CrmTenantSubscription>> UpdateSubscriptionAsync(Guid subscriptionId, UpdateTenantSubscriptionCommand command, CancellationToken ct = default) =>
         SendAsync<CrmTenantSubscription>(HttpMethod.Put, $"repo/platform/subscriptions/{subscriptionId}", command, ct);
 
+    public async Task<Result<IReadOnlyList<CrmProject>>> ListProjectsAsync(Guid tenantId, string? status, Guid? participantId, CancellationToken ct = default)
+    {
+        var parts = new List<string>();
+        if (status is not null) parts.Add("status=" + Uri.EscapeDataString(status));
+        if (participantId is { } id) parts.Add($"participantId={id}");
+        return AsReadOnly(await SendAsync<List<CrmProject>>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/projects?{string.Join('&', parts)}", null, ct).ConfigureAwait(false));
+    }
+
+    public Task<Result<CrmProject>> CreateProjectAsync(CreateProjectCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmProject>(HttpMethod.Post, "repo/crm/projects", command, ct);
+
+    public Task<Result<CrmProject>> UpdateProjectAsync(Guid projectId, UpdateProjectCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmProject>(HttpMethod.Put, $"repo/crm/projects/{projectId}", command, ct);
+
+    public Task<Result<CrmCapacity>> GetCapacityAsync(Guid tenantId, int weeks, DateOnly? asOf, CancellationToken ct = default) =>
+        SendAsync<CrmCapacity>(HttpMethod.Get,
+            $"repo/crm/tenants/{tenantId}/capacity?weeks={weeks}" + (asOf is { } date ? "&asOf=" + date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : string.Empty), null, ct);
+
+    public async Task<Result<IReadOnlyList<CrmActivity>>> ListActivitiesAsync(Guid tenantId, string? priority, string? channel, int limit, CancellationToken ct = default)
+    {
+        var parts = new List<string> { $"limit={limit}" };
+        if (priority is not null) parts.Add("priority=" + Uri.EscapeDataString(priority));
+        if (channel is not null) parts.Add("channel=" + Uri.EscapeDataString(channel));
+        return AsReadOnly(await SendAsync<List<CrmActivity>>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/activities?{string.Join('&', parts)}", null, ct).ConfigureAwait(false));
+    }
+
+    public Task<Result<ReceptionistIntakeResult>> ReceptionistIntakeAsync(ReceptionistIntakeCommand command, CancellationToken ct = default) =>
+        SendAsync<ReceptionistIntakeResult>(HttpMethod.Post, "repo/crm/receptionist/intake", command, ct);
+
     private static Result<IReadOnlyList<T>> AsReadOnly<T>(Result<List<T>> result) =>
         result.IsSuccess
             ? Result<IReadOnlyList<T>>.Success(result.Value!)
