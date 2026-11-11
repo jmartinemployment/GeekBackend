@@ -27,10 +27,10 @@ public sealed class MetaGraphClient
         var address = $"{MetaOptions.GraphVersion}/{path.TrimStart('/')}{QueryString(query)}";
         using var request = new HttpRequestMessage(HttpMethod.Get, address);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Reveal());
-        return await SendAsync(request, ct).ConfigureAwait(false);
+        return await SendAsync(request, write: false, ct).ConfigureAwait(false);
     }
 
-    /// <summary>POST <c>/{version}/{path}</c> with a form body, as the holder of <paramref name="token"/>.</summary>
+    /// <summary>POST <c>/{version}/{path}</c> with a form body, as the holder of <paramref name="token"/>, for a call that only sets something up (a webhook subscription). A failure is read the way a read's is.</summary>
     public async Task<Result<JsonElement>> PostFormAsync(
         string path, SocialToken token, IEnumerable<KeyValuePair<string, string>> form, CancellationToken ct)
     {
@@ -39,36 +39,74 @@ public sealed class MetaGraphClient
             Content = new FormUrlEncodedContent(form),
         };
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Reveal());
-        return await SendAsync(request, ct).ConfigureAwait(false);
+        return await SendAsync(request, write: false, ct).ConfigureAwait(false);
     }
 
     /// <summary>
-    /// GET without a bearer token, for the calls that prove the app itself (the code and long-lived
-    /// token exchanges). The app secret is part of the query those calls need, so the address that
-    /// carries it is built by the caller and never logged here.
+    /// POST that creates something people see (a post, a reply, a like). It is one attempt. Any answer
+    /// that does not prove Meta refused the call is outcome_unknown: a timeout, a connection that broke
+    /// after the request left, a 5xx, Meta's own "unknown error", or a 2xx whose body cannot be read. The
+    /// caller records it and never sends it again; the operator checks the Page.
     /// </summary>
-    public async Task<Result<JsonElement>> GetAsAppAsync(
-        string path, IEnumerable<KeyValuePair<string, string>> query, CancellationToken ct)
+    public async Task<Result<JsonElement>> PostWriteAsync(
+        string path, SocialToken token, IEnumerable<KeyValuePair<string, string>> form, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{MetaOptions.GraphVersion}/{path.TrimStart('/')}")
+        {
+            Content = new FormUrlEncodedContent(form),
+        };
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Reveal());
+        return await SendAsync(request, write: true, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// POST <c>/{version}/{path}</c> with a form body and no bearer token, for the calls that prove the
+    /// app itself (the code and long-lived token exchanges). The app secret and the token being traded
+    /// travel in the body, never in the address, so no request log can carry them.
+    /// </summary>
+    public async Task<Result<JsonElement>> PostAsAppAsync(
+        string path, IEnumerable<KeyValuePair<string, string>> form, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{MetaOptions.GraphVersion}/{path.TrimStart('/')}")
+        {
+            Content = new FormUrlEncodedContent(form),
+        };
+        return await SendAsync(request, write: false, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// GET with the app's own token (<c>{app-id}|{app-secret}</c>) in the Authorization header, for
+    /// <c>debug_token</c>. The app token never appears in the address.
+    /// </summary>
+    public async Task<Result<JsonElement>> GetWithAppTokenAsync(
+        string path, string appToken, IEnumerable<KeyValuePair<string, string>> query, CancellationToken ct)
     {
         var address = $"{MetaOptions.GraphVersion}/{path.TrimStart('/')}{QueryString(query)}";
         using var request = new HttpRequestMessage(HttpMethod.Get, address);
-        return await SendAsync(request, ct).ConfigureAwait(false);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", appToken);
+        return await SendAsync(request, write: false, ct).ConfigureAwait(false);
     }
 
-    private async Task<Result<JsonElement>> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    private const string UnknownAdvice = " It may have been applied: check the Page before doing it again.";
+
+    private async Task<Result<JsonElement>> SendAsync(HttpRequestMessage request, bool write, CancellationToken ct)
     {
         HttpResponseMessage response;
         try
         {
             response = await _http.SendAsync(request, ct).ConfigureAwait(false);
         }
-        catch (HttpRequestException)
+        catch (HttpRequestException ex)
         {
+            if (write && !NeverLeft(ex))
+                return Result<JsonElement>.Failure("The connection to Meta broke during the call." + UnknownAdvice, SocialFailureCodes.OutcomeUnknown);
             return Result<JsonElement>.Failure("Meta could not be reached.", SocialFailureCodes.PlatformUnavailable);
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
-            return Result<JsonElement>.Failure("Meta did not answer in time.", SocialFailureCodes.PlatformUnavailable);
+            return write
+                ? Result<JsonElement>.Failure("Meta did not answer in time." + UnknownAdvice, SocialFailureCodes.OutcomeUnknown)
+                : Result<JsonElement>.Failure("Meta did not answer in time.", SocialFailureCodes.PlatformUnavailable);
         }
 
         using (response)
@@ -82,6 +120,11 @@ public sealed class MetaGraphClient
             }
             catch (JsonException)
             {
+                if (write && (response.IsSuccessStatusCode || response.StatusCode >= HttpStatusCode.InternalServerError))
+                    return Result<JsonElement>.Failure(
+                        $"Meta answered HTTP {(int)response.StatusCode} with a body that is not JSON." + UnknownAdvice,
+                        SocialFailureCodes.OutcomeUnknown);
+
                 return response.IsSuccessStatusCode
                     ? Result<JsonElement>.Failure("Meta answered with a body that is not JSON.", SocialFailureCodes.PlatformRejected)
                     : Result<JsonElement>.Failure(
@@ -94,9 +137,20 @@ public sealed class MetaGraphClient
             if (response.IsSuccessStatusCode && !HasError(root))
                 return Result<JsonElement>.Success(root);
 
-            return Result<JsonElement>.Failure(DescribeError(root, response.StatusCode), CodeFor(root, response.StatusCode));
+            var code = CodeFor(root, response.StatusCode);
+            if (write && code == SocialFailureCodes.PlatformUnavailable)
+                return Result<JsonElement>.Failure(DescribeError(root, response.StatusCode) + UnknownAdvice, SocialFailureCodes.OutcomeUnknown);
+
+            return Result<JsonElement>.Failure(DescribeError(root, response.StatusCode), code);
         }
     }
+
+    /// <summary>True when the request cannot have reached Meta: the name did not resolve or no connection was made.</summary>
+    private static bool NeverLeft(HttpRequestException ex) => ex.HttpRequestError is
+        HttpRequestError.NameResolutionError
+        or HttpRequestError.ConnectionError
+        or HttpRequestError.SecureConnectionError
+        or HttpRequestError.ProxyTunnelError;
 
     private static bool HasError(JsonElement root) =>
         root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object;

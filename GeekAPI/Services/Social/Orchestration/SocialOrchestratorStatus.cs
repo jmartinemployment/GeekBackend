@@ -19,6 +19,10 @@ public sealed record SocialOrchestratorSnapshot(
     int DraftsPending,
     int DraftsForAPerson,
     int DraftsRefused,
+    int DraftsAutoApproved,
+    int DraftsSent,
+    int DraftsSendFailed,
+    int SendsHeld,
     IReadOnlyList<SocialStepFailure> Failures);
 
 /// <summary>Which kind of draft the orchestrator stored for a comment.</summary>
@@ -32,6 +36,19 @@ public enum SocialDraftKind
 
     /// <summary>The Reviewer refused the drafted text; stored rejected with the rules it broke.</summary>
     Refused,
+}
+
+/// <summary>Where one send attempt ended.</summary>
+public enum SocialSendKind
+{
+    /// <summary>The platform confirmed it and the draft is sent.</summary>
+    Sent,
+
+    /// <summary>The send was made and failed, or failed with an unknown outcome; the draft is failed.</summary>
+    Failed,
+
+    /// <summary>A limit, a pause or the token kept an approved draft back; nothing was sent and it stays approved.</summary>
+    Held,
 }
 
 /// <summary>
@@ -56,6 +73,10 @@ public sealed class SocialOrchestratorStatus
     private int _draftsPending;
     private int _draftsForAPerson;
     private int _draftsRefused;
+    private int _autoApproved;
+    private int _sent;
+    private int _sendFailed;
+    private int _held;
 
     public void RecordRecovered(DateTime at, int eventsRecovered, int interruptedSendsFailed)
     {
@@ -107,6 +128,25 @@ public sealed class SocialOrchestratorStatus
         }
     }
 
+    public void RecordAutoApproved()
+    {
+        lock (_gate) _autoApproved++;
+    }
+
+    public void RecordSend(SocialSendKind kind)
+    {
+        lock (_gate)
+        {
+            switch (kind)
+            {
+                case SocialSendKind.Sent: _sent++; break;
+                case SocialSendKind.Failed: _sendFailed++; break;
+                case SocialSendKind.Held: _held++; break;
+                default: throw new ArgumentOutOfRangeException(nameof(kind), kind, "Not a send kind.");
+            }
+        }
+    }
+
     public void RecordFailure(string step, string code, DateTime at)
     {
         lock (_gate)
@@ -125,6 +165,7 @@ public sealed class SocialOrchestratorStatus
                 _recoveredAt, _recoveredAtStartup, _interruptedFailed, _scrubbed, _takenIn,
                 _replyNeeded, _noReplyNeeded, _blocked, _failed,
                 _draftsPending, _draftsForAPerson, _draftsRefused,
+                _autoApproved, _sent, _sendFailed, _held,
                 _failures.ToArray());
         }
     }

@@ -181,8 +181,10 @@ builder.Services.AddVisitors();
 builder.Services.AddSocialPersistence();
 // GeekSocial's Listener (the Facebook webhook reader) and the orchestrator's intake.
 builder.Services.AddSocialIntake();
-// GeekSocial's Reviewer, the check every outbound reply and post passes before anyone sees it.
+// GeekSocial's agents: the Reviewer, Triage, the drafter and the post writer.
 builder.Services.AddSocialAgents();
+// GeekSocial's Connector, Sender, send step and the operator's actions behind api/social/*.
+builder.Services.AddSocialSending();
 builder.Services.AddScoped<GeekAPI.Services.Rag.RagLibrary>();
 // Geek-CRM: geek_crm on GeekRepository through repo/crm/* (docs/GEEK-CRM-DATA-MODEL.md).
 builder.Services.AddScoped<GeekApplication.Interfaces.Crm.ICrmStore>(sp =>
@@ -262,6 +264,17 @@ builder.Services.AddAuthorizationBuilder()
                 (claim.Type is "scope" or "scp")
                 && claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
                     .Contains(GeekAPI.Auth.ContentCreatorAuthConstants.ManageScope, StringComparer.Ordinal)));
+    })
+    // GeekSocial's accounts, inbox, posting and audit, and its hub. Same reading of the scope claim.
+    .AddPolicy(GeekAPI.Auth.GeekSocialAuthConstants.ManagePolicy, policy =>
+    {
+        policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+        policy.RequireAssertion(context =>
+            context.User.Claims.Any(static claim =>
+                (claim.Type is "scope" or "scp")
+                && claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Contains(GeekAPI.Auth.GeekSocialAuthConstants.ManageScope, StringComparer.Ordinal)));
     });
 
 var geekCrawlerRagUrl = (Environment.GetEnvironmentVariable("GEEK_CRAWLER_RAG_URL") ?? "").Trim().TrimEnd('/');
@@ -375,6 +388,7 @@ app.MapReceptionist();
 
 app.MapHub<GeekCrawlerRealtimeHub>("/hubs/geek-crawler-realtime");
 app.MapHub<WorkflowRealtimeHub>("/hubs/workflow-realtime");
+app.MapHub<GeekAPI.Controllers.Social.Hubs.SocialRealtimeHub>("/hubs/social-realtime");
 
 // Workflow: loads persisted projects/clients from GeekRepository at startup.
 await app.HydrateWorkflowAsync();

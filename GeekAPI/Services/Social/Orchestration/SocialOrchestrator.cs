@@ -1,5 +1,7 @@
+using GeekAPI.Services.Social.Realtime;
 using GeekApplication.Interfaces.Social;
 using GeekApplication.Models.Social;
+using GeekApplication.Results;
 
 namespace GeekAPI.Services.Social.Orchestration;
 
@@ -12,8 +14,10 @@ namespace GeekAPI.Services.Social.Orchestration;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Phase 4a ends with a draft in the store and nothing sent: a pending draft waits for a person. The
-/// send step, auto-send and the Sender are Phase 4b.
+/// A pending draft waits for a person, unless the account sends that category without one; then the
+/// send step (<see cref="ISocialSendStep"/>) approves and sends it once the comment's outcome is stored.
+/// Approved drafts a limit held back are sent after each event taken in and at startup. A comment the
+/// account itself wrote (the Page's own reply arriving back through the webhook) is never triaged.
 /// </para>
 /// <para>
 /// Every failure is logged where it happens and recorded on <see cref="SocialOrchestratorStatus"/>.
@@ -34,6 +38,7 @@ public sealed class SocialOrchestrator : BackgroundService
     private readonly SocialWake _wake;
     private readonly IServiceScopeFactory _scopes;
     private readonly SocialOrchestratorStatus _status;
+    private readonly ISocialRealtime _realtime;
     private readonly TimeProvider _clock;
     private readonly ILogger<SocialOrchestrator> _logger;
     private bool _recovered;
@@ -55,12 +60,14 @@ public sealed class SocialOrchestrator : BackgroundService
         SocialWake wake,
         IServiceScopeFactory scopes,
         SocialOrchestratorStatus status,
+        ISocialRealtime realtime,
         TimeProvider clock,
         ILogger<SocialOrchestrator> logger)
     {
         _wake = wake;
         _scopes = scopes;
         _status = status;
+        _realtime = realtime;
         _clock = clock;
         _logger = logger;
     }
@@ -157,6 +164,8 @@ public sealed class SocialOrchestrator : BackgroundService
                 break;
         }
 
+        await SendWaitingAsync(scope.ServiceProvider, ct).ConfigureAwait(false);
+
         _recovered = allSucceeded;
         _status.RecordRecovered(now, recovered, interrupted);
         _logger.LogInformation(
@@ -172,6 +181,40 @@ public sealed class SocialOrchestrator : BackgroundService
 
         await HandleAsync(scope.ServiceProvider, store, eventId, ct).ConfigureAwait(false);
         await PurgeAsync(store, ct).ConfigureAwait(false);
+        await SendWaitingAsync(scope.ServiceProvider, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// An operator's "run again" on a comment that is held for clearance or failed: the reply path runs
+    /// once more. A comment that was decided (a reply needed or not) is a conflict and is not run.
+    /// Returns the outcome stored on the comment afterwards.
+    /// </summary>
+    public async Task<Result<EngagementEvent>> RerunAsync(Guid eventId, CancellationToken ct)
+    {
+        using var scope = _scopes.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<ISocialStore>();
+
+        var before = await store.GetEventAsync(eventId, ct).ConfigureAwait(false);
+        if (!before.IsSuccess)
+            return before;
+        if (before.Value!.Kind != EngagementKinds.CommentCreated)
+            return Result<EngagementEvent>.Failure("Only a comment is triaged.", SocialFailureCodes.InvalidRequest);
+        if (before.Value.TriageOutcome is { } decided && !TriageOutcomes.Rerunnable.Contains(decided))
+            return Result<EngagementEvent>.Failure($"The comment is already decided ({decided}).", SocialFailureCodes.Conflict);
+
+        var handled = await HandleAsync(scope.ServiceProvider, store, eventId, ct, rerun: true).ConfigureAwait(false);
+        if (handled == Handled.Stalled)
+            return Result<EngagementEvent>.Failure(
+                "A step could not complete; the comment is unchanged. The failure is on the status page.", SocialFailureCodes.StoreUnavailable);
+
+        return await store.GetEventAsync(eventId, ct).ConfigureAwait(false);
+    }
+
+    private async Task SendWaitingAsync(IServiceProvider services, CancellationToken ct)
+    {
+        var sent = await services.GetRequiredService<ISocialSendStep>().SendWaitingAsync(ct).ConfigureAwait(false);
+        if (sent > 0)
+            _logger.LogInformation("SocialOrchestrator sent {Sent} approved draft(s) that were waiting.", sent);
     }
 
     /// <summary>One event in recovery: an exception is recorded and logged and the rest still run.</summary>
@@ -193,8 +236,8 @@ public sealed class SocialOrchestrator : BackgroundService
         }
     }
 
-    /// <summary>The reply path for one event, in the plan's order (steps 1 to 6).</summary>
-    internal async Task<Handled> HandleAsync(IServiceProvider services, ISocialStore store, Guid eventId, CancellationToken ct)
+    /// <summary>The reply path for one event, in the plan's order (steps 1 to 6), then auto-send.</summary>
+    internal async Task<Handled> HandleAsync(IServiceProvider services, ISocialStore store, Guid eventId, CancellationToken ct, bool rerun = false)
     {
         // 1. Load it. Only a new comment is triaged, and a decided one is never decided again here; an
         // operator action re-runs a blocked or failed one.
@@ -213,7 +256,7 @@ public sealed class SocialOrchestrator : BackgroundService
             return Handled.Skipped;
         }
 
-        if (ev.TriageOutcome is not null)
+        if (ev.TriageOutcome is not null && !(rerun && TriageOutcomes.Rerunnable.Contains(ev.TriageOutcome)))
         {
             _logger.LogInformation("Event {EventId} was already decided ({Outcome}); nothing to do.", ev.Id, ev.TriageOutcome);
             return Handled.Skipped;
@@ -232,6 +275,15 @@ public sealed class SocialOrchestrator : BackgroundService
         {
             Fail("load the account", account.ErrorCode, account.Error, ev.Id);
             return Handled.Stalled;
+        }
+
+        // The Page's own comments (its replies, arriving back through the webhook) are never triaged:
+        // no text of ours goes to the model and the Page never answers itself.
+        if (!string.IsNullOrEmpty(ev.AuthorPlatformId)
+            && string.Equals(ev.AuthorPlatformId, account.Value!.PlatformAccountId, StringComparison.Ordinal))
+        {
+            _logger.LogInformation("Event {EventId} is the account's own comment; no reply is needed.", ev.Id);
+            return await RecordAsync(store, ev.Id, TriageOutcomes.NoReplyNeeded, null, ct).ConfigureAwait(false);
         }
 
         SocialPost? post = null;
@@ -327,6 +379,7 @@ public sealed class SocialOrchestrator : BackgroundService
         if (created.IsSuccess)
         {
             _status.RecordDraft(kind);
+            await _realtime.DraftChangedAsync(created.Value!.Id, ev.AccountId, created.Value.Status, ct).ConfigureAwait(false);
         }
         else if (created.ErrorCode == SocialFailureCodes.Conflict)
         {
@@ -341,7 +394,18 @@ public sealed class SocialOrchestrator : BackgroundService
         }
 
         // 6. Only now is the comment marked answered, so a crash before this leaves it for recovery.
-        return await RecordAsync(store, ev.Id, TriageOutcomes.ReplyNeeded, null, ct).ConfigureAwait(false);
+        var outcome = await RecordAsync(store, ev.Id, TriageOutcomes.ReplyNeeded, null, ct).ConfigureAwait(false);
+
+        // 7. Auto-send, for a draft the account sends without a person. It runs after the outcome is
+        // stored, so whatever happens to the send, the comment is not drafted again.
+        if (outcome == Handled.Decided && created.IsSuccess && SocialSendStep.IsAutoSendable(created.Value!, account.Value!))
+        {
+            var autoSent = await services.GetRequiredService<ISocialSendStep>().AutoSendAsync(created.Value!, account.Value!, ct).ConfigureAwait(false);
+            if (autoSent is { IsSuccess: false })
+                Fail("auto-send a draft", autoSent.ErrorCode, autoSent.Error, ev.Id);
+        }
+
+        return outcome;
     }
 
     /// <summary>
@@ -373,6 +437,7 @@ public sealed class SocialOrchestrator : BackgroundService
         if (recorded.IsSuccess)
         {
             _status.RecordOutcome(outcome);
+            await _realtime.CommentChangedAsync(eventId, recorded.Value!.AccountId, outcome, ct).ConfigureAwait(false);
             return Handled.Decided;
         }
 

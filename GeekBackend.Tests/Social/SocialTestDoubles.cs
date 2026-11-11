@@ -62,3 +62,65 @@ internal sealed class FakeModelClient(Func<SocialModelRequest, Result<JsonElemen
     public static FakeModelClient Never() =>
         new(_ => throw new InvalidOperationException("The model must not be called in this test."));
 }
+
+/// <summary>Records every live-update message, so a test can check what the screen was told (ids and states only).</summary>
+internal sealed class FakeRealtime : GeekAPI.Services.Social.Realtime.ISocialRealtime
+{
+    public List<(string Message, Guid Id, Guid AccountId, string State)> Sent { get; } = new();
+
+    public Task DraftChangedAsync(Guid draftId, Guid accountId, string status, CancellationToken ct = default)
+    {
+        Sent.Add(("draftChanged", draftId, accountId, status));
+        return Task.CompletedTask;
+    }
+
+    public Task CommentChangedAsync(Guid eventId, Guid accountId, string outcome, CancellationToken ct = default)
+    {
+        Sent.Add(("commentChanged", eventId, accountId, outcome));
+        return Task.CompletedTask;
+    }
+
+    public Task AccountChangedAsync(Guid accountId, string status, CancellationToken ct = default)
+    {
+        Sent.Add(("accountChanged", accountId, accountId, status));
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>A send step a test scripts; by default nothing is waiting and nothing is auto-sent.</summary>
+internal sealed class FakeSendStep : GeekAPI.Services.Social.Orchestration.ISocialSendStep
+{
+    public List<Guid> AutoSent { get; } = new();
+    public List<(Guid DraftId, string? Actor)> Sends { get; } = new();
+    public int WaitingPasses { get; private set; }
+
+    public Func<ReplyDraft, Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>?> OnAutoSend { get; set; } =
+        _ => Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>.Success(new GeekAPI.Services.Social.Orchestration.SocialSendOutcome { Sent = true });
+
+    public Func<Guid, Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>> OnSend { get; set; } =
+        _ => Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>.Success(new GeekAPI.Services.Social.Orchestration.SocialSendOutcome { Sent = true });
+
+    public Func<EngagementEvent, Result<List<string>>> OnApprovedLinks { get; set; } =
+        _ => Result<List<string>>.Success(new List<string>());
+
+    public Task<Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>?> AutoSendAsync(ReplyDraft draft, SocialAccount account, CancellationToken ct)
+    {
+        AutoSent.Add(draft.Id);
+        return Task.FromResult(OnAutoSend(draft));
+    }
+
+    public Task<Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>> SendAsync(Guid draftId, string? actorUserId, CancellationToken ct)
+    {
+        Sends.Add((draftId, actorUserId));
+        return Task.FromResult(OnSend(draftId));
+    }
+
+    public Task<int> SendWaitingAsync(CancellationToken ct)
+    {
+        WaitingPasses++;
+        return Task.FromResult(0);
+    }
+
+    public Task<Result<List<string>>> ApprovedLinksAsync(EngagementEvent ev, CancellationToken ct) =>
+        Task.FromResult(OnApprovedLinks(ev));
+}

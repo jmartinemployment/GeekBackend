@@ -25,8 +25,21 @@ internal sealed class FakeSocialStore : ISocialStore
     public Func<Guid, int, Result<IReadOnlyList<SocialPost>>>? OnListPosts { get; set; }
     public Func<Guid, RecordTriageOutcomeCommand, Result<EngagementEvent>>? OnRecordTriageOutcome { get; set; }
     public Func<CreateReplyDraftCommand, Result<ReplyDraft>>? OnCreateDraft { get; set; }
+    public Func<Guid, Result<ReplyDraft>>? OnGetDraft { get; set; }
+    public Func<string?, Guid?, int, Result<IReadOnlyList<ReplyDraft>>>? OnListDrafts { get; set; }
+    public Func<Guid, EditReplyDraftCommand, Result<ReplyDraft>>? OnEditDraft { get; set; }
+    public Func<Guid, TransitionReplyDraftCommand, Result<ReplyDraft>>? OnTransitionDraft { get; set; }
+    public Func<Guid?, int, Result<IReadOnlyList<ActionAudit>>>? OnListAudit { get; set; }
+    public Func<RecordSocialPostCommand, Result<SocialPost>>? OnRecordPost { get; set; }
+    public Func<Guid, UpdateSocialAccountSettingsCommand, Result<SocialAccount>>? OnUpdateSettings { get; set; }
 
-    /// <summary>Every store write a test may read back, in the order it was made: "draft" or "outcome".</summary>
+    /// <summary>Every transition asked for, in order, whether or not the script accepted it.</summary>
+    public List<(Guid DraftId, TransitionReplyDraftCommand Command)> Transitions { get; } = new();
+
+    /// <summary>Every audit row asked for, in order.</summary>
+    public List<ActionAudit> Audits { get; } = new();
+
+    /// <summary>Every store write a test may read back, in the order it was made: "draft", "outcome", "edit", "post" or "from->to".</summary>
     public List<string> Writes { get; } = new();
 
     public List<EngagementEvent> RecordedEvents { get; } = new();
@@ -67,12 +80,20 @@ internal sealed class FakeSocialStore : ISocialStore
     public Task<Result<SocialAccount>> ConnectAccountAsync(ConnectSocialAccountCommand command, CancellationToken ct = default) =>
         Task.FromResult(Scripted(OnConnectAccount, nameof(ConnectAccountAsync))(command));
 
-    public Task<Result<ActionAudit>> RecordAuditAsync(ActionAudit audit, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnRecordAudit, nameof(RecordAuditAsync))(audit));
+    public Task<Result<ActionAudit>> RecordAuditAsync(ActionAudit audit, CancellationToken ct = default)
+    {
+        Audits.Add(audit);
+        return Task.FromResult(Scripted(OnRecordAudit, nameof(RecordAuditAsync))(audit));
+    }
 
     public Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(CancellationToken ct = default) => NotUsed<IReadOnlyList<SocialAccount>>();
-    public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) => NotUsed<SocialAccount>();
-    public Task<Result<SocialPost>> RecordPostAsync(RecordSocialPostCommand command, CancellationToken ct = default) => NotUsed<SocialPost>();
+    public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnUpdateSettings, nameof(UpdateSettingsAsync))(accountId, command));
+    public Task<Result<SocialPost>> RecordPostAsync(RecordSocialPostCommand command, CancellationToken ct = default)
+    {
+        Writes.Add("post");
+        return Task.FromResult(Scripted(OnRecordPost, nameof(RecordPostAsync))(command));
+    }
     public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid accountId, int limit, CancellationToken ct = default) =>
         Task.FromResult(Scripted(OnListPosts, nameof(ListPostsAsync))(accountId, limit));
     public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default)
@@ -86,11 +107,23 @@ internal sealed class FakeSocialStore : ISocialStore
         Writes.Add("draft");
         return Task.FromResult(Scripted(OnCreateDraft, nameof(CreateDraftAsync))(command));
     }
-    public Task<Result<ReplyDraft>> GetDraftAsync(Guid draftId, CancellationToken ct = default) => NotUsed<ReplyDraft>();
-    public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(string? status, Guid? accountId, int limit, CancellationToken ct = default) => NotUsed<IReadOnlyList<ReplyDraft>>();
-    public Task<Result<ReplyDraft>> EditDraftAsync(Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) => NotUsed<ReplyDraft>();
-    public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default) => NotUsed<ReplyDraft>();
-    public Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid? accountId, int limit, CancellationToken ct = default) => NotUsed<IReadOnlyList<ActionAudit>>();
+    public Task<Result<ReplyDraft>> GetDraftAsync(Guid draftId, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnGetDraft, nameof(GetDraftAsync))(draftId));
+    public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(string? status, Guid? accountId, int limit, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnListDrafts, nameof(ListDraftsAsync))(status, accountId, limit));
+    public Task<Result<ReplyDraft>> EditDraftAsync(Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default)
+    {
+        Writes.Add("edit");
+        return Task.FromResult(Scripted(OnEditDraft, nameof(EditDraftAsync))(draftId, command));
+    }
+    public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default)
+    {
+        Transitions.Add((draftId, command));
+        Writes.Add($"{command.From}->{command.To}");
+        return Task.FromResult(Scripted(OnTransitionDraft, nameof(TransitionDraftAsync))(draftId, command));
+    }
+    public Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid? accountId, int limit, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnListAudit, nameof(ListAuditAsync))(accountId, limit));
 
     private static Task<Result<T>> NotUsed<T>() =>
         throw new InvalidOperationException("This store method is not used by the component under test.");

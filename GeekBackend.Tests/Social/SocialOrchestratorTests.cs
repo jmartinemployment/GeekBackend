@@ -59,6 +59,8 @@ public class SocialOrchestratorTests
         public required FakeTriage Triage { get; init; }
         public required FakeDrafter Drafter { get; init; }
         public required RecordingLog<SocialOrchestrator> Log { get; init; }
+        public required FakeRealtime Realtime { get; init; }
+        public required FakeSendStep SendStep { get; init; }
         public List<(Guid EventId, RecordTriageOutcomeCommand Command)> Outcomes { get; } = new();
         public List<CreateReplyDraftCommand> Drafts { get; } = new();
     }
@@ -105,18 +107,23 @@ public class SocialOrchestratorTests
         var log = new RecordingLog<SocialOrchestrator>();
         var wake = new SocialWake();
         var status = new SocialOrchestratorStatus();
+        var realtime = new FakeRealtime();
+        var sendStep = new FakeSendStep();
 
         var services = new ServiceCollection()
             .AddScoped<ISocialStore>(_ => store)
             .AddScoped<IEngagementTriage>(_ => fakeTriage)
             .AddScoped<IReplyDrafter>(_ => fakeDrafter)
+            .AddScoped<GeekAPI.Services.Social.Orchestration.ISocialSendStep>(_ => sendStep)
             .AddSingleton(reviewer ?? new OutboundTextReviewer())
             .BuildServiceProvider();
 
         var rig = new Rig
         {
             Orchestrator = new SocialOrchestrator(
-                wake, services.GetRequiredService<IServiceScopeFactory>(), status, new MetaEngagementReaderTests.FixedClock(Now), log),
+                wake, services.GetRequiredService<IServiceScopeFactory>(), status, realtime, new MetaEngagementReaderTests.FixedClock(Now), log),
+            Realtime = realtime,
+            SendStep = sendStep,
             Wake = wake,
             Status = status,
             Store = store,
@@ -902,6 +909,134 @@ public class SocialOrchestratorTests
         Assert.Equal(2, calls);
     }
 
+    // ----- The send side: own comments, auto-send, waiting drafts, re-runs and live updates -----
+
+    [Fact]
+    public async Task The_accounts_own_comment_is_never_triaged_and_needs_no_reply()
+    {
+        var rig = Build(script: store =>
+        {
+            store.OnGetEvent = id =>
+            {
+                var own = Comment(id);
+                own.AuthorPlatformId = "PAGE1";
+                return Result<EngagementEvent>.Success(own);
+            };
+            store.OnGetAccount = id => Result<SocialAccount>.Success(new SocialAccount
+            {
+                Id = id, Platform = SocialPlatforms.Facebook, PlatformAccountId = "PAGE1", DisplayName = "Geek @ Your Spot",
+            });
+        });
+
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Empty(rig.Triage.Requests);
+        Assert.Equal(TriageOutcomes.NoReplyNeeded, Assert.Single(rig.Outcomes).Command.Outcome);
+    }
+
+    [Fact]
+    public async Task A_pending_draft_in_an_opted_in_category_is_auto_sent_after_its_outcome_is_stored()
+    {
+        var rig = Build(
+            script: store =>
+            {
+                store.OnGetAccount = id => Result<SocialAccount>.Success(new SocialAccount
+                {
+                    Id = id, Platform = SocialPlatforms.Facebook, PlatformAccountId = "PAGE1", DisplayName = "Geek @ Your Spot",
+                    Status = SocialAccountStatuses.Connected, AutoSendCategories = new List<string> { ReplyCategories.Praise },
+                });
+            },
+            triage: _ => Decide(needsReply: true, ReplyCategories.Praise),
+            drafter: _ => Written("Thank you, that is kind of you."));
+        rig.Store.OnCreateDraft = command => Result<ReplyDraft>.Success(new ReplyDraft
+        {
+            Id = Guid.NewGuid(), AccountId = AccountId, EngagementEventId = command.EngagementEventId, Platform = SocialPlatforms.Facebook,
+            Category = command.Category, DraftText = command.DraftText, Status = ReplyDraftStatuses.Pending,
+        });
+
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Single(rig.SendStep.AutoSent);
+        Assert.Equal(new[] { "draft", "outcome" }, rig.Store.Writes);
+    }
+
+    [Fact]
+    public async Task A_draft_in_a_category_not_opted_into_waits_for_a_person()
+    {
+        var rig = Build(triage: _ => Decide(needsReply: true, ReplyCategories.Question), drafter: _ => Written("We do, on Saturdays."));
+
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Empty(rig.SendStep.AutoSent);
+        Assert.Single(rig.Drafts);
+    }
+
+    [Fact]
+    public async Task Each_event_taken_in_and_each_recovery_sends_the_drafts_that_were_waiting()
+    {
+        var rig = Build();
+
+        await rig.Orchestrator.RecoverAsync(CancellationToken.None);
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(2, rig.SendStep.WaitingPasses);
+    }
+
+    [Fact]
+    public async Task The_screen_is_told_of_each_outcome_and_draft_by_id_and_state_only()
+    {
+        var rig = Build(triage: _ => Decide(needsReply: true, ReplyCategories.Question), drafter: _ => Written("We do, on Saturdays."));
+        var id = Guid.NewGuid();
+
+        await rig.Orchestrator.TakeInAsync(id, CancellationToken.None);
+
+        Assert.Contains(rig.Realtime.Sent, m => m.Message == "draftChanged");
+        Assert.Contains(("commentChanged", id, AccountId, TriageOutcomes.ReplyNeeded), rig.Realtime.Sent);
+    }
+
+    [Fact]
+    public async Task Running_a_held_comment_again_triages_it_and_returns_its_new_outcome()
+    {
+        var id = Guid.NewGuid();
+        var outcome = TriageOutcomes.BlockedNoClearance;
+        var rig = Build(script: store => store.OnGetEvent = eventId =>
+        {
+            var held = Comment(eventId);
+            held.TriageOutcome = outcome;
+            return Result<EngagementEvent>.Success(held);
+        });
+        rig.Store.OnRecordTriageOutcome = (eventId, command) =>
+        {
+            rig.Outcomes.Add((eventId, command));
+            outcome = command.Outcome;
+            return Result<EngagementEvent>.Success(Comment(eventId));
+        };
+
+        var result = await rig.Orchestrator.RerunAsync(id, CancellationToken.None);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Single(rig.Triage.Requests);
+        Assert.Equal(TriageOutcomes.NoReplyNeeded, result.Value!.TriageOutcome);
+    }
+
+    [Theory]
+    [InlineData(TriageOutcomes.ReplyNeeded)]
+    [InlineData(TriageOutcomes.NoReplyNeeded)]
+    public async Task A_decided_comment_is_not_run_again(string decided)
+    {
+        var rig = Build(script: store => store.OnGetEvent = id =>
+        {
+            var done = Comment(id);
+            done.TriageOutcome = decided;
+            return Result<EngagementEvent>.Success(done);
+        });
+
+        var result = await rig.Orchestrator.RerunAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(SocialFailureCodes.Conflict, result.ErrorCode);
+        Assert.Empty(rig.Triage.Requests);
+    }
+
     // ----- What it may reach -----
 
     [Fact]
@@ -911,7 +1046,11 @@ public class SocialOrchestratorTests
         var taken = constructor.GetParameters().Select(p => p.ParameterType).ToList();
 
         Assert.Equal(
-            new[] { typeof(SocialWake), typeof(IServiceScopeFactory), typeof(SocialOrchestratorStatus), typeof(TimeProvider), typeof(ILogger<SocialOrchestrator>) },
+            new[]
+            {
+                typeof(SocialWake), typeof(IServiceScopeFactory), typeof(SocialOrchestratorStatus),
+                typeof(GeekAPI.Services.Social.Realtime.ISocialRealtime), typeof(TimeProvider), typeof(ILogger<SocialOrchestrator>),
+            },
             taken);
     }
 

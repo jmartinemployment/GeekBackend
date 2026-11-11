@@ -2,9 +2,13 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.Social.Connector;
 using GeekAPI.Services.Social.Drafting;
 using GeekAPI.Services.Social.LanguageModel;
+using GeekAPI.Services.Social.Listener;
 using GeekAPI.Services.Social.Meta;
 using GeekAPI.Services.Social.Orchestration;
+using GeekAPI.Services.Social.Publishing;
+using GeekAPI.Services.Social.Realtime;
 using GeekAPI.Services.Social.Review;
+using GeekAPI.Services.Social.Sending;
 using GeekAPI.Services.Social.Triage;
 using GeekApplication.Interfaces.Social;
 using GeekApplication.Models.Social;
@@ -50,6 +54,7 @@ public static class SocialServiceRegistration
         services.AddHttpClient<ISocialModelClient, ClaudeSocialModelClient>();
         services.AddScoped<IEngagementTriage, EngagementTriage>();
         services.AddScoped<IReplyDrafter, ReplyDrafter>();
+        services.AddScoped<IPostWriter, PostWriter>();
         return services;
     }
 
@@ -63,11 +68,14 @@ public static class SocialServiceRegistration
     {
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(MetaOptions.FromEnvironment());
+        // The default HttpClient request log writes each address at Information. Meta's addresses carry
+        // ids and, for debug_token, the token being checked, so this client logs nothing itself; every
+        // failure is logged by the caller with its code.
         services.AddHttpClient<MetaGraphClient>(client =>
         {
             client.BaseAddress = new Uri("https://graph.facebook.com/");
             client.Timeout = TimeSpan.FromSeconds(20);
-        });
+        }).RemoveAllLoggers();
         services.AddKeyedScoped<ISocialEngagementReader>(
             SocialPlatforms.Facebook,
             (sp, _) => new MetaEngagementReader(
@@ -77,7 +85,41 @@ public static class SocialServiceRegistration
 
         services.AddSingleton<SocialWake>();
         services.AddSingleton<SocialOrchestratorStatus>();
-        services.AddHostedService<SocialOrchestrator>();
+        services.AddSingleton<ISocialRealtime, SocialRealtimeNotifier>();
+        services.AddScoped<SocialResync>();
+
+        // One orchestrator: the hosted service and the instance the operator routes call are the same.
+        services.AddSingleton<SocialOrchestrator>();
+        services.AddHostedService(sp => sp.GetRequiredService<SocialOrchestrator>());
+        return services;
+    }
+
+    /// <summary>
+    /// The Connector, the Sender and the send step, and the operator's actions. The Connector, the
+    /// publisher and the writer are registered under the platform string, as the reader is. Only
+    /// Facebook has them today; a platform without one answers not_supported or not_configured.
+    /// </summary>
+    public static IServiceCollection AddSocialSending(this IServiceCollection services)
+    {
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddDataProtection();
+        services.AddKeyedScoped<ISocialAccountConnector>(
+            SocialPlatforms.Facebook,
+            (sp, _) => new MetaAccountConnector(
+                sp.GetRequiredService<MetaOptions>(),
+                sp.GetRequiredService<MetaGraphClient>(),
+                sp.GetRequiredService<TimeProvider>()));
+        services.AddKeyedScoped<ISocialPublisher>(
+            SocialPlatforms.Facebook,
+            (sp, _) => new MetaPublisher(sp.GetRequiredService<MetaGraphClient>(), sp.GetRequiredService<TimeProvider>()));
+        services.AddKeyedScoped<ISocialEngagementWriter>(
+            SocialPlatforms.Facebook,
+            (sp, _) => new MetaEngagementWriter(sp.GetRequiredService<MetaGraphClient>()));
+
+        services.AddScoped<SocialSender>();
+        services.AddScoped<ISocialSendStep, SocialSendStep>();
+        services.AddScoped<SocialOperatorActions>();
+        services.AddScoped<SocialConnectService>();
         return services;
     }
 }

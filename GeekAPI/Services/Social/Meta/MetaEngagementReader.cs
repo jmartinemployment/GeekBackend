@@ -251,7 +251,7 @@ public sealed class MetaEngagementReader : ISocialEngagementReader
             // A comment is created once, so its created event keys on the comment alone and a redelivery
             // cannot make a second one. Every other change to it can repeat, so those add the delivery time.
             var eventId = kind == EngagementKinds.CommentCreated
-                ? $"fb:comment:{commentId}:created"
+                ? CreatedCommentEventId(commentId)
                 : $"fb:comment:{commentId}:{verb}:{entryTime ?? createdTime}";
 
             return Result<EngagementEvent?>.Success(new EngagementEvent
@@ -306,6 +306,9 @@ public sealed class MetaEngagementReader : ISocialEngagementReader
             ReceivedAt = received,
         });
     }
+
+    /// <summary>The key a created comment is stored under, whether a delivery or a resync brought it.</summary>
+    public static string CreatedCommentEventId(string commentId) => $"fb:comment:{commentId}:created";
 
     private static bool SameSecret(string presented, string expected) =>
         CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(expected));
