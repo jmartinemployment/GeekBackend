@@ -16,14 +16,8 @@ namespace GeekAPI.Controllers.Crm;
 [ApiController]
 [Route("api/crm")]
 [CrmAccess]
-public sealed class CrmController(ICrmStore crm) : ControllerBase
+public sealed class CrmController(ICrmStore crm) : CrmApiController
 {
-    private CrmCaller Caller => HttpContext.Items[CrmAuthConstants.CallerItem] as CrmCaller
-        ?? throw new InvalidOperationException("CrmAccess did not run for this request.");
-
-    /// <summary>A server names its tenant (default Geek @ Your Spot); a signed-in user works in the tenant tenant_users gives them, whatever the address says.</summary>
-    private Guid Tenant(Guid? requested) => Caller.IsServer ? requested ?? CrmSeed.GeekAtYourSpotTenantId : Caller.TenantId!.Value;
-
     /// <summary>A sensitive property is shown only to an owner (or a server) that asks for it.</summary>
     private bool Sensitive(bool requested) => requested && Caller.IsOwner;
 
@@ -278,19 +272,6 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
             ? BadRequest("A values object is required.")
             : ToAction(await crm.SetPropertyValuesAsync(new SetPropertyValuesCommand(
                 Tenant(tenantId), objectType, recordId, body.Values, Sensitive(includeSensitive)), ct));
-
-    private IActionResult ToAction<T>(Result<T> result)
-    {
-        if (result.IsSuccess) return Ok(result.Value);
-        var message = string.IsNullOrWhiteSpace(result.Error) ? "The CRM store failed." : result.Error;
-        return result.ErrorCode switch
-        {
-            CrmFailureCodes.NotFound => NotFound(message),
-            CrmFailureCodes.InvalidRequest => BadRequest(message),
-            CrmFailureCodes.Conflict => Conflict(message),
-            _ => StatusCode(StatusCodes.Status503ServiceUnavailable, message),
-        };
-    }
 }
 
 public sealed record CreatePropertyDefinitionRequest(string? ObjectType, string? Key, string? Label, string? DataType, IReadOnlyList<string>? Options, bool IsSensitive);

@@ -205,6 +205,10 @@ builder.Services.AddScoped<GeekApplication.Interfaces.Crm.ICrmPlatformStore>(sp 
     new GeekAPI.HttpClients.HttpCrmRepository(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepository"),
         sp.GetRequiredService<ILogger<GeekAPI.HttpClients.HttpCrmRepository>>()));
+builder.Services.AddScoped<GeekApplication.Interfaces.Crm.ICrmWorkStore>(sp =>
+    new GeekAPI.HttpClients.HttpCrmRepository(
+        sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepository"),
+        sp.GetRequiredService<ILogger<GeekAPI.HttpClients.HttpCrmRepository>>()));
 // Geek-Receptionist: Twilio missed-call text-back. Off unless TWILIO_ACCOUNT_SID is set; an invalid
 // configuration is logged and leaves it off rather than stopping GeekAPI.
 builder.Services.AddReceptionist(builder.Configuration);

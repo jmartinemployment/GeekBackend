@@ -13,7 +13,7 @@ namespace GeekAPI.HttpClients;
 /// GeekRepository included) is store_unavailable. Logs carry the route and status, never a body:
 /// bodies hold people's names and numbers.
 /// </summary>
-public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository> logger) : ICrmStore, ICrmPlatformStore
+public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository> logger) : ICrmStore, ICrmPlatformStore, ICrmWorkStore
 {
     private const int MessageLimit = 300;
 
@@ -212,6 +212,63 @@ public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository
 
     public Task<Result<bool>> RemoveTenantUserAsync(Guid id, CancellationToken ct = default) =>
         SendAsync<bool>(HttpMethod.Delete, $"repo/platform/tenant-users/{id}", null, ct);
+
+    // ----- The work a person does at the keyboard (ICrmWorkStore) -----
+
+    public async Task<Result<IReadOnlyList<CrmStage>>> ListStagesAsync(Guid tenantId, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmStage>>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/stages", null, ct).ConfigureAwait(false));
+
+    public Task<Result<CrmDashboard>> GetDashboardAsync(Guid tenantId, CancellationToken ct = default) =>
+        SendAsync<CrmDashboard>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/dashboard", null, ct);
+
+    public async Task<Result<IReadOnlyList<CrmParticipantSummary>>> SearchParticipantsAsync(Guid tenantId, string? search, string? lifecycleStage, string? kind, int limit, CancellationToken ct = default)
+    {
+        var parts = new List<string> { $"limit={limit}" };
+        if (search is not null) parts.Add("q=" + Uri.EscapeDataString(search));
+        if (lifecycleStage is not null) parts.Add("stage=" + Uri.EscapeDataString(lifecycleStage));
+        if (kind is not null) parts.Add("kind=" + Uri.EscapeDataString(kind));
+        return AsReadOnly(await SendAsync<List<CrmParticipantSummary>>(HttpMethod.Get,
+            $"repo/crm/tenants/{tenantId}/participants/search?{string.Join('&', parts)}", null, ct).ConfigureAwait(false));
+    }
+
+    public Task<Result<CrmParticipant>> CreateParticipantAsync(CreateParticipantCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmParticipant>(HttpMethod.Post, "repo/crm/participants", command, ct);
+
+    public Task<Result<CrmParticipant>> UpdateParticipantAsync(Guid participantId, UpdateParticipantCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmParticipant>(HttpMethod.Put, $"repo/crm/participants/{participantId}", command, ct);
+
+    public Task<Result<bool>> ArchiveParticipantAsync(Guid tenantId, Guid participantId, CancellationToken ct = default) =>
+        SendAsync<bool>(HttpMethod.Post, $"repo/crm/tenants/{tenantId}/participants/{participantId}/archive", null, ct);
+
+    public async Task<Result<IReadOnlyList<CrmDealView>>> ListDealViewsAsync(Guid tenantId, bool openOnly, string? search, int limit, CancellationToken ct = default)
+    {
+        var parts = new List<string> { $"openOnly={(openOnly ? "true" : "false")}", $"limit={limit}" };
+        if (search is not null) parts.Add("q=" + Uri.EscapeDataString(search));
+        return AsReadOnly(await SendAsync<List<CrmDealView>>(HttpMethod.Get,
+            $"repo/crm/tenants/{tenantId}/deals/views?{string.Join('&', parts)}", null, ct).ConfigureAwait(false));
+    }
+
+    public Task<Result<CrmDealView>> GetDealViewAsync(Guid tenantId, Guid dealId, CancellationToken ct = default) =>
+        SendAsync<CrmDealView>(HttpMethod.Get, $"repo/crm/tenants/{tenantId}/deals/{dealId}/view", null, ct);
+
+    public Task<Result<CrmDealView>> UpdateDealAsync(Guid dealId, UpdateDealCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmDealView>(HttpMethod.Put, $"repo/crm/deals/{dealId}", command, ct);
+
+    public async Task<Result<IReadOnlyList<CrmActivityView>>> ListActivityViewsAsync(Guid tenantId, Guid? participantId, Guid? dealId, string? channel, bool openTasks, int limit, CancellationToken ct = default)
+    {
+        var parts = new List<string> { $"openTasks={(openTasks ? "true" : "false")}", $"limit={limit}" };
+        if (participantId is { } pid) parts.Add($"participantId={pid}");
+        if (dealId is { } did) parts.Add($"dealId={did}");
+        if (channel is not null) parts.Add("channel=" + Uri.EscapeDataString(channel));
+        return AsReadOnly(await SendAsync<List<CrmActivityView>>(HttpMethod.Get,
+            $"repo/crm/tenants/{tenantId}/activities/views?{string.Join('&', parts)}", null, ct).ConfigureAwait(false));
+    }
+
+    public Task<Result<CrmActivity>> CreateActivityAsync(CreateActivityCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmActivity>(HttpMethod.Post, "repo/crm/activities/create", command, ct);
+
+    public Task<Result<CrmActivity>> CompleteTaskAsync(Guid tenantId, Guid activityId, CancellationToken ct = default) =>
+        SendAsync<CrmActivity>(HttpMethod.Post, $"repo/crm/tenants/{tenantId}/activities/{activityId}/complete", null, ct);
 
     private static Result<IReadOnlyList<T>> AsReadOnly<T>(Result<List<T>> result) =>
         result.IsSuccess

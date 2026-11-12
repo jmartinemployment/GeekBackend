@@ -63,7 +63,9 @@ public sealed record CrmActivity(
     string? Priority = null,
     DateTime? StartsAt = null,
     DateTime? EndsAt = null,
-    string? CalendarEventId = null);
+    string? CalendarEventId = null,
+    DateTime? DueAt = null,
+    DateTime? CompletedAt = null);
 
 public sealed record CrmParticipant(
     Guid Id,

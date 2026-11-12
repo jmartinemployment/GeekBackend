@@ -458,4 +458,60 @@ public sealed class CrmIntegrationTests
         count.Parameters.AddWithValue("u", user);
         Assert.Equal(0L, (long)(await count.ExecuteScalarAsync())!);
     }
+
+    // ----- The work a person does in the screens: search, duplicate checks and open tasks, which the in-memory tests cannot run -----
+
+    [Fact]
+    public async Task People_are_found_by_name_email_or_phone_digits_and_a_company_cannot_be_added_twice()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var unique = Guid.NewGuid().ToString("N")[..8];
+
+        var person = await NewRepository().CreateParticipantAsync(new(Tenant, ParticipantKinds.Person, "Zelda" + unique, "Quimby", null, null, null,
+            $"zelda.{unique}@example.test", "(561) 555-0142", LifecycleStages.Lead, ParticipantSources.Other, null, null, null));
+        Assert.True(person.IsSuccess, person.Error);
+        var company = await NewRepository().CreateParticipantAsync(new(Tenant, ParticipantKinds.Organization, null, null, null, "Quimby Dental " + unique,
+            $"https://www.quimby-{unique}.example.test", null, null, LifecycleStages.Prospect, ParticipantSources.Other, null, null, null));
+        Assert.True(company.IsSuccess, company.Error);
+
+        foreach (var term in new[] { "zelda" + unique, $"ZELDA.{unique}@EXAMPLE", "561 555 0142", "(561) 555" })
+        {
+            var found = await NewRepository().SearchParticipantsAsync(Tenant, term, null, null, 50);
+            Assert.True(found.IsSuccess, found.Error);
+            Assert.Contains(found.Value!, r => r.Id == person.Value!.Id);
+        }
+        var byName = await NewRepository().SearchParticipantsAsync(Tenant, "quimby dental " + unique, null, ParticipantKinds.Organization, 50);
+        Assert.Equal(company.Value!.Id, Assert.Single(byName.Value!).Id);
+
+        var sameName = await NewRepository().CreateParticipantAsync(new(Tenant, ParticipantKinds.Organization, null, null, null, "QUIMBY DENTAL " + unique, null, null, null,
+            LifecycleStages.Lead, ParticipantSources.Other, null, null, null));
+        Assert.Equal(CrmFailureCodes.Conflict, sameName.ErrorCode);
+        var sameSite = await NewRepository().CreateParticipantAsync(new(Tenant, ParticipantKinds.Organization, null, null, null, "Another name " + unique, $"quimby-{unique}.example.test", null, null,
+            LifecycleStages.Lead, ParticipantSources.Other, null, null, null));
+        Assert.Equal(CrmFailureCodes.Conflict, sameSite.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Open_tasks_come_soonest_due_first_with_undated_last_and_the_home_counts_match()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var unique = Guid.NewGuid().ToString("N")[..8];
+        var person = await NewRepository().CreateParticipantAsync(new(Tenant, ParticipantKinds.Person, "Task" + unique, "Owner", null, null, null, null, null,
+            LifecycleStages.Lead, ParticipantSources.Other, null, null, null));
+        Assert.True(person.IsSuccess, person.Error);
+        var before = (await NewRepository().GetDashboardAsync(Tenant)).Value!;
+
+        CreateActivityCommand Task(string title, DateTime? due) => new(Tenant, person.Value!.Id, null, ActivityChannels.Task, null, DateTime.UtcNow, title, null, null, due, "test");
+        Assert.True((await NewRepository().CreateActivityAsync(Task("later " + unique, DateTime.UtcNow.AddDays(2)))).IsSuccess);
+        Assert.True((await NewRepository().CreateActivityAsync(Task("undated " + unique, null))).IsSuccess);
+        Assert.True((await NewRepository().CreateActivityAsync(Task("overdue " + unique, DateTime.UtcNow.AddDays(-1)))).IsSuccess);
+
+        var open = await NewRepository().ListActivityViewsAsync(Tenant, person.Value!.Id, null, null, true, 50);
+        Assert.Equal(["overdue " + unique, "later " + unique, "undated " + unique], open.Value!.Select(v => v.Activity.Subject));
+
+        var after = (await NewRepository().GetDashboardAsync(Tenant)).Value!;
+        Assert.Equal((before.OpenTasks + 3, before.OverdueTasks + 1), (after.OpenTasks, after.OverdueTasks));
+    }
 }

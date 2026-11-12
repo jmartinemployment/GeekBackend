@@ -351,50 +351,42 @@ public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, I
             if (lifecycleStage is not null) query = query.Where(p => p.LifecycleStage == lifecycleStage);
             if (kind is not null) query = query.Where(p => p.Kind == kind);
 
-            var rows = await query
-                .OrderByDescending(p => p.UpdatedAt)
-                .Take(take)
-                .Select(p => new CrmParticipantSummary(
-                    p.Id, p.Kind, p.DisplayName, p.LifecycleStage, p.Source,
-                    db.ContactPoints.Where(c => c.ParticipantId == p.Id && c.Kind == ContactPointKinds.Phone)
-                        .OrderByDescending(c => c.IsPrimary).Select(c => c.Value).FirstOrDefault(),
-                    db.ContactPoints.Where(c => c.ParticipantId == p.Id && c.Kind == ContactPointKinds.Email)
-                        .OrderByDescending(c => c.IsPrimary).Select(c => c.Value).FirstOrDefault(),
-                    p.CreatedAt,
-                    db.Activities.Where(a => a.ParticipantId == p.Id).Max(a => (DateTime?)a.OccurredAt)))
-                .ToListAsync(ct);
+            var rows = await SummariesOf(query.OrderByDescending(p => p.UpdatedAt).Take(take)).ToListAsync(ct);
             return Result<IReadOnlyList<CrmParticipantSummary>>.Success(rows);
         }, ct);
 
     public Task<Result<CrmParticipant>> GetParticipantAsync(Guid tenantId, Guid participantId, CancellationToken ct = default) =>
-        RunAsync("get_participant", tenantId, async () =>
-        {
-            var p = await db.Participants.AsNoTracking().FirstOrDefaultAsync(x => x.Id == participantId && x.TenantId == tenantId, ct);
-            if (p is null) return NotFound<CrmParticipant>("Participant not found.");
+        RunAsync("get_participant", tenantId, () => LoadParticipantAsync(tenantId, participantId, ct), ct);
 
-            var person = await db.Persons.AsNoTracking().FirstOrDefaultAsync(x => x.ParticipantId == p.Id, ct);
-            var org = await db.Organizations.AsNoTracking().FirstOrDefaultAsync(x => x.ParticipantId == p.Id, ct);
-            var contacts = await db.ContactPoints.AsNoTracking().Where(c => c.ParticipantId == p.Id)
-                .OrderBy(c => c.Kind).ThenByDescending(c => c.IsPrimary).ToListAsync(ct);
-            var links = await (
-                from l in db.Links
-                where l.TenantId == tenantId && (l.FromParticipantId == p.Id || l.ToParticipantId == p.Id)
-                join other in db.Participants on (l.FromParticipantId == p.Id ? l.ToParticipantId : l.FromParticipantId) equals other.Id
-                select new CrmLink(l.Id, l.FromParticipantId, l.ToParticipantId, l.Role, l.IsPrimary, other.DisplayName))
-                .ToListAsync(ct);
-            var activities = await db.Activities.AsNoTracking().Where(a => a.ParticipantId == p.Id)
-                .OrderByDescending(a => a.OccurredAt).Take(RecentActivityCount).ToListAsync(ct);
+    /// <summary>One participant with its children, read inside the caller's transaction.</summary>
+    private async Task<Result<CrmParticipant>> LoadParticipantAsync(Guid tenantId, Guid participantId, CancellationToken ct)
+    {
+        var p = await db.Participants.AsNoTracking().FirstOrDefaultAsync(x => x.Id == participantId && x.TenantId == tenantId, ct);
+        if (p is null) return NotFound<CrmParticipant>("Participant not found.");
 
-            return Result<CrmParticipant>.Success(new CrmParticipant(
-                p.Id, p.TenantId, p.Kind, p.DisplayName, p.LifecycleStage, p.Source, p.SourceDetail, p.Notes, p.CreatedAt, p.UpdatedAt,
-                person is null ? null : new CrmPersonDetails(person.FirstName, person.LastName, person.PreferredName, person.JobTitle,
-                    person.BirthDate, person.Gender, person.MaritalStatus, person.DependentsCount, person.EducationLevel, person.Occupation),
-                org is null ? null : new CrmOrganizationDetails(org.LegalName, org.Dba, org.OrganizationType, org.NaicsCode, org.SicCode,
-                    org.IndustryLabel, org.EmployeeCount, org.YearStarted, org.AnnualRevenueBand, org.Website, org.ServiceArea, org.Description),
-                contacts.Select(ToContactPoint).ToList(),
-                links,
-                activities.Select(ToActivity).ToList()));
-        }, ct);
+        var person = await db.Persons.AsNoTracking().FirstOrDefaultAsync(x => x.ParticipantId == p.Id, ct);
+        var org = await db.Organizations.AsNoTracking().FirstOrDefaultAsync(x => x.ParticipantId == p.Id, ct);
+        var contacts = await db.ContactPoints.AsNoTracking().Where(c => c.ParticipantId == p.Id)
+            .OrderBy(c => c.Kind).ThenByDescending(c => c.IsPrimary).ToListAsync(ct);
+        var links = await (
+            from l in db.Links
+            where l.TenantId == tenantId && (l.FromParticipantId == p.Id || l.ToParticipantId == p.Id)
+            join other in db.Participants on (l.FromParticipantId == p.Id ? l.ToParticipantId : l.FromParticipantId) equals other.Id
+            select new CrmLink(l.Id, l.FromParticipantId, l.ToParticipantId, l.Role, l.IsPrimary, other.DisplayName))
+            .ToListAsync(ct);
+        var activities = await db.Activities.AsNoTracking().Where(a => a.ParticipantId == p.Id)
+            .OrderByDescending(a => a.OccurredAt).Take(RecentActivityCount).ToListAsync(ct);
+
+        return Result<CrmParticipant>.Success(new CrmParticipant(
+            p.Id, p.TenantId, p.Kind, p.DisplayName, p.LifecycleStage, p.Source, p.SourceDetail, p.Notes, p.CreatedAt, p.UpdatedAt,
+            person is null ? null : new CrmPersonDetails(person.FirstName, person.LastName, person.PreferredName, person.JobTitle,
+                person.BirthDate, person.Gender, person.MaritalStatus, person.DependentsCount, person.EducationLevel, person.Occupation),
+            org is null ? null : new CrmOrganizationDetails(org.LegalName, org.Dba, org.OrganizationType, org.NaicsCode, org.SicCode,
+                org.IndustryLabel, org.EmployeeCount, org.YearStarted, org.AnnualRevenueBand, org.Website, org.ServiceArea, org.Description),
+            contacts.Select(ToContactPoint).ToList(),
+            links,
+            activities.Select(ToActivity).ToList()));
+    }
 
     // ----- Deals -----
 
@@ -782,7 +774,18 @@ public sealed partial class CrmRepository(CrmDbContext db, TimeProvider clock, I
 
     private static CrmActivity ToActivity(CrmActivityRow a) => new(
         a.Id, a.ParticipantId, a.DealId, a.Channel, a.Direction, a.OccurredAt, a.Subject, a.Body, a.Summary,
-        a.RecordingUrl, a.DurationSeconds, a.Outcome, a.ExternalRef, a.CreatedBy, a.Priority, a.StartsAt, a.EndsAt, a.CalendarEventId);
+        a.RecordingUrl, a.DurationSeconds, a.Outcome, a.ExternalRef, a.CreatedBy, a.Priority, a.StartsAt, a.EndsAt, a.CalendarEventId, a.DueAt, a.CompletedAt);
+
+    /// <summary>The list row for each participant: its primary phone and email and the time of its latest activity.</summary>
+    private IQueryable<CrmParticipantSummary> SummariesOf(IQueryable<CrmParticipantRow> participants) =>
+        participants.Select(p => new CrmParticipantSummary(
+            p.Id, p.Kind, p.DisplayName, p.LifecycleStage, p.Source,
+            db.ContactPoints.Where(c => c.ParticipantId == p.Id && c.Kind == ContactPointKinds.Phone)
+                .OrderByDescending(c => c.IsPrimary).Select(c => c.Value).FirstOrDefault(),
+            db.ContactPoints.Where(c => c.ParticipantId == p.Id && c.Kind == ContactPointKinds.Email)
+                .OrderByDescending(c => c.IsPrimary).Select(c => c.Value).FirstOrDefault(),
+            p.CreatedAt,
+            db.Activities.Where(a => a.ParticipantId == p.Id).Max(a => (DateTime?)a.OccurredAt)));
 
     private static CrmDeal ToDeal(CrmDealRow d, CrmStageRow s) => new(
         d.Id, d.Name, d.PipelineId, d.StageId, s.Name, s.Outcome, d.OrganizationParticipantId, d.ProductCategory,

@@ -469,6 +469,25 @@ A sensitive property is hidden unless an owner (or a server) passes `includeSens
 | GET | `/api/crm/activities?priority=urgent&channel=&limit=` | Activities, newest first; urgent ones filterable |
 | POST | `/api/crm/deals/{id}/win` | Moves the deal to Won and creates its holdings in one transaction; a repeat creates nothing |
 
+
+**The work a person does in the screens** (`ICrmWorkStore`, `CrmWorkController`; owners and members both do all of it). Each store call is one transaction.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/crm/stages` | The default pipeline's stages in order |
+| GET | `/api/crm/dashboard` | Deals and value per stage, people and company counts, open and overdue tasks, urgent messages in the last 7 days |
+| GET | `/api/crm/participants/search?q=&stage=&kind=&limit=` | People and companies, newest activity first. `q` matches a name, an email address or phone digits. Archived records are left out |
+| POST | `/api/crm/participants` | Add a person (`firstName`, `lastName`, `jobTitle`, optional `linkedOrganizationId` and `linkRole`) or a company (`organizationName`, `website`), with `email`, `phone`, `lifecycleStage`, `source`, `notes`. An email that is not an email, a phone that is not a phone, and a duplicate email, company name or website are refused in plain words |
+| PUT | `/api/crm/participants/{id}` | Replace the editable fields. A blank email or phone leaves the contact points alone |
+| POST | `/api/crm/participants/{id}/archive` | Take a record out of every list. Nothing is deleted; a repeat changes nothing |
+| GET | `/api/crm/deals/views?openOnly=&q=&limit=` , `/api/crm/deals/{id}/view` | Deals with their company and primary contact named |
+| POST | `/api/crm/deals` | A new deal in `stageName` (the first stage when omitted) |
+| PUT | `/api/crm/deals/{id}` | Name, category, expected close, company, primary contact. The value can be typed only while the deal has no line items |
+| POST | `/api/crm/deals/{id}/stage` | Move to the named stage (`lostReason` when Lost). Signed with the user's id |
+| GET | `/api/crm/activities/views?participantId=&dealId=&channel=&openTasks=&limit=` | One person's or deal's history, or everything, with names. `openTasks=true` lists tasks not yet done, soonest due first |
+| POST | `/api/crm/activities` | A note, a logged call, email, text or meeting, or a task (`channel: task`, optional `dueAt`) on a person, a deal or both |
+| POST | `/api/crm/activities/{id}/complete` | Mark a task done; a repeat keeps the first completion time |
+
 All take an optional `tenantId` from a server (default Geek @ Your Spot); a signed-in user's tenant comes from `tenant_users`.
 
 ```bash

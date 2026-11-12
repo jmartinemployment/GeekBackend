@@ -105,6 +105,7 @@ public static class ServiceRegistration
         services.AddScoped<CrmRepository>();
         services.AddScoped<ICrmStore>(sp => sp.GetRequiredService<CrmRepository>());
         services.AddScoped<ICrmPlatformStore>(sp => sp.GetRequiredService<CrmRepository>());
+        services.AddScoped<ICrmWorkStore>(sp => sp.GetRequiredService<CrmRepository>());
 
         return services;
     }
