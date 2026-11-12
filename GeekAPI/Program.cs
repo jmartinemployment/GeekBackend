@@ -191,6 +191,16 @@ builder.Services.AddScoped<GeekApplication.Interfaces.Crm.ICrmStore>(sp =>
     new GeekAPI.HttpClients.HttpCrmRepository(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepository"),
         sp.GetRequiredService<ILogger<GeekAPI.HttpClients.HttpCrmRepository>>()));
+// A signed-in Geek-CRM user's tenant and role, from GeekRepository's tenant_users, kept for at most 60 seconds.
+builder.Services.AddSingleton(sp =>
+{
+    var scopes = sp.GetRequiredService<IServiceScopeFactory>();
+    return new GeekAPI.Auth.CrmMembershipCache(async (userId, ct) =>
+    {
+        using var scope = scopes.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<GeekApplication.Interfaces.Crm.ICrmPlatformStore>().GetMembershipAsync(userId, ct);
+    }, TimeProvider.System);
+});
 builder.Services.AddScoped<GeekApplication.Interfaces.Crm.ICrmPlatformStore>(sp =>
     new GeekAPI.HttpClients.HttpCrmRepository(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepository"),

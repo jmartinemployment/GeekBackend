@@ -389,5 +389,64 @@ public sealed class CrmIntegrationTests
         var urgent = (await NewRepository().ListActivitiesAsync(Tenant, ActivityPriorities.Urgent, null, 200)).Value!;
         Assert.Equal(2, urgent.Count(a => a.ExternalRef == sid));
     }
-}
 
+    // ----- Phase 4: tenant_users -----
+
+    private static async Task<Guid> NewTenantAsync(Npgsql.NpgsqlConnection conn, string unique)
+    {
+        var id = Guid.NewGuid();
+        await using var tx = await conn.BeginTransactionAsync();
+        await using (var flag = new Npgsql.NpgsqlCommand("SELECT set_config('app.platform', 'on', true)", conn, tx)) await flag.ExecuteScalarAsync();
+        await using var insert = new Npgsql.NpgsqlCommand("INSERT INTO geek_crm.tenants (id, name, slug, created_at) VALUES (@id, @name, @slug, now())", conn, tx);
+        insert.Parameters.AddWithValue("id", id);
+        insert.Parameters.AddWithValue("name", "Tenant " + unique);
+        insert.Parameters.AddWithValue("slug", "t-" + unique + "-" + id.ToString("N")[..4]);
+        await insert.ExecuteNonQueryAsync();
+        await tx.CommitAsync();
+        return id;
+    }
+
+    [Fact]
+    public async Task A_user_belongs_to_one_tenant_the_last_owner_stays_and_the_table_is_closed_to_a_tenant_scoped_transaction()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var unique = Guid.NewGuid().ToString("N")[..8];
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        var tenantA = await NewTenantAsync(conn, unique + "a");
+        var tenantB = await NewTenantAsync(conn, unique + "b");
+        var user = Guid.NewGuid();
+
+        var platform = NewRepository();
+        var owner = await platform.AddTenantUserAsync(new(tenantA, user, TenantUserRoles.Owner));
+        Assert.True(owner.IsSuccess, owner.Error);
+        Assert.Equal(new CrmMembership(tenantA, user, TenantUserRoles.Owner), (await platform.GetMembershipAsync(user)).Value);
+
+        // The same user in a second tenant is refused by the code, and the unique index on user_id refuses it again if the code is bypassed.
+        Assert.Equal(CrmFailureCodes.Conflict, (await platform.AddTenantUserAsync(new(tenantB, user, TenantUserRoles.Member))).ErrorCode);
+        await using (var tx = await conn.BeginTransactionAsync())
+        {
+            await using (var flag = new Npgsql.NpgsqlCommand("SELECT set_config('app.platform', 'on', true)", conn, tx)) await flag.ExecuteScalarAsync();
+            await using var raw = new Npgsql.NpgsqlCommand("INSERT INTO geek_crm.tenant_users (id, tenant_id, user_id, role, created_at) VALUES (gen_random_uuid(), @t, @u, 'member', now())", conn, tx);
+            raw.Parameters.AddWithValue("t", tenantB);
+            raw.Parameters.AddWithValue("u", user);
+            var duplicate = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => raw.ExecuteNonQueryAsync());
+            Assert.Equal(Npgsql.PostgresErrorCodes.UniqueViolation, duplicate.SqlState);
+        }
+
+        Assert.Equal(CrmFailureCodes.Conflict, (await platform.RemoveTenantUserAsync(owner.Value!.Id)).ErrorCode);
+        Assert.Equal(CrmFailureCodes.Conflict, (await platform.SetTenantUserRoleAsync(owner.Value.Id, new(TenantUserRoles.Member))).ErrorCode);
+
+        // Another tenant's transaction sees none of this tenant's memberships; the lookup by user id that spans tenants is a platform operation.
+        await using var tenantTx = await conn.BeginTransactionAsync();
+        await using (var set = new Npgsql.NpgsqlCommand("SELECT set_config('app.tenant_id', @t, true)", conn, tenantTx))
+        {
+            set.Parameters.AddWithValue("t", tenantB.ToString());
+            await set.ExecuteScalarAsync();
+        }
+        await using var count = new Npgsql.NpgsqlCommand("SELECT count(*) FROM geek_crm.tenant_users WHERE user_id = @u", conn, tenantTx);
+        count.Parameters.AddWithValue("u", user);
+        Assert.Equal(0L, (long)(await count.ExecuteScalarAsync())!);
+    }
+}

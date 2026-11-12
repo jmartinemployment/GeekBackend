@@ -106,6 +106,9 @@ public class ApiKeyMiddleware
             return;
         }
 
+        // Said once, here, so a route that must tell a trusted server from a signed-in user (Geek-CRM) never has to guess.
+        context.Items[GeekAPI.Auth.CrmAuthConstants.VerifiedApiKeyItem] = true;
+
         if (context.Request.Headers.TryGetValue("X-Geek-User-Id", out var userIdHeader)
             && Guid.TryParse(userIdHeader, out var userId))
         {

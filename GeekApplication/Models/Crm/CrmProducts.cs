@@ -159,6 +159,18 @@ public sealed record CreateTenantSubscriptionCommand(Guid SubscriberTenantId, st
 
 public sealed record UpdateTenantSubscriptionCommand(string? Plan, string Status, DateOnly? EndOn);
 
+// ----- Tenant membership (Phase 4) -----
+
+/// <summary>A GeekOAuth user's membership of a tenant; the tenant of a signed-in request comes from here.</summary>
+public sealed record CrmTenantUser(Guid Id, Guid TenantId, Guid UserId, string Role, DateTime CreatedAt);
+
+public sealed record AddTenantUserCommand(Guid TenantId, Guid UserId, string Role);
+
+public sealed record SetTenantUserRoleCommand(string Role);
+
+/// <summary>What a signed-in request is allowed to be: the one tenant it works in and its role there.</summary>
+public sealed record CrmMembership(Guid TenantId, Guid UserId, string Role);
+
 /// <summary>What winning a deal did. Created is false on a repeat call, which makes nothing new.</summary>
 public sealed record WinDealResult(CrmDeal Deal, IReadOnlyList<CrmHolding> Holdings, int HoldingsCreated);
 

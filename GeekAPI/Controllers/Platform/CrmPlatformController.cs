@@ -36,6 +36,27 @@ public sealed class CrmPlatformController(ICrmPlatformStore platform) : Controll
             ? BadRequest("A subscription is required.")
             : ToAction(await platform.UpdateSubscriptionAsync(subscriptionId, new UpdateTenantSubscriptionCommand(body.Plan, body.Status ?? string.Empty, body.EndOn), ct));
 
+    // ----- Tenant membership (Phase 4): who may sign in to a tenant's CRM, and as what -----
+
+    [HttpGet("tenant-users")]
+    public async Task<IActionResult> ListTenantUsers([FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await platform.ListTenantUsersAsync(tenantId, ct));
+
+    /// <summary>userId is the GeekOAuth user's id (the JWT <c>sub</c>); role is owner or member. A user belongs to one tenant.</summary>
+    [HttpPost("tenant-users")]
+    public async Task<IActionResult> AddTenantUser([FromBody] AddTenantUserRequest? body, CancellationToken ct) =>
+        body is null || body.TenantId is null || body.UserId is null
+            ? BadRequest("A membership needs tenantId, userId and role.")
+            : ToAction(await platform.AddTenantUserAsync(new AddTenantUserCommand(body.TenantId.Value, body.UserId.Value, body.Role ?? string.Empty), ct));
+
+    [HttpPut("tenant-users/{id:guid}")]
+    public async Task<IActionResult> SetTenantUserRole(Guid id, [FromBody] SetTenantUserRoleRequest? body, CancellationToken ct) =>
+        body is null ? BadRequest("A role is required.") : ToAction(await platform.SetTenantUserRoleAsync(id, new SetTenantUserRoleCommand(body.Role ?? string.Empty), ct));
+
+    [HttpDelete("tenant-users/{id:guid}")]
+    public async Task<IActionResult> RemoveTenantUser(Guid id, CancellationToken ct) =>
+        ToAction(await platform.RemoveTenantUserAsync(id, ct));
+
     private IActionResult ToAction<T>(Result<T> result)
     {
         if (result.IsSuccess) return Ok(result.Value);
@@ -51,6 +72,10 @@ public sealed class CrmPlatformController(ICrmPlatformStore platform) : Controll
 }
 
 public sealed record CreateSubscriptionRequest(Guid? SubscriberTenantId, string? ProductCode, string? Plan, string? Status, DateOnly? StartOn, DateOnly? EndOn, Guid? HoldingId);
+
+public sealed record AddTenantUserRequest(Guid? TenantId, Guid? UserId, string? Role);
+
+public sealed record SetTenantUserRoleRequest(string? Role);
 
 public sealed record UpdateSubscriptionRequest(string? Plan, string? Status, DateOnly? EndOn);
 

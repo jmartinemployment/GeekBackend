@@ -466,7 +466,7 @@
 
   <xs:simpleType name="TenantUserRole">
     <xs:annotation>
-      <xs:appinfo><crm:phase status="planned">4</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:phase status="shipped">4</crm:phase></xs:appinfo>
       <xs:documentation>owner can do everything; member works leads and deals but cannot edit the catalog or pricing or see sensitive properties.</xs:documentation>
     </xs:annotation>
     <xs:restriction base="xs:string">
@@ -1009,7 +1009,7 @@
 
   <xs:complexType name="TenantUser">
     <xs:annotation>
-      <xs:appinfo><crm:table>tenant_users</crm:table><crm:phase status="planned">4</crm:phase></xs:appinfo>
+      <xs:appinfo><crm:table>tenant_users</crm:table><crm:phase status="shipped">4</crm:phase></xs:appinfo>
       <xs:documentation>A GeekOAuth user's membership of a tenant; the tenant of a signed-in request comes from here.</xs:documentation>
     </xs:annotation>
     <xs:sequence>
@@ -1109,6 +1109,9 @@
     </xs:unique>
     <xs:unique name="PricingRulesTenantUnique">
       <xs:selector xpath="crm:PricingRules"/><xs:field xpath="crm:TenantId"/>
+    </xs:unique>
+    <xs:unique name="TenantUserUserUnique">
+      <xs:selector xpath="crm:TenantUser"/><xs:field xpath="crm:UserId"/>
     </xs:unique>
     <xs:unique name="UpliftTierBookedUnique">
       <xs:selector xpath="crm:PricingUpliftTier"/><xs:field xpath="crm:TenantId"/><xs:field xpath="crm:BookedPctFrom"/>

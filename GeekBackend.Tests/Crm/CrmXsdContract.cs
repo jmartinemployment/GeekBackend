@@ -132,6 +132,7 @@ internal static class CrmXsdContract
         ["ck_activities_priority"] = "ActivityPriority",
         ["ck_deal_line_items_size"] = "EstimateSize",
         ["ck_projects_status"] = "ProjectStatus",
+        ["ck_tenant_users_role"] = "TenantUserRole",
     };
 
     /// <summary>The SQL type an XSD element type maps to, as the script writes it with spaces removed.</summary>

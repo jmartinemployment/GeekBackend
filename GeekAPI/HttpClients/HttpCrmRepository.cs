@@ -197,6 +197,22 @@ public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository
     public Task<Result<ReceptionistIntakeResult>> ReceptionistIntakeAsync(ReceptionistIntakeCommand command, CancellationToken ct = default) =>
         SendAsync<ReceptionistIntakeResult>(HttpMethod.Post, "repo/crm/receptionist/intake", command, ct);
 
+    public Task<Result<CrmMembership>> GetMembershipAsync(Guid userId, CancellationToken ct = default) =>
+        SendAsync<CrmMembership>(HttpMethod.Get, $"repo/platform/memberships/{userId}", null, ct);
+
+    public async Task<Result<IReadOnlyList<CrmTenantUser>>> ListTenantUsersAsync(Guid? tenantId, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<CrmTenantUser>>(HttpMethod.Get,
+            tenantId is { } id ? $"repo/platform/tenant-users?tenantId={id}" : "repo/platform/tenant-users", null, ct).ConfigureAwait(false));
+
+    public Task<Result<CrmTenantUser>> AddTenantUserAsync(AddTenantUserCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmTenantUser>(HttpMethod.Post, "repo/platform/tenant-users", command, ct);
+
+    public Task<Result<CrmTenantUser>> SetTenantUserRoleAsync(Guid id, SetTenantUserRoleCommand command, CancellationToken ct = default) =>
+        SendAsync<CrmTenantUser>(HttpMethod.Put, $"repo/platform/tenant-users/{id}", command, ct);
+
+    public Task<Result<bool>> RemoveTenantUserAsync(Guid id, CancellationToken ct = default) =>
+        SendAsync<bool>(HttpMethod.Delete, $"repo/platform/tenant-users/{id}", null, ct);
+
     private static Result<IReadOnlyList<T>> AsReadOnly<T>(Result<List<T>> result) =>
         result.IsSuccess
             ? Result<IReadOnlyList<T>>.Success(result.Value!)

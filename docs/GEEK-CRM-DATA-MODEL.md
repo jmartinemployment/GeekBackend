@@ -342,6 +342,15 @@ Hours are claimed only by writing a project. Creating one, or changing any proje
 cannot both claim the last surge hours. A decrease (the same or a shorter span at the same or fewer hours a week) never
 fails; anything else fails with a conflict naming the first week it would take past 60 hours.
 
+### 4.17 `tenant_users` (Phase 4, script 0057)
+
+Which tenant a signed-in GeekOAuth user works in, and as what: `tenant_id`, `user_id` (the `sub` of the user's GeekOAuth
+token), `role` (`owner` or `member`). A user belongs to **one** tenant (unique on `user_id`), and a tenant keeps at least
+one owner: the last owner cannot be demoted or removed. It has the usual `tenant_isolation` policy and, because the lookup
+by user id spans tenants and the caller's tenant is not yet known, a `platform_access` policy like `tenant_subscriptions`:
+the membership is read and changed only by a platform operation. It is managed through `/api/platform/tenant-users` (same
+two keys as subscriptions). The first owner of Geek @ Your Spot is added there, by hand, with the owner's GeekOAuth `sub`.
+
 ### 4.11 Lookups
 
 - `naics_code` (`code`, `title`, `level`) — the Census Bureau's 2022 NAICS list, 2,125 codes (20 sectors
@@ -393,7 +402,31 @@ is guessed.
 | Receptionist writes | `GeekAPI/Services/Receptionist/ReceptionistCrm.cs` — 3-second limit, never fails a call |
 | Apollo import + reads | `GeekAPI/Controllers/Crm/CrmController.cs`, `Services/Crm/ApolloCsv.cs` |
 
-### GeekAPI routes (X-API-Key, like every /api route)
+### Who may call `/api/crm/*` (Phase 4)
+
+Two kinds of caller, decided by `CrmAccess` in GeekAPI (`GeekAPI/Auth/CrmAccess.cs`):
+
+- **A server** holding the `X-API-Key` (the receptionist, imports, scripts). `ApiKeyMiddleware` marks the request only after
+  the key was checked. A server may name any tenant with `tenantId` (default Geek @ Your Spot) and counts as an owner.
+- **A signed-in user**: a GeekOAuth token carrying the `geekcrm.manage` scope whose `sub` has a `tenant_users` row. A valid
+  token without that scope is refused (403): GeekOAuth is shared across Geek apps and GeekAPI does not check audience, so
+  the scope says who may call and `tenant_users` says where and as what. The tenant is **always** the membership's; a
+  `tenantId` in the address is ignored, never trusted. No row is 403, a membership lookup that fails is 503. The
+  membership is cached for at most 60 seconds, so a removed member loses access within a minute; only a found row is
+  cached.
+
+| | owner | member |
+|---|---|---|
+| Leads, participants, deals, line items, win, holdings, projects, capacity, activities, intake | yes | yes |
+| Read the catalog, prices, pricing rules, uplift tiers | yes | yes |
+| Create or edit products, set prices, pricing rules, uplift tiers | yes | 403 |
+| Create, edit, retire property definitions; Apollo imports | yes | 403 |
+| See sensitive properties (`includeSensitive=true`) | yes | never, the flag is ignored |
+
+Which routes are owner-only is the `[CrmOwnerOnly]` attribute, pinned by a test that lists them. Another tenant's record
+id answers 404 because every store call is tenant-scoped (composite keys and row-level security).
+
+### GeekAPI routes (X-API-Key or a signed-in user, see above)
 
 `GET /api/crm/lookups/naics?q=&level=&limit=` searches the NAICS list: digits search by code prefix,
 words search titles, `level` is 2 to 6. Custom properties:
@@ -404,8 +437,7 @@ words search titles, `level` is 2 to 6. Custom properties:
 | PUT, DELETE | `/api/crm/properties/definitions/{id}` | Edit (label, options, sensitivity), retire |
 | GET, PUT | `/api/crm/{objectType}/{recordId}/properties` | Read, set values on a `person`, `organization` or `deal`. PUT body: `{"values": {"key": value, "other": null}}`; a null clears |
 
-A sensitive property is hidden unless the call passes `includeSensitive=true`. Every caller today holds
-the X-API-Key (a trusted server); when signed-in users arrive their role decides it.
+A sensitive property is hidden unless an owner (or a server) passes `includeSensitive=true`; for a member the flag is ignored.
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -419,13 +451,14 @@ the X-API-Key (a trusted server); when signed-in users arrive their role decides
 | GET, POST | `/api/crm/products/{id}/prices`, `/api/crm/products/{id}/price` | Price history, set a price, the price in effect |
 | GET, PUT | `/api/crm/pricing-rules`, `/api/crm/pricing-uplift-tiers` | The tenant's pricing rules and uplift tiers |
 | GET, POST, PUT | `/api/platform/subscriptions`, `.../{id}` | Tenant subscriptions; needs `X-Platform-Admin-Key` as well |
+| GET, POST, PUT, DELETE | `/api/platform/tenant-users`, `.../{id}` | Who works in which tenant and as what; `X-API-Key` and `X-Platform-Admin-Key`. GET takes `tenantId` |
 | POST | `/api/crm/receptionist/intake` | One call writes the caller, their contact points, a deal with estimate line items, the call and the meeting; idempotent on the Twilio CallSid |
 | GET, POST, PUT | `/api/crm/projects`, `/api/crm/projects/{id}` | Projects; a change that would pass 60 hours in a week is a conflict |
 | GET | `/api/crm/capacity?weeks=8` | Booked hours per week against 40 + 20 surge, the uplift, the earliest start |
 | GET | `/api/crm/activities?priority=urgent&channel=&limit=` | Activities, newest first; urgent ones filterable |
 | POST | `/api/crm/deals/{id}/win` | Moves the deal to Won and creates its holdings in one transaction; a repeat creates nothing |
 
-All take an optional `tenantId`; the default is Geek @ Your Spot.
+All take an optional `tenantId` from a server (default Geek @ Your Spot); a signed-in user's tenant comes from `tenant_users`.
 
 ```bash
 curl -X POST "https://api.geekatyourspot.com/api/crm/imports/apollo?source=Apollo%20Batch%201" \
@@ -444,6 +477,7 @@ Apollo's revenue figures are its own estimates; the revenue band is only as good
 
 - `GeekBackend.Tests/Crm/SchemaContractTests.cs` — the XSD compiles clean; shipped enumerations, columns, types and nullability equal the C# vocabularies, the script and the EF mapping; a sample tenant validates and a dangling reference, a duplicate id, another tenant's row and a bad enum value are rejected.
 - `GeekBackend.Tests/Crm` — SQL CHECK lists vs vocabularies, table columns vs EF mapping, seed, phone/URL/code normalizing, Apollo parsing, the primary-contact rule.
+- `GeekBackend.Tests/Crm/CrmAccessTests.cs`, `CrmTenantUserTests.cs` — the access filter (key, no token, token without the scope, scope without a membership, tenant from the membership, owner-only routes, sensitive flag, 60-second cache with a fake clock), the owner-only route list, the key flag set only by a right key (Production, so the development bearer shortcut is off), and the membership store (one tenant per user, last owner kept).
 - `GeekBackend.Tests/Receptionist/CrmReceptionistRecorderTests.cs` — what a call, text, STOP and voicemail write; a failing or slow store never reaches the call.
 - `GeekBackend.IntegrationTests/CrmIntegrationTests.cs` (TEST_DATABASE_URL) — the script against Postgres: one person per caller, one activity per Twilio retry, STOP opt-out, import matching, the deal rule.
 

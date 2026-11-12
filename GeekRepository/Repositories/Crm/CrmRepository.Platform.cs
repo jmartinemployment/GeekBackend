@@ -79,4 +79,68 @@ public sealed partial class CrmRepository
         }, ct, platform: true);
 
     private static CrmTenantSubscription ToSubscription(CrmTenantSubscriptionRow s) => new(s.Id, s.SubscriberTenantId, s.ProductCode, s.Plan, s.Status, s.StartOn, s.EndOn, s.CreatedAt);
+
+    // ----- Tenant membership (Phase 4) -----
+
+    public Task<Result<CrmMembership>> GetMembershipAsync(Guid userId, CancellationToken ct = default) =>
+        RunAsync("get_membership", SellerTenantId, async () =>
+        {
+            var row = await db.TenantUsers.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == userId, ct);
+            return row is null ? NotFound<CrmMembership>("The user belongs to no tenant.") : Result<CrmMembership>.Success(new CrmMembership(row.TenantId, row.UserId, row.Role));
+        }, ct, platform: true);
+
+    public Task<Result<IReadOnlyList<CrmTenantUser>>> ListTenantUsersAsync(Guid? tenantId, CancellationToken ct = default) =>
+        RunAsync("list_tenant_users", SellerTenantId, async () =>
+        {
+            var query = db.TenantUsers.AsNoTracking();
+            if (tenantId is { } id) query = query.Where(u => u.TenantId == id);
+            var rows = await query.OrderBy(u => u.TenantId).ThenBy(u => u.CreatedAt).ToListAsync(ct);
+            return Result<IReadOnlyList<CrmTenantUser>>.Success(rows.Select(ToTenantUser).ToList());
+        }, ct, platform: true);
+
+    public Task<Result<CrmTenantUser>> AddTenantUserAsync(AddTenantUserCommand command, CancellationToken ct = default) =>
+        RunAsync("add_tenant_user", SellerTenantId, async () =>
+        {
+            if (!TenantUserRoles.All.Contains(command.Role)) return Invalid<CrmTenantUser>($"Unknown role '{command.Role}'. Use one of: {string.Join(", ", TenantUserRoles.All)}.");
+            if (command.UserId == Guid.Empty) return Invalid<CrmTenantUser>("A user id is required.");
+            if (!await db.Tenants.AnyAsync(t => t.Id == command.TenantId, ct)) return NotFound<CrmTenantUser>("Tenant not found.");
+            if (await db.TenantUsers.AnyAsync(u => u.UserId == command.UserId, ct))
+                return Result<CrmTenantUser>.Failure("That user already belongs to a tenant.", CrmFailureCodes.Conflict);
+
+            var row = new CrmTenantUserRow { Id = Guid.NewGuid(), TenantId = command.TenantId, UserId = command.UserId, Role = command.Role, CreatedAt = Now() };
+            db.TenantUsers.Add(row);
+            await db.SaveChangesAsync(ct);
+            return Result<CrmTenantUser>.Success(ToTenantUser(row));
+        }, ct, platform: true);
+
+    public Task<Result<CrmTenantUser>> SetTenantUserRoleAsync(Guid id, SetTenantUserRoleCommand command, CancellationToken ct = default) =>
+        RunAsync("set_tenant_user_role", SellerTenantId, async () =>
+        {
+            if (!TenantUserRoles.All.Contains(command.Role)) return Invalid<CrmTenantUser>($"Unknown role '{command.Role}'. Use one of: {string.Join(", ", TenantUserRoles.All)}.");
+            var row = await db.TenantUsers.FirstOrDefaultAsync(u => u.Id == id, ct);
+            if (row is null) return NotFound<CrmTenantUser>("Membership not found.");
+            if (row.Role == TenantUserRoles.Owner && command.Role != TenantUserRoles.Owner && !await HasAnotherOwnerAsync(row, ct))
+                return Result<CrmTenantUser>.Failure("The tenant's last owner cannot be demoted.", CrmFailureCodes.Conflict);
+            row.Role = command.Role;
+            await db.SaveChangesAsync(ct);
+            return Result<CrmTenantUser>.Success(ToTenantUser(row));
+        }, ct, platform: true);
+
+    public Task<Result<bool>> RemoveTenantUserAsync(Guid id, CancellationToken ct = default) =>
+        RunAsync("remove_tenant_user", SellerTenantId, async () =>
+        {
+            var row = await db.TenantUsers.FirstOrDefaultAsync(u => u.Id == id, ct);
+            if (row is null) return NotFound<bool>("Membership not found.");
+            if (row.Role == TenantUserRoles.Owner && !await HasAnotherOwnerAsync(row, ct))
+                return Result<bool>.Failure("The tenant's last owner cannot be removed.", CrmFailureCodes.Conflict);
+            db.TenantUsers.Remove(row);
+            await db.SaveChangesAsync(ct);
+            return Result<bool>.Success(true);
+        }, ct, platform: true);
+
+    private Task<bool> HasAnotherOwnerAsync(CrmTenantUserRow row, CancellationToken ct) =>
+        db.TenantUsers.AnyAsync(u => u.TenantId == row.TenantId && u.Role == TenantUserRoles.Owner && u.Id != row.Id, ct);
+
+    private static CrmTenantUser ToTenantUser(CrmTenantUserRow u) => new(u.Id, u.TenantId, u.UserId, u.Role, u.CreatedAt);
 }
+

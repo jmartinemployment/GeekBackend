@@ -29,6 +29,26 @@ public sealed class CrmPlatformController(ICrmPlatformStore platform) : Controll
     public async Task<IActionResult> UpdateSubscription(Guid subscriptionId, [FromBody] UpdateTenantSubscriptionCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A subscription is required.") : ToAction(await platform.UpdateSubscriptionAsync(subscriptionId, command, ct));
 
+    [HttpGet("memberships/{userId:guid}")]
+    public async Task<IActionResult> GetMembership(Guid userId, CancellationToken ct) =>
+        ToAction(await platform.GetMembershipAsync(userId, ct));
+
+    [HttpGet("tenant-users")]
+    public async Task<IActionResult> ListTenantUsers([FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await platform.ListTenantUsersAsync(tenantId, ct));
+
+    [HttpPost("tenant-users")]
+    public async Task<IActionResult> AddTenantUser([FromBody] AddTenantUserCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A membership is required.") : ToAction(await platform.AddTenantUserAsync(command, ct));
+
+    [HttpPut("tenant-users/{id:guid}")]
+    public async Task<IActionResult> SetTenantUserRole(Guid id, [FromBody] SetTenantUserRoleCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A role is required.") : ToAction(await platform.SetTenantUserRoleAsync(id, command, ct));
+
+    [HttpDelete("tenant-users/{id:guid}")]
+    public async Task<IActionResult> RemoveTenantUser(Guid id, CancellationToken ct) =>
+        ToAction(await platform.RemoveTenantUserAsync(id, ct));
+
     private IActionResult ToAction<T>(Result<T> result)
     {
         if (result.IsSuccess) return Ok(result.Value);

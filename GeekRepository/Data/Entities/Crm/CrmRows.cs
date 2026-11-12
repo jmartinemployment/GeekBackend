@@ -344,3 +344,12 @@ public sealed class CrmProjectRow
     public DateTime UpdatedAt { get; set; }
 }
 
+public sealed class CrmTenantUserRow
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid UserId { get; set; }
+    public string Role { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+}
+

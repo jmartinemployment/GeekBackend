@@ -29,7 +29,7 @@ public sealed class CrmContractIntegrationTests
 
     /// <summary>The schema scripts, in order. The NAICS load is data, not schema, and has its own test.</summary>
     private static readonly string[] SchemaScripts =
-        ["0050_geek_crm_schema.sql", "0051_geek_crm_import_batch_and_property_retire.sql", "0053_geek_crm_tenant_keys.sql", "0054_geek_crm_products.sql", "0055_geek_crm_pricing_and_subscriptions.sql", "0056_geek_crm_receptionist.sql"];
+        ["0050_geek_crm_schema.sql", "0051_geek_crm_import_batch_and_property_retire.sql", "0053_geek_crm_tenant_keys.sql", "0054_geek_crm_products.sql", "0055_geek_crm_pricing_and_subscriptions.sql", "0056_geek_crm_receptionist.sql", "0057_geek_crm_tenant_users.sql"];
 
     private static async Task<NpgsqlConnection> ApplyCrmScriptAsync()
     {

@@ -351,7 +351,11 @@ public class CrmPricingTests
             Assert.Contains(expected, crm);
 
         var platform = Routes(typeof(CrmPlatformController)).Select(r => $"{r.Verb} {r.Template}").ToHashSet(StringComparer.Ordinal);
-        Assert.Equal(["GET api/platform/subscriptions", "POST api/platform/subscriptions", "PUT api/platform/subscriptions/{subscriptionId}"], platform.Order());
+        Assert.Equal(
+            [
+                "DELETE api/platform/tenant-users/{id}", "GET api/platform/subscriptions", "GET api/platform/tenant-users",
+                "POST api/platform/subscriptions", "POST api/platform/tenant-users", "PUT api/platform/subscriptions/{subscriptionId}", "PUT api/platform/tenant-users/{id}",
+            ], platform.Order());
         Assert.NotNull(typeof(CrmPlatformController).GetCustomAttribute<PlatformAdminKeyAttribute>());
     }
 }

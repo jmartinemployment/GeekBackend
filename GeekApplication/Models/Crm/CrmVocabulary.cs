@@ -248,3 +248,10 @@ public static class ProjectStatuses
     public static readonly IReadOnlyList<string> All = [Scheduled, Active, OnHold, Done, Cancelled];
 }
 
+public static class TenantUserRoles
+{
+    public const string Owner = "owner";
+    public const string Member = "member";
+    public static readonly IReadOnlyList<string> All = [Owner, Member];
+}
+
