@@ -233,6 +233,68 @@ public sealed partial class CrmRepository : ICrmWorkStore
             return Result<bool>.Success(true);
         }, ct);
 
+    public Task<Result<bool>> DeleteParticipantAsync(Guid tenantId, Guid participantId, CancellationToken ct = default) =>
+        RunAsync("delete_participant", tenantId, async () =>
+        {
+            var p = await db.Participants.FirstOrDefaultAsync(x => x.Id == participantId && x.TenantId == tenantId, ct);
+            if (p is null) return NotFound<bool>("Participant not found.");
+
+            var dealIds = new HashSet<Guid>(await db.Deals
+                .Where(d => d.TenantId == tenantId && d.OrganizationParticipantId == participantId)
+                .Select(d => d.Id).ToListAsync(ct));
+            dealIds.UnionWith(await db.DealParticipants
+                .Where(dp => dp.TenantId == tenantId && dp.ParticipantId == participantId)
+                .Select(dp => dp.DealId).ToListAsync(ct));
+            var holdings = await db.CustomerHoldings.CountAsync(h => h.TenantId == tenantId && h.ParticipantId == participantId, ct);
+            var projects = await db.Projects.CountAsync(x => x.TenantId == tenantId && x.ParticipantId == participantId, ct);
+
+            var inUse = new List<string>();
+            if (dealIds.Count > 0) inUse.Add(dealIds.Count == 1 ? "1 deal" : $"{dealIds.Count} deals");
+            if (holdings > 0) inUse.Add(holdings == 1 ? "1 customer holding" : $"{holdings} customer holdings");
+            if (projects > 0) inUse.Add(projects == 1 ? "1 project" : $"{projects} projects");
+            if (inUse.Count > 0)
+                return Result<bool>.Failure(
+                    $"{p.DisplayName} is on {string.Join(" and ", inUse)}, so it cannot be deleted. Delete those first, or archive {p.DisplayName} to take it out of the lists.",
+                    CrmFailureCodes.Conflict);
+
+            // The rows that exist only to describe this participant go with it. Activities, which are history, stay with the
+            // participant cleared (the foreign key does that), so a note someone wrote is never lost.
+            db.Persons.RemoveRange(await db.Persons.Where(x => x.ParticipantId == participantId).ToListAsync(ct));
+            db.Organizations.RemoveRange(await db.Organizations.Where(x => x.ParticipantId == participantId).ToListAsync(ct));
+            db.ContactPoints.RemoveRange(await db.ContactPoints.Where(x => x.TenantId == tenantId && x.ParticipantId == participantId).ToListAsync(ct));
+            db.Links.RemoveRange(await db.Links.Where(x => x.TenantId == tenantId && (x.FromParticipantId == participantId || x.ToParticipantId == participantId)).ToListAsync(ct));
+            db.PropertyValues.RemoveRange(await db.PropertyValues.Where(x => x.TenantId == tenantId && x.RecordId == participantId).ToListAsync(ct));
+            db.Participants.Remove(p);
+            await db.SaveChangesAsync(ct);
+            return Result<bool>.Success(true);
+        }, ct);
+
+    public Task<Result<bool>> DeleteDealAsync(Guid tenantId, Guid dealId, CancellationToken ct = default) =>
+        RunAsync("delete_deal", tenantId, async () =>
+        {
+            var deal = await db.Deals.FirstOrDefaultAsync(x => x.Id == dealId && x.TenantId == tenantId, ct);
+            if (deal is null) return NotFound<bool>("Deal not found.");
+            // What belongs to the deal goes with it. Its activities and any holdings made from it stay, with the deal cleared
+            // (the foreign keys do that), so history and what a customer holds are never lost.
+            db.DealStageHistory.RemoveRange(await db.DealStageHistory.Where(x => x.TenantId == tenantId && x.DealId == dealId).ToListAsync(ct));
+            db.DealParticipants.RemoveRange(await db.DealParticipants.Where(x => x.TenantId == tenantId && x.DealId == dealId).ToListAsync(ct));
+            db.DealLineItems.RemoveRange(await db.DealLineItems.Where(x => x.TenantId == tenantId && x.DealId == dealId).ToListAsync(ct));
+            db.PropertyValues.RemoveRange(await db.PropertyValues.Where(x => x.TenantId == tenantId && x.RecordId == dealId).ToListAsync(ct));
+            db.Deals.Remove(deal);
+            await db.SaveChangesAsync(ct);
+            return Result<bool>.Success(true);
+        }, ct);
+
+    public Task<Result<bool>> DeleteActivityAsync(Guid tenantId, Guid activityId, CancellationToken ct = default) =>
+        RunAsync("delete_activity", tenantId, async () =>
+        {
+            var activity = await db.Activities.FirstOrDefaultAsync(x => x.Id == activityId && x.TenantId == tenantId, ct);
+            if (activity is null) return NotFound<bool>("Activity not found.");
+            db.Activities.Remove(activity);
+            await db.SaveChangesAsync(ct);
+            return Result<bool>.Success(true);
+        }, ct);
+
     private static bool TooLong(params string?[] values) => values.Any(v => v is { Length: > MaxTextLength });
 
     private static string DisplayOf(string? first, string? last) => string.Join(' ', new[] { first, last }.Where(s => s is not null));

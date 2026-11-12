@@ -32,6 +32,19 @@ public interface ICrmWorkStore
     /// </summary>
     Task<Result<bool>> ArchiveParticipantAsync(Guid tenantId, Guid participantId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Permanently removes a person or company with its contact points, links and property values; the activities that
+    /// named it are kept, with the name cleared. Refused with <see cref="CrmFailureCodes.Conflict"/> while it is on a deal,
+    /// in a customer holding or on a project, so no deal is left without the party it was about. Archive keeps everything.
+    /// </summary>
+    Task<Result<bool>> DeleteParticipantAsync(Guid tenantId, Guid participantId, CancellationToken ct = default);
+
+    /// <summary>Permanently removes a deal with its stage history, line items and participants. Its activities and any holdings made from it are kept, with the deal cleared.</summary>
+    Task<Result<bool>> DeleteDealAsync(Guid tenantId, Guid dealId, CancellationToken ct = default);
+
+    /// <summary>Permanently removes one activity: a note, call, email, text, meeting or task.</summary>
+    Task<Result<bool>> DeleteActivityAsync(Guid tenantId, Guid activityId, CancellationToken ct = default);
+
     Task<Result<IReadOnlyList<CrmDealView>>> ListDealViewsAsync(Guid tenantId, bool openOnly, string? search, int limit, CancellationToken ct = default);
 
     Task<Result<CrmDealView>> GetDealViewAsync(Guid tenantId, Guid dealId, CancellationToken ct = default);

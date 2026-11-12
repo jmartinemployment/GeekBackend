@@ -480,13 +480,16 @@ A sensitive property is hidden unless an owner (or a server) passes `includeSens
 | POST | `/api/crm/participants` | Add a person (`firstName`, `lastName`, `jobTitle`, optional `linkedOrganizationId` and `linkRole`) or a company (`organizationName`, `website`), with `email`, `phone`, `lifecycleStage`, `source`, `notes`. An email that is not an email, a phone that is not a phone, and a duplicate email, company name or website are refused in plain words |
 | PUT | `/api/crm/participants/{id}` | Replace the editable fields. A blank email or phone leaves the contact points alone |
 | POST | `/api/crm/participants/{id}/archive` | Take a record out of every list. Nothing is deleted; a repeat changes nothing |
+| DELETE | `/api/crm/participants/{id}` | **Owner only.** Permanently removes a person or company with its contact points, links and property values; activities about it stay, with the name cleared. Refused (`conflict`) while it is on a deal, in a customer holding or on a project, and the answer says which |
 | GET | `/api/crm/deals/views?openOnly=&q=&limit=` , `/api/crm/deals/{id}/view` | Deals with their company and primary contact named |
 | POST | `/api/crm/deals` | A new deal in `stageName` (the first stage when omitted) |
 | PUT | `/api/crm/deals/{id}` | Name, category, expected close, company, primary contact. The value can be typed only while the deal has no line items |
+| DELETE | `/api/crm/deals/{id}` | **Owner only.** Permanently removes a deal with its stage history, line items, participants and property values; its activities and any holdings made from it stay, with the deal cleared |
 | POST | `/api/crm/deals/{id}/stage` | Move to the named stage (`lostReason` when Lost). Signed with the user's id |
 | GET | `/api/crm/activities/views?participantId=&dealId=&channel=&openTasks=&limit=` | One person's or deal's history, or everything, with names. `openTasks=true` lists tasks not yet done, soonest due first |
 | POST | `/api/crm/activities` | A note, a logged call, email, text or meeting, or a task (`channel: task`, optional `dueAt`) on a person, a deal or both |
 | POST | `/api/crm/activities/{id}/complete` | Mark a task done; a repeat keeps the first completion time |
+| DELETE | `/api/crm/activities/{id}` | **Owner only.** Permanently removes one note, call, email, text, meeting or task |
 
 All take an optional `tenantId` from a server (default Geek @ Your Spot); a signed-in user's tenant comes from `tenant_users`.
 

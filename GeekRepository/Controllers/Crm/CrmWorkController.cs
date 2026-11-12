@@ -40,6 +40,18 @@ public sealed class CrmWorkController(ICrmWorkStore work) : ControllerBase
     public async Task<IActionResult> ArchiveParticipant(Guid tenantId, Guid participantId, CancellationToken ct) =>
         ToAction(await work.ArchiveParticipantAsync(tenantId, participantId, ct));
 
+    [HttpDelete("tenants/{tenantId:guid}/participants/{participantId:guid}")]
+    public async Task<IActionResult> DeleteParticipant(Guid tenantId, Guid participantId, CancellationToken ct) =>
+        ToAction(await work.DeleteParticipantAsync(tenantId, participantId, ct));
+
+    [HttpDelete("tenants/{tenantId:guid}/deals/{dealId:guid}")]
+    public async Task<IActionResult> DeleteDeal(Guid tenantId, Guid dealId, CancellationToken ct) =>
+        ToAction(await work.DeleteDealAsync(tenantId, dealId, ct));
+
+    [HttpDelete("tenants/{tenantId:guid}/activities/{activityId:guid}")]
+    public async Task<IActionResult> DeleteActivity(Guid tenantId, Guid activityId, CancellationToken ct) =>
+        ToAction(await work.DeleteActivityAsync(tenantId, activityId, ct));
+
     [HttpGet("tenants/{tenantId:guid}/deals/views")]
     public async Task<IActionResult> ListDealViews(Guid tenantId, [FromQuery] bool openOnly, [FromQuery] string? q, [FromQuery] int limit, CancellationToken ct) =>
         ToAction(await work.ListDealViewsAsync(tenantId, openOnly, q, limit, ct));

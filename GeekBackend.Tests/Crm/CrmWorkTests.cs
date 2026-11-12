@@ -220,6 +220,75 @@ public class CrmWorkTests
         Assert.Equal(CrmFailureCodes.NotFound, (await store.Repository.ArchiveParticipantAsync(TenantA, store.OtherTenantPerson)).ErrorCode);
     }
 
+    [Fact]
+    public async Task A_person_or_company_is_deleted_only_when_nothing_depends_on_it_and_the_refusal_says_what_does()
+    {
+        using var store = new Store();
+        var company = await store.CompanyAsync();
+        var person = await store.PersonAsync(company: company.Id);
+        var other = await store.PersonAsync("Sam", "Free", "sam@example.test");
+        var deal = (await store.Repository.CreateDealAsync(new(TenantA, "Receptionist", "x", company.Id, person.Id, null, null, null, null))).Value!;
+
+        var company_on_deal = await store.Repository.DeleteParticipantAsync(TenantA, company.Id);
+        Assert.Equal(CrmFailureCodes.Conflict, company_on_deal.ErrorCode);
+        Assert.Contains("1 deal", company_on_deal.Error);
+        Assert.Contains("archive", company_on_deal.Error);
+        var contact_on_deal = await store.Repository.DeleteParticipantAsync(TenantA, person.Id);
+        Assert.Equal(CrmFailureCodes.Conflict, contact_on_deal.ErrorCode);
+        Assert.True(store.Db.Participants.Any(p => p.Id == company.Id) && store.Db.Participants.Any(p => p.Id == person.Id));
+
+        store.Db.CustomerHoldings.Add(new CrmCustomerHoldingRow { Id = Guid.NewGuid(), TenantId = TenantA, ParticipantId = other.Id, ProductId = Guid.NewGuid(), Status = "active" });
+        store.Db.Projects.Add(new CrmProjectRow { Id = Guid.NewGuid(), TenantId = TenantA, ParticipantId = other.Id, Status = "planned" });
+        store.Db.SaveChanges();
+        var held = await store.Repository.DeleteParticipantAsync(TenantA, other.Id);
+        Assert.Equal(CrmFailureCodes.Conflict, held.ErrorCode);
+        Assert.Contains("1 customer holding", held.Error);
+        Assert.Contains("1 project", held.Error);
+
+        var deleted = await store.Repository.DeleteDealAsync(TenantA, deal.Id);
+        Assert.True(deleted.IsSuccess, deleted.Error);
+        Assert.True(deleted.Value);
+        Assert.True((await store.Repository.DeleteParticipantAsync(TenantA, person.Id)).Value);
+        Assert.True((await store.Repository.DeleteParticipantAsync(TenantA, company.Id)).Value);
+        Assert.False(store.Db.Participants.Any(p => p.Id == person.Id || p.Id == company.Id));
+        Assert.Equal(CrmFailureCodes.NotFound, (await store.Repository.DeleteParticipantAsync(TenantA, person.Id)).ErrorCode);
+        Assert.Equal(CrmFailureCodes.NotFound, (await store.Repository.DeleteParticipantAsync(TenantA, store.OtherTenantPerson)).ErrorCode);
+        Assert.True(store.Db.Participants.Any(p => p.Id == store.OtherTenantPerson));
+    }
+
+    [Fact]
+    public async Task A_deal_is_deleted_and_the_people_on_it_and_another_tenants_deals_are_left_alone()
+    {
+        using var store = new Store();
+        var person = await store.PersonAsync();
+        var deal = (await store.Repository.CreateDealAsync(new(TenantA, "Boca Dental, receptionist", "x", null, person.Id, null, null, null, null))).Value!;
+
+        Assert.Equal(CrmFailureCodes.NotFound, (await store.Repository.DeleteDealAsync(TenantB, deal.Id)).ErrorCode);
+        Assert.True(store.Db.Deals.Any(d => d.Id == deal.Id));
+
+        var deleted = await store.Repository.DeleteDealAsync(TenantA, deal.Id);
+        Assert.True(deleted.IsSuccess, deleted.Error);
+        Assert.True(deleted.Value);
+        Assert.False(store.Db.Deals.Any(d => d.Id == deal.Id));
+        Assert.True(store.Db.Participants.Any(p => p.Id == person.Id));
+        Assert.Equal(CrmFailureCodes.NotFound, (await store.Repository.DeleteDealAsync(TenantA, deal.Id)).ErrorCode);
+    }
+
+    [Fact]
+    public async Task An_activity_is_deleted_and_the_person_it_was_about_is_left_alone()
+    {
+        using var store = new Store();
+        var person = await store.PersonAsync();
+        var note = (await store.Repository.CreateActivityAsync(Activity(person.Id, ActivityChannels.Note, "Remove me"))).Value!;
+        var kept = (await store.Repository.CreateActivityAsync(Activity(person.Id, ActivityChannels.Note, "Keep me"))).Value!;
+
+        Assert.Equal(CrmFailureCodes.NotFound, (await store.Repository.DeleteActivityAsync(TenantB, note.Id)).ErrorCode);
+        Assert.True((await store.Repository.DeleteActivityAsync(TenantA, note.Id)).Value);
+        Assert.Equal(CrmFailureCodes.NotFound, (await store.Repository.DeleteActivityAsync(TenantA, note.Id)).ErrorCode);
+        Assert.Equal(kept.Id, Assert.Single((await store.Repository.ListActivityViewsAsync(TenantA, person.Id, null, null, false, 50)).Value!).Activity.Id);
+        Assert.True(store.Db.Participants.Any(p => p.Id == person.Id));
+    }
+
     // ----- deals -----
 
     [Fact]
@@ -419,6 +488,9 @@ public class CrmWorkTests
         await client.CreateParticipantAsync(new(TenantA, "person", "A", "B", null, null, null, null, null, "lead", "other", null, null, null));
         await client.UpdateParticipantAsync(id, new(TenantA, "A", "B", null, null, null, "lead", null, null, null));
         await client.ArchiveParticipantAsync(TenantA, id);
+        await client.DeleteParticipantAsync(TenantA, id);
+        await client.DeleteDealAsync(TenantA, id);
+        await client.DeleteActivityAsync(TenantA, id);
         await client.ListDealViewsAsync(TenantA, true, "dental", 20);
         await client.GetDealViewAsync(TenantA, id);
         await client.UpdateDealAsync(id, new(TenantA, "D", "x", null, null, null, null));
@@ -433,7 +505,7 @@ public class CrmWorkTests
             .Select(a => (Verb: a.HttpMethods.Single(), Template: Strip($"{root}/{a.Template}")))
             .ToList();
 
-        Assert.Equal(12, recorder.Calls.Count);
+        Assert.Equal(15, recorder.Calls.Count);
         foreach (var call in recorder.Calls)
         {
             var path = call.PathAndQuery.Split('?')[0].TrimStart('/');
@@ -515,12 +587,15 @@ public class CrmWorkTests
     }
 
     [Fact]
-    public void Every_work_route_sits_behind_the_access_filter_and_is_open_to_a_member()
+    public void Every_work_route_sits_behind_the_access_filter_and_only_the_three_deletes_are_owner_only()
     {
         Assert.NotNull(typeof(CrmWorkController).GetCustomAttribute<CrmAccessAttribute>());
         var actions = typeof(CrmWorkController).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly);
         Assert.NotEmpty(actions);
-        Assert.All(actions, m => Assert.Null(m.GetCustomAttribute<CrmOwnerOnlyAttribute>()));
+        var ownerOnly = actions.Where(m => m.GetCustomAttribute<CrmOwnerOnlyAttribute>() is not null).Select(m => m.Name).Order().ToList();
+        Assert.Equal(["DeleteActivity", "DeleteDeal", "DeleteParticipant"], ownerOnly);
+        Assert.All(actions.Where(m => m.Name.StartsWith("Delete", StringComparison.Ordinal)),
+            m => Assert.Equal("HttpDeleteAttribute", Assert.Single(m.GetCustomAttributes<HttpMethodAttribute>()).GetType().Name));
     }
 
     [Fact]

@@ -57,6 +57,15 @@ public sealed class CrmWorkController(ICrmWorkStore work, ICrmStore crm) : CrmAp
     public async Task<IActionResult> ArchiveParticipant(Guid participantId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
         ToAction(await work.ArchiveParticipantAsync(Tenant(tenantId), participantId, ct));
 
+    /// <summary>
+    /// Permanently removes a person or company. Owner only. Refused while it is on a deal, in a customer holding or on a project;
+    /// archive takes it out of the lists without deleting anything.
+    /// </summary>
+    [CrmOwnerOnly]
+    [HttpDelete("participants/{participantId:guid}")]
+    public async Task<IActionResult> DeleteParticipant(Guid participantId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await work.DeleteParticipantAsync(Tenant(tenantId), participantId, ct));
+
     // ----- Deals -----
 
     /// <summary>Deals with their company and primary contact named. <c>q</c> matches the deal's or the company's name.</summary>
@@ -92,6 +101,15 @@ public sealed class CrmWorkController(ICrmWorkStore work, ICrmStore crm) : CrmAp
             ? BadRequest("A stage is required.")
             : ToAction(await crm.MoveDealStageAsync(dealId, new MoveDealStageCommand(Tenant(tenantId), body.StageName, body.LostReason, Actor), ct));
 
+    /// <summary>
+    /// Permanently removes a deal with its stage history, line items and participants. Owner only. Its activities and any holdings made
+    /// from it are kept, with the deal cleared.
+    /// </summary>
+    [CrmOwnerOnly]
+    [HttpDelete("deals/{dealId:guid}")]
+    public async Task<IActionResult> DeleteDeal(Guid dealId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await work.DeleteDealAsync(Tenant(tenantId), dealId, ct));
+
     // ----- Notes and tasks -----
 
     /// <summary>
@@ -113,6 +131,12 @@ public sealed class CrmWorkController(ICrmWorkStore work, ICrmStore crm) : CrmAp
     [HttpPost("activities/{activityId:guid}/complete")]
     public async Task<IActionResult> CompleteTask(Guid activityId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
         ToAction(await work.CompleteTaskAsync(Tenant(tenantId), activityId, ct));
+
+    /// <summary>Permanently removes one note, call, email, text, meeting or task. Owner only.</summary>
+    [CrmOwnerOnly]
+    [HttpDelete("activities/{activityId:guid}")]
+    public async Task<IActionResult> DeleteActivity(Guid activityId, [FromQuery] Guid? tenantId, CancellationToken ct) =>
+        ToAction(await work.DeleteActivityAsync(Tenant(tenantId), activityId, ct));
 }
 
 public sealed record CreateParticipantRequest(

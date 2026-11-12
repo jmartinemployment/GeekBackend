@@ -240,6 +240,15 @@ public sealed class HttpCrmRepository(HttpClient http, ILogger<HttpCrmRepository
     public Task<Result<bool>> ArchiveParticipantAsync(Guid tenantId, Guid participantId, CancellationToken ct = default) =>
         SendAsync<bool>(HttpMethod.Post, $"repo/crm/tenants/{tenantId}/participants/{participantId}/archive", null, ct);
 
+    public Task<Result<bool>> DeleteParticipantAsync(Guid tenantId, Guid participantId, CancellationToken ct = default) =>
+        SendAsync<bool>(HttpMethod.Delete, $"repo/crm/tenants/{tenantId}/participants/{participantId}", null, ct);
+
+    public Task<Result<bool>> DeleteDealAsync(Guid tenantId, Guid dealId, CancellationToken ct = default) =>
+        SendAsync<bool>(HttpMethod.Delete, $"repo/crm/tenants/{tenantId}/deals/{dealId}", null, ct);
+
+    public Task<Result<bool>> DeleteActivityAsync(Guid tenantId, Guid activityId, CancellationToken ct = default) =>
+        SendAsync<bool>(HttpMethod.Delete, $"repo/crm/tenants/{tenantId}/activities/{activityId}", null, ct);
+
     public async Task<Result<IReadOnlyList<CrmDealView>>> ListDealViewsAsync(Guid tenantId, bool openOnly, string? search, int limit, CancellationToken ct = default)
     {
         var parts = new List<string> { $"openOnly={(openOnly ? "true" : "false")}", $"limit={limit}" };
