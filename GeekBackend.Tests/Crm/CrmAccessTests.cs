@@ -250,6 +250,16 @@ public class CrmAccessTests
     }
 
     [Fact]
+    public void Me_says_who_is_calling_from_the_caller_the_filter_set()
+    {
+        var member = Assert.IsType<OkObjectResult>(ControllerFor(new CrmCaller(false, TenantB, TenantUserRoles.Member, UserMember)).Me());
+        Assert.Equal(new CrmMe(false, TenantB, TenantUserRoles.Member, UserMember), member.Value);
+
+        var server = Assert.IsType<OkObjectResult>(ControllerFor(CrmCaller.Server).Me());
+        Assert.Equal(new CrmMe(true, null, TenantUserRoles.Owner, null), server.Value);
+    }
+
+    [Fact]
     public async Task A_controller_the_filter_did_not_run_for_refuses_rather_than_guessing_a_tenant()
     {
         var controller = new CrmController(DispatchProxy.Create<GeekApplication.Interfaces.Crm.ICrmStore, Trap>())

@@ -441,6 +441,7 @@ A sensitive property is hidden unless an owner (or a server) passes `includeSens
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| GET | `/api/crm/me` | Who GeekAPI says is calling: `isServer`, `tenantId`, `role`, `userId`. The screen reads it to know what to show |
 | POST | `/api/crm/imports/apollo?source=Apollo%20Batch%201&dryRun=false` | Body = the Apollo "Export contacts" CSV (`Content-Type: text/csv`). Re-importing matches instead of duplicating. `dryRun=true` returns the would-create and would-match counts and writes nothing |
 | GET | `/api/crm/participants?stage=lead&kind=organization&limit=50` | List |
 | GET | `/api/crm/participants/{id}` | One participant with contact points, links and the last 25 activities |

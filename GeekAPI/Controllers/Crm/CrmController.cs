@@ -28,6 +28,14 @@ public sealed class CrmController(ICrmStore crm) : ControllerBase
     private bool Sensitive(bool requested) => requested && Caller.IsOwner;
 
     /// <summary>
+    /// Who GeekAPI says is calling: for a signed-in user their tenant and role from tenant_users, for a server (the
+    /// X-API-Key) no tenant and the owner role. The screen reads this once to know what to show; it is not a permission
+    /// check, GeekAPI refuses a forbidden action whatever the screen shows.
+    /// </summary>
+    [HttpGet("me")]
+    public IActionResult Me() => Ok(new CrmMe(Caller.IsServer, Caller.TenantId, Caller.Role, Caller.UserId));
+
+    /// <summary>
     /// POST an Apollo "Export contacts" CSV as the raw request body (Content-Type: text/csv).
     /// Re-importing the same file matches existing people (by email or Apollo id) and companies
     /// (by name or exact website domain) instead of duplicating them. The whole batch is one
@@ -350,3 +358,5 @@ public sealed record ProjectRequest(Guid? ParticipantId, string? Status, DateOnl
 {
     public ProjectDetails ToDetails() => new(Status ?? string.Empty, StartOn, TargetEndOn, EstimatedHours ?? -1m, HoursPerWeek ?? -1m, DealId, CustomerHoldingId);
 }
+
+public sealed record CrmMe(bool IsServer, Guid? TenantId, string Role, Guid? UserId);
