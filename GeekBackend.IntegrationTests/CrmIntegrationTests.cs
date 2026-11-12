@@ -110,20 +110,29 @@ public sealed class CrmIntegrationTests
     }
 
     [Fact]
-    public async Task A_read_that_sets_no_tenant_sees_no_rows()
+    public async Task A_tenant_scope_runs_as_the_app_role_and_a_tenant_that_owns_nothing_sees_no_rows()
     {
         if (!IntegrationTestConfig.IsDatabaseConfigured) return;
         await SqlMigrationTestHelper.ApplyAsync();
 
-        // The seeded tenant has a pipeline, so a table that returns rows to a connection with no
-        // tenant set is a boundary that row-level security is not enforcing (a superuser or BYPASSRLS role).
-        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
-        await conn.OpenAsync();
-        await using var role = new Npgsql.NpgsqlCommand("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user", conn);
-        Assert.False((bool)(await role.ExecuteScalarAsync())!, "The test role bypasses row-level security, so this check proves nothing.");
+        // Whatever the connecting login is (even a superuser or BYPASSRLS login), the scope switches to geek_crm_app
+        // (0059), which is neither, so the seeded tenant's pipeline is invisible to another tenant.
+        var options = new DbContextOptionsBuilder<CrmDbContext>().UseNpgsql(IntegrationTestConfig.DatabaseUrl!).Options;
+        await using var db = new CrmDbContext(options);
+        var scope = new PostgresCrmTenantScope(db);
 
-        await using var count = new Npgsql.NpgsqlCommand("SELECT count(*) FROM geek_crm.pipelines", conn);
-        Assert.Equal(0L, (long)(await count.ExecuteScalarAsync())!);
+        var seen = await scope.RunAsync(
+            Guid.NewGuid(),
+            async () => (
+                User: await db.Database.SqlQueryRaw<string>("SELECT current_user AS \"Value\"").SingleAsync(),
+                Bypasses: await db.Database.SqlQueryRaw<bool>("SELECT rolsuper OR rolbypassrls AS \"Value\" FROM pg_roles WHERE rolname = current_user").SingleAsync(),
+                Pipelines: await db.Database.SqlQueryRaw<long>("SELECT count(*) AS \"Value\" FROM geek_crm.pipelines").SingleAsync()),
+            _ => false,
+            CancellationToken.None);
+
+        Assert.Equal(PostgresCrmTenantScope.AppRole, seen.User);
+        Assert.False(seen.Bypasses);
+        Assert.Equal(0L, seen.Pipelines);
     }
 
     [Fact]

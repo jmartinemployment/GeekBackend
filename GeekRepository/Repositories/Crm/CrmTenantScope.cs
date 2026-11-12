@@ -23,12 +23,18 @@ public interface ICrmTenantScope
 }
 
 /// <summary>
-/// The Postgres scope: BEGIN (READ COMMITTED), <c>set_config('app.tenant_id', tenant, true)</c> (SET LOCAL, so
-/// it ends with the transaction and never leaks to the next use of the pooled connection), the work,
-/// then COMMIT or ROLLBACK. A failure in the work rolls back and propagates.
+/// The Postgres scope: BEGIN (READ COMMITTED), <c>SET LOCAL ROLE geek_crm_app</c> (0059_geek_crm_app_role.sql: a role that
+/// is neither superuser nor BYPASSRLS, so row-level security applies whatever login GeekRepository connects with),
+/// <c>set_config('app.tenant_id', tenant, true)</c> (SET LOCAL, so it ends with the transaction and never leaks to the
+/// next use of the pooled connection), the work, then COMMIT or ROLLBACK. A failure in the work rolls back and propagates.
 /// </summary>
 public sealed class PostgresCrmTenantScope(CrmDbContext db) : ICrmTenantScope
 {
+    /// <summary>The role created by 0059_geek_crm_app_role.sql. A constant, never a parameter: it is part of the SQL text.</summary>
+    public const string AppRole = "geek_crm_app";
+
+    private const string SetRoleSql = "SET LOCAL ROLE geek_crm_app";
+
     public Task<T> RunAsync<T>(Guid tenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) => RunAsync(tenantId, false, work, keep, ct);
 
     public Task<T> RunPlatformAsync<T>(Guid sellerTenantId, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct) => RunAsync(sellerTenantId, true, work, keep, ct);
@@ -36,6 +42,7 @@ public sealed class PostgresCrmTenantScope(CrmDbContext db) : ICrmTenantScope
     private async Task<T> RunAsync<T>(Guid tenantId, bool platform, Func<Task<T>> work, Func<T, bool> keep, CancellationToken ct)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        await db.Database.ExecuteSqlRawAsync(SetRoleSql, [], ct);
         await db.Database.ExecuteSqlRawAsync("SELECT set_config('app.tenant_id', {0}, true)", [tenantId.ToString()], ct);
         if (platform) await db.Database.ExecuteSqlRawAsync("SELECT set_config('app.platform', 'on', true)", [], ct);
         var result = await work();

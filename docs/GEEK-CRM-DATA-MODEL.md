@@ -351,6 +351,16 @@ by user id spans tenants and the caller's tenant is not yet known, a `platform_a
 the membership is read and changed only by a platform operation. It is managed through `/api/platform/tenant-users` (same
 two keys as subscriptions). The first owner of Geek @ Your Spot is added there, by hand, with the owner's GeekOAuth `sub`.
 
+### 4.18 The role every tenant operation runs as (script 0059)
+
+Row-level security is skipped by a superuser and by a login with BYPASSRLS, even on a FORCEd table (Supabase's default
+`postgres` login has BYPASSRLS). So the tenant boundary cannot depend on which login `DATABASE_URL` names.
+`0059_geek_crm_app_role.sql` creates `geek_crm_app` (NOLOGIN, NOSUPERUSER, NOBYPASSRLS, no password), grants it
+SELECT/INSERT/UPDATE/DELETE on every `geek_crm` table (and, by default privileges, on tables later scripts create) and makes the
+connecting login a member. `PostgresCrmTenantScope` starts every transaction with `SET LOCAL ROLE geek_crm_app`, which drops the
+login's privileges for that transaction, so the policies apply to every tenant read and write. Work done outside a scope (the
+NAICS lookup) still runs as the login. The integration test reads `current_user` and `rolbypassrls` inside a scope.
+
 ### 4.11 Lookups
 
 - `naics_code` (`code`, `title`, `level`) — the Census Bureau's 2022 NAICS list, 2,125 codes (20 sectors
