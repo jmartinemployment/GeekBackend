@@ -203,6 +203,20 @@ never change what the caller hears.
 - AI voice receptionist and multi-tenant numbers: designed below (Nov 11, 2026); code waits until the
   A2P Campaign decision
 
+## Excluded: HIPAA-covered businesses (decided 2026-11-13)
+
+Geek-Receptionist is **not offered** to HIPAA-covered entities (medical, dental, chiropractic,
+therapy and other healthcare providers, health plans) or their business associates, for now.
+An AI receptionist for them would hear and transcribe protected health information, which would
+need Business Associate Agreements with Geek @ Your Spot, Twilio and the AI provider, plus HIPAA
+security controls. None of that is in place.
+
+- Sign-up and onboarding ask the customer to confirm they are not a HIPAA-covered entity or business
+  associate; the Terms of Service forbid using the service to collect health information.
+- The AI is instructed not to ask for or record health information.
+- Outreach and ads do not target healthcare offices.
+- Revisit only with BAAs and a HIPAA review in place.
+
 ## Planned: AI voice receptionist (not built)
 
 Decided with Jeff on 2026-11-11. Today's code only plays a greeting, records a voicemail and sends
