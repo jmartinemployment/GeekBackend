@@ -1,4 +1,5 @@
 using GeekAPI.HttpClients;
+using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekApplication.Interfaces.Voice;
 using Microsoft.AspNetCore.RateLimiting;
@@ -24,6 +25,8 @@ public static class VoiceServiceRegistration
             return new HttpVoiceRepository(httpClient, logger);
         });
         services.AddScoped<OnboardingEligibility>();
+        services.AddSingleton(PayPalOptions.FromEnvironment());
+        services.AddHttpClient<PayPalBillingVerifier>(client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddRateLimiter(options =>
         {
             options.AddPolicy(OnboardingRateLimit.PolicyName, OnboardingRateLimit.Partition);
