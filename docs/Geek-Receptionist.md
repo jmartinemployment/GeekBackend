@@ -20,7 +20,7 @@ Claude Code and Cursor **MUST** enforce this exact three-tier topology across al
    - **MUST** handle all public REST routes, PayPal billing verification, Twilio/Retell webhooks, Twilio Subaccount provisioning, Retell Agent provisioning, SignalR live dashboard hubs, `geek-OAuth` user provisioning, and internal HTTP calls to `GeekRepository` and `GeekMcpGateway`.
    - **MUST NOT** reference `Npgsql`, `Dapper`, or `Microsoft.EntityFrameworkCore`.
    - **MUST NOT** contain `SUPABASE_POSTGRES_CONNECTION_STRING` or connect directly to any database.
-   - **MUST** communicate with `GeekRepository` exclusively over HTTP using `GEEK_REPOSITORY_URL` and header `X-Internal-Api-Key: {GEEK_REPOSITORY_API_KEY}`.
+   - **MUST** communicate with `GeekRepository` exclusively over HTTP using `REPO_URL`. All `/internal/v1/*` (`geek_voice`) calls send header `X-Internal-Api-Key: {GEEK_REPOSITORY_API_KEY}`. Existing non-voice routes continue to use `REPO_URL` and `X-Repo-Key`.
    - **MUST** use SignalR Hubs exclusively for real-time server-to-client dashboard updates (`CallStarted`, `TranscriptTurnAppended`, `AppointmentBooked`, `CallCompleted`). **MUST NOT** use raw C# `System.Net.WebSockets` for client dashboard communication.
 2. **`GeekRepository` (C# Data Persistence Service):**
    - **MUST** be the **sole service** connecting to Supabase PostgreSQL (`SUPABASE_POSTGRES_CONNECTION_STRING` stored in Railway environment variables).
@@ -124,6 +124,7 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 * `POST /api/v1/onboarding/validate-eligibility`
 * `POST /api/v1/onboarding/activate-subscription`
 * `PUT  /api/v1/tenants/{tenantId}/config`
+* `GET  /api/v1/oauth/mcp/{provider}/callback`
 * `POST /api/v1/tenants/{tenantId}/knowledge/guided-form`
 * `POST /api/v1/tenants/{tenantId}/knowledge/upload-pdf`
 * `POST /api/receptionist/twilio/voice/inbound/{tenantId}` (`TwilioSignatureFilter`)
@@ -140,6 +141,7 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 * `GET  /internal/v1/tenants/{tenantId}/config`
 * `PUT  /internal/v1/tenants/{tenantId}/config`
 * `GET  /internal/v1/tenants/{tenantId}/mcp/{provider}`
+* `PUT  /internal/v1/tenants/{tenantId}/mcp/{provider}`
 * `POST /internal/v1/tenants/{tenantId}/knowledge/documents`
 * `POST /internal/v1/tenants/{tenantId}/knowledge/search`
 * `POST /internal/v1/tenants/{tenantId}/calls`
@@ -150,7 +152,7 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 ## 7. Frontend Location, Routing & Authentication (`Next.js` + `geek-OAuth`)
 
 1. **Frontend Hosting & Location:**
-   - The client-facing onboarding wizard and dashboard live in a dedicated **Next.js (App Router)** application hosted on **Vercel** (`://geekatyourspot.com`), completely decoupled from the statically generated marketing site (`geekatyourspot.com`) and from `GeekRepository`.
+   - The client-facing onboarding wizard and dashboard live in a dedicated **Next.js (App Router)** application named **Geek-Receptionist-Portal**, hosted on **Vercel** at subdomain `receptionist` of `geekatyourspot.com` (`PORTAL_BASE_URL`, configurable until DNS is provisioned on Vercel), completely decoupled from the statically generated marketing site (`geekatyourspot.com`) and from `GeekRepository`.
    - **Frontend Route Structure:**
      - `/signup` — Unauthenticated 4-step self-service onboarding wizard (Eligibility & Compliance Gate → PayPal Subscription + Vault Checkout → Area Code Selection & Provisioning → Owner Account Creation & Guided Trade Setup).
      - `/login` — Client sign-in page initiating OAuth 2.0 Authorization Code + PKCE against `geek-OAuth`.
@@ -182,9 +184,11 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | `PAYPAL_BASE_URL` | ✓ | Sandbox: `https://api-m.sandbox.paypal.com`<br>Live: `https://api-m.paypal.com` | PayPal REST API host for Subscription verification, Vault tokens, and `$0.50/min` overage capture |
 | `PAYPAL_CLIENT_ID` | ✓ | Client ID | PayPal REST app client ID |
 | `PAYPAL_CLIENT_SECRET` | ✓ | Secret | PayPal REST app secret |
-| `GEEK_REPOSITORY_URL` | ✓ | `http://railway.internal` | Railway private network URL for `GeekRepository` (must match Railway service name and `PORT`) |
+| `REPO_URL` | ✓ | `http://geek-repository.railway.internal:5050` | Railway private network URL for `GeekRepository` (service `geek-repository`, port `5050`); used by every route, voice and non-voice |
 | `GEEK_REPOSITORY_API_KEY` | ✓ | Secret | Shared internal API key sent via `X-Internal-Api-Key` to `GeekRepository` |
-| `MCP_GATEWAY_URL` | ✓ | `http://railway.internal` | Railway private network URL for `GeekMcpGateway` (must match Railway service name and `PORT`) |
+| `MCP_GATEWAY_URL` | ✓ | `http://geek-mcp-gateway.railway.internal:3000` | Railway private network URL for `GeekMcpGateway` (service `geek-mcp-gateway`, port `3000`, no public domain) |
+| `MCP_GATEWAY_API_KEY` | ✓ | Secret | Shared key `GeekAPI` sends to `GeekMcpGateway` in header `X-Internal-Api-Key` |
+| `PORTAL_BASE_URL` | ✓ | `https://receptionist.geekatyourspot.com` | Origin of Geek-Receptionist-Portal; OAuth callbacks redirect here (configurable until DNS is provisioned on Vercel) |
 | `FeatureFlags__EnableIndustryAddendums` | | `false` | Defaults to `false` (rejects Law, Financial, and School verticals until Phase 2 addendums ship) |
 
 ### B. Active v1 Railway Variables (`GeekRepository`)
@@ -193,6 +197,13 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 |----------|:--------:|----------------|-------------|
 | `SUPABASE_POSTGRES_CONNECTION_STRING` | ✓ | Postgres URI | Supabase PostgreSQL connection string (**MUST live ONLY in `GeekRepository`**) |
 | `GEEK_REPOSITORY_API_KEY` | ✓ | Secret | Validates `X-Internal-Api-Key` on all `/internal/v1/*` requests from `GeekAPI` |
+
+### B2. Active v1 Railway Variables (`GeekMcpGateway`)
+
+| Variable | Required | Value / Format | Description |
+|----------|:--------:|----------------|-------------|
+| `PORT` | ✓ | `3000` | Listening port |
+| `MCP_GATEWAY_API_KEY` | ✓ | Secret | Validates `X-Internal-Api-Key` on every request from `GeekAPI` |
 
 ### C. Deprecated v0 Variables (Removed — Do Not Use)
 The following single-tenant v0 variables are **deleted** and replaced by per-tenant rows in `geek_voice.tenant_telephony` and `geek_voice.receptionist_configs`:
