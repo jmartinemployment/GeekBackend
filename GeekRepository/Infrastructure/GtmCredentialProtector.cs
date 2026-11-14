@@ -15,11 +15,9 @@ namespace GeekRepository.Infrastructure;
 /// caller fails closed. A refresh token is never stored unencrypted and never partially written.
 /// </para>
 /// <para>
-/// The key still comes from GEEK_SEO_ENCRYPTION_KEY. That name outlived the service it was named
-/// for, but it is a live shared secret, not a label: Geek-GTM-MCP decrypts these same tokens with
-/// the identically-named variable on its own side (see its README). Renaming it here alone would
-/// silently break every existing connection, so the rename is a coordinated two-repo change and
-/// has not been made.
+/// The key comes from GEEK_GTM_ENCRYPTION_KEY. It was named GEEK_SEO_ENCRYPTION_KEY after the service this code was copied
+/// from; that name is gone and is not read, so a database that holds a token encrypted before the rename needs the same key
+/// value set under the new name.
 /// </para>
 /// </remarks>
 public static class GtmCredentialProtector
@@ -68,7 +66,7 @@ public static class GtmCredentialProtector
     /// <summary>The 32-byte key, or null when it is absent or not exactly 32 bytes.</summary>
     private static byte[]? GetKey()
     {
-        var raw = Environment.GetEnvironmentVariable("GEEK_SEO_ENCRYPTION_KEY");
+        var raw = Environment.GetEnvironmentVariable("GEEK_GTM_ENCRYPTION_KEY");
         if (string.IsNullOrWhiteSpace(raw))
             return null;
 

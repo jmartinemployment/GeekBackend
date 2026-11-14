@@ -37,7 +37,7 @@ dotnet ef database update --context SeoDbContext --project GeekRepository --star
 1. **GeekRepository:** `DATABASE_URL` set; redeploy and confirm log: `Geek SEO (geek_seo) schema migrations applied successfully.`
 2. **GeekAPI:** `REPO_URL`, `REPO_API_KEY`, `GEEK_BACKEND_API_KEY` set; `REPO_API_KEY` on both services must match.
 3. **GeekSeoBackend:** `GEEK_API_URL` → GeekAPI public URL; `GEEK_BACKEND_API_KEY` → same value as GeekAPI inbound key.
-4. Optional: `GEEK_SEO_ENCRYPTION_KEY` on **GeekSeoBackend** (WordPress credential encryption at product layer).
+4. Optional: `GEEK_SEO_ENCRYPTION_KEY` on **GeekSeoBackend** (WordPress credential encryption at product layer; GeekRepository's own Google Tag Manager key is `GEEK_GTM_ENCRYPTION_KEY`).
 
 Migration `0004_drop_oauth_openiddict_and_adapter_storage.sql` removes issuer-era tables but **does not** drop `geek_seo`.
 
