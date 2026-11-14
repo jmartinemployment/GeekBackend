@@ -124,6 +124,22 @@ public sealed class VoiceRepositoryValidationTests
     public async Task An_unknown_calendar_provider_is_refused() =>
         await AssertInvalid(Store().GetMcpConnectionAsync(Tenant, "icloud"));
 
+    [Fact]
+    public async Task Saving_a_connection_for_an_unknown_provider_is_refused() =>
+        await AssertInvalid(Store().SaveMcpConnectionAsync(Tenant, "icloud", new("access", "refresh", null, null)));
+
+    [Theory]
+    [InlineData("", "refresh")]
+    [InlineData("access", "")]
+    [InlineData("  ", "refresh")]
+    [InlineData("access", "  ")]
+    public async Task Saving_a_connection_without_both_tokens_is_refused(string access, string refresh) =>
+        await AssertInvalid(Store().SaveMcpConnectionAsync(Tenant, VoiceMcpProviders.GoogleCalendar, new(access, refresh, null, null)));
+
+    [Fact]
+    public async Task Saving_a_missing_connection_is_refused() =>
+        await AssertInvalid(Store().SaveMcpConnectionAsync(Tenant, VoiceMcpProviders.GoogleCalendar, null!));
+
     // ----- Knowledge -----
 
     private static CreateVoiceKnowledgeDocumentCommand GoodDocument(params VoiceKnowledgeChunk[] chunks) =>

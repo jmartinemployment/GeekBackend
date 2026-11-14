@@ -34,6 +34,10 @@ public sealed class VoiceTenantController(IVoiceStore voice) : ControllerBase
     public async Task<IActionResult> GetMcpConnection(Guid tenantId, string provider, CancellationToken ct) =>
         ToAction(await voice.GetMcpConnectionAsync(tenantId, provider, ct));
 
+    [HttpPut("mcp/{provider}")]
+    public async Task<IActionResult> SaveMcpConnection(Guid tenantId, string provider, [FromBody] SaveVoiceMcpConnectionCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A connection is required.") : ToAction(await voice.SaveMcpConnectionAsync(tenantId, provider, command, ct));
+
     [HttpPost("knowledge/documents")]
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> CreateKnowledgeDocument(Guid tenantId, [FromBody] CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct) =>

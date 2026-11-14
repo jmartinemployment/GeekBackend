@@ -119,6 +119,28 @@ public sealed class VoiceIntegrationTests
     }
 
     [Fact]
+    public async Task A_calendar_connection_saves_replaces_and_stays_inside_its_tenant()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var store = NewRepository();
+        var tenantA = await ActiveTenantAsync(store);
+        var tenantB = await ActiveTenantAsync(store);
+
+        var saved = await store.SaveMcpConnectionAsync(tenantA, VoiceMcpProviders.GoogleCalendar, new("access-1", "refresh-1", Now.AddHours(1), "primary"));
+        Assert.True(saved.IsSuccess, saved.Error);
+        Assert.Equal("access-1", (await store.GetMcpConnectionAsync(tenantA, VoiceMcpProviders.GoogleCalendar)).Value!.OauthAccessTokenEncrypted);
+
+        var replaced = await store.SaveMcpConnectionAsync(tenantA, VoiceMcpProviders.GoogleCalendar, new("access-2", "refresh-2", null, null));
+        Assert.Equal("refresh-2", replaced.Value!.OauthRefreshTokenEncrypted);
+        Assert.Null(replaced.Value.ExternalCalendarId);
+        Assert.True(replaced.Value.IsActive);
+
+        Assert.Equal(VoiceFailureCodes.NotFound, (await store.GetMcpConnectionAsync(tenantB, VoiceMcpProviders.GoogleCalendar)).ErrorCode);
+        Assert.Equal(VoiceFailureCodes.NotFound, (await store.SaveMcpConnectionAsync(Guid.NewGuid(), VoiceMcpProviders.Outlook, new("a", "r", null, null))).ErrorCode);
+    }
+
+    [Fact]
     public async Task Knowledge_search_returns_the_closest_chunk_first_and_only_from_its_own_tenant()
     {
         if (!IntegrationTestConfig.IsDatabaseConfigured) return;

@@ -165,6 +165,17 @@ public sealed record VoiceMcpConnection(
     string? ExternalCalendarId,
     bool IsActive);
 
+/// <summary>
+/// A tenant's calendar or CRM connection as GeekAPI saves it after the OAuth callback. Both tokens are ciphertext GeekAPI
+/// produced and GeekRepository never decrypts. The provider comes from the route, so the body cannot name a different one.
+/// Saving again for the same tenant and provider replaces the whole connection and makes it active.
+/// </summary>
+public sealed record SaveVoiceMcpConnectionCommand(
+    string OauthAccessTokenEncrypted,
+    string OauthRefreshTokenEncrypted,
+    DateTimeOffset? TokenExpiresAt,
+    string? ExternalCalendarId);
+
 // ----- Knowledge -----
 
 public sealed record VoiceKnowledgeChunk(int ChunkIndex, string ChunkText, IReadOnlyList<float> Embedding);

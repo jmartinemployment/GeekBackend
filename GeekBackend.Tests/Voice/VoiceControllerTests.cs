@@ -14,7 +14,7 @@ public sealed class VoiceControllerTests
 {
     private static readonly Guid Tenant = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
-    private sealed class FakeVoiceStore(Func<Result<VoiceTenant>>? tenant = null, Func<Result<VoiceReceptionistConfig>>? config = null) : IVoiceStore
+    private sealed class FakeVoiceStore(Func<Result<VoiceTenant>>? tenant = null, Func<Result<VoiceReceptionistConfig>>? config = null, Func<Result<VoiceMcpConnection>>? mcp = null) : IVoiceStore
     {
         public int Calls { get; private set; }
 
@@ -26,6 +26,7 @@ public sealed class VoiceControllerTests
         public Task<Result<VoiceTelephony>> GetTelephonyAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig c, CancellationToken ct = default) { Calls++; return Task.FromResult(config!()); }
         public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default) { Calls++; return Task.FromResult(mcp!()); }
         public Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<IReadOnlyList<VoiceKnowledgeHit>>> SearchKnowledgeAsync(Guid tenantId, SearchVoiceKnowledgeCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceCallStored>> UpsertCallAsync(Guid tenantId, UpsertVoiceCallCommand command, CancellationToken ct = default) => throw new NotSupportedException();
@@ -63,6 +64,30 @@ public sealed class VoiceControllerTests
         Assert.Equal(status, Assert.IsAssignableFrom<ObjectResult>(result).StatusCode);
     }
 
+    [Theory]
+    [InlineData(VoiceFailureCodes.NotFound, 404)]
+    [InlineData(VoiceFailureCodes.InvalidRequest, 400)]
+    [InlineData(VoiceFailureCodes.StoreUnavailable, 503)]
+    public async Task Saving_a_calendar_connection_takes_its_status_from_the_failure_code(string code, int status)
+    {
+        var controller = new VoiceTenantController(new FakeVoiceStore(mcp: () => Result<VoiceMcpConnection>.Failure("words that decide nothing", code)));
+
+        var result = await controller.SaveMcpConnection(Tenant, VoiceMcpProviders.GoogleCalendar, new("access", "refresh", null, null), CancellationToken.None);
+
+        Assert.Equal(status, Assert.IsAssignableFrom<ObjectResult>(result).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_saved_calendar_connection_carries_the_stored_value()
+    {
+        var saved = new VoiceMcpConnection(Tenant, VoiceMcpProviders.GoogleCalendar, "access", "refresh", null, "primary", true);
+        var controller = new VoiceTenantController(new FakeVoiceStore(mcp: () => Result<VoiceMcpConnection>.Success(saved)));
+
+        var result = await controller.SaveMcpConnection(Tenant, VoiceMcpProviders.GoogleCalendar, new("access", "refresh", null, "primary"), CancellationToken.None);
+
+        Assert.Same(saved, Assert.IsType<OkObjectResult>(result).Value);
+    }
+
     [Fact]
     public async Task A_not_found_result_with_no_code_is_a_404()
     {
@@ -94,6 +119,7 @@ public sealed class VoiceControllerTests
         Assert.IsType<BadRequestObjectResult>(await onboarding.Create(null!, CancellationToken.None));
         Assert.IsType<BadRequestObjectResult>(await onboarding.Activate(Tenant, null!, CancellationToken.None));
         Assert.IsType<BadRequestObjectResult>(await tenants.SaveConfig(Tenant, null!, CancellationToken.None));
+        Assert.IsType<BadRequestObjectResult>(await tenants.SaveMcpConnection(Tenant, VoiceMcpProviders.GoogleCalendar, null!, CancellationToken.None));
         Assert.Equal(0, store.Calls);
     }
 }

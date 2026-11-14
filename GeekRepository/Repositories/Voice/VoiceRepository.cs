@@ -289,6 +289,47 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         return row is null ? NotFound<VoiceMcpConnection>("The tenant has no active connection for that provider.") : Result<VoiceMcpConnection>.Success(row.ToModel());
     }
 
+    public async Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default)
+    {
+        var problem = ValidateMcpConnection(provider, command);
+        if (problem is not null) return Invalid<VoiceMcpConnection>(problem);
+
+        try
+        {
+            await using var conn = await OpenForTenantAsync(tenantId, ct);
+            var row = await conn.QuerySingleAsync<McpRow>(new CommandDefinition("""
+                INSERT INTO geek_voice.tenant_mcp_connections (
+                    tenant_id, provider, oauth_access_token_encrypted, oauth_refresh_token_encrypted, token_expires_at, external_calendar_id, is_active)
+                VALUES (@TenantId, @Provider, @AccessToken, @RefreshToken, @TokenExpiresAt, @ExternalCalendarId, TRUE)
+                ON CONFLICT (tenant_id, provider) DO UPDATE SET
+                    oauth_access_token_encrypted = EXCLUDED.oauth_access_token_encrypted,
+                    oauth_refresh_token_encrypted = EXCLUDED.oauth_refresh_token_encrypted,
+                    token_expires_at = EXCLUDED.token_expires_at,
+                    external_calendar_id = EXCLUDED.external_calendar_id,
+                    is_active = TRUE
+                RETURNING
+                    tenant_id AS TenantId, provider AS Provider, oauth_access_token_encrypted AS OauthAccessTokenEncrypted,
+                    oauth_refresh_token_encrypted AS OauthRefreshTokenEncrypted, token_expires_at AS TokenExpiresAt,
+                    external_calendar_id AS ExternalCalendarId, is_active AS IsActive;
+                """,
+                new
+                {
+                    TenantId = tenantId,
+                    Provider = provider,
+                    AccessToken = command.OauthAccessTokenEncrypted,
+                    RefreshToken = command.OauthRefreshTokenEncrypted,
+                    TokenExpiresAt = command.TokenExpiresAt?.UtcDateTime,
+                    command.ExternalCalendarId,
+                },
+                cancellationToken: ct));
+            return Result<VoiceMcpConnection>.Success(row.ToModel());
+        }
+        catch (PostgresException ex) when (IsRefusal(ex))
+        {
+            return Refused<VoiceMcpConnection>(ex, "The connection was refused by the database.");
+        }
+    }
+
     // ----- Knowledge -----
 
     public async Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default)
@@ -565,6 +606,14 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             if (embeddingProblem is not null) return embeddingProblem;
         }
 
+        return null;
+    }
+
+    private static string? ValidateMcpConnection(string provider, SaveVoiceMcpConnectionCommand? c)
+    {
+        if (!VoiceMcpProviders.All.Contains(provider, StringComparer.Ordinal)) return $"The provider must be one of: {string.Join(", ", VoiceMcpProviders.All)}.";
+        if (c is null) return "A connection is required.";
+        if (Blank(c.OauthAccessTokenEncrypted) || Blank(c.OauthRefreshTokenEncrypted)) return "Both the access token and the refresh token are required.";
         return null;
     }
 
