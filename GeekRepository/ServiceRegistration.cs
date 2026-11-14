@@ -15,6 +15,8 @@ using GeekRepository.Repositories.ContentWriterV3;
 using GeekRepository.Repositories.ContentWriterV4;
 using GeekRepository.Repositories.Social;
 using GeekRepository.Repositories.Crm;
+using GeekApplication.Interfaces.Voice;
+using GeekRepository.Repositories.Voice;
 using GeekApplication.Interfaces.Crm;
 using GeekRepository.Repositories.Visitors;
 using GeekRepository.Services;
@@ -106,6 +108,9 @@ public static class ServiceRegistration
         services.AddScoped<ICrmStore>(sp => sp.GetRequiredService<CrmRepository>());
         services.AddScoped<ICrmPlatformStore>(sp => sp.GetRequiredService<CrmRepository>());
         services.AddScoped<ICrmWorkStore>(sp => sp.GetRequiredService<CrmRepository>());
+
+        // Geek-Receptionist v1 (geek_voice): tenant data for /internal/v1/*, over Dapper. docs/Geek-Receptionist.md.
+        services.AddScoped<IVoiceStore, VoiceRepository>();
 
         return services;
     }
