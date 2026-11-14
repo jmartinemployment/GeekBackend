@@ -8,7 +8,7 @@ GeekAPI is the **platform API gateway** for Geek apps. It proxies internal produ
 |------|------|
 | GTM data pipe | `/api/gtm/internal/*` → `repo/gtm/*` on GeekRepository |
 | Content (public read) | `/api/case-studies`, `/api/departments`, `/api/use-cases` |
-| Geek-Receptionist (Twilio webhooks) | `/api/receptionist/twilio/*` (Twilio signature, not API key); see [`docs/RECEPTIONIST.md`](../docs/RECEPTIONIST.md) |
+| Geek-Receptionist (Twilio webhooks) | `/api/receptionist/twilio/*` (Twilio signature, not API key); see [`docs/Geek-Receptionist.md`](../docs/Geek-Receptionist.md) |
 | Geek-CRM | `/api/crm/*` (X-API-Key): Apollo import, participants, deals; see [`docs/GEEK-CRM-DATA-MODEL.md`](../docs/GEEK-CRM-DATA-MODEL.md) |
 | Health | `/health`, `/hello` |
 
@@ -31,7 +31,7 @@ path under it now relays a bare 404. It is not a live pipe; see `AGENTS.md`.
 | `GEEK_BACKEND_API_KEY` | Client API key + SEO internal proxy |
 | `CORS_ORIGINS` | Allowed browser origins |
 | `PORT` | Listen port (default 8080) |
-| `TWILIO_*`, `OWNER_CELL`, `COMPANY_NAME`, `PUBLIC_BASE_URL`, `CALL_MODE`, ... | Geek-Receptionist; optional (off when `TWILIO_ACCOUNT_SID` is unset). Full list in [`docs/RECEPTIONIST.md`](../docs/RECEPTIONIST.md#configuration-geekapi-railway-variables) |
+| Geek-Receptionist variables | The complete list of Railway environment variables for Geek-Receptionist (and the migration mapping from deprecated single-tenant v0 variables) is documented in [`docs/Geek-Receptionist.md`](../docs/Geek-Receptionist.md) (Section 8). |
 
 ## Build / run
 

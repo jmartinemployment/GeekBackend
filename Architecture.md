@@ -99,7 +99,7 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 |---------|------|--------|
 | `/api/seo/internal/*` | `X-API-Key` + optional user headers | Forwards to `repo/seo/*`, which GeekRepository no longer serves (persistence retired 2026-09-29); the controller is left to a separate decision |
 | `/api/case-studies`, `/api/departments`, `/api/use-cases` | Public read | Marketing/content |
-| `/api/receptionist/twilio/*` | `X-Twilio-Signature` (exempt from `X-API-Key`) | Geek-Receptionist missed-call text-back; see [`docs/RECEPTIONIST.md`](docs/RECEPTIONIST.md) |
+| `/api/receptionist/twilio/*` | `X-Twilio-Signature` (exempt from `X-API-Key`) | Geek-Receptionist missed-call text-back; see [`docs/Geek-Receptionist.md`](docs/Geek-Receptionist.md) |
 | `/api/crm/*` | `X-API-Key` | Geek-CRM (`geek_crm` via `repo/crm/*`); see [`docs/GEEK-CRM-DATA-MODEL.md`](docs/GEEK-CRM-DATA-MODEL.md) |
 | `/api/auth/*`, `/hubs/sync` | — | **410 Gone** (use GeekOAuth) |
 
@@ -211,7 +211,7 @@ Sellability comes from the boundaries: a clean copy-out stays possible ("copy, n
 | `GEEK_BACKEND_API_KEY` | Inbound trust for auth-storage and admin adapters |
 | `CORS_ORIGINS` | Browser origins allowed to call API |
 | `PORT` | Listen port |
-| `TWILIO_*`, `OWNER_CELL`, `COMPANY_NAME`, `PUBLIC_BASE_URL`, `CALL_MODE` | Geek-Receptionist (optional); full list in [`docs/RECEPTIONIST.md`](docs/RECEPTIONIST.md) |
+| Geek-Receptionist variables | The complete list of Railway environment variables for Geek-Receptionist (and the migration mapping from deprecated single-tenant v0 variables) is documented in [`docs/Geek-Receptionist.md`](docs/Geek-Receptionist.md) (Section 8). |
 
 **GeekRepository**
 
