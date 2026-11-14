@@ -12,6 +12,7 @@ using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Receptionist;
 using GeekAPI.Services.Social;
 using GeekAPI.Services.Visitors;
+using GeekAPI.Services.Voice;
 using GeekAPI.Services.Workflow.Hosting;
 using GeekAPI.Services.Workflow.Infrastructure;
 using GeekApplication.Interfaces;
@@ -92,6 +93,25 @@ var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", c
 });
 repositoryClientBuilder.ConfigureHttpClient(client =>
     client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey));
+
+// Geek-Receptionist: /internal/v1/* is the one route set GeekRepository authenticates by X-Internal-Api-Key
+// (GEEK_REPOSITORY_API_KEY), a second credential kept apart from X-Repo-Key. Unset is a misconfiguration for the
+// same reason an unset REPO_API_KEY is.
+var internalApiKey = Environment.GetEnvironmentVariable("GEEK_REPOSITORY_API_KEY");
+if (string.IsNullOrWhiteSpace(internalApiKey))
+{
+    throw new InvalidOperationException(
+        "GEEK_REPOSITORY_API_KEY is not set. GeekRepository accepts /internal/v1/* only with it, and a client "
+        + "built without it would send every Geek-Receptionist call unauthenticated.");
+}
+
+builder.Services.AddHttpClient("GeekRepositoryInternal", client =>
+{
+    client.BaseAddress = new Uri(repoUrl);
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
+});
+builder.Services.AddVoiceOnboarding(builder.Configuration);
 
 builder.Services.AddScoped<ICaseStudyRepository, HttpCaseStudyRepository>();
 builder.Services.AddScoped<IDepartmentRepository, HttpDepartmentRepository>();
@@ -401,6 +421,9 @@ app.UseAuthorization();
 
 app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
+// After ApiKeyMiddleware: the limiter keys on the visitor address the portal forwards, which is believed only once the key is verified.
+// Geek-Receptionist's signup routes carry the cap (OnboardingRateLimit); nothing else is limited here.
+app.UseRateLimiter();
 app.MapControllers();
 app.MapReceptionist();
 

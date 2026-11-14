@@ -165,6 +165,13 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
    - Next.js middleware protects `/dashboard/*`, stores tokens in `HttpOnly`, `Secure`, `SameSite=Lax` cookies, and forwards `Authorization: Bearer <jwt>` to `GeekAPI`.
    - **Zero Trust Tenant Extraction:** `GeekAPI` **MUST** extract `tenantId` exclusively from the validated JWT `tenant_id` claim on all `/api/v1/tenants/*` endpoints and inside `ReceptionistLiveHub.OnConnectedAsync()`. `GeekAPI` **MUST NEVER** trust a `tenantId` passed in a URL or body without verifying it matches the authenticated JWT `tenant_id` claim.
 
+3. **Public Onboarding Calls (`/api/v1/onboarding/*`):**
+   - The visitor has no account yet, so the call is made by the Geek-Receptionist-Portal's server, never by the browser, with `X-API-Key: {GEEK_BACKEND_API_KEY}`. `GeekAPI` rejects an onboarding call without a valid key (`401`).
+   - Because the portal stands between the visitor and `GeekAPI`, the portal **MUST** forward the visitor's own IP address in `X-Visitor-Ip` and the country Vercel resolved for it (`x-vercel-ip-country`) in `X-Visitor-Country`. `GeekAPI` believes these two headers only on a call whose `X-API-Key` was verified.
+   - **US-Only IP Check:** Reject (`400 Bad Request`, code `visitor_country_not_supported`) if `X-Visitor-Country` is not `US`, even when the form's `countryCode` is `US`. Reject (`400 Bad Request`, code `visitor_unverified`) if either header is missing. This runs immediately after the `countryCode` check in Section 5, item 1.
+   - The IP address recorded in `addendum_ip_address` is the visitor's `X-Visitor-Ip`, never the portal's connection address.
+   - **Rate Limit:** `10` calls per hour per visitor IP; the eleventh is refused (`429 Too Many Requests`, code `rate_limited`).
+
 ---
 
 ## 8. Railway Environment Variables Inventory (v1 Active & v0 Deprecated)

@@ -52,6 +52,27 @@ public class ApiKeyMiddlewareAuthBoundaryTests
     }
 
     [Theory]
+    // The signup routes are called by the portal's server with the API key, and the visitor's address and country it forwards
+    // are believed only after that key is verified, so no onboarding route passes without one.
+    [InlineData("/api/v1/onboarding/validate-eligibility")]
+    [InlineData("/api/v1/onboarding/activate-subscription")]
+    public async Task The_onboarding_routes_need_an_api_key(string path)
+    {
+        var reached = false;
+        var middleware = new ApiKeyMiddleware(
+            _ => { reached = true; return Task.CompletedTask; },
+            new TestEnvironment("Production"));
+
+        var context = new DefaultHttpContext();
+        context.Request.Path = path;
+
+        await middleware.InvokeAsync(context);
+
+        Assert.False(reached);
+        Assert.Equal(401, context.Response.StatusCode);
+    }
+
+    [Theory]
     // Geek-Receptionist's Twilio webhooks: Twilio cannot send our API key, and TwilioSignatureFilter
     // authenticates these instead (GeekBackend.Tests/Receptionist covers the signature check).
     [InlineData("/api/receptionist/twilio/voice/incoming", true)]

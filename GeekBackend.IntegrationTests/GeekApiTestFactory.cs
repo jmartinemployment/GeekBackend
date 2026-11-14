@@ -47,6 +47,7 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
     public GeekApiTestFactory()
     {
         Environment.SetEnvironmentVariable("REPO_API_KEY", "integration-test-key");
+        Environment.SetEnvironmentVariable("GEEK_REPOSITORY_API_KEY", "integration-test-internal-key");
         Environment.SetEnvironmentVariable("GEEK_BACKEND_API_KEY", "integration-test-backend-key");
         Environment.SetEnvironmentVariable("GEEK_CRAWLER_RAG_URL", "http://rag.test");
         Environment.SetEnvironmentVariable("GEEK_CRAWLER_RAG_API_KEY", "integration-test-rag-key");
