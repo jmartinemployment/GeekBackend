@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { GatewayError } from "../src/errors.ts";
 import { createMcpCaller } from "../src/mcp.ts";
 
@@ -15,6 +15,7 @@ describe("MCP client", () => {
   let url: string;
   const requests: { authorization: string | undefined; tool?: string; args?: unknown }[] = [];
   let httpStatus: number | null = null;
+  let behaviour: "normal" | "never_answers" | "invalid_params" | "no_tools_capability" = "normal";
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (httpStatus !== null) {
@@ -22,13 +23,28 @@ describe("MCP client", () => {
       response.end("{}");
       return;
     }
-    const server = new McpServer({ name: "fake-google", version: "1" }, { capabilities: { tools: {} } });
+    if (behaviour === "never_answers") {
+      await new Promise<void>((resolve) => response.on("close", () => resolve()));
+      return;
+    }
+    const server = new McpServer({ name: "fake-google", version: "1" }, { capabilities: behaviour === "no_tools_capability" ? {} : { tools: {} } });
+    if (behaviour === "no_tools_capability") {
+      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      response.on("close", () => {
+        void transport.close();
+        void server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(request, response);
+      return;
+    }
     server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [{ name: "list_calendars", description: "lists", inputSchema: { type: "object", properties: {} } }],
     }));
     server.setRequestHandler(CallToolRequestSchema, async (call) => {
       requests.push({ authorization: request.headers.authorization, tool: call.params.name, args: call.params.arguments });
       if (call.params.name === "boom") return { isError: true, content: [{ type: "text", text: "nope" }] };
+      if (behaviour === "invalid_params") throw new McpError(ErrorCode.InvalidParams, "bad arguments");
       return { content: [{ type: "text", text: "ok" }], structuredContent: { echoed: call.params.arguments ?? null } };
     });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -52,6 +68,7 @@ describe("MCP client", () => {
 
   it("lists the server's tools", async () => {
     httpStatus = null;
+    behaviour = "normal";
     const tools = await createMcpCaller(url).listTools(null);
     assert.deepEqual(tools.map((t) => t.name), ["list_calendars"]);
   });
@@ -92,6 +109,43 @@ describe("MCP client", () => {
       });
     });
   }
+
+  it("gives up on a server that never answers once the one deadline has passed, as 502 provider_unreachable", async () => {
+    httpStatus = null;
+    behaviour = "never_answers";
+    const started = Date.now();
+    await assert.rejects(createMcpCaller(url, { timeoutMs: 300 }).callTool("tok", "list_calendars", {}), (error: unknown) => {
+      assert.ok(error instanceof GatewayError);
+      assert.equal(error.status, 502);
+      assert.equal(error.code, "provider_unreachable");
+      return true;
+    });
+    assert.ok(Date.now() - started < 2500, "the deadline covers the initialize step too");
+    behaviour = "normal";
+  });
+
+  it("turns a protocol error for bad arguments into 400 provider_rejected", async () => {
+    httpStatus = null;
+    behaviour = "invalid_params";
+    await assert.rejects(createMcpCaller(url).callTool("tok", "list_calendars", {}), (error: unknown) => {
+      assert.ok(error instanceof GatewayError);
+      assert.equal(error.status, 400);
+      assert.equal(error.code, "provider_rejected");
+      return true;
+    });
+    behaviour = "normal";
+  });
+
+  it("turns a server without the tools capability into 400 provider_rejected, never an empty list", async () => {
+    httpStatus = null;
+    behaviour = "no_tools_capability";
+    await assert.rejects(createMcpCaller(url).listTools(null), (error: unknown) => {
+      assert.ok(error instanceof GatewayError);
+      assert.equal(error.code, "provider_rejected");
+      return true;
+    });
+    behaviour = "normal";
+  });
 
   it("turns an unreachable server into 502 provider_unreachable", async () => {
     httpStatus = null;

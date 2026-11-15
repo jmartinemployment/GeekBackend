@@ -8,7 +8,7 @@ const config = readConfig(process.env);
 const server = createServer(
   createHandler({
     config,
-    mcp: createMcpCaller(GoogleCalendarMcpUrl),
+    mcp: createMcpCaller(GoogleCalendarMcpUrl, { warn: (message) => console.warn(JSON.stringify({ level: "warn", message })) }),
     log: (line) => console.log(JSON.stringify(line)),
   }),
 );

@@ -104,7 +104,74 @@ describe("gateway", () => {
     assert.equal(seen.length, 1);
     assert.equal(seen[0]!.accessToken, Token);
     assert.equal(seen[0]!.tool, "create_event");
-    assert.deepEqual(seen[0]!.args, bookEvent.arguments);
+    assert.deepEqual(seen[0]!.args, { ...bookEvent.arguments, notificationLevel: "NONE" });
+  });
+
+  it("never lets a booking send invitations: attendees and notification settings are refused, and no mail is the forced default", async () => {
+    reset();
+    for (const extra of [
+      { attendees: [{ email: "someone@example.com" }] },
+      { attendeeEmails: ["someone@example.com"] },
+      { notificationLevel: "ALL" },
+      { addGoogleMeetUrl: true },
+      { attachments: [{ fileUrl: "https://example.com/x" }] },
+      { recurrenceData: ["RRULE:FREQ=DAILY"] },
+      { guestPermissions: { guestsCanModify: true } },
+    ]) {
+      const result = await post("/v1/mcp/call", { ...bookEvent, arguments: { ...bookEvent.arguments, ...extra } });
+      assert.equal(result.status, 400, JSON.stringify(extra));
+      assert.equal(result.body.code, "argument_not_allowed");
+    }
+    assert.equal(seen.length, 0);
+
+    await post("/v1/mcp/call", bookEvent);
+    assert.equal(seen[0]!.args!["notificationLevel"], "NONE");
+  });
+
+  it("offers each tool only the arguments it needs", async () => {
+    reset();
+    const refused: [string, Record<string, unknown>][] = [
+      ["list_events", { fullText: "Dana" }],
+      ["list_events", { eventType: ["DEFAULT"] }],
+      ["list_calendars", { calendarId: "x" }],
+      ["get_event", { notificationLevel: "NONE" }],
+      ["suggest_time", { attendeeEmails: ["a@b.co"], extra: 1 }],
+    ];
+    for (const [tool, args] of refused) {
+      const result = await post("/v1/mcp/call", { ...bookEvent, tool, arguments: args });
+      assert.equal(result.status, 400, tool);
+      assert.equal(result.body.code, "argument_not_allowed");
+    }
+    assert.equal(seen.length, 0);
+
+    for (const [tool, args] of [
+      ["list_events", { calendarId: "primary", startTime: "2026-11-20T08:00:00", endTime: "2026-11-20T18:00:00", timeZone: "America/New_York", pageSize: 10 }],
+      ["get_event", { calendarId: "primary", eventId: "abc" }],
+      ["list_calendars", {}],
+    ] as const) {
+      assert.equal((await post("/v1/mcp/call", { ...bookEvent, tool, arguments: args })).status, 200, tool);
+    }
+  });
+
+  it("limits suggest_time to five attendee emails, each text", async () => {
+    reset();
+    const base = { ...bookEvent, tool: "suggest_time" };
+    const many = Array.from({ length: 6 }, (_, i) => `p${i}@example.com`);
+    assert.equal((await post("/v1/mcp/call", { ...base, arguments: { attendeeEmails: many } })).status, 400);
+    assert.equal((await post("/v1/mcp/call", { ...base, arguments: { attendeeEmails: "a@b.co" } })).status, 400);
+    assert.equal((await post("/v1/mcp/call", { ...base, arguments: { attendeeEmails: [1] } })).status, 400);
+    assert.equal(seen.length, 0);
+    assert.equal((await post("/v1/mcp/call", { ...base, arguments: { attendeeEmails: many.slice(0, 5) } })).status, 200);
+  });
+
+  it("refuses an access token that cannot be put in a header, as a 400 and not a failure to reach Google", async () => {
+    reset();
+    for (const accessToken of ["ya29.abc\ndef", "ya29 abc", "ya29.\u00e9", "ya29.\u0000x", "ya29.\r\nX-Evil: 1"]) {
+      const result = await post("/v1/mcp/call", { ...bookEvent, accessToken });
+      assert.equal(result.status, 400, JSON.stringify(accessToken));
+      assert.equal(result.body.code, "invalid_request");
+    }
+    assert.equal(seen.length, 0);
   });
 
   it("sends empty arguments when none are given", async () => {
@@ -222,6 +289,42 @@ describe("gateway", () => {
     assert.ok(!everything.includes("Water heater"));
     assert.equal(logs.length, 1);
     assert.equal(logs[0]!.status, 401);
+  });
+
+  it("logs how long a tool's error text was, and never the text", async () => {
+    reset();
+    onCall = () => ({ isError: true, content: [{ type: "text", text: "Event time is in the past." }], structuredContent: null });
+    await post("/v1/mcp/call", bookEvent);
+    assert.equal(logs[0]!.toolErrorChars, "Event time is in the past.".length);
+    assert.ok(!JSON.stringify(logs).includes("Event time"));
+  });
+
+  it("gives up on a body that never finishes arriving: the connection is closed within the deadline and the log says 408", async () => {
+    reset();
+    const slowLogs: LogLine[] = [];
+    const slow = createServer(createHandler({ config: { port: 0, apiKey: ApiKey }, mcp, log: (line) => slowLogs.push(line), bodyTimeoutMs: 200 }));
+    await new Promise<void>((resolve) => slow.listen(0, "127.0.0.1", resolve));
+    const port = (slow.address() as AddressInfo).port;
+    const net = await import("node:net");
+    const started = Date.now();
+    const answer = await new Promise<string>((resolve, reject) => {
+      const socket = net.connect(port, "127.0.0.1", () => {
+        socket.write(`POST /v1/mcp/call HTTP/1.1\r\nHost: x\r\nx-internal-api-key: ${ApiKey}\r\ncontent-type: application/json\r\ncontent-length: 500\r\n\r\n{"provider"`);
+      });
+      let received = "";
+      socket.on("data", (data) => (received += data.toString()));
+      socket.on("close", () => resolve(received));
+      socket.on("error", reject);
+      setTimeout(() => socket.destroy(), 3000);
+    });
+    const waited = Date.now() - started;
+    await new Promise<void>((resolve) => slow.close(() => resolve()));
+    assert.ok(waited < 2000, `the server held the connection for ${waited} ms`);
+    assert.equal(slowLogs.length, 1);
+    assert.equal(slowLogs[0]!.status, 408);
+    assert.equal(slowLogs[0]!.code, "body_timeout");
+    assert.equal(seen.length, 0);
+    void answer;
   });
 
   it("reports an unexpected failure as 500 and names it in the log", async () => {

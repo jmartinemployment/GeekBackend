@@ -6,6 +6,7 @@ import { AllowedTools, type McpCaller } from "./mcp.ts";
 import { parseToolCall, parseToolList } from "./validate.ts";
 
 const MaxBodyBytes = 64 * 1024;
+const DefaultBodyTimeoutMs = 10_000;
 const ApiKeyHeader = "x-internal-api-key";
 
 export interface LogLine {
@@ -15,12 +16,14 @@ export interface LogLine {
   readonly code: string | null;
   readonly ms: number;
   readonly error?: string;
+  readonly toolErrorChars?: number;
 }
 
 export interface GatewayDependencies {
   readonly config: GatewayConfig;
   readonly mcp: McpCaller;
   readonly log: (line: LogLine) => void;
+  readonly bodyTimeoutMs?: number;
 }
 
 const ExpiredCredential = /authentication credential|invalid[^.]*(token|credential)|unauthenticated|token[^.]*expired/i;
@@ -39,14 +42,22 @@ function keyMatches(presented: string | undefined, expected: string): boolean {
   return timingSafeEqual(digest(presented), digest(expected));
 }
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
+async function readJson(request: IncomingMessage, timeoutMs: number): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of request) {
-    const piece = chunk as Buffer;
-    size += piece.length;
-    if (size > MaxBodyBytes) throw new GatewayError(413, "body_too_large", `The body may not be larger than ${MaxBodyBytes} bytes.`);
-    chunks.push(piece);
+  const deadline = setTimeout(() => request.destroy(), timeoutMs);
+  try {
+    for await (const chunk of request) {
+      const piece = chunk as Buffer;
+      size += piece.length;
+      if (size > MaxBodyBytes) throw new GatewayError(413, "body_too_large", `The body may not be larger than ${MaxBodyBytes} bytes.`);
+      chunks.push(piece);
+    }
+  } catch (error) {
+    if (error instanceof GatewayError) throw error;
+    throw new GatewayError(408, "body_timeout", `The body was not received within ${timeoutMs / 1000} seconds.`);
+  } finally {
+    clearTimeout(deadline);
   }
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -71,6 +82,7 @@ export function createHandler(deps: GatewayDependencies): RequestListener {
     let status = 200;
     let code: string | null = null;
     let unexpected: string | undefined;
+    let toolErrorChars: number | undefined;
 
     try {
       if (method === "GET" && path === "/health") {
@@ -84,17 +96,18 @@ export function createHandler(deps: GatewayDependencies): RequestListener {
       }
 
       if (method === "POST" && path === "/v1/mcp/tools") {
-        parseToolList(await readJson(request));
+        parseToolList(await readJson(request, deps.bodyTimeoutMs ?? DefaultBodyTimeoutMs));
         const tools = (await deps.mcp.listTools(null)).filter((tool) => AllowedTools.includes(tool.name));
         send(response, 200, { tools });
         return;
       }
 
       if (method === "POST" && path === "/v1/mcp/call") {
-        const call = parseToolCall(await readJson(request));
+        const call = parseToolCall(await readJson(request, deps.bodyTimeoutMs ?? DefaultBodyTimeoutMs));
         const outcome = await deps.mcp.callTool(call.accessToken, call.tool, call.args);
         if (outcome.isError) {
           const text = toolErrorText(outcome.content);
+          toolErrorChars = text.length;
           if (ExpiredCredential.test(text)) throw new GatewayError(401, "token_rejected", "Google Calendar did not accept the access token; it has expired or been revoked.");
           status = 422;
           code = "tool_error";
@@ -118,7 +131,7 @@ export function createHandler(deps: GatewayDependencies): RequestListener {
         send(response, 500, { error: "The gateway failed.", code: "internal_error" });
       }
     } finally {
-      deps.log({ method, path, status, code, ms: Math.round(performance.now() - started), ...(unexpected !== undefined ? { error: unexpected } : {}) });
+      deps.log({ method, path, status, code, ms: Math.round(performance.now() - started), ...(unexpected !== undefined ? { error: unexpected } : {}), ...(toolErrorChars !== undefined ? { toolErrorChars } : {}) });
     }
   };
 }
