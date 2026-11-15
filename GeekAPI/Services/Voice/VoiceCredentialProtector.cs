@@ -15,6 +15,19 @@ namespace GeekAPI.Services.Voice;
 /// not stop the service from starting: the first operation that needs it fails with <see cref="EncryptionUnavailable"/>, and a
 /// secret is never stored unencrypted. No message carries a secret, a key or any part of either.
 /// </remarks>
+/// <summary>
+/// What a sealed value is for. The purpose is bound into the ciphertext (as AES-GCM associated data), so a value sealed for one purpose
+/// cannot be opened as another: a sealed OAuth state cannot be passed off as a stored token, nor an access token as a refresh token.
+/// </summary>
+public static class VoiceSecretPurposes
+{
+    public const string McpOAuthState = "geek-voice/mcp-oauth-state";
+    public const string McpAccessToken = "geek-voice/mcp-access-token";
+    public const string McpRefreshToken = "geek-voice/mcp-refresh-token";
+    public const string TwilioAuthToken = "geek-voice/twilio-auth-token";
+    public const string KeyCheck = "geek-voice/key-check";
+}
+
 public sealed class VoiceCredentialProtector
 {
     public const string KeyVariable = "VOICE_ENCRYPTION_KEY";
@@ -35,8 +48,9 @@ public sealed class VoiceCredentialProtector
     /// <summary>Reads the key from <paramref name="readKey"/>, so a test supplies one without touching the environment.</summary>
     public VoiceCredentialProtector(Func<string?> readKey) => _readKey = readKey;
 
-    public Result<string> Protect(string secret)
+    public Result<string> Protect(string secret, string purpose)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
         if (string.IsNullOrEmpty(secret))
             return Result<string>.Failure("A secret is required.", InvalidSecret);
 
@@ -53,7 +67,7 @@ public sealed class VoiceCredentialProtector
             var cipher = stored.AsSpan(NonceBytes + TagBytes);
             RandomNumberGenerator.Fill(nonce);
             using var aes = new AesGcm(key, TagBytes);
-            aes.Encrypt(nonce, plain, cipher, tag);
+            aes.Encrypt(nonce, plain, cipher, tag, Encoding.UTF8.GetBytes(purpose));
             return Result<string>.Success(Convert.ToBase64String(stored));
         }
         finally
@@ -67,8 +81,9 @@ public sealed class VoiceCredentialProtector
     /// A ciphertext that fails its authentication tag does not belong to this key (the wrong key, or a row that was altered),
     /// and there is no secret to return.
     /// </summary>
-    public Result<string> Unprotect(string stored)
+    public Result<string> Unprotect(string stored, string purpose)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(purpose);
         byte[] bytes;
         try
         {
@@ -89,7 +104,7 @@ public sealed class VoiceCredentialProtector
         try
         {
             using var aes = new AesGcm(key, TagBytes);
-            aes.Decrypt(bytes.AsSpan(0, NonceBytes), bytes.AsSpan(NonceBytes + TagBytes), bytes.AsSpan(NonceBytes, TagBytes), plain);
+            aes.Decrypt(bytes.AsSpan(0, NonceBytes), bytes.AsSpan(NonceBytes + TagBytes), bytes.AsSpan(NonceBytes, TagBytes), plain, Encoding.UTF8.GetBytes(purpose));
             return Result<string>.Success(Encoding.UTF8.GetString(plain));
         }
         catch (AuthenticationTagMismatchException)

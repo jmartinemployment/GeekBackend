@@ -151,9 +151,9 @@ public sealed class OwnerLoginTests
         new CreateOwnerLoginRequest(null, "a@b.co", Password, null),
         new CreateOwnerLoginRequest(Guid.Empty, "a@b.co", Password, null),
         new CreateOwnerLoginRequest(Tenant, null, Password, null),
-        new CreateOwnerLoginRequest(Tenant, "not-an-email", Password, null),
         new CreateOwnerLoginRequest(Tenant, "a@b.co", null, null),
-        new CreateOwnerLoginRequest(Tenant, "a@b.co", "short", null),
+        new CreateOwnerLoginRequest(Tenant, "   ", Password, null),
+        new CreateOwnerLoginRequest(Tenant, "a@b.co", "", null),
     };
 
     [Theory]
@@ -174,6 +174,28 @@ public sealed class OwnerLoginTests
         var result = await rig.Provisioner.CreateAsync(Valid());
 
         Assert.Equal(OwnerLoginFailureCodes.OwnerExists, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task An_email_or_password_geekoauth_would_refuse_is_sent_to_it_and_not_judged_here()
+    {
+        var rig = new Rig(_ => Json("{\"error\":\"Passwords must be at least 8 characters.\"}", HttpStatusCode.BadRequest));
+        var result = await rig.Provisioner.CreateAsync(new CreateOwnerLoginRequest(Tenant, "not-an-email", "short", null));
+
+        Assert.Single(rig.Handler.Seen);
+        Assert.Equal(OwnerLoginFailureCodes.CredentialsRefused, result.ErrorCode);
+        Assert.Equal("Passwords must be at least 8 characters.", result.Error);
+    }
+
+    [Fact]
+    public async Task An_existing_login_message_tells_the_person_to_sign_in_in_case_an_answer_was_lost()
+    {
+        var rig = new Rig(_ => Json("{}", HttpStatusCode.Conflict));
+        var result = await rig.Provisioner.CreateAsync(Valid());
+        Assert.Contains("sign in", result.Error, StringComparison.OrdinalIgnoreCase);
+
+        var down = new Rig(_ => throw new HttpRequestException("timeout"));
+        Assert.Contains("signing in", (await down.Provisioner.CreateAsync(Valid())).Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

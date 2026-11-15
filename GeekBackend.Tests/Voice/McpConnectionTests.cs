@@ -309,8 +309,8 @@ public sealed class McpConnectionTests
         Assert.Equal((Tenant, GoogleCalendarOptions.Provider), (saved.Tenant, saved.Provider));
         Assert.DoesNotContain(AccessToken, saved.Command.OauthAccessTokenEncrypted, StringComparison.Ordinal);
         Assert.DoesNotContain(RefreshToken, saved.Command.OauthRefreshTokenEncrypted, StringComparison.Ordinal);
-        Assert.Equal(AccessToken, rig.Protector.Unprotect(saved.Command.OauthAccessTokenEncrypted).Value);
-        Assert.Equal(RefreshToken, rig.Protector.Unprotect(saved.Command.OauthRefreshTokenEncrypted).Value);
+        Assert.Equal(AccessToken, rig.Protector.Unprotect(saved.Command.OauthAccessTokenEncrypted, VoiceSecretPurposes.McpAccessToken).Value);
+        Assert.Equal(RefreshToken, rig.Protector.Unprotect(saved.Command.OauthRefreshTokenEncrypted, VoiceSecretPurposes.McpRefreshToken).Value);
         Assert.Equal(rig.Clock.Now.AddSeconds(3599), saved.Command.TokenExpiresAt);
         Assert.Equal("primary", saved.Command.ExternalCalendarId);
     }
@@ -445,15 +445,46 @@ public sealed class McpConnectionTests
         Assert.Empty(rig.Store.Saved);
     }
 
-    [Fact]
-    public async Task A_person_who_unticks_the_event_scope_is_refused_because_booking_would_fail_later()
+    public static TheoryData<string> PartialGrants()
     {
-        var rig = new Rig(_ => TokenAnswer(scope: "https://www.googleapis.com/auth/calendar.calendarlist.readonly"));
+        var all = GoogleCalendarOptions.Scopes;
+        var data = new TheoryData<string>();
+        foreach (var missing in all) data.Add(string.Join(' ', all.Where(scope => scope != missing)));
+        data.Add(all[0]);
+        data.Add("openid email");
+        return data;
+    }
+
+    [Theory]
+    [MemberData(nameof(PartialGrants))]
+    public async Task A_person_who_unticks_any_scope_is_refused_because_a_tool_would_fail_later(string granted)
+    {
+        var rig = new Rig(_ => TokenAnswer(scope: granted));
 
         var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(McpFailureCodes.ScopeNotGranted, result.ErrorCode);
         Assert.Empty(rig.Store.Saved);
+    }
+
+    [Fact]
+    public async Task A_person_who_grants_every_scope_is_connected_even_if_google_adds_more()
+    {
+        var rig = new Rig(_ => TokenAnswer(scope: string.Join(' ', GoogleCalendarOptions.Scopes) + " openid"));
+
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task A_declined_connection_logs_only_the_first_64_characters_of_googles_error()
+    {
+        var rig = new Rig();
+        await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, null, rig.SealedState(), new string('e', 5000));
+
+        var line = Assert.Single(rig.ServiceLog.Lines, l => l.Contains("declined", StringComparison.Ordinal));
+        Assert.True(line.Length < 200);
     }
 
     [Fact]

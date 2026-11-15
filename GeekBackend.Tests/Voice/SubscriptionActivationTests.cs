@@ -190,7 +190,7 @@ public sealed class SubscriptionActivationTests
         Assert.Equal(("ACsub1", "+15615550123", "PNphone1", "agent_1"), (command.TwilioSubaccountSid, command.AssignedPhoneNumber, command.TwilioPhoneSid, command.RetellAgentId));
         Assert.Equal((null, null, "not_requested", false), (command.A2pBrandSid, command.A2pCampaignSid, command.A2pStatus, command.SmsNotificationsEnabled));
         Assert.NotEqual("sub-token-secret", command.TwilioAuthTokenEncrypted);
-        Assert.Equal("sub-token-secret", world.Protector.Unprotect(command.TwilioAuthTokenEncrypted).Value);
+        Assert.Equal("sub-token-secret", world.Protector.Unprotect(command.TwilioAuthTokenEncrypted, VoiceSecretPurposes.TwilioAuthToken).Value);
     }
 
     [Fact]

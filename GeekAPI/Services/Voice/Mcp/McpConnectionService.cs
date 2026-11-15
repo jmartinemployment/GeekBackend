@@ -61,7 +61,7 @@ public sealed class McpConnectionService(
 
         if (!string.IsNullOrWhiteSpace(error))
         {
-            logger.LogWarning("A tenant declined the {Provider} connection: {GoogleError}.", provider, error);
+            logger.LogWarning("A tenant declined the {Provider} connection: {GoogleError}.", provider, error.Length > 64 ? error[..64] : error);
             return Result<Guid>.Failure("The calendar connection was declined.", McpFailureCodes.AuthorizationDenied);
         }
 
@@ -71,9 +71,9 @@ public sealed class McpConnectionService(
         var tokens = await google.ExchangeCodeAsync(code, ct).ConfigureAwait(false);
         if (!tokens.IsSuccess) return Result<Guid>.Failure(tokens.Error!, tokens.ErrorCode!);
 
-        var access = protector.Protect(tokens.Value!.AccessToken);
+        var access = protector.Protect(tokens.Value!.AccessToken, VoiceSecretPurposes.McpAccessToken);
         if (!access.IsSuccess) return Result<Guid>.Failure(access.Error!, access.ErrorCode!);
-        var refresh = protector.Protect(tokens.Value.RefreshToken);
+        var refresh = protector.Protect(tokens.Value.RefreshToken, VoiceSecretPurposes.McpRefreshToken);
         if (!refresh.IsSuccess) return Result<Guid>.Failure(refresh.Error!, refresh.ErrorCode!);
 
         var saved = await store.SaveMcpConnectionAsync(

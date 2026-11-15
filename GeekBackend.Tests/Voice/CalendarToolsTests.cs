@@ -117,8 +117,8 @@ public sealed class CalendarToolsTests
             McpGatewayOptions? gatewayOptions = null)
         {
             Protector = new VoiceCredentialProtector(() => Key);
-            AccessCipher = Protector.Protect(AccessToken).Value!;
-            RefreshCipher = Protector.Protect(RefreshToken).Value!;
+            AccessCipher = Protector.Protect(AccessToken, VoiceSecretPurposes.McpAccessToken).Value!;
+            RefreshCipher = Protector.Protect(RefreshToken, VoiceSecretPurposes.McpRefreshToken).Value!;
             Store.Connection = Result<VoiceMcpConnection>.Success(new VoiceMcpConnection(Tenant, GoogleCalendarOptions.Provider, AccessCipher, RefreshCipher, expiresAt ?? Now.AddMinutes(30), "primary", active));
             Google = new StubHandler(google ?? (_ => RefreshOk()));
             Gateway = new StubHandler(gateway ?? (_ => GatewayOk()));
@@ -181,7 +181,7 @@ public sealed class CalendarToolsTests
         Assert.Contains("client_id=client-id.apps.googleusercontent.com", refresh.Body);
 
         var saved = Assert.Single(rig.Store.Saved);
-        Assert.Equal(RenewedToken, rig.Protector.Unprotect(saved.OauthAccessTokenEncrypted).Value);
+        Assert.Equal(RenewedToken, rig.Protector.Unprotect(saved.OauthAccessTokenEncrypted, VoiceSecretPurposes.McpAccessToken).Value);
         Assert.Equal(rig.RefreshCipher, saved.OauthRefreshTokenEncrypted);
         Assert.Equal(Now.AddSeconds(3599), saved.TokenExpiresAt);
         Assert.Equal("primary", saved.ExternalCalendarId);

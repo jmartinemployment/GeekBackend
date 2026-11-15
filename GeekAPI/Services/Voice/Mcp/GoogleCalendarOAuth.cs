@@ -188,11 +188,13 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
                 return Unavailable("Google answered something unexpected.");
             }
 
-            // A person can untick a scope on the consent screen. Booking cannot work without the one that writes events.
-            if (!scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(GoogleCalendarOptions.EventsScope, StringComparer.Ordinal))
+            // A person can untick a scope on the consent screen. The receptionist reads availability, lists calendars and books, and each
+            // tool needs its own scope, so all three must be granted; a missing one would otherwise surface later as a tool error.
+            var granted = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (GoogleCalendarOptions.Scopes.Any(required => !granted.Contains(required, StringComparer.Ordinal)))
             {
                 return Result<GoogleCalendarTokens>.Failure(
-                    "Calendar access was not granted. The receptionist cannot book without permission to create events.",
+                    "Calendar access was not fully granted. The receptionist needs every permission on the consent screen to check availability and book.",
                     McpFailureCodes.ScopeNotGranted);
             }
 

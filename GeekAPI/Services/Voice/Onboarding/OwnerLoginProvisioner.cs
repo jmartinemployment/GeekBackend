@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
 using GeekApplication.Results;
@@ -31,26 +30,26 @@ public sealed record OwnerLoginCreated(Guid TenantId, string UserId);
 /// Creates the login of a tenant's one owner in GeekOAuth, with the tenant on it so the owner's tokens carry the tenant_id claim every
 /// <c>/api/v1/tenants/*</c> route checks. Only a tenant whose subscription is active gets one, so a signup that never paid has no login.
 /// GeekOAuth is asked once, with GeekAPI's client-credentials token (GeekOAuthTokenHandler, CLIENT_SECRET_GEEKAPI); nothing here retries,
-/// and the password goes to GeekOAuth in the request body and is never logged, stored or returned. A failure the caller can act on (a
-/// password GeekOAuth refuses, an owner that exists) keeps its own code; every other GeekOAuth failure is the service being unavailable.
+/// and the password goes to GeekOAuth in the request body and is never logged, stored or returned. What makes an email or a password
+/// acceptable is decided once, by GeekOAuth, and GeekAPI passes its reason on (400 credentials_refused) rather than keeping a second copy
+/// of the rule. A failure the caller can act on (a login GeekOAuth refuses, an owner that exists) keeps its own code; every other
+/// GeekOAuth failure is the service being unavailable. A call whose answer was lost may have created the login, so the messages for an
+/// existing owner and for an unreachable GeekOAuth both tell the person to try signing in.
 /// </summary>
-public sealed partial class OwnerLoginProvisioner(IVoiceStore store, IHttpClientFactory clients, IConfiguration configuration, ILogger<OwnerLoginProvisioner> logger)
+public sealed class OwnerLoginProvisioner(IVoiceStore store, IHttpClientFactory clients, IConfiguration configuration, ILogger<OwnerLoginProvisioner> logger)
 {
     public const string ClientName = "GeekOAuthOwners";
     internal const string DefaultAuthUrl = "https://auth.geekatyourspot.com";
     private const string SecretVariable = "CLIENT_SECRET_GEEKAPI";
 
-    [GeneratedRegex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
-    private static partial Regex EmailShape();
-
     public async Task<Result<OwnerLoginCreated>> CreateAsync(CreateOwnerLoginRequest? request, CancellationToken ct = default)
     {
         if (request?.TenantId is not { } tenantId || tenantId == Guid.Empty)
             return Fail("A tenant is required.", VoiceFailureCodes.InvalidRequest);
-        if (string.IsNullOrWhiteSpace(request.Email) || !EmailShape().IsMatch(request.Email.Trim()))
-            return Fail("A valid email is required.", VoiceFailureCodes.InvalidRequest);
-        if (string.IsNullOrEmpty(request.Password) || request.Password.Length < 8)
-            return Fail("A password of at least 8 characters is required.", VoiceFailureCodes.InvalidRequest);
+        if (string.IsNullOrWhiteSpace(request.Email))
+            return Fail("An email is required.", VoiceFailureCodes.InvalidRequest);
+        if (string.IsNullOrEmpty(request.Password))
+            return Fail("A password is required.", VoiceFailureCodes.InvalidRequest);
 
         if (string.IsNullOrWhiteSpace(configuration[SecretVariable]))
         {
@@ -85,7 +84,7 @@ public sealed partial class OwnerLoginProvisioner(IVoiceStore store, IHttpClient
             }
 
             if (response.StatusCode == HttpStatusCode.Conflict)
-                return Fail("That tenant already has an owner, or that email already has a login.", OwnerLoginFailureCodes.OwnerExists);
+                return Fail("A login already exists for this tenant or this email. If you just created it, sign in with that email and password.", OwnerLoginFailureCodes.OwnerExists);
 
             if (response.StatusCode == HttpStatusCode.BadRequest)
             {
@@ -99,7 +98,7 @@ public sealed partial class OwnerLoginProvisioner(IVoiceStore store, IHttpClient
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
         {
             logger.LogError(ex, "GeekOAuth could not be reached to create the owner of tenant {TenantId}.", tenantId);
-            return Result<OwnerLoginCreated>.Failure("The login service could not be reached.", OwnerLoginFailureCodes.AuthUnavailable);
+            return Result<OwnerLoginCreated>.Failure("The login service could not be reached. Try signing in; the login may already have been created.", OwnerLoginFailureCodes.AuthUnavailable);
         }
     }
 

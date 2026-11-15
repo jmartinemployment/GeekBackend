@@ -38,7 +38,7 @@ public sealed class CalendarTools(
         if (!connection.Value!.IsActive)
             return Result<McpToolResult>.Failure("This tenant's calendar connection is not active.", McpFailureCodes.CalendarNotConnected);
 
-        var access = protector.Unprotect(connection.Value.OauthAccessTokenEncrypted);
+        var access = protector.Unprotect(connection.Value.OauthAccessTokenEncrypted, VoiceSecretPurposes.McpAccessToken);
         if (!access.IsSuccess) return Result<McpToolResult>.Failure(access.Error!, access.ErrorCode!);
         var accessToken = access.Value!;
 
@@ -62,13 +62,13 @@ public sealed class CalendarTools(
             return Result<string>.Failure("Calendar connection is not configured.", McpFailureCodes.OAuthNotConfigured);
         }
 
-        var refresh = protector.Unprotect(connection.OauthRefreshTokenEncrypted);
+        var refresh = protector.Unprotect(connection.OauthRefreshTokenEncrypted, VoiceSecretPurposes.McpRefreshToken);
         if (!refresh.IsSuccess) return Result<string>.Failure(refresh.Error!, refresh.ErrorCode!);
 
         var renewed = await google.RefreshAsync(refresh.Value!, ct).ConfigureAwait(false);
         if (!renewed.IsSuccess) return Result<string>.Failure(renewed.Error!, renewed.ErrorCode!);
 
-        var sealedAccess = protector.Protect(renewed.Value!.AccessToken);
+        var sealedAccess = protector.Protect(renewed.Value!.AccessToken, VoiceSecretPurposes.McpAccessToken);
         if (!sealedAccess.IsSuccess) return Result<string>.Failure(sealedAccess.Error!, sealedAccess.ErrorCode!);
 
         var saved = await store.SaveMcpConnectionAsync(

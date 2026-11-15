@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace GeekAPI.Middleware;
 
@@ -16,7 +18,8 @@ public class ApiKeyMiddleware
         "/api/use-cases",
         // GeekSocial's webhook endpoint. Meta cannot send our API key, so the delivery's own
         // X-Hub-Signature-256 is what authenticates it (SocialWebhooksController / MetaEngagementReader).
-        "/api/social/webhooks/meta",    };
+        "/api/social/webhooks/meta",
+    };
 
     private readonly RequestDelegate _next;
     private readonly bool _allowLegacyBearer;
@@ -98,7 +101,7 @@ public class ApiKeyMiddleware
         }
 
         var apiKey = Environment.GetEnvironmentVariable("GEEK_BACKEND_API_KEY");
-        if (apiKey == null || apiKey != extractedApiKey.ToString())
+        if (apiKey == null || !KeyMatches(apiKey, extractedApiKey.ToString()))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { success = false, error = "Invalid API key" }, context.RequestAborted);
@@ -120,6 +123,13 @@ public class ApiKeyMiddleware
 
         await _next(context);
     }
+
+    // Compared in fixed time, so how long a wrong key takes does not tell the caller how much of it was right. Both sides are hashed first
+    // so the two buffers are always the same length.
+    private static bool KeyMatches(string expected, string presented) =>
+        CryptographicOperations.FixedTimeEquals(
+            SHA256.HashData(Encoding.UTF8.GetBytes(expected)),
+            SHA256.HashData(Encoding.UTF8.GetBytes(presented)));
 
     private static bool IsInternalApiPath(string path)
     {
@@ -203,7 +213,7 @@ public class ApiKeyMiddleware
             return false;
 
         var apiKey = Environment.GetEnvironmentVariable("GEEK_BACKEND_API_KEY");
-        if (apiKey is null || apiKey != extractedApiKey.ToString())
+        if (apiKey is null || !KeyMatches(apiKey, extractedApiKey.ToString()))
             return false;
 
         ApplyUserFromHeaders(context);

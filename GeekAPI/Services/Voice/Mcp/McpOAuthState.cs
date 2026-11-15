@@ -19,7 +19,7 @@ public sealed class McpOAuthState(VoiceCredentialProtector protector, TimeProvid
     {
         var expires = clock.GetUtcNow().Add(Lifetime).ToUnixTimeSeconds();
         var json = JsonSerializer.Serialize(new Payload(tenantId, provider, expires));
-        return protector.Protect(json);
+        return protector.Protect(json, VoiceSecretPurposes.McpOAuthState);
     }
 
     /// <summary>
@@ -31,7 +31,7 @@ public sealed class McpOAuthState(VoiceCredentialProtector protector, TimeProvid
         if (string.IsNullOrWhiteSpace(state))
             return Result<Guid>.Failure("The connection has no state.", McpFailureCodes.StateInvalid);
 
-        var opened = protector.Unprotect(state);
+        var opened = protector.Unprotect(state, VoiceSecretPurposes.McpOAuthState);
         if (!opened.IsSuccess)
         {
             return opened.ErrorCode == VoiceCredentialProtector.EncryptionUnavailable && !protector.KeyIsUsable()

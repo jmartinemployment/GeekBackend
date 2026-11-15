@@ -5,6 +5,8 @@ namespace GeekBackend.Tests.Voice;
 
 public class VoiceCredentialProtectorTests
 {
+    private const string Purpose = VoiceSecretPurposes.McpAccessToken;
+
     private const string Secret = "fake-twilio-auth-token-0123456789abcdef";
 
     private static string NewKey() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -33,9 +35,9 @@ public class VoiceCredentialProtectorTests
         var key = NewKey();
         var protector = new VoiceCredentialProtector(() => key);
 
-        var sealedSecret = protector.Protect(Secret);
+        var sealedSecret = protector.Protect(Secret, Purpose);
         Assert.True(sealedSecret.IsSuccess, sealedSecret.Error);
-        var opened = protector.Unprotect(sealedSecret.Value!);
+        var opened = protector.Unprotect(sealedSecret.Value!, Purpose);
 
         Assert.True(opened.IsSuccess, opened.Error);
         Assert.Equal(Secret, opened.Value);
@@ -47,8 +49,8 @@ public class VoiceCredentialProtectorTests
         var key = NewKey();
         var protector = new VoiceCredentialProtector(() => key);
 
-        var first = protector.Protect(Secret).Value!;
-        var second = protector.Protect(Secret).Value!;
+        var first = protector.Protect(Secret, Purpose).Value!;
+        var second = protector.Protect(Secret, Purpose).Value!;
 
         Assert.NotEqual(first, second);
         Assert.DoesNotContain(Secret, first, StringComparison.Ordinal);
@@ -58,9 +60,9 @@ public class VoiceCredentialProtectorTests
     [Fact]
     public void A_different_key_cannot_read_what_another_key_wrote()
     {
-        var sealedSecret = new VoiceCredentialProtector(NewKey).Protect(Secret).Value!;
+        var sealedSecret = new VoiceCredentialProtector(NewKey).Protect(Secret, Purpose).Value!;
 
-        var opened = new VoiceCredentialProtector(NewKey).Unprotect(sealedSecret);
+        var opened = new VoiceCredentialProtector(NewKey).Unprotect(sealedSecret, Purpose);
 
         Assert.False(opened.IsSuccess);
         Assert.Equal(VoiceCredentialProtector.EncryptionUnavailable, opened.ErrorCode);
@@ -71,10 +73,10 @@ public class VoiceCredentialProtectorTests
     {
         var key = NewKey();
         var protector = new VoiceCredentialProtector(() => key);
-        var bytes = Convert.FromBase64String(protector.Protect(Secret).Value!);
+        var bytes = Convert.FromBase64String(protector.Protect(Secret, Purpose).Value!);
         bytes[^1] ^= 0x01;
 
-        var opened = protector.Unprotect(Convert.ToBase64String(bytes));
+        var opened = protector.Unprotect(Convert.ToBase64String(bytes), Purpose);
 
         Assert.False(opened.IsSuccess);
         Assert.Equal(VoiceCredentialProtector.EncryptionUnavailable, opened.ErrorCode);
@@ -90,9 +92,9 @@ public class VoiceCredentialProtectorTests
     {
         var protector = new VoiceCredentialProtector(() => key);
 
-        var protectedSecret = protector.Protect(Secret);
+        var protectedSecret = protector.Protect(Secret, Purpose);
         var stored = Convert.ToBase64String(new byte[40]);
-        var opened = protector.Unprotect(stored);
+        var opened = protector.Unprotect(stored, Purpose);
 
         Assert.False(protectedSecret.IsSuccess);
         Assert.Equal(VoiceCredentialProtector.EncryptionUnavailable, protectedSecret.ErrorCode);
@@ -105,7 +107,7 @@ public class VoiceCredentialProtectorTests
     {
         var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
 
-        var result = new VoiceCredentialProtector(() => key).Protect(Secret);
+        var result = new VoiceCredentialProtector(() => key).Protect(Secret, Purpose);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(VoiceCredentialProtector.EncryptionUnavailable, result.ErrorCode);
@@ -118,7 +120,7 @@ public class VoiceCredentialProtectorTests
     {
         var key = NewKey();
 
-        var result = new VoiceCredentialProtector(() => key).Protect(secret!);
+        var result = new VoiceCredentialProtector(() => key).Protect(secret!, Purpose);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(VoiceCredentialProtector.InvalidSecret, result.ErrorCode);
@@ -133,7 +135,7 @@ public class VoiceCredentialProtectorTests
     {
         var key = NewKey();
 
-        var result = new VoiceCredentialProtector(() => key).Unprotect(stored!);
+        var result = new VoiceCredentialProtector(() => key).Unprotect(stored!, Purpose);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(VoiceCredentialProtector.InvalidSecret, result.ErrorCode);
@@ -144,12 +146,12 @@ public class VoiceCredentialProtectorTests
     {
         var key = NewKey();
         var other = NewKey();
-        var sealedSecret = new VoiceCredentialProtector(() => key).Protect(Secret).Value!;
+        var sealedSecret = new VoiceCredentialProtector(() => key).Protect(Secret, Purpose).Value!;
 
         var failures = new[]
         {
-            new VoiceCredentialProtector(() => other).Unprotect(sealedSecret),
-            new VoiceCredentialProtector(() => null).Protect(Secret),
+            new VoiceCredentialProtector(() => other).Unprotect(sealedSecret, Purpose),
+            new VoiceCredentialProtector(() => null).Protect(Secret, Purpose),
         };
 
         foreach (var failure in failures)
@@ -158,5 +160,32 @@ public class VoiceCredentialProtectorTests
             Assert.DoesNotContain(key, failure.Error!, StringComparison.Ordinal);
             Assert.DoesNotContain(other, failure.Error!, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void A_value_sealed_for_one_purpose_cannot_be_opened_for_another()
+    {
+        var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        var protector = new VoiceCredentialProtector(() => key);
+        var sealedAsState = protector.Protect(Secret, VoiceSecretPurposes.McpOAuthState).Value!;
+
+        Assert.Equal(Secret, protector.Unprotect(sealedAsState, VoiceSecretPurposes.McpOAuthState).Value);
+        foreach (var other in new[] { VoiceSecretPurposes.McpAccessToken, VoiceSecretPurposes.McpRefreshToken, VoiceSecretPurposes.TwilioAuthToken, VoiceSecretPurposes.KeyCheck })
+        {
+            var opened = protector.Unprotect(sealedAsState, other);
+            Assert.False(opened.IsSuccess, other);
+            Assert.Equal(VoiceCredentialProtector.EncryptionUnavailable, opened.ErrorCode);
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_blank_purpose_is_a_programming_error_and_throws(string purpose)
+    {
+        var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        var protector = new VoiceCredentialProtector(() => key);
+        Assert.Throws<ArgumentException>(() => protector.Protect(Secret, purpose));
+        Assert.Throws<ArgumentException>(() => protector.Unprotect("anything", purpose));
     }
 }

@@ -93,7 +93,7 @@ public sealed class SubscriptionActivation
             return Fail("Activation is not configured.", missing.Any(v => v.StartsWith("RETELL", StringComparison.Ordinal)) ? RetellFailureCodes.NotConfigured : TelephonyFailureCodes.TelephonyNotConfigured);
         }
 
-        var keyCheck = _protector.Protect("key check");
+        var keyCheck = _protector.Protect("key check", VoiceSecretPurposes.KeyCheck);
         if (!keyCheck.IsSuccess)
         {
             _logger.LogError("Tenant {TenantId} cannot be activated: {Variable} is not usable.", tenantId, VoiceCredentialProtector.KeyVariable);
@@ -113,7 +113,7 @@ public sealed class SubscriptionActivation
             return Fail(retell.Error!, retell.ErrorCode!);
         }
 
-        var token = _protector.Protect(telephony.Value!.AuthToken);
+        var token = _protector.Protect(telephony.Value!.AuthToken, VoiceSecretPurposes.TwilioAuthToken);
         if (!token.IsSuccess) return await UndoAsync(tenantId, telephony.Value, retell.Value!, token.Error!, token.ErrorCode!, ct).ConfigureAwait(false);
 
         var saved = await _store.SaveConfigAsync(tenantId, ReceptionistDefaults.ConfigFor(script.Value!), ct).ConfigureAwait(false);
