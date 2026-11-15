@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { readConfig } from "./config.ts";
+import { createMcpCaller, GoogleCalendarMcpUrl } from "./mcp.ts";
 import { createHandler } from "./server.ts";
 
 const config = readConfig(process.env);
@@ -7,7 +8,7 @@ const config = readConfig(process.env);
 const server = createServer(
   createHandler({
     config,
-    fetch: (url, init) => fetch(url, init),
+    mcp: createMcpCaller(GoogleCalendarMcpUrl),
     log: (line) => console.log(JSON.stringify(line)),
   }),
 );

@@ -2,8 +2,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import type { GatewayConfig } from "./config.ts";
 import { GatewayError } from "./errors.ts";
-import { insertEvent, queryBusy, type FetchFn } from "./google-calendar.ts";
-import { parseAvailability, parseEvent } from "./validate.ts";
+import { AllowedTools, type McpCaller } from "./mcp.ts";
+import { parseToolCall, parseToolList } from "./validate.ts";
 
 const MaxBodyBytes = 64 * 1024;
 const ApiKeyHeader = "x-internal-api-key";
@@ -19,8 +19,15 @@ export interface LogLine {
 
 export interface GatewayDependencies {
   readonly config: GatewayConfig;
-  readonly fetch: FetchFn;
+  readonly mcp: McpCaller;
   readonly log: (line: LogLine) => void;
+}
+
+const ExpiredCredential = /authentication credential|invalid[^.]*(token|credential)|unauthenticated|token[^.]*expired/i;
+
+function toolErrorText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => (typeof part === "object" && part !== null && "text" in part ? String((part as { text: unknown }).text) : "")).join(" ");
 }
 
 function digest(value: string): Buffer {
@@ -76,18 +83,25 @@ export function createHandler(deps: GatewayDependencies): RequestListener {
         throw new GatewayError(401, "unauthorized", "A valid X-Internal-Api-Key is required.");
       }
 
-      if (method === "POST" && path === "/v1/calendar/availability") {
-        const query = parseAvailability(await readJson(request));
-        const busy = await queryBusy(deps.fetch, query);
-        send(response, 200, { calendarId: query.calendarId, timeMin: query.timeMin, timeMax: query.timeMax, busy });
+      if (method === "POST" && path === "/v1/mcp/tools") {
+        parseToolList(await readJson(request));
+        const tools = (await deps.mcp.listTools(null)).filter((tool) => AllowedTools.includes(tool.name));
+        send(response, 200, { tools });
         return;
       }
 
-      if (method === "POST" && path === "/v1/calendar/events") {
-        const draft = parseEvent(await readJson(request));
-        const event = await insertEvent(deps.fetch, draft);
-        status = 201;
-        send(response, 201, event);
+      if (method === "POST" && path === "/v1/mcp/call") {
+        const call = parseToolCall(await readJson(request));
+        const outcome = await deps.mcp.callTool(call.accessToken, call.tool, call.args);
+        if (outcome.isError) {
+          const text = toolErrorText(outcome.content);
+          if (ExpiredCredential.test(text)) throw new GatewayError(401, "token_rejected", "Google Calendar did not accept the access token; it has expired or been revoked.");
+          status = 422;
+          code = "tool_error";
+          send(response, 422, { error: "The tool reported an error.", code: "tool_error", tool: call.tool, content: outcome.content });
+          return;
+        }
+        send(response, 200, { tool: call.tool, content: outcome.content, structuredContent: outcome.structuredContent });
         return;
       }
 

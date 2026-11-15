@@ -3,54 +3,56 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { readConfig } from "../src/config.ts";
-import type { FetchFn } from "../src/google-calendar.ts";
+import { GatewayError } from "../src/errors.ts";
+import type { McpCaller, ToolInfo, ToolOutcome } from "../src/mcp.ts";
 import { createHandler, type LogLine } from "../src/server.ts";
 
 const ApiKey = "gateway-key-for-tests";
 const Token = "ya29.SECRET-ACCESS-TOKEN";
 
-interface Sent {
-  url: string;
-  authorization: string | null;
-  body: unknown;
-}
-
-function json(status: number, payload: unknown): Response {
-  return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+interface Seen {
+  kind: "list" | "call";
+  accessToken: string | null;
+  tool?: string;
+  args?: Record<string, unknown>;
 }
 
 describe("gateway", () => {
   let server: Server;
   let base: string;
-  let sent: Sent[];
+  let seen: Seen[];
   let logs: LogLine[];
-  let google: (call: Sent) => Response | Promise<Response>;
+  let onCall: (tool: string, args: Record<string, unknown>) => ToolOutcome | Promise<ToolOutcome>;
+  let onList: () => readonly ToolInfo[] | Promise<readonly ToolInfo[]>;
 
-  const fakeFetch: FetchFn = async (url, init) => {
-    const call: Sent = {
-      url,
-      authorization: new Headers(init.headers).get("authorization"),
-      body: JSON.parse(String(init.body)),
-    };
-    sent.push(call);
-    return google(call);
+  const mcp: McpCaller = {
+    async listTools(accessToken) {
+      seen.push({ kind: "list", accessToken });
+      return onList();
+    },
+    async callTool(accessToken, tool, args) {
+      seen.push({ kind: "call", accessToken, tool, args });
+      return onCall(tool, args);
+    },
   };
 
   before(async () => {
-    sent = [];
+    seen = [];
     logs = [];
-    google = () => json(200, {});
-    server = createServer(createHandler({ config: { port: 0, apiKey: ApiKey }, fetch: fakeFetch, log: (line) => logs.push(line) }));
+    onCall = () => ({ isError: false, content: [], structuredContent: null });
+    onList = () => [];
+    server = createServer(createHandler({ config: { port: 0, apiKey: ApiKey }, mcp, log: (line) => logs.push(line) }));
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 
   after(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
-  function reset(answer: (call: Sent) => Response | Promise<Response>): void {
-    sent = [];
+  function reset(): void {
+    seen = [];
     logs = [];
-    google = answer;
+    onCall = () => ({ isError: false, content: [], structuredContent: null });
+    onList = () => [];
   }
 
   async function post(path: string, body: unknown, key: string | null = ApiKey): Promise<{ status: number; body: any }> {
@@ -60,208 +62,177 @@ describe("gateway", () => {
     return { status: response.status, body: await response.json() };
   }
 
-  const availability = {
+  const bookEvent = {
     provider: "google_calendar",
     accessToken: Token,
-    calendarId: "primary",
-    timeMin: "2026-11-20T08:00:00-05:00",
-    timeMax: "2026-11-20T18:00:00-05:00",
-  };
-
-  const event = {
-    provider: "google_calendar",
-    accessToken: Token,
-    calendarId: "primary",
-    summary: "Water heater repair, Dana",
-    start: "2026-11-20T14:00:00-05:00",
-    end: "2026-11-20T15:00:00-05:00",
-    timeZone: "America/New_York",
+    tool: "create_event",
+    arguments: { summary: "Water heater repair, Dana", startTime: "2026-11-20T14:00:00", endTime: "2026-11-20T15:00:00", timeZone: "America/New_York" },
   };
 
   it("answers health without a key", async () => {
-    const response = await fetch(`${base}/health`);
-    assert.equal(response.status, 200);
+    assert.equal((await fetch(`${base}/health`)).status, 200);
   });
 
   it("refuses every other route without the key or with a wrong one, before reading anything", async () => {
-    reset(() => json(200, {}));
+    reset();
     for (const key of [null, "wrong", ""]) {
-      const result = await post("/v1/calendar/availability", availability, key);
+      const result = await post("/v1/mcp/call", bookEvent, key);
       assert.equal(result.status, 401);
       assert.equal(result.body.code, "unauthorized");
     }
     assert.equal((await post("/v1/anything", {}, null)).status, 401);
-    assert.equal(sent.length, 0);
+    assert.equal(seen.length, 0);
   });
 
-  it("returns the busy times Google reports and asks Google once with the bearer token", async () => {
-    reset(() => json(200, { calendars: { primary: { busy: [{ start: "2026-11-20T15:00:00Z", end: "2026-11-20T16:00:00Z" }] } } }));
-    const result = await post("/v1/calendar/availability", availability);
+  it("lists only the offered tools, without a token", async () => {
+    reset();
+    onList = () => ["list_events", "create_event", "delete_event", "update_event", "respond_to_event", "search_events", "list_calendars", "get_event", "suggest_time"].map((name) => ({ name, description: null, inputSchema: {} }));
+    const result = await post("/v1/mcp/tools", { provider: "google_calendar" });
 
     assert.equal(result.status, 200);
-    assert.deepEqual(result.body.busy, [{ start: "2026-11-20T15:00:00Z", end: "2026-11-20T16:00:00Z" }]);
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0]!.url, "https://www.googleapis.com/calendar/v3/freeBusy");
-    assert.equal(sent[0]!.authorization, `Bearer ${Token}`);
-    assert.deepEqual(sent[0]!.body, { timeMin: availability.timeMin, timeMax: availability.timeMax, items: [{ id: "primary" }] });
+    assert.deepEqual(result.body.tools.map((t: ToolInfo) => t.name).sort(), ["create_event", "get_event", "list_calendars", "list_events", "suggest_time"]);
+    assert.equal(seen[0]!.accessToken, null);
   });
 
-  it("returns an empty list for a free calendar, not a failure", async () => {
-    reset(() => json(200, { calendars: { primary: { busy: [] } } }));
-    const result = await post("/v1/calendar/availability", availability);
+  it("calls the named tool once, with the token and the arguments exactly as sent, and returns what it returned", async () => {
+    reset();
+    onCall = () => ({ isError: false, content: [{ type: "text", text: "created" }], structuredContent: { id: "evt1" } });
+    const result = await post("/v1/mcp/call", bookEvent);
+
     assert.equal(result.status, 200);
-    assert.deepEqual(result.body.busy, []);
+    assert.deepEqual(result.body, { tool: "create_event", content: [{ type: "text", text: "created" }], structuredContent: { id: "evt1" } });
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0]!.accessToken, Token);
+    assert.equal(seen[0]!.tool, "create_event");
+    assert.deepEqual(seen[0]!.args, bookEvent.arguments);
   });
 
-  it("refuses an answer that lacks the calendar or its busy list instead of calling it free", async () => {
-    reset(() => json(200, { calendars: {} }));
-    assert.equal((await post("/v1/calendar/availability", availability)).status, 502);
-    reset(() => json(200, { calendars: { primary: {} } }));
-    assert.equal((await post("/v1/calendar/availability", availability)).status, 502);
+  it("sends empty arguments when none are given", async () => {
+    reset();
+    await post("/v1/mcp/call", { provider: "google_calendar", accessToken: Token, tool: "list_calendars" });
+    assert.deepEqual(seen[0]!.args, {});
   });
 
-  it("maps a calendar-level error from freeBusy", async () => {
-    reset(() => json(200, { calendars: { primary: { busy: [], errors: [{ reason: "notFound" }] } } }));
-    const missing = await post("/v1/calendar/availability", availability);
-    assert.equal(missing.status, 404);
-    assert.equal(missing.body.code, "calendar_not_found");
+  it("answers a tool's own error as 422 tool_error with its content, never as success", async () => {
+    reset();
+    onCall = () => ({ isError: true, content: [{ type: "text", text: "Event time is in the past." }], structuredContent: null });
+    const result = await post("/v1/mcp/call", bookEvent);
 
-    reset(() => json(200, { calendars: { primary: { busy: [], errors: [{ reason: "forbidden" }] } } }));
-    assert.equal((await post("/v1/calendar/availability", availability)).status, 403);
+    assert.equal(result.status, 422);
+    assert.equal(result.body.code, "tool_error");
+    assert.deepEqual(result.body.content, [{ type: "text", text: "Event time is in the past." }]);
+    assert.equal(seen.length, 1);
   });
 
-  it("creates an event and returns its id, link and times", async () => {
-    reset(() =>
-      json(200, { id: "abc123", htmlLink: "https://calendar.google.com/event?eid=abc", start: { dateTime: event.start }, end: { dateTime: event.end } }),
-    );
-    const result = await post("/v1/calendar/events", { ...event, eventId: "call0001abc", location: "12 Palm Way", attendeeEmails: ["dana@example.com"] });
+  it("answers a tool error that says the credential is bad as 401 token_rejected", async () => {
+    reset();
+    onCall = () => ({
+      isError: true,
+      content: [{ type: "text", text: "Request is missing required authentication credential. Expected OAuth 2 access token." }],
+      structuredContent: null,
+    });
+    const result = await post("/v1/mcp/call", bookEvent);
 
-    assert.equal(result.status, 201);
-    assert.equal(result.body.eventId, "abc123");
-    assert.equal(sent.length, 1);
-    assert.equal(sent[0]!.url, "https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=none");
-    const body = sent[0]!.body as any;
-    assert.equal(body.summary, event.summary);
-    assert.equal(body.id, "call0001abc");
-    assert.deepEqual(body.start, { dateTime: event.start, timeZone: "America/New_York" });
-    assert.deepEqual(body.attendees, [{ email: "dana@example.com" }]);
-    assert.equal(body.location, "12 Palm Way");
+    assert.equal(result.status, 401);
+    assert.equal(result.body.code, "token_rejected");
   });
 
-  it("encodes a calendar id that is an email address", async () => {
-    reset(() => json(200, { id: "x", start: { dateTime: event.start }, end: { dateTime: event.end } }));
-    await post("/v1/calendar/events", { ...event, calendarId: "owner@example.com" });
-    assert.ok(sent[0]!.url.includes("/calendars/owner%40example.com/events"));
-  });
-
-  it("refuses a created answer without the event instead of calling it booked", async () => {
-    reset(() => json(200, {}));
-    const result = await post("/v1/calendar/events", event);
-    assert.equal(result.status, 502);
-    assert.equal(result.body.code, "provider_unavailable");
-  });
-
-  for (const [googleStatus, status, code] of [
-    [400, 400, "provider_rejected"],
-    [401, 401, "token_rejected"],
-    [403, 403, "provider_forbidden"],
-    [404, 404, "calendar_not_found"],
-    [409, 409, "event_exists"],
-    [429, 502, "provider_unavailable"],
-    [500, 502, "provider_unavailable"],
-    [503, 502, "provider_unavailable"],
+  for (const [thrown, status, code] of [
+    [new GatewayError(401, "token_rejected", "x"), 401, "token_rejected"],
+    [new GatewayError(403, "provider_forbidden", "x"), 403, "provider_forbidden"],
+    [new GatewayError(502, "provider_unavailable", "x"), 502, "provider_unavailable"],
+    [new GatewayError(502, "provider_unreachable", "x"), 502, "provider_unreachable"],
   ] as const) {
-    it(`maps Google ${googleStatus} to ${status} ${code}, asks once and never retries`, async () => {
-      reset(() => json(googleStatus, { error: { message: "internal detail", errors: [{ reason: "someReason" }] } }));
-      const result = await post("/v1/calendar/events", event);
+    it(`passes a ${status} ${code} from the MCP call through, asking once`, async () => {
+      reset();
+      onCall = () => {
+        throw thrown;
+      };
+      const result = await post("/v1/mcp/call", bookEvent);
       assert.equal(result.status, status);
       assert.equal(result.body.code, code);
-      assert.equal(sent.length, 1);
-      assert.ok(!JSON.stringify(result.body).includes("internal detail"));
+      assert.equal(seen.length, 1);
     });
   }
 
-  it("treats a Google rate limit on 403 as unavailable, not forbidden", async () => {
-    reset(() => json(403, { error: { errors: [{ reason: "rateLimitExceeded" }] } }));
-    const result = await post("/v1/calendar/events", event);
-    assert.equal(result.status, 502);
-  });
-
-  it("answers 502 provider_unreachable when Google cannot be reached", async () => {
-    reset(() => {
-      throw new TypeError("fetch failed");
-    });
-    const result = await post("/v1/calendar/events", event);
-    assert.equal(result.status, 502);
-    assert.equal(result.body.code, "provider_unreachable");
-  });
-
   it("refuses an unsupported provider before calling anyone", async () => {
-    reset(() => json(200, {}));
-    for (const provider of ["outlook", "cal_com", "hubspot", "", "Google_Calendar"]) {
-      const result = await post("/v1/calendar/events", { ...event, provider });
+    reset();
+    for (const provider of ["outlook", "cal_com", "hubspot", "Google_Calendar"]) {
+      const result = await post("/v1/mcp/call", { ...bookEvent, provider });
       assert.equal(result.status, 400);
+      assert.equal(result.body.code, "provider_not_supported");
     }
-    assert.equal((await post("/v1/calendar/events", { ...event, provider: "outlook" })).body.code, "provider_not_supported");
-    assert.equal(sent.length, 0);
+    assert.equal((await post("/v1/mcp/call", { ...bookEvent, provider: "" })).status, 400);
+    assert.equal((await post("/v1/mcp/tools", { provider: "outlook" })).status, 400);
+    assert.equal(seen.length, 0);
+  });
+
+  it("refuses a tool that is not offered, so a tenant's events cannot be deleted or changed", async () => {
+    reset();
+    for (const tool of ["delete_event", "update_event", "respond_to_event", "search_events", "nope"]) {
+      const result = await post("/v1/mcp/call", { ...bookEvent, tool });
+      assert.equal(result.status, 400, tool);
+      assert.equal(result.body.code, "tool_not_allowed");
+    }
+    assert.equal(seen.length, 0);
   });
 
   it("refuses bad input with a 400 and calls no one", async () => {
-    reset(() => json(200, {}));
-    const bad: [string, unknown][] = [
-      ["/v1/calendar/availability", { ...availability, accessToken: "" }],
-      ["/v1/calendar/availability", { ...availability, calendarId: undefined }],
-      ["/v1/calendar/availability", { ...availability, timeMin: "2026-11-20" }],
-      ["/v1/calendar/availability", { ...availability, timeMin: "2026-11-20T18:00:00-05:00", timeMax: "2026-11-20T08:00:00-05:00" }],
-      ["/v1/calendar/availability", { ...availability, timeMax: "2027-03-20T18:00:00-05:00" }],
-      ["/v1/calendar/events", { ...event, summary: "  " }],
-      ["/v1/calendar/events", { ...event, end: event.start }],
-      ["/v1/calendar/events", { ...event, end: "2026-11-22T15:00:00-05:00" }],
-      ["/v1/calendar/events", { ...event, eventId: "UPPER" }],
-      ["/v1/calendar/events", { ...event, attendeeEmails: ["nope"] }],
-      ["/v1/calendar/events", { ...event, attendeeEmails: "dana@example.com" }],
-      ["/v1/calendar/events", []],
-      ["/v1/calendar/events", "not json"],
+    reset();
+    const bad: unknown[] = [
+      { ...bookEvent, accessToken: "" },
+      { ...bookEvent, accessToken: undefined },
+      { ...bookEvent, accessToken: "x".repeat(5000) },
+      { ...bookEvent, tool: "" },
+      { ...bookEvent, tool: undefined },
+      { ...bookEvent, arguments: "text" },
+      { ...bookEvent, arguments: [] },
+      { ...bookEvent, arguments: { summary: "x".repeat(40_000) } },
+      [],
+      "not json",
     ];
-    for (const [path, body] of bad) {
-      const result = await post(path, body);
-      assert.equal(result.status, 400, JSON.stringify(body));
+    for (const body of bad) {
+      const result = await post("/v1/mcp/call", body);
+      assert.equal(result.status, 400, JSON.stringify(body)?.slice(0, 80));
     }
-    assert.equal(sent.length, 0);
+    assert.equal(seen.length, 0);
   });
 
   it("refuses a body over 64 KB", async () => {
-    reset(() => json(200, {}));
-    const result = await post("/v1/calendar/events", { ...event, description: "x".repeat(70_000) });
+    reset();
+    const result = await post("/v1/mcp/call", { ...bookEvent, arguments: { summary: "x".repeat(70_000) } });
     assert.equal(result.status, 413);
-    assert.equal(sent.length, 0);
+    assert.equal(seen.length, 0);
   });
 
-  it("answers 404 for an unknown route and 404 for the wrong method when the key is right", async () => {
+  it("answers 404 for an unknown route and for the wrong method when the key is right", async () => {
     assert.equal((await post("/v1/nope", {})).status, 404);
-    const response = await fetch(`${base}/v1/calendar/events`, { method: "GET", headers: { "x-internal-api-key": ApiKey } });
-    assert.equal(response.status, 404);
+    assert.equal((await fetch(`${base}/v1/mcp/call`, { method: "GET", headers: { "x-internal-api-key": ApiKey } })).status, 404);
   });
 
   it("never logs or returns the access token, the key or the event text", async () => {
-    reset(() => json(401, { error: { errors: [{ reason: "authError" }] } }));
-    const result = await post("/v1/calendar/events", event);
+    reset();
+    onCall = () => {
+      throw new GatewayError(401, "token_rejected", "Google Calendar did not accept the access token.");
+    };
+    const result = await post("/v1/mcp/call", bookEvent);
     const everything = JSON.stringify(logs) + JSON.stringify(result.body);
     assert.ok(!everything.includes(Token));
     assert.ok(!everything.includes(ApiKey));
-    assert.ok(!everything.includes(event.summary));
+    assert.ok(!everything.includes("Water heater"));
     assert.equal(logs.length, 1);
     assert.equal(logs[0]!.status, 401);
-    assert.equal(logs[0]!.code, "token_rejected");
   });
 
-  it("treats an answer that is not a JSON object as unavailable, never as success", async () => {
-    for (const text of ["{not json", "null", "[]", "\"text\""]) {
-      reset(() => new Response(text, { status: 200 }));
-      const result = await post("/v1/calendar/events", event);
-      assert.equal(result.status, 502, text);
-      assert.equal(result.body.code, "provider_unavailable");
-    }
+  it("reports an unexpected failure as 500 and names it in the log", async () => {
+    reset();
+    onCall = () => {
+      throw new RangeError("boom");
+    };
+    const result = await post("/v1/mcp/call", bookEvent);
+    assert.equal(result.status, 500);
+    assert.equal(result.body.code, "internal_error");
+    assert.match(logs[0]!.error ?? "", /RangeError: boom/);
   });
 });
 
