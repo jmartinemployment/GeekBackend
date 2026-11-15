@@ -105,6 +105,20 @@ public sealed class VoiceCredentialProtector
         }
     }
 
+    /// <summary>
+    /// Whether the key is set and exactly 32 bytes. Unprotect answers <see cref="EncryptionUnavailable"/> both for an unusable key and
+    /// for a ciphertext this key did not write, so a caller that must tell the service being unconfigured from a forged value asks here.
+    /// </summary>
+    public bool KeyIsUsable()
+    {
+        var key = ReadKey();
+        if (key is null)
+            return false;
+
+        CryptographicOperations.ZeroMemory(key);
+        return true;
+    }
+
     private static string KeyProblem =>
         $"{KeyVariable} is not set to a base64 value of exactly {KeyBytes} bytes, so tenant secrets cannot be protected or read.";
 

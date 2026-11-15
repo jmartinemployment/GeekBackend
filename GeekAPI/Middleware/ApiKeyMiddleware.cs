@@ -17,6 +17,9 @@ public class ApiKeyMiddleware
         // GeekSocial's webhook endpoint. Meta cannot send our API key, so the delivery's own
         // X-Hub-Signature-256 is what authenticates it (SocialWebhooksController / MetaEngagementReader).
         "/api/social/webhooks/meta",
+        // Geek-Receptionist's Google Calendar callback. Google redirects the owner's browser here, which can carry neither an API key
+        // nor a token; the sealed state McpOAuthState checks is what identifies the tenant, and a bad one is refused.
+        "/api/v1/oauth/mcp/google_calendar/callback",
     };
 
     private readonly RequestDelegate _next;

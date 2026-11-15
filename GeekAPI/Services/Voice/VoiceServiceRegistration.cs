@@ -1,5 +1,6 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Voice.Billing;
+using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.Telephony;
 using GeekApplication.Interfaces.Voice;
@@ -34,6 +35,10 @@ public static class VoiceServiceRegistration
         services.AddSingleton(RetellOptions.FromEnvironment());
         services.AddHttpClient<RetellProvisioner>(client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddScoped<SubscriptionActivation>();
+        services.AddSingleton(GoogleCalendarOptions.FromEnvironment());
+        services.AddSingleton<McpOAuthState>();
+        services.AddHttpClient<GoogleCalendarOAuth>(client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddScoped<McpConnectionService>();
         services.AddRateLimiter(options =>
         {
             options.AddPolicy(OnboardingRateLimit.PolicyName, OnboardingRateLimit.Partition);

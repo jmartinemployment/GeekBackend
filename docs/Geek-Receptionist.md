@@ -124,7 +124,8 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 * `POST /api/v1/onboarding/validate-eligibility`
 * `POST /api/v1/onboarding/activate-subscription`
 * `PUT  /api/v1/tenants/{tenantId}/config`
-* `GET  /api/v1/oauth/mcp/{provider}/callback`
+* `GET  /api/v1/tenants/{tenantId}/oauth/mcp/{provider}/authorize` (owner's JWT; returns `{ authorizationUrl }`)
+* `GET  /api/v1/oauth/mcp/{provider}/callback` (Google's redirect; no key and no token, the sealed state identifies the tenant)
 * `POST /api/v1/tenants/{tenantId}/knowledge/guided-form`
 * `POST /api/v1/tenants/{tenantId}/knowledge/upload-pdf`
 * `POST /api/receptionist/twilio/sms/incoming/{tenantId}` (`TwilioSignatureFilter`)
@@ -170,6 +171,14 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
    - The IP address recorded in `addendum_ip_address` is the visitor's `X-Visitor-Ip`, never the portal's connection address.
    - **Rate Limit:** `10` calls per hour per visitor IP; the eleventh is refused (`429 Too Many Requests`, code `rate_limited`).
 
+4. **Calendar Connection (Google Calendar built; Outlook, Cal.com and HubSpot not built):**
+   - The OAuth client is a Web client in Google Cloud project `geek-oauth-04-11-2026` ("geek-google-oauth"), whose registered redirect URI is `https://api.geekatyourspot.com/api/v1/oauth/mcp/google_calendar/callback` (`PUBLIC_BASE_URL` + the callback route). The Calendar API and the Calendar MCP API (`calendarmcp.googleapis.com`) are enabled on that project.
+   - The consent screen lists exactly three scopes: `calendar.events` (create, change and delete events; Google marks it sensitive), `calendar.events.freebusy` and `calendar.calendarlist.readonly`. A person who unticks `calendar.events` is refused (`scope_not_granted`), because booking would fail later. Until Google verifies the app, the consent screen shows an unverified warning and is limited to 100 test users.
+   - The owner's portal calls `authorize` with the owner's JWT. The tenant comes from the token's `tenant_id` claim; a different tenant in the URL is `403 tenant_forbidden`, a token with no claim is `403 tenant_unverified`, and a tenant that has not paid is `409 tenant_not_active`. **GeekOAuth does not issue `tenant_id` yet** (provisioning it is signup step 4), so `authorize` can only refuse until it does.
+   - The callback checks the sealed state (tenant, provider, 10-minute expiry; AES-256-GCM under `VOICE_ENCRYPTION_KEY`) **before** it spends Google's one-time code, encrypts both tokens, saves them through GeekRepository and redirects the owner's browser to `PORTAL_BASE_URL/dashboard?mcp=connected`, or to `?mcp=failed&code=<failure code>`. It never answers a browser with JSON, and it makes the code exchange once, with no retry.
+   - **Known gap:** the state names the tenant but is not bound to the browser that started it, so someone could start a connection for their own tenant and trick another person into approving it with that person's Google account. The fix is for Google to redirect to the portal, which holds the owner's session, and for the portal to pass the code to `GeekAPI` with the owner's token so `GeekAPI` can check the two tenants match. That changes the registered redirect URI and the callback route above, and it is not built.
+   - **Not decided:** whether `GeekMcpGateway` calls Google's hosted Calendar MCP server (`https://calendarmcp.googleapis.com/mcp/v1`, Developer Preview, whose documentation lists only read-only scopes) or the Google Calendar REST API. It is decided by one real booking call after a first tenant connects.
+
 ---
 
 ## 8. Railway Environment Variables Inventory (v1 Active & v0 Deprecated)
@@ -195,6 +204,8 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | `MCP_GATEWAY_URL` | ✓ | `http://geek-mcp-gateway.railway.internal:3000` | Railway private network URL for `GeekMcpGateway` (service `geek-mcp-gateway`, port `3000`, no public domain) |
 | `MCP_GATEWAY_API_KEY` | ✓ | Secret | Shared key `GeekAPI` sends to `GeekMcpGateway` in header `X-Internal-Api-Key` |
 | `PORTAL_BASE_URL` | ✓ | `https://receptionist.geekatyourspot.com` | Origin of Geek-Receptionist-Portal; OAuth callbacks redirect here (configurable until DNS is provisioned on Vercel) |
+| `GOOGLE_OAUTH_CLIENT_ID` | ✓ | `...apps.googleusercontent.com` | Web OAuth client in Google Cloud project `geek-oauth-04-11-2026` used to connect a tenant's Google Calendar; unset: a connection fails with 503 `oauth_not_configured` |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | ✓ | Secret | That client's secret; held by `GeekAPI` alone and never logged |
 | `VOICE_ENCRYPTION_KEY` | ✓ | Secret, 32 bytes, base64 | AES-256-GCM key held by `GeekAPI` alone; encrypts each tenant's Twilio auth token (`twilio_auth_token_encrypted`) and calendar/CRM OAuth tokens (`oauth_*_token_encrypted`) before they reach `GeekRepository`, which stores ciphertext only. Unset or not 32 bytes: the operation that needs it fails with 503 `encryption_unavailable` |
 | `FeatureFlags__EnableIndustryAddendums` | | `false` | Defaults to `false` (rejects Law, Financial, and School verticals until Phase 2 addendums ship) |
 

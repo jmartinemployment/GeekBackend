@@ -9,6 +9,24 @@ public class VoiceCredentialProtectorTests
 
     private static string NewKey() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    [InlineData("not base64!", false)]
+    public void A_key_that_is_absent_or_malformed_is_not_usable(string? raw, bool usable)
+    {
+        Assert.Equal(usable, new VoiceCredentialProtector(() => raw).KeyIsUsable());
+    }
+
+    [Fact]
+    public void A_key_of_exactly_32_bytes_is_usable_and_a_short_one_is_not()
+    {
+        var key = NewKey();
+
+        Assert.True(new VoiceCredentialProtector(() => key).KeyIsUsable());
+        Assert.False(new VoiceCredentialProtector(() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(16))).KeyIsUsable());
+    }
+
     [Fact]
     public void A_secret_round_trips()
     {
