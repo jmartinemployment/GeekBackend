@@ -2,6 +2,7 @@ using GeekAPI.HttpClients;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Onboarding;
+using GeekAPI.Services.Voice.OwnerAuth;
 using GeekAPI.Services.Voice.Telephony;
 using GeekApplication.Interfaces.Voice;
 using Microsoft.AspNetCore.RateLimiting;
@@ -42,15 +43,14 @@ public static class VoiceServiceRegistration
         services.AddSingleton(McpGatewayOptions.FromEnvironment());
         services.AddHttpClient<McpGatewayClient>(client => client.Timeout = TimeSpan.FromSeconds(45));
         services.AddScoped<CalendarTools>();
-        services.TryAddTransient<GeekAPI.Services.Auth.GeekOAuthTokenHandler>();
-        services.AddHttpClient(OwnerLoginProvisioner.ClientName, client =>
-            {
-                var authUrl = (configuration["AUTH_URL"] ?? OwnerLoginProvisioner.DefaultAuthUrl).TrimEnd('/');
-                client.BaseAddress = new Uri(authUrl + "/");
-                client.Timeout = TimeSpan.FromSeconds(30);
-            })
-            .AddHttpMessageHandler<GeekAPI.Services.Auth.GeekOAuthTokenHandler>();
-        services.AddScoped<OwnerLoginProvisioner>();
+        services.AddScoped<IVoiceOwnerStore>(sp =>
+            new HttpVoiceOwnerRepository(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),
+                sp.GetRequiredService<ILogger<HttpVoiceOwnerRepository>>()));
+        services.AddSingleton(ReceptionistTokenOptions.FromEnvironment());
+        services.AddSingleton<ReceptionistTokens>();
+        services.AddSingleton<OwnerPasswords>();
+        services.AddScoped<OwnerAuthService>();
         services.AddRateLimiter(options =>
         {
             options.AddPolicy(OnboardingRateLimit.PolicyName, OnboardingRateLimit.Partition);

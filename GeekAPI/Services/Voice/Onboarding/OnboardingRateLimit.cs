@@ -3,7 +3,8 @@ using System.Threading.RateLimiting;
 namespace GeekAPI.Services.Voice.Onboarding;
 
 /// <summary>
-/// A cap on the public signup routes, because each signup that passes the gate writes a tenant and the routes need no login. One
+/// A cap on the routes that need no login: the signup routes, because each signup that passes the gate writes a tenant, and owner
+/// sign-in, because a password can be guessed only as fast as this lets it. One
 /// address may make <see cref="PermitsPerWindow"/> calls in <see cref="Window"/>; the next is answered 429 with code rate_limited
 /// until the window ends. The address is the visitor's, forwarded by the portal (<see cref="OnboardingVisitor"/>), because the connection's
 /// own address is the portal's and would put every visitor in one bucket. A call with no visitor address uses the connection's address, and one with neither shares one bucket, which makes it the first to be refused and never an unlimited one. Nothing waits in a
@@ -31,6 +32,6 @@ public static class OnboardingRateLimit
     {
         context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
         await context.Response.WriteAsJsonAsync(
-            new { error = "Too many signup attempts from this address. Try again later.", code = Code }, ct);
+            new { error = "Too many attempts from this address. Try again later.", code = Code }, ct);
     }
 }

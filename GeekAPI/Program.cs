@@ -13,6 +13,7 @@ using GeekAPI.Services.Receptionist;
 using GeekAPI.Services.Social;
 using GeekAPI.Services.Visitors;
 using GeekAPI.Services.Voice;
+using GeekAPI.Services.Voice.OwnerAuth;
 using GeekAPI.Services.Workflow.Hosting;
 using GeekAPI.Services.Workflow.Infrastructure;
 using GeekApplication.Interfaces;
@@ -284,7 +285,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.FromMinutes(1),
         };
         JwtHubQueryToken.AcceptAccessTokenFromQuery(options);
-    });
+    })
+    // Geek-Receptionist's owner tokens: its own issuer and key, never the default scheme, read only on a route that names it.
+    .AddReceptionistBearer();
 
 builder.Services.AddAuthorizationBuilder()
     // Content Creator's project, client and billing rows. GeekOAuth is shared across Geek

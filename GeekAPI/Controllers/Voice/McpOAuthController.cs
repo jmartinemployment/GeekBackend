@@ -1,6 +1,6 @@
 using GeekAPI.Services.Voice.Mcp;
 using GeekApplication.Models.Voice;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using GeekAPI.Services.Voice.OwnerAuth;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,7 +17,7 @@ public sealed record CompleteMcpConnectionRequest(string? Code, string? State, s
 /// stranger's Google account being tricked into approving it. A refusal is answered with its message and its code.
 /// </summary>
 [ApiController]
-[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+[Authorize(AuthenticationSchemes = ReceptionistAuth.Scheme)]
 public sealed class McpOAuthController(McpConnectionService connections) : ControllerBase
 {
     [HttpGet("api/v1/tenants/{tenantId:guid}/oauth/mcp/{provider}/authorize")]

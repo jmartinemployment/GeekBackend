@@ -1,17 +1,19 @@
 using System.Security.Claims;
 using GeekAPI.Services.Voice.Mcp;
+using GeekAPI.Services.Voice.OwnerAuth;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GeekAPI.Controllers.Voice;
 
 /// <summary>
 /// The one check every owner route of Geek-Receptionist makes before it believes a tenant in a URL: the tenant comes from the signed-in
-/// owner's tenant_id claim, and a URL naming any other tenant is refused. A token with no claim is refused too, so a login that was
+/// owner's tenant_id claim, in a token Geek-Receptionist signed itself (<see cref="ReceptionistAuth"/>), and a URL naming any other
+/// tenant is refused. A token with no claim is refused too, so a login that was
 /// never given a tenant can touch no tenant's data.
 /// </summary>
 internal static class OwnerTenantClaim
 {
-    internal const string TenantClaim = "tenant_id";
+    internal const string TenantClaim = ReceptionistAuth.TenantClaim;
 
     /// <summary>Null when the token's tenant is the tenant in the URL; otherwise the 403 to send.</summary>
     internal static ObjectResult? Refuse(ClaimsPrincipal user, Guid tenantId)
