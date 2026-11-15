@@ -102,15 +102,15 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
    - **End-of-Cycle Overages:** Billed at **$0.50** per rounded-up billable minute above `included_minutes` via PayPal `/v2/checkout/orders` using `paypal_vault_token_id`.
 
 3. **Twilio Provisioning & Call Transfer Rules:**
-   - Provision an isolated Twilio Subaccount, purchase a local US number in `preferredAreaCode`, configure SIP trunking/webhooks to `PUBLIC_BASE_URL/api/receptionist/twilio/voice/inbound/{tenantId}` and `.../status/{tenantId}`, and submit TrustHub A2P 10DLC Brand registration if `enableSmsNotifications == true`.
+   - Provision an isolated Twilio Subaccount, purchase a local US number in `preferredAreaCode`, create an Elastic SIP trunk on that Subaccount (origination `sip:sip.retellai.com`, termination by credentials), assign the number to the trunk, import the number into Retell (`/import-phone-number`) bound to the tenant's agent, so a call goes from Twilio straight to Retell and GeekAPI never receives the voice call, and, if `enableSmsNotifications == true`, point the number's SMS webhook at `PUBLIC_BASE_URL/api/receptionist/twilio/sms/incoming/{tenantId}` and submit TrustHub A2P 10DLC Brand registration.
    - Default `recording_disclosure_enabled` to `TRUE` (Florida all-party consent compliance, Fla. Stat. § 934.03).
    - Execute call transfers according to `receptionist_configs.transfer_mode` (`warm_transfer`, `cold_transfer`, `voicemail_only`) and `transfer_caller_id_mode` (`original_caller` passes inbound caller E.164 on `<Dial callerId="...">`).
 
 4. **Phase 1 Voice Orchestration & Live Call AI Model:**
    - **Phase 1 Voice Orchestrator (Expediency):** Use **Retell AI** connected to each tenant's provisioned Twilio Subaccount number via SIP trunking. During onboarding (`activate-subscription`), `GeekAPI` programmatically creates a tenant-isolated Retell Agent via REST API and binds its webhook URLs to `PUBLIC_BASE_URL/api/receptionist/retell/webhook/{tenantId}`.
-   - **Live Call LLM:** Configure the Retell Agent to use **`gpt-4o-mini`** (`temperature = 0.2`, `max_tokens = 150`) for real-time conversation and custom tool-calling (`search_knowledge`, `check_calendar_availability`, `book_appointment`, `transfer_call`).
+   - **Live Call LLM:** Configure the Retell Agent to use the model named in the Railway variable **`RETELL_LLM_MODEL`** (set on `GeekAPI` only, no default in code; it must be a model on Retell's published list; `temperature = 0.2`) for real-time conversation and custom tool-calling (`search_knowledge`, `check_calendar_availability`, `book_appointment`, `transfer_call`).
    - **Prohibited on Live Loop:** **MUST NOT** build custom raw audio WebSocket loops in Phase 1 or use expensive speech-to-speech models (`gpt-4o-realtime`). Migration to direct **Twilio ConversationRelay** is deferred to Phase 2 margin optimization.
-   - **Post-Call Summarization:** Run asynchronously on call completion (`voice/status/{tenantId}`) to populate `call_logs.call_summary` and `disposition`.
+   - **Post-Call Summarization:** Run asynchronously when Retell's call-ended webhook arrives (`retell/webhook/{tenantId}`) to populate `call_logs.call_summary` and `disposition`.
 
 5. **Knowledge Grounding (`Geek-RAG` / `Geek-Crawler` Contract):**
    - Phase 1 normalizes Guided Trade Forms (`guided_trade_form`) and uploaded PDFs/docs (`pdf_upload`) to Markdown in `geek_voice.knowledge_documents`, chunked and embedded (`vector(384)`, `BAAI/bge-small-en-v1.5`) in `geek_voice.knowledge_chunks`.
@@ -127,8 +127,6 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 * `GET  /api/v1/oauth/mcp/{provider}/callback`
 * `POST /api/v1/tenants/{tenantId}/knowledge/guided-form`
 * `POST /api/v1/tenants/{tenantId}/knowledge/upload-pdf`
-* `POST /api/receptionist/twilio/voice/inbound/{tenantId}` (`TwilioSignatureFilter`)
-* `POST /api/receptionist/twilio/voice/status/{tenantId}` (`TwilioSignatureFilter`)
 * `POST /api/receptionist/twilio/sms/incoming/{tenantId}` (`TwilioSignatureFilter`)
 * `POST /api/receptionist/retell/webhook/{tenantId}` (Retell signature verified)
 * `HUB  /hubs/receptionist-live` (SignalR Hub, JWT `tenant_id` group-scoped)
@@ -188,6 +186,7 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | `VALIDATE_TWILIO_SIGNATURE` | | `true` | Defaults to `true`; `false` permitted only in local integration tests |
 | `RETELL_API_KEY` | ✓ | Secret | Retell AI API key used to programmatically create/update per-tenant voice agents |
 | `RETELL_WEBHOOK_SECRET` | ✓ | Secret | Secret used to verify inbound Retell tool-call and post-call webhooks |
+| `RETELL_LLM_MODEL` | ✓ | Model name from Retell's list, e.g. `gpt-4.1-mini` | The live-call model every tenant's Retell agent uses at `temperature = 0.2`; a variable of its own, never shared with Content Creator's model variables; unset: activation fails with 503 `retell_not_configured` |
 | `PAYPAL_BASE_URL` | ✓ | Sandbox: `https://api-m.sandbox.paypal.com`<br>Live: `https://api-m.paypal.com` | PayPal REST API host for Subscription verification, Vault tokens, and `$0.50/min` overage capture |
 | `PAYPAL_CLIENT_ID` | ✓ | Client ID | PayPal REST app client ID |
 | `PAYPAL_CLIENT_SECRET` | ✓ | Secret | PayPal REST app secret |
@@ -196,6 +195,7 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | `MCP_GATEWAY_URL` | ✓ | `http://geek-mcp-gateway.railway.internal:3000` | Railway private network URL for `GeekMcpGateway` (service `geek-mcp-gateway`, port `3000`, no public domain) |
 | `MCP_GATEWAY_API_KEY` | ✓ | Secret | Shared key `GeekAPI` sends to `GeekMcpGateway` in header `X-Internal-Api-Key` |
 | `PORTAL_BASE_URL` | ✓ | `https://receptionist.geekatyourspot.com` | Origin of Geek-Receptionist-Portal; OAuth callbacks redirect here (configurable until DNS is provisioned on Vercel) |
+| `VOICE_ENCRYPTION_KEY` | ✓ | Secret, 32 bytes, base64 | AES-256-GCM key held by `GeekAPI` alone; encrypts each tenant's Twilio auth token (`twilio_auth_token_encrypted`) and calendar/CRM OAuth tokens (`oauth_*_token_encrypted`) before they reach `GeekRepository`, which stores ciphertext only. Unset or not 32 bytes: the operation that needs it fails with 503 `encryption_unavailable` |
 | `FeatureFlags__EnableIndustryAddendums` | | `false` | Defaults to `false` (rejects Law, Financial, and School verticals until Phase 2 addendums ship) |
 
 ### B. Active v1 Railway Variables (`GeekRepository`)

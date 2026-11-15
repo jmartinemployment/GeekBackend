@@ -1,6 +1,7 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Onboarding;
+using GeekAPI.Services.Voice.Telephony;
 using GeekApplication.Interfaces.Voice;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -25,8 +26,14 @@ public static class VoiceServiceRegistration
             return new HttpVoiceRepository(httpClient, logger);
         });
         services.AddScoped<OnboardingEligibility>();
+        services.AddSingleton<VoiceCredentialProtector>();
         services.AddSingleton(PayPalOptions.FromEnvironment());
         services.AddHttpClient<PayPalBillingVerifier>(client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton(TwilioOptions.FromEnvironment());
+        services.AddHttpClient<TwilioProvisioner>(client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton(RetellOptions.FromEnvironment());
+        services.AddHttpClient<RetellProvisioner>(client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddScoped<SubscriptionActivation>();
         services.AddRateLimiter(options =>
         {
             options.AddPolicy(OnboardingRateLimit.PolicyName, OnboardingRateLimit.Partition);
