@@ -19,8 +19,9 @@ namespace GeekBackend.Tests.Voice;
 
 /// <summary>
 /// Connecting a tenant's Google Calendar: the state is sealed and tied to one tenant, one provider and ten minutes; Google's one-time code
-/// is spent only after the state checks out; only ciphertext reaches the store; every Google failure is a named code and never a default;
-/// and the callback answers a browser with a redirect to the portal and nothing else. No log line carries a code, a token or a secret.
+/// is spent only after the state checks out; an approval started for one tenant cannot be finished by another; only ciphertext reaches the
+/// store; every Google failure is a named code and never a default; and no route is open without a token. No log line carries a code, a
+/// token or a secret.
 /// </summary>
 public sealed class McpConnectionTests
 {
@@ -97,7 +98,6 @@ public sealed class McpConnectionTests
         public StubHandler Google { get; }
         public CapturingLogger<GoogleCalendarOAuth> GoogleLog { get; } = new();
         public CapturingLogger<McpConnectionService> ServiceLog { get; } = new();
-        public CapturingLogger<McpOAuthController> ControllerLog { get; } = new();
         public GoogleCalendarOptions Options { get; }
         public VoiceCredentialProtector Protector { get; }
         public McpOAuthState State { get; }
@@ -106,7 +106,7 @@ public sealed class McpConnectionTests
         public Rig(Func<HttpRequestMessage, HttpResponseMessage>? google = null, GoogleCalendarOptions? options = null)
         {
             Google = new StubHandler(google ?? (_ => TokenAnswer()));
-            Options = options ?? new GoogleCalendarOptions("client-id.apps.googleusercontent.com", ClientSecret, "https://api.geekatyourspot.com", Portal);
+            Options = options ?? new GoogleCalendarOptions("client-id.apps.googleusercontent.com", ClientSecret, Portal);
             Protector = new VoiceCredentialProtector(() => Key);
             State = new McpOAuthState(Protector, Clock);
             var oauth = new GoogleCalendarOAuth(new HttpClient(Google), Options, Clock, GoogleLog);
@@ -116,7 +116,7 @@ public sealed class McpConnectionTests
         public string SealedState(Guid? tenant = null, string provider = GoogleCalendarOptions.Provider) =>
             State.Create(tenant ?? Tenant, provider).Value!;
 
-        public McpOAuthController Controller(ClaimsPrincipal? user = null) => new(Service, Options, ControllerLog)
+        public McpOAuthController Controller(ClaimsPrincipal? user = null) => new(Service)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = user ?? new ClaimsPrincipal(new ClaimsIdentity()) } },
         };
@@ -240,7 +240,7 @@ public sealed class McpConnectionTests
         Assert.Equal("accounts.google.com", url.Host);
         var query = System.Web.HttpUtility.ParseQueryString(url.Query);
         Assert.Equal("client-id.apps.googleusercontent.com", query["client_id"]);
-        Assert.Equal("https://api.geekatyourspot.com/api/v1/oauth/mcp/google_calendar/callback", query["redirect_uri"]);
+        Assert.Equal("https://receptionist.geekatyourspot.com/oauth/mcp/google_calendar/callback", query["redirect_uri"]);
         Assert.Equal("code", query["response_type"]);
         Assert.Equal("offline", query["access_type"]);
         Assert.Equal("consent", query["prompt"]);
@@ -285,7 +285,7 @@ public sealed class McpConnectionTests
     [Fact]
     public async Task An_unset_Google_variable_names_itself_in_the_log_and_is_oauth_not_configured()
     {
-        var rig = new Rig(options: new GoogleCalendarOptions(null, ClientSecret, "https://api.geekatyourspot.com", Portal));
+        var rig = new Rig(options: new GoogleCalendarOptions(null, ClientSecret, Portal));
 
         var result = await rig.Service.BeginAsync(Tenant, GoogleCalendarOptions.Provider);
 
@@ -301,7 +301,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig();
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal(Tenant, result.Value);
@@ -320,13 +320,13 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig();
 
-        await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         var body = Assert.Single(rig.Google.Bodies);
         var form = System.Web.HttpUtility.ParseQueryString(body);
         Assert.Equal(AuthCode, form["code"]);
         Assert.Equal("authorization_code", form["grant_type"]);
-        Assert.Equal("https://api.geekatyourspot.com/api/v1/oauth/mcp/google_calendar/callback", form["redirect_uri"]);
+        Assert.Equal("https://receptionist.geekatyourspot.com/oauth/mcp/google_calendar/callback", form["redirect_uri"]);
         Assert.Equal(ClientSecret, form["client_secret"]);
     }
 
@@ -335,7 +335,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig();
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, "forged", null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, "forged", null);
 
         Assert.Equal(McpFailureCodes.StateInvalid, result.ErrorCode);
         Assert.Empty(rig.Google.Bodies);
@@ -347,7 +347,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig();
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, null, rig.SealedState(), "access_denied");
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, null, rig.SealedState(), "access_denied");
 
         Assert.Equal(McpFailureCodes.AuthorizationDenied, result.ErrorCode);
         Assert.Empty(rig.Google.Bodies);
@@ -359,7 +359,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig();
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, " ", rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, " ", rig.SealedState(), null);
 
         Assert.Equal(VoiceFailureCodes.InvalidRequest, result.ErrorCode);
         Assert.Empty(rig.Google.Bodies);
@@ -370,7 +370,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig();
 
-        var result = await rig.Service.CompleteAsync("outlook", AuthCode, rig.SealedState(provider: "outlook"), null);
+        var result = await rig.Service.CompleteAsync(Tenant, "outlook", AuthCode, rig.SealedState(provider: "outlook"), null);
 
         Assert.Equal(McpFailureCodes.ProviderNotSupported, result.ErrorCode);
         Assert.Empty(rig.Google.Bodies);
@@ -381,7 +381,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig(_ => Json("{\"error\":\"invalid_grant\",\"error_description\":\"Bad Request\"}", HttpStatusCode.BadRequest));
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(McpFailureCodes.CodeExchangeFailed, result.ErrorCode);
         Assert.Empty(rig.Store.Saved);
@@ -395,7 +395,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig(_ => Json("{\"error\":\"invalid_client\"}", status));
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(McpFailureCodes.OAuthUnavailable, result.ErrorCode);
         Assert.Empty(rig.Store.Saved);
@@ -407,7 +407,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig(_ => throw new HttpRequestException("connection reset"));
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(McpFailureCodes.OAuthUnavailable, result.ErrorCode);
         Assert.Single(rig.Google.Bodies);
@@ -418,7 +418,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig(_ => Json("<html>oops</html>"));
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(McpFailureCodes.OAuthUnavailable, result.ErrorCode);
     }
@@ -428,7 +428,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig(_ => TokenAnswer(access: null));
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(McpFailureCodes.OAuthUnavailable, result.ErrorCode);
         Assert.Empty(rig.Store.Saved);
@@ -439,7 +439,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig(_ => TokenAnswer(refresh: null));
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(McpFailureCodes.RefreshTokenMissing, result.ErrorCode);
         Assert.Empty(rig.Store.Saved);
@@ -450,7 +450,7 @@ public sealed class McpConnectionTests
     {
         var rig = new Rig(_ => TokenAnswer(scope: "https://www.googleapis.com/auth/calendar.calendarlist.readonly"));
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(McpFailureCodes.ScopeNotGranted, result.ErrorCode);
         Assert.Empty(rig.Store.Saved);
@@ -462,7 +462,7 @@ public sealed class McpConnectionTests
         var rig = new Rig();
         rig.Store.Save = () => Result<VoiceMcpConnection>.Failure("The store is down.", VoiceFailureCodes.StoreUnavailable);
 
-        var result = await rig.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(VoiceFailureCodes.StoreUnavailable, result.ErrorCode);
@@ -476,7 +476,7 @@ public sealed class McpConnectionTests
         var noKey = new VoiceCredentialProtector(() => null);
         var service = new McpConnectionService(rig.Store, rig.Options, oauth, new McpOAuthState(rig.Protector, rig.Clock), noKey, rig.ServiceLog);
 
-        var result = await service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+        var result = await service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
 
         Assert.Equal(VoiceCredentialProtector.EncryptionUnavailable, result.ErrorCode);
         Assert.Empty(rig.Store.Saved);
@@ -486,9 +486,9 @@ public sealed class McpConnectionTests
     public async Task No_log_line_carries_a_code_a_token_or_the_secret()
     {
         var failing = new Rig(_ => Json("{\"error\":\"invalid_client\"}", HttpStatusCode.Unauthorized));
-        await failing.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, failing.SealedState(), null);
+        await failing.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, failing.SealedState(), null);
         var working = new Rig();
-        await working.Service.CompleteAsync(GoogleCalendarOptions.Provider, AuthCode, working.SealedState(), null);
+        await working.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, working.SealedState(), null);
 
         var lines = failing.GoogleLog.Lines.Concat(failing.ServiceLog.Lines).Concat(working.GoogleLog.Lines).Concat(working.ServiceLog.Lines).ToList();
         Assert.NotEmpty(lines);
@@ -543,51 +543,97 @@ public sealed class McpConnectionTests
         Assert.Equal(StatusCodes.Status409Conflict, Assert.IsType<ObjectResult>(answer).StatusCode);
     }
 
+    private static CompleteMcpConnectionRequest Approval(string? state, string? code = AuthCode, string? error = null) => new(code, state, error);
+
     [Fact]
-    public async Task The_callback_sends_a_connected_owner_back_to_the_dashboard()
+    public async Task Complete_connects_the_calendar_for_the_owner_whose_token_matches_the_state()
     {
         var rig = new Rig();
 
-        var answer = await rig.Controller().Callback(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null, CancellationToken.None);
+        var answer = await rig.Controller(Owner(Tenant)).Complete(Tenant, GoogleCalendarOptions.Provider, Approval(rig.SealedState()), CancellationToken.None);
 
-        var redirect = Assert.IsType<RedirectResult>(answer);
-        Assert.Equal($"{Portal}/dashboard?mcp=connected&provider=google_calendar", redirect.Url);
+        var ok = Assert.IsType<OkObjectResult>(answer);
+        Assert.Contains("connected = True", ok.Value!.ToString(), StringComparison.Ordinal);
+        Assert.Single(rig.Store.Saved);
     }
 
     [Fact]
-    public async Task The_callback_sends_a_failed_owner_back_with_the_failure_code_and_logs_it()
+    public async Task Complete_refuses_an_approval_started_for_another_tenant_and_never_asks_Google()
     {
         var rig = new Rig();
+        var stranger = Guid.NewGuid();
 
-        var answer = await rig.Controller().Callback(GoogleCalendarOptions.Provider, null, rig.SealedState(), "access_denied", CancellationToken.None);
+        var answer = await rig.Controller(Owner(stranger)).Complete(stranger, GoogleCalendarOptions.Provider, Approval(rig.SealedState(Tenant)), CancellationToken.None);
 
-        var redirect = Assert.IsType<RedirectResult>(answer);
-        Assert.Equal($"{Portal}/dashboard?mcp=failed&provider=google_calendar&code=authorization_denied", redirect.Url);
-        Assert.Contains(rig.ControllerLog.Lines, line => line.Contains("authorization_denied", StringComparison.Ordinal));
+        var refused = Assert.IsType<ObjectResult>(answer);
+        Assert.Equal(StatusCodes.Status403Forbidden, refused.StatusCode);
+        Assert.Contains(McpFailureCodes.TenantForbidden, refused.Value!.ToString(), StringComparison.Ordinal);
+        Assert.Empty(rig.Google.Bodies);
+        Assert.Empty(rig.Store.Saved);
+        Assert.Contains(rig.ServiceLog.Lines, line => line.Contains(Tenant.ToString(), StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task The_callback_with_a_forged_state_redirects_as_failed_and_stores_nothing()
+    public async Task Complete_refuses_a_token_with_no_tenant_and_a_tenant_in_the_URL_that_is_not_the_tokens()
     {
         var rig = new Rig();
 
-        var answer = await rig.Controller().Callback(GoogleCalendarOptions.Provider, AuthCode, "forged", null, CancellationToken.None);
+        var none = await rig.Controller(Owner(null)).Complete(Tenant, GoogleCalendarOptions.Provider, Approval(rig.SealedState()), CancellationToken.None);
+        var other = await rig.Controller(Owner(Guid.NewGuid())).Complete(Tenant, GoogleCalendarOptions.Provider, Approval(rig.SealedState()), CancellationToken.None);
 
-        Assert.Equal($"{Portal}/dashboard?mcp=failed&provider=google_calendar&code=state_invalid", Assert.IsType<RedirectResult>(answer).Url);
+        Assert.Contains(McpFailureCodes.TenantUnverified, Assert.IsType<ObjectResult>(none).Value!.ToString(), StringComparison.Ordinal);
+        Assert.Contains(McpFailureCodes.TenantForbidden, Assert.IsType<ObjectResult>(other).Value!.ToString(), StringComparison.Ordinal);
+        Assert.Empty(rig.Google.Bodies);
+    }
+
+    [Fact]
+    public async Task Complete_with_a_forged_state_is_a_400_and_stores_nothing()
+    {
+        var rig = new Rig();
+
+        var answer = await rig.Controller(Owner(Tenant)).Complete(Tenant, GoogleCalendarOptions.Provider, Approval("forged"), CancellationToken.None);
+
+        var refused = Assert.IsType<ObjectResult>(answer);
+        Assert.Equal(StatusCodes.Status400BadRequest, refused.StatusCode);
+        Assert.Contains(McpFailureCodes.StateInvalid, refused.Value!.ToString(), StringComparison.Ordinal);
         Assert.Empty(rig.Store.Saved);
         Assert.Empty(rig.Google.Bodies);
     }
 
     [Fact]
-    public async Task The_callback_with_no_portal_address_is_503_before_Google_is_asked()
+    public async Task Complete_with_a_declined_approval_is_a_400_with_the_failure_code()
     {
-        var rig = new Rig(options: new GoogleCalendarOptions("id", ClientSecret, "https://api.geekatyourspot.com", null));
+        var rig = new Rig();
 
-        var answer = await rig.Controller().Callback(GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null, CancellationToken.None);
+        var answer = await rig.Controller(Owner(Tenant)).Complete(Tenant, GoogleCalendarOptions.Provider, Approval(rig.SealedState(), code: null, error: "access_denied"), CancellationToken.None);
 
-        Assert.Equal(StatusCodes.Status503ServiceUnavailable, Assert.IsType<ObjectResult>(answer).StatusCode);
+        var refused = Assert.IsType<ObjectResult>(answer);
+        Assert.Equal(StatusCodes.Status400BadRequest, refused.StatusCode);
+        Assert.Contains(McpFailureCodes.AuthorizationDenied, refused.Value!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Complete_with_no_body_is_a_400()
+    {
+        var rig = new Rig();
+
+        var answer = await rig.Controller(Owner(Tenant)).Complete(Tenant, GoogleCalendarOptions.Provider, null!, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(answer);
+    }
+
+    [Fact]
+    public async Task Complete_with_no_portal_address_is_503_oauth_not_configured_before_Google_is_asked()
+    {
+        var rig = new Rig(options: new GoogleCalendarOptions("id", ClientSecret, null));
+
+        var answer = await rig.Controller(Owner(Tenant)).Complete(Tenant, GoogleCalendarOptions.Provider, Approval(rig.SealedState()), CancellationToken.None);
+
+        var refused = Assert.IsType<ObjectResult>(answer);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, refused.StatusCode);
+        Assert.Contains(McpFailureCodes.OAuthNotConfigured, refused.Value!.ToString(), StringComparison.Ordinal);
+        Assert.Contains(rig.ServiceLog.Lines, line => line.Contains("PORTAL_BASE_URL", StringComparison.Ordinal));
         Assert.Empty(rig.Google.Bodies);
-        Assert.Empty(rig.Store.Saved);
     }
 
     [Theory]
@@ -607,7 +653,7 @@ public sealed class McpConnectionTests
         Assert.Equal(status, McpOAuthController.StatusFor(code));
     }
 
-    // ---- the callback is reachable without a key, and nothing else near it is ----
+    // ---- no route here is open: Google never calls GeekAPI, the portal does, with the owner's token ----
 
     private sealed class Environment_ : IHostEnvironment
     {
@@ -629,19 +675,11 @@ public sealed class McpConnectionTests
         return (reached, context.Response.StatusCode);
     }
 
-    [Fact]
-    public async Task The_Google_Calendar_callback_passes_without_an_API_key()
-    {
-        var (reached, _) = await Through("/api/v1/oauth/mcp/google_calendar/callback");
-
-        Assert.True(reached);
-    }
-
     [Theory]
-    [InlineData("/api/v1/oauth/mcp/hubspot/callback")]
-    [InlineData("/api/v1/oauth/mcp/google_calendar/callback/extra")]
+    [InlineData("/api/v1/oauth/mcp/google_calendar/callback")]
     [InlineData("/api/v1/tenants/11111111-2222-3333-4444-555555555555/oauth/mcp/google_calendar/authorize")]
-    public async Task Nothing_else_near_the_callback_passes_without_a_key(string path)
+    [InlineData("/api/v1/tenants/11111111-2222-3333-4444-555555555555/oauth/mcp/google_calendar/complete")]
+    public async Task No_calendar_connection_route_passes_without_a_key_or_a_token(string path)
     {
         var (reached, status) = await Through(path);
 

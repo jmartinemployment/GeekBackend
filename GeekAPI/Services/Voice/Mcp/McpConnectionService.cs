@@ -5,10 +5,12 @@ using GeekApplication.Results;
 namespace GeekAPI.Services.Voice.Mcp;
 
 /// <summary>
-/// Connects a tenant's calendar (docs/Geek-Receptionist.md section 6: the OAuth callback). Begin makes the address the tenant's owner is
-/// sent to; Complete is what Google's redirect calls. Complete checks the state before it spends Google's one-time code, encrypts both
-/// tokens with <see cref="VoiceCredentialProtector"/> and hands only ciphertext to GeekRepository. Only google_calendar is built: any
-/// other provider is refused (400) and never quietly treated as Google.
+/// Connects a tenant's calendar (docs/Geek-Receptionist.md sections 6 and 7). Begin makes the address the tenant's owner is sent to.
+/// Google sends the owner's browser back to the portal, and the portal calls Complete with the owner's own token, so Complete knows who
+/// is approving: it refuses unless that tenant is the one sealed in the state, which is what stops someone from getting a stranger to
+/// approve a connection that was started for another tenant. It checks the state before it spends Google's one-time code,
+/// encrypts both tokens with <see cref="VoiceCredentialProtector"/> and hands only ciphertext to GeekRepository. Only google_calendar
+/// is built: any other provider is refused (400) and never quietly treated as Google.
 /// </summary>
 public sealed class McpConnectionService(
     IVoiceStore store,
@@ -37,8 +39,11 @@ public sealed class McpConnectionService(
         return Result<string>.Success(google.AuthorizationUrl(sealedState.Value!));
     }
 
-    /// <summary>The tenant that was connected. <paramref name="error"/> is Google's own error parameter, present when the person declined.</summary>
-    public async Task<Result<Guid>> CompleteAsync(string provider, string? code, string? sealedState, string? error, CancellationToken ct = default)
+    /// <summary>
+    /// <paramref name="callerTenantId"/> is the tenant in the owner's verified token. <paramref name="error"/> is Google's own error
+    /// parameter, present when the person declined.
+    /// </summary>
+    public async Task<Result<Guid>> CompleteAsync(Guid callerTenantId, string provider, string? code, string? sealedState, string? error, CancellationToken ct = default)
     {
         var supported = CheckProvider(provider);
         if (supported is not null) return Result<Guid>.Failure(supported, McpFailureCodes.ProviderNotSupported);
@@ -48,6 +53,11 @@ public sealed class McpConnectionService(
 
         var tenantId = state.Read(sealedState, provider);
         if (!tenantId.IsSuccess) return Result<Guid>.Failure(tenantId.Error!, tenantId.ErrorCode!);
+        if (tenantId.Value != callerTenantId)
+        {
+            logger.LogWarning("A {Provider} approval was started for tenant {StateTenant} and finished by tenant {CallerTenant}.", provider, tenantId.Value, callerTenantId);
+            return Result<Guid>.Failure("That approval was started for a different account.", McpFailureCodes.TenantForbidden);
+        }
 
         if (!string.IsNullOrWhiteSpace(error))
         {
