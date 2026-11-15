@@ -179,7 +179,7 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
    - **Tenant checks:** the tenant comes from the token's `tenant_id` claim on both routes; a different tenant in the URL is `403 tenant_forbidden`, a token with no claim is `403 tenant_unverified`, and a tenant that has not paid is `409 tenant_not_active` (on `authorize`). `complete` also refuses, `403 tenant_forbidden`, an approval whose sealed state names a different tenant than the token. That check is what stops someone from starting a connection for their own tenant and getting a stranger to approve it with the stranger's Google account. **GeekOAuth issues `tenant_id`** (1eded95) from a user's `tenant` column when it holds a GUID. That column is written only by GeekOAuth's `POST /api/internal/tenant-owners` (ef9da77), which accepts only the `geekapi` client's token, and GeekAPI calls it through `POST /api/v1/onboarding/create-owner-login`: the tenant must be `active` (`409 tenant_not_active` otherwise), a tenant or email that already has a login is `409 owner_exists`, a password GeekOAuth refuses is `400 credentials_refused`, and any other GeekOAuth failure is `503 auth_unavailable`; nothing is retried. The check that a tenant has no owner yet is read-then-create with no unique index. Until the portal calls this and an owner signs in, both routes can only refuse.
    - **What `complete` does:** it checks the sealed state (tenant, provider, 10-minute expiry; AES-256-GCM under `VOICE_ENCRYPTION_KEY`) and the tenant match **before** it spends Google's one-time code, exchanges the code once with no retry, encrypts both tokens, saves them through GeekRepository and answers `200 { connected: true }`. Every refusal is a `400`, `403`, `404`, `409` or `503` with a `code` the portal shows the owner.
    - **Not built:** the portal itself (no project exists yet), including that callback page.
-   - **Not decided:** whether `GeekMcpGateway` calls Google's hosted Calendar MCP server (`https://calendarmcp.googleapis.com/mcp/v1`, Developer Preview, whose documentation lists only read-only scopes) or the Google Calendar REST API. It is decided by one real booking call after a first tenant connects.
+   - **Gateway transport:** `GeekMcpGateway` is built on the Google Calendar REST API (`freeBusy` and `events.insert`), not Google's hosted Calendar MCP server (`https://calendarmcp.googleapis.com/mcp/v1`, Developer Preview, whose documentation lists only read-only scopes). Moving to the hosted server is one change inside the gateway's `google-calendar.ts`, decided by whether a real booking call through it succeeds; nothing in `GeekAPI` would change.
 
 ---
 
@@ -218,6 +218,15 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 |----------|:--------:|----------------|-------------|
 | `DATABASE_URL` | ✓ | Postgres URI | Supabase PostgreSQL connection string (**MUST live ONLY in `GeekRepository`**) |
 | `GEEK_REPOSITORY_API_KEY` | ✓ | Secret | Validates `X-Internal-Api-Key` on all `/internal/v1/*` requests from `GeekAPI` |
+
+### B1. `GeekMcpGateway` Routes (folder `GeekMcpGateway/`, `Dockerfile.gateway`, `railway.geekmcpgateway.toml`)
+
+Stateless, private network only. Every route except `GET /health` needs `X-Internal-Api-Key` (`401 unauthorized` otherwise, checked before the body is read). `GeekAPI` decrypts the tenant's access token and sends it in the body of each call; the gateway uses it for that one Google call and never stores, logs or returns it. One call to Google, no retry. Only `provider: "google_calendar"` is accepted (`400 provider_not_supported` for the rest).
+
+* `POST /v1/calendar/availability` body `{ provider, accessToken, calendarId, timeMin, timeMax }` (ISO date-times with an offset, range at most 62 days) answers `200 { calendarId, timeMin, timeMax, busy: [{ start, end }] }`.
+* `POST /v1/calendar/events` body `{ provider, accessToken, calendarId, summary, start, end, timeZone?, description?, location?, attendeeEmails?, eventId? }` answers `201 { eventId, htmlLink, start, end }`. `eventId` (lowercase a to v and digits, 5 to 100 characters) makes a repeated booking a `409 event_exists` instead of a second event. No invitations are sent.
+* Failures: `400 invalid_request | provider_rejected`, `401 token_rejected` (the access token expired or was revoked, so `GeekAPI` must refresh it, which is not built), `403 provider_forbidden`, `404 calendar_not_found`, `409 event_exists`, `413 body_too_large`, `502 provider_unavailable | provider_unreachable`. Google's own message is never passed on.
+* `GeekAPI` does not call it yet, and refreshing an expired access token with the stored refresh token is not built.
 
 ### B2. Active v1 Railway Variables (`GeekMcpGateway`)
 
