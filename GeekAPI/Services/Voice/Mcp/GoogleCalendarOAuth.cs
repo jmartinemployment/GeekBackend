@@ -7,6 +7,9 @@ namespace GeekAPI.Services.Voice.Mcp;
 /// <summary>What Google handed back for an approved connection. The refresh token is what keeps the connection alive after the access token lapses.</summary>
 public sealed record GoogleCalendarTokens(string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
 
+/// <summary>A renewed access token and when it lapses. Google does not send a new refresh token; the stored one stays valid.</summary>
+public sealed record GoogleCalendarAccess(string AccessToken, DateTimeOffset ExpiresAt);
+
 /// <summary>
 /// Google's side of connecting a tenant's calendar: the address the person is sent to, and the one-time code exchange. Google answering
 /// invalid_grant means the code was used, expired or never issued for this client, which is the visitor's mistake (400). A refusal of
@@ -85,6 +88,80 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
             return Read(body);
         }
     }
+
+    /// <summary>
+    /// Renews the access token with the stored refresh token. Google answering invalid_grant means the owner took the access away (or
+    /// the token was revoked), which only the owner can fix by connecting again, so it is reauthorization_required (409). Everything
+    /// else is Google unavailable (503). Made once and never retried.
+    /// </summary>
+    public async Task<Result<GoogleCalendarAccess>> RefreshAsync(string refreshToken, CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, GoogleCalendarOptions.TokenEndpoint)
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["refresh_token"] = refreshToken,
+                ["client_id"] = options.ClientId!,
+                ["client_secret"] = options.ClientSecret!,
+                ["grant_type"] = "refresh_token",
+            }),
+        };
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(request, ct).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Google's token endpoint is unreachable for a refresh.");
+            return RefreshUnavailable("Google could not be reached.");
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            logger.LogError("Google's token endpoint timed out on a refresh.");
+            return RefreshUnavailable("Google did not answer in time.");
+        }
+
+        using (response)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+            if (response.StatusCode == HttpStatusCode.BadRequest && ErrorOf(body) == "invalid_grant")
+            {
+                logger.LogWarning("Google refused a calendar refresh token: invalid_grant. The owner must connect again.");
+                return Result<GoogleCalendarAccess>.Failure("Google no longer accepts this calendar connection. Connect the calendar again.", McpFailureCodes.ReauthorizationRequired);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogError("Google's token endpoint answered {Status} to a refresh.", (int)response.StatusCode);
+                return RefreshUnavailable("Google refused the renewal.");
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(body);
+                var access = Text(document.RootElement, "access_token");
+                if (string.IsNullOrWhiteSpace(access)
+                    || !document.RootElement.TryGetProperty("expires_in", out var lifetime) || !lifetime.TryGetInt32(out var seconds) || seconds <= 0)
+                {
+                    logger.LogError("Google's refresh answer is missing a field it documents.");
+                    return RefreshUnavailable("Google answered something unexpected.");
+                }
+
+                return Result<GoogleCalendarAccess>.Success(new GoogleCalendarAccess(access, clock.GetUtcNow().AddSeconds(seconds)));
+            }
+            catch (JsonException)
+            {
+                logger.LogError("Google's refresh answer is not JSON.");
+                return RefreshUnavailable("Google answered something unexpected.");
+            }
+        }
+    }
+
+    private static Result<GoogleCalendarAccess> RefreshUnavailable(string message) =>
+        Result<GoogleCalendarAccess>.Failure(message, McpFailureCodes.OAuthUnavailable);
 
     private Result<GoogleCalendarTokens> Read(string body)
     {

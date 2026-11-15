@@ -39,6 +39,9 @@ public static class VoiceServiceRegistration
         services.AddSingleton<McpOAuthState>();
         services.AddHttpClient<GoogleCalendarOAuth>(client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddScoped<McpConnectionService>();
+        services.AddSingleton(McpGatewayOptions.FromEnvironment());
+        services.AddHttpClient<McpGatewayClient>(client => client.Timeout = TimeSpan.FromSeconds(45));
+        services.AddScoped<CalendarTools>();
         services.TryAddTransient<GeekAPI.Services.Auth.GeekOAuthTokenHandler>();
         services.AddHttpClient(OwnerLoginProvisioner.ClientName, client =>
             {

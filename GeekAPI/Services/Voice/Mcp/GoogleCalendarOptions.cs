@@ -15,6 +15,12 @@ public static class McpFailureCodes
     public const string ScopeNotGranted = "scope_not_granted";
     public const string RefreshTokenMissing = "refresh_token_missing";
     public const string OAuthUnavailable = "oauth_unavailable";
+    public const string CalendarNotConnected = "calendar_not_connected";
+    public const string ReauthorizationRequired = "reauthorization_required";
+    public const string GatewayNotConfigured = "gateway_not_configured";
+    public const string GatewayUnavailable = "gateway_unavailable";
+    public const string ToolNotAllowed = "tool_not_allowed";
+    public const string ToolError = "tool_error";
 }
 
 /// <summary>
@@ -53,6 +59,15 @@ public sealed record GoogleCalendarOptions(string? ClientId, string? ClientSecre
     /// client. The portal holds the owner's session, so it is the portal that hands the code to GeekAPI, with the owner's token.
     /// </summary>
     public string RedirectUri => $"{PortalBaseUrl}/oauth/mcp/{Provider}/callback";
+
+    /// <summary>The names of the variables renewing an access token needs that are unset or blank. The portal address is not one of them.</summary>
+    public IReadOnlyList<string> MissingForRefresh()
+    {
+        var missing = new List<string>();
+        if (string.IsNullOrWhiteSpace(ClientId)) missing.Add("GOOGLE_OAUTH_CLIENT_ID");
+        if (string.IsNullOrWhiteSpace(ClientSecret)) missing.Add("GOOGLE_OAUTH_CLIENT_SECRET");
+        return missing;
+    }
 
     /// <summary>The names of the variables the connection needs that are unset or blank.</summary>
     public IReadOnlyList<string> MissingForOAuth()

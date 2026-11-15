@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using GeekAPI.Services.Voice.Mcp;
 using GeekApplication.Models.Voice;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -21,12 +20,10 @@ public sealed record CompleteMcpConnectionRequest(string? Code, string? State, s
 [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
 public sealed class McpOAuthController(McpConnectionService connections) : ControllerBase
 {
-    internal const string TenantClaim = "tenant_id";
-
     [HttpGet("api/v1/tenants/{tenantId:guid}/oauth/mcp/{provider}/authorize")]
     public async Task<IActionResult> Authorize(Guid tenantId, string provider, CancellationToken ct)
     {
-        var refused = Verify(tenantId);
+        var refused = OwnerTenantClaim.Refuse(User, tenantId);
         if (refused is not null) return refused;
 
         var result = await connections.BeginAsync(tenantId, provider, ct);
@@ -38,7 +35,7 @@ public sealed class McpOAuthController(McpConnectionService connections) : Contr
     [HttpPost("api/v1/tenants/{tenantId:guid}/oauth/mcp/{provider}/complete")]
     public async Task<IActionResult> Complete(Guid tenantId, string provider, [FromBody] CompleteMcpConnectionRequest request, CancellationToken ct)
     {
-        var refused = Verify(tenantId);
+        var refused = OwnerTenantClaim.Refuse(User, tenantId);
         if (refused is not null) return refused;
 
         if (request is null)
@@ -48,16 +45,6 @@ public sealed class McpOAuthController(McpConnectionService connections) : Contr
         if (result.IsSuccess) return Ok(new { connected = true, provider });
 
         return Refusal(result.Error, result.ErrorCode, "The connection could not be completed.");
-    }
-
-    /// <summary>Null when the token's tenant is the tenant in the URL; otherwise the 403 to send.</summary>
-    private ObjectResult? Verify(Guid tenantId)
-    {
-        if (!Guid.TryParse(User.FindFirstValue(TenantClaim), out var claimed) || claimed == Guid.Empty)
-            return StatusCode(StatusCodes.Status403Forbidden, new { error = "The sign-in carries no tenant.", code = McpFailureCodes.TenantUnverified });
-        if (claimed != tenantId)
-            return StatusCode(StatusCodes.Status403Forbidden, new { error = "That tenant is not yours.", code = McpFailureCodes.TenantForbidden });
-        return null;
     }
 
     private ObjectResult Refusal(string? message, string? code, string fallback) =>

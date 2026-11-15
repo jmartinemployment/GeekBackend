@@ -125,6 +125,7 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 * `POST /api/v1/onboarding/activate-subscription`
 * `POST /api/v1/onboarding/create-owner-login` (portal's server, `X-API-Key`; body `{ tenantId, email, password, displayName }`; only an `active` tenant; answers `201 { tenantId, userId }`)
 * `PUT  /api/v1/tenants/{tenantId}/config`
+* `GET  /api/v1/tenants/{tenantId}/calendar/check` (owner's JWT; runs `list_calendars` for the owner's tenant through the same path a phone call uses; `200 { connected: true, calendars }`, `404 calendar_not_connected`, `409 reauthorization_required`)
 * `GET  /api/v1/tenants/{tenantId}/oauth/mcp/{provider}/authorize` (owner's JWT; returns `{ authorizationUrl }`)
 * `POST /api/v1/tenants/{tenantId}/oauth/mcp/{provider}/complete` (owner's JWT; body `{ code, state, error }`; the portal calls it after Google redirects the owner's browser to the portal's `/oauth/mcp/{provider}/callback`)
 * `POST /api/v1/tenants/{tenantId}/knowledge/guided-form`
@@ -226,7 +227,7 @@ An MCP client, stateless, private network only. Every route except `GET /health`
 * `POST /v1/mcp/tools` body `{ provider }` answers `200 { tools: [{ name, description, inputSchema }] }`, the offered tools exactly as Google describes them. No token is needed.
 * `POST /v1/mcp/call` body `{ provider, accessToken, tool, arguments }` answers `200 { tool, content, structuredContent }`, whatever the tool returned. The offered tools are `list_calendars`, `list_events`, `get_event`, `suggest_time` and `create_event`; any other tool is `400 tool_not_allowed`, so the receptionist cannot delete or change a tenant's events. `arguments` are passed to Google as sent and Google validates them, so the argument names come from `/v1/mcp/tools`. Google's tool descriptions say to send `startTime` and `endTime` as local time with no offset and a `timeZone` only when one is known.
 * Failures: `400 invalid_request | provider_rejected | tool_not_allowed`, `401 token_rejected` (the access token was refused or has expired, so `GeekAPI` must refresh it; not built), `403 provider_forbidden`, `413 body_too_large`, `422 tool_error` (the tool ran and reported an error; the body carries its `content`), `502 provider_unavailable | provider_unreachable`.
-* `GeekAPI` does not call it yet, and refreshing an expired access token with the stored refresh token is not built.
+* `GeekAPI` calls it through `CalendarTools`: it decrypts the tenant's stored access token, renews it with Google first when it has lapsed or lapses within two minutes (saving the new access token and expiry and keeping the refresh token), then makes one gateway call. Google refusing the refresh token (`invalid_grant`), or the gateway still answering `401 token_rejected`, is `409 reauthorization_required`: the owner must connect again, and nothing is renewed twice or repeated. `MCP_GATEWAY_URL` or `MCP_GATEWAY_API_KEY` unset is `503 gateway_not_configured`. Nothing in a phone call uses `CalendarTools` yet.
 
 ### B2. Active v1 Railway Variables (`GeekMcpGateway`)
 
