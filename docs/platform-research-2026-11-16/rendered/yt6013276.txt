@@ -1,0 +1,105 @@
+URL: https://support.google.com/youtube/answer/6013276?hl=en
+HTTP: 200
+
+Skip to main content
+YouTube Help
+Sign in
+Help Center
+Community
+Creator Tips
+YouTube
+Fix a problemWatch videosManage your account & settingsSupervised experiences on YouTubeYouTube PremiumCreate & grow your channelMonetize your contentPolicy, safety, & copyright
+Copyright and rights managementCopyright claim basicsLearn about copyright claims
+Learn about copyright claims
+
+A copyright claim may be automatically generated when an uploaded video matches another video (or segment of a video) in YouTube's Content ID system. Depending on the copyright owner's Content ID settings, copyright claims can:
+
+Block a video from being viewed
+Monetize the video by running ads on it, sometimes sharing revenue with the uploader
+Track the video’s viewership statistics
+
+Any of these actions can be geography-specific. For example, a video with a copyright claim can be monetized in one country/region and blocked or tracked in a different country/region.
+
+Keep in mind:
+
+Copyright claims are different from likeness claims. If your channel receives a likeness claim, go to the likeness claims article to learn more.
+Videos longer than three minutes in length: When a claimed video is tracked or monetized, it stays viewable on YouTube with the active copyright claim on it. Copyright claimants can apply any of the following policies to their claims: monetize, track, or block. “Monetize” is the most common policy applied to music claims.
+Shorts 1-3 minutes in length: Claimed videos will be blocked if there is an active claim applied, regardless of policy. You will not receive a copyright strike for videos that contain active claims.
+Copyright claims are different from copyright removal requests and copyright strikes.
+Copyright claims affect videos, but usually don't impact your channel or account.
+
+ In this video, learn how to check if your video has a copyright claim and how you can respond:
+
+Subscribe to the YouTube Creators channel for the latest news, updates, and tips.
+Copyright claims in three-minute Shorts
+
+Starting on 15 October 2024, all new vertical videos that are 1–3 minutes in length will be categorised as Shorts on YouTube. For Official Artists Channels or channels linked to a music Content Owner, the cut-off date is December 8, 2025. Shorts longer than one minute that have an active copyright claim, regardless of the policy, will be blocked on YouTube. Learn more about claimed content that is over one minute in YouTube Shorts.
+
+If a claim is found when you upload a 1–3-minute Short, you’ll get a notification. You may remove claimed content from your videos. If you believe that the claim was made in error, you can file a dispute. Once the claim has been resolved, your Short will be viewable. Learn more about one-to-three-minute Shorts.
+
+Check if your video has a copyright claim
+
+If your video gets a copyright claim, YouTube will email you. You can also use YouTube Studio to check if your video has a copyright claim.
+
+Computer Android phone & tabletiPhone & iPad
+Sign in to YouTube Studio.
+From the left menu, select Content .
+If you’re looking for claimed Shorts, go to the “Shorts” tab.
+Click the filter bar  Claims.
+Find the video that you're interested in.
+In the Restrictions column, hover over Claims.
+Claims: Video has a Content ID claim.
+Copyright—Takedown: Video is affected by a copyright removal request, also known as a "takedown".
+
+For more info, click See details on the hover text to open the Claims details page.
+
+See who claimed your video
+Follow the steps above to find a video with a Content ID claim.
+In the Restrictions column, click See details on the hover text.
+Under the Content used section, click on See details.
+You can see who claimed your video under Claimant.
+
+If you don't recognize the copyright owner, it doesn’t necessarily mean that the claim is invalid. Also, if your video has a claim from "one or more music publishing rights collecting societies", you may want to learn more about collecting societies.
+
+Keep in mind:
+
+You can get claims from different copyright claimants for different segments of your video.
+If the content has different copyright claimants in different countries or regions, you can get multiple claims on the same video or segment.
+Manage copyright claims
+
+Depending on the situation, you have a few options to respond to a copyright claim:
+
+Leave it as is
+Remove the claimed content
+Share revenue
+Dispute the claim
+Frequently asked questions (FAQs)
+Am I in trouble if my video has a copyright claim?
+What can I do if a copyright claim is wrong?
+Does my channel get a copyright strike if my video has a copyright claim?
+
+What to know about manual claims?
+
+Check out our copyright tips for creators.
+More info
+What is a copyright claim?
+How Content ID works
+Dispute a copyright claim
+Remove claimed content from videos
+Give feedback about this article
+Was this helpful?YesNo
+Need more help?
+Try these next steps:
+Post to the help community
+Get answers from community members
+Copyright claim basics
+What is a claim?
+About copyright removal requests
+Understand copyright strikes
+Learn about copyright claims
+Dispute a copyright claim
+Appeal a copyright claim
+Monetization during copyright claim disputes
+©2026 Google  Privacy Policy  YouTube Terms of Service
+Language
+English‎

@@ -11,9 +11,11 @@ Pinterest (sections 2e to 2i), settles the Instagram open items and adds media r
 are in `docs/platform-research-2026-11-16/` (one file per platform area); the tables here are condensed
 from those files and name the file to read for the quote. GeekSocial is now a multi-tenant product, so the
 earlier "own accounts only" assumptions are corrected where they appear (2j, 4b). Two things limit the
-evidence: nothing was run against a live app, and some Google, TikTok and Pinterest pages are rendered by
-JavaScript, so a few rows were read through a summarizer. Those are marked "re-read" and must be read by
-eye before anything depends on them.
+evidence: nothing was run against a live app, and some Google, TikTok, Pinterest and X pages are rendered by
+JavaScript. Those were first read through a summarizer, then re-read in a real browser (Playwright, 2026-11-16);
+the page text is kept in `docs/platform-research-2026-11-16/rendered/` and the rows it settled are marked
+"re-read in a browser". Still unread: TikTok's Content Posting audit form (it needs a login) and the
+YouTube "supported file formats" page.
 
 Legend: **CONFIRMED** = stated in the official page cited. **UNVERIFIED** = the docs are silent or
 conflict; it must be settled in the developer portal or by a live call. **BLOCKED** = unsupported,
@@ -53,7 +55,10 @@ around: no scraping, no session cookies, no unofficial APIs.
    dislikes, or other actions without the user's prior specific and express consent." Pinterest's guidelines
    forbid features that "automatically initiate actions without specifically considering each action"
    (Pinterest has no comments API, so this bears on scheduled publishing only). X: an AI-powered app that
-   posts replies "Requires prior approval from X". None of them says whether a category-level setting is
+   posts replies "Requires prior approval from X", and X's Automation Rules add that OAuth authorization "does not by
+   itself constitute sufficient consent to take automated actions through that user's account": the customer must
+   be told which automated actions will occur, give express consent, and be able to opt out at once, and must
+   consent again if the app's purpose changes. None of them says whether a category-level setting is
    "specific" consent. Proposal: capture the consent per tenant, per platform and per category with a
    timestamp, make it revocable, and ask each platform's reviewer in the access application.
 2. **Google Business Profile limits storing review content to 30 days and bars aggregating it.** The
@@ -62,8 +67,10 @@ around: no scraping, no session cookies, no unofficial APIs.
    review, and with Triage. It needs a legal reading before Google Business Profile is built.
 3. **X needs a sales conversation before any X code.** Three self-serve limits are stated and unresolved:
    an API reply is allowed only if the post's author "summoned" the replier (whether a commenter's reply to
-   a customer's post counts is unknown); AI-generated replies need X's prior approval (per app or per
-   customer is unknown); and self-serve plans suit "a limited number of end-users" with no number given.
+   a customer's post counts is unknown; X's Automation Rules, read in a browser, do allow an automated reply to
+   someone who replied to the account's own post, once per interaction, with an opt-out, but that is a separate
+   rule from the API one); AI-generated replies need X's prior approval (per app or per customer is unknown);
+   and self-serve plans suit "a limited number of end-users" with no number given.
 4. **Sending comment text to Claude is still unruled on every platform except Meta's wording.** Meta
    requires the provider to agree in writing to use the data "solely for you and at your direction". LinkedIn,
    YouTube, Google, TikTok, Pinterest and X say nothing about inference (X and Pinterest forbid training).
@@ -180,7 +187,7 @@ fields as late as 2026-07. The Q&A API and its notification types were discontin
 | Action | Endpoint | Scope | Status |
 |---|---|---|---|
 | List the accounts and locations a user manages | Account Management v1 (accounts), Business Information v1 (locations) | `business.manage` | CONFIRMED |
-| Read reviews | `GET v4 accounts/{a}/locations/{l}/reviews`, 50 per page; reviewer name, `starRating` (an enum), `comment`, `createTime`, `updateTime` | `business.manage` | CONFIRMED; "list needs a verified location" re-read |
+| Read reviews | `GET v4 accounts/{a}/locations/{l}/reviews`, 50 per page; reviewer name, `starRating` (an enum), `comment`, `createTime`, `updateTime` | `business.manage` | CONFIRMED; re-read in a browser: "This operation is only valid if the specified location is verified." and "The maximum pageSize is 50." |
 | Reply to a review | `PUT .../reviews/{id}/reply` with `{"comment": ...}`, at most 4096 bytes | `business.manage` | CONFIRMED. Google moderates a reply for up to 30 days, so a 200 does not mean it is published |
 | Create a local post | `POST .../localPosts`: STANDARD, EVENT and OFFER work; ALERT is effectively closed; call to action BOOK, ORDER, SHOP, LEARN_MORE, SIGN_UP or CALL, and the only link slot is `callToAction.url` | `business.manage` | CONFIRMED; a link-preview card is not documented; summary length UNVERIFIED |
 | React to a review | none documented | n/a | BLOCKED |
@@ -207,7 +214,9 @@ review time is stated. One project may serve every customer; customers cannot be
 
 Pricing is pay-per-use credits (launched 2026-02-06 per the changelog). Reading a post is $0.005 (up to 3M
 post reads per billing cycle); writing is $0.015, $0.20 if the post carries a URL, $0.01 for a "summoned" reply.
-**Basic and Pro prices are UNVERIFIED**: the pricing page returned HTTP 402. Enterprise is custom.
+The current pricing page, re-read in a browser, says "The X API uses pay-per-usage pricing with no subscriptions"
+and lists only free credits, pay-per-usage and Enterprise, so no Basic or Pro price exists on it (developer.x.com
+returned HTTP 402 to a plain request and 404 in a browser). Enterprise is custom.
 
 | Action | Endpoint | Scope | Status |
 |---|---|---|---|
@@ -226,8 +235,12 @@ photos, or 1 GIF, or 1 video. Alt text is `POST /2/media/metadata`, up to 1000 c
 hours; refresh tokens are single use and last about 6 months (stated on the OAuth 1.0a migration page).
 
 **Terms.** The Developer Agreement, Restricted Uses and Guidelines forbid using X content to train or fine-tune
-a model. None mentions inference, so sending a reply's text to Claude to draft a response is UNVERIFIED. The
-Automation Rules page returned 403, so only docs.x.com's summaries of it were read. Self-serve plans suit "a
+a model. None mentions inference, so sending a reply's text to Claude to draft a response is UNVERIFIED. X's
+Automation Rules (help.x.com, re-read in a browser) allow an automated reply to a user only if the user has
+asked or clearly indicated they want to be contacted ("for example by replying to a post from your account"),
+the account offers an easy opt-out and honours it, sends one automated reply per interaction, and replies to the
+user's original post; keyword-search replies are not permitted. They also say OAuth authorization alone is not
+consent to automated actions through a user's account (section 1b, item 1). Self-serve plans suit "a
 limited number of end-users"; the number is not stated.
 
 ### 2g. YouTube (Data API v3; read 2026-11-16; `platform-research-2026-11-16/youtube.md`)
@@ -250,9 +263,13 @@ is still needed for more quota. Policy: automating comments needs "prior specifi
 1b); stored authorized data must be deleted or refreshed within 30 days, a deletion request has a 7-day
 deadline, derived data is prohibited, and the policies say nothing about AI (UNVERIFIED). OAuth: a consent
 screen in "Testing" expires refresh tokens in 7 days; sensitive-scope verification can take up to 10 days;
-whether the scopes are "restricted" (a security assessment) is UNVERIFIED. Re-read by eye: the 15-minute
-default for unverified channels, 256 GB or 12 hours, the video format list, and Shorts length (one page says up
-to 3 minutes, another 1 to 3).
+whether the scopes are "restricted" (a security assessment) is UNVERIFIED. Re-read in a browser (CONFIRMED): "By
+default, you can upload videos that are up to 15 minutes long. Verified accounts can upload videos longer than 15
+minutes"; "The maximum file size you can upload is 256 GB or 12 hours, whichever is less"; Shorts are "up to 3
+minutes long" (the "1 to 3 minutes" wording on another page is how vertical videos are classified as Shorts since
+2024-10-15); and a custom thumbnail can be uploaded only "if your account is verified", so `thumbnails.set` needs
+a verified channel. YouTube's recommended container is MP4 (H.264, AAC); the "supported file formats" page was
+not read.
 
 ### 2h. TikTok (read 2026-11-16; `platform-research-2026-11-16/tiktok.md`)
 
@@ -275,7 +292,13 @@ and mobile require it): access 2 hours, refresh 180 days with rotation, though t
 of one year". **Access.** Registration is company-only with a 3-business-day review; app review is 2 to 3 business
 days on the Business side and "several days to two weeks" on developers.tiktok.com. **Since 2026-03-20 an
 "Accounts API Access Application Form" is required** before any new app or scope increase that includes "TikTok
-Accounts"; its criteria were not opened. **Limits:** 40 queries a minute per account per endpoint and 600 a
+Accounts"; its criteria were not opened. **Re-read in a browser (CONFIRMED):** the Accounts API gate ("starting March 20, 2026 ... developers must complete
+the Accounts API Access Application Form before submitting a new developer app or requesting a scope increase
+that includes the 'TikTok Accounts' permission scope"), and the unaudited-client limits ("Unaudited API Clients
+can allow up to 5 users to post in a 24 hour window", private-only and `SELF_ONLY` viewing). The Content Posting
+guidelines also require API clients to let users disclose commercial content (off by default), and say clients
+"must not be limited to test applications". The audit application form itself needs a login and was not read.
+**Limits:** 40 queries a minute per account per endpoint and 600 a
 minute per app. **Terms:** the Developer Terms say nothing about AI (UNVERIFIED); they limit data use to
 "developing, maintaining, and supporting your Applications" and bar spam. Not settled by the docs: which account
 types can authorize the comment scopes, whether US customers are supported, whether one verified domain can
@@ -294,8 +317,10 @@ endpoint, and the only webhook is for Lead Ads.
 | Read or reply to Pin comments, reactions | none | n/a | BLOCKED |
 | New items without polling | none | n/a | BLOCKED; only person-triggered `GET /pins`, `/boards`, `/boards/{id}/pins` |
 
-Whether Pinterest fetches `image_url` as a public address, the API size limit and the base64 size limit are
-UNVERIFIED. The 20 MB and 32 MB images, 2 GB video and 2:3 ratio figures come from Pinterest's ads specification
+A Pin has an `ai_disclosures` object ("AI disclosure declarations the creator has made about the Pin"); whether
+it is mandatory for AI-made organic Pins is UNVERIFIED. The reference page for Create Pin (re-read in a browser)
+states no image size or format limits, so whether Pinterest fetches `image_url` as a public address, the API size
+limit and the base64 size limit stay UNVERIFIED. The 20 MB and 32 MB images, 2 GB video and 2:3 ratio figures come from Pinterest's ads specification
 help page, not the API reference. **Tokens:** access 30 days, refresh 60 days and renewable indefinitely; whether
 the old refresh token is invalidated and whether PKCE is supported are UNVERIFIED. **Access:** Trial pins and
 boards are visible only to their creator; Standard needs a video demo of the OAuth flow, and the Terms require

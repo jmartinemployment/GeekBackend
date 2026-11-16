@@ -1,0 +1,77 @@
+URL: https://business-api.tiktok.com/portal/docs/get-started/v1.3
+HTTP: 200
+
+Starting January 1, 2027, /campaign/create/ , /campaign/copy/task/create/, /adgroup/create/, /ad/create/, and /ad/aco/create/ will no longer support creating or copying non-Search Legacy Manual Flow campaigns, or creating ad groups or ads under them, for Sales, App Promotion, and Lead Generation objectives. Please migrate affected workflows to the Upgraded Smart+ APIs as soon as possible.
+TikTok Social MCP connects AI agents to TikTok’s organic capabilities, helping brands streamline community management and turn social insights into better content decisions. Try out！
+About the Guide
+Overview
+What's New
+Get Started
+TikTok for Business MCP Server
+TikTok Social MCP Server
+Skill and MCP management
+FAQs
+Use Cases
+Marketing API
+Organic API
+Overview
+Accounts API
+Overview
+Guides
+Get started
+Authorization
+Authentication
+Rate limits
+Manage URL properties
+Manage comments on owned TikTok videos
+Manage TikTok post ad authorization
+Accounts Insights data latency
+Webhooks
+FAQs
+API reference
+Mentions API
+TikTok One API
+Discovery API
+Spark Ads Recommendation API
+Business Messaging API
+API Reference
+API Playground
+API Service Status Page
+Appendix
+SDK
+Step by step workflow
+API endpoints
+Rate limits
+Error codes
+Get started
+
+Welcome to TikTok Accounts API! With developers in mind, we make accessing and using our API very easy. Only a few simple steps are required to gain access and start managing your TikTok Account. Below are the steps needed to take before making your first API call and some useful resources to help you quickly integrate with TikTok Accounts API.
+
+Note
+To ensure proper use of the Accounts API, starting March 20, 2026 at 00:00 (GMT+0), developers must complete the Accounts API Access Application Form before submitting a new developer app or requesting a scope increase that includes the "TikTok Accounts" permission scope. Please follow the instructions carefully and provide clear, accurate information to help facilitate the application review process. For more details on Accounts API use cases, please refer to the Accounts API documentation.
+
+Step by step workflow
+Create a TikTok For Business account.
+Register as a developer.
+Create a developer app.
+Authorization.
+Authentication.
+Make your first API call: You can use TikTok API for Business Postman collection to easily test your integration without impacting your real TikTok Account.
+API endpoints
+
+To learn about available endpoints, see API Reference.
+
+Rate limits
+
+To learn about the rate limits of Accounts API, see here.
+
+Error codes
+
+To learn about the return codes for unsuccessful calls, see here.
+
+Was the information helpful?
+Yes
+No
+© 2026 TikTok for Business
+Terms & policies
+Privacy & cookie policy

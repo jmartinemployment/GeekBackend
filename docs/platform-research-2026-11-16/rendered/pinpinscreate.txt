@@ -1,0 +1,344 @@
+URL: https://developers.pinterest.com/docs/api/v5/pins-create/
+HTTP: 200
+
+Skip to content
+Developer Platform
+Docs
+API reference
+My apps
+Log in
+Sign up
+Filter API endpoints
+Introduction
+Pin and Boards
+pins
+POST
+Create Pin
+GET
+List Pins
+GET
+Get multiple Pin analytics
+GET
+Get Pin
+PATCH
+Update Pin
+DEL
+Delete Pin
+GET
+Get Pin analytics
+POST
+Save Pin
+boards
+media
+product_tags
+user_account
+entity_history
+Media Library
+media_library
+Campaign Management
+ad_accounts
+campaigns
+ad_groups
+ads
+product_group_promotions
+bulk
+labels
+schedules
+Targeting
+audiences
+customer_lists
+customer_list_uploads
+keywords
+targeting_template
+customer_segment
+audience_insights
+audience_sharing
+Ad Formats
+lead_forms
+lead_ads
+leads_export
+promotions
+Billing
+billing
+order_lines
+terms_of_service
+Business Access
+business_access_assets
+business_access_invite
+business_access_relationships
+rmn_billing_contract
+business_access_analytics
+Conversions
+conversion_events
+conversion_eqs
+conversion_segments
+conversion_tags
+conversions
+msot_events
+conversion_deletion_requests
+Others
+advanced_auction
+integrations
+merchant_status
+notification
+oauth
+resources
+search
+terms
+trends
+Shopping
+catalogs
+catalog_feeds
+catalog_product_groups
+catalog_reports
+catalog_items
+catalog_supplemental
+API Documentation
+Explore API
+Create Pin
+Use with AI
+POST
+/pins
+Create a Pin on a board or board section owned by the "operation user_account".
+Note: If the current "operation user_account" (defined by the access token) has access to another user's Ad Accounts via Pinterest Business Access, you can modify your request to make use of the current operation_user_account's permissions to those Ad Accounts by including the ad_account_id in the path parameters for the request (e.g. .../?ad_account_id=12345&...).
+This function is intended solely for publishing new content created by the user. If you are interested in saving content created by others to your Pinterest boards, sometimes called 'curated content', please use our Save button instead. For more tips on creating fresh content for Pinterest, review our Content App Solutions Guide.
+Learn more about video Pin creation.
+Learn more about image Pin creation.
+Ratelimit category:
+org_write
+Sandbox support:
+enabled
+Authorizations
+Pinterest OAuth 2.0
+Scopes: 
+boards:read
+boards:write
+pins:read
+pins:write
+Client Credentials
+Scopes: 
+boards:read
+boards:write
+pins:read
+pins:write
+Query Parameters
+Payload information
+ad_account_id
+string
+<= 18 characters
+^\d+$
+Unique identifier of an ad account.
+Request Body
+Schema: application/json
+Payload information
+alt_text
+stringNullable
+<= 500 characters
+
+
+description
+stringNullable
+<= 800 characters
+
+
+title
+stringNullable
+<= 100 characters
+
+
+link
+stringNullable
+<= 2048 characters
+
+
+ai_disclosures
+object
+AI disclosure declarations the creator has made about the Pin.
+
+
+board_id
+string^\d+$
+The board to which this Pin belongs.
+
+
+board_section_id
+stringNullable^\d+$
+The board section to which this Pin belongs.
+
+
+dominant_color
+stringNullable
+Dominant pin color. Hex number, e.g. #6E7874.
+
+
+is_removable
+booleanNullable
+If you set it to true, the Pin becomes ad-only and is automatically added to an "Ad-only Pins" board; so, you do not have to specify a board_id. Note: Ad-only pins cannot be repinned.
+
+
+media_source
+object(Object containing Base64 format)
+Image Base64-based media source.
+
+
+parent_pin_id
+stringNullable^\d+$
+The source pin id if this pin was saved from another pin. Learn more.
+
+
+sponsor_id
+stringNullable^\d+$
+The sponsor account id to request paid partnership from. Currently the field is only available to a list of users in a closed beta.
+Responses
+200:
+The request has succeeded.
+201:
+Resource create operation completed successfully.
+400:
+The request could not be understood by the server due to unexpected data.
+401:
+Authentication is required and has either failed or not been provided.
+403:
+The request was valid, but the server is refusing action. The user might not have the necessary permissions for a resource.
+404:
+The requested resource could not be found on this server.
+429:
+The user has sent too many requests in a given amount of time and is being rate limited.
+default:
+An unexpected error response.
+Request Samples
+cURL
+Request Samples
+application/json
+{
+"alt_text": "string",
+"description": "string",
+"title": "string",
+"link": "string",
+"ai_disclosures": 
+-
+{
+"values": [
+"AI_MODIFIED"
+]
+},
+"board_id": "string",
+"board_section_id": "string",
+"dominant_color": "string",
+"is_removable": false,
+"media_source": 
+-
+{
+"source_type": "image_base64",
+"is_standard": false,
+"content_type": "image/jpeg",
+"data": "string"
+},
+"parent_pin_id": "string",
+"sponsor_id": "string"
+}
+Response Samples
+200
+201
+400
+401
+403
+404
+429
+default
+application/json
+{
+"alt_text": "string",
+"description": "string",
+"title": "string",
+"link": "string",
+"ai_disclosures": 
+-
+{
+"values": [
+"AI_MODIFIED"
+]
+},
+"board_id": "string",
+"board_owner": 
+-
+{
+"username": "string"
+},
+"board_section_id": "string",
+"created_at": "string",
+"creative_type": "REGULAR",
+"dominant_color": "string",
+"has_been_promoted": false,
+"id": "string",
+"is_owner": false,
+"is_removable": false,
+"is_product": false,
+"is_standard": false,
+"media": 
+-
+{
+"media_type": "image",
+"images": 
+-
+{
+
+"150x150": 
+-
+{
+
+"width": 150,
+"height": 150,
+"url": "https://i.pinimg.com/150x150/0d/f6/f1/0df6f1f0bfe7aaca849c1bbc3607a34b.jpg"
+},
+"400x300": 
+-
+{
+
+"width": 400,
+"height": 300,
+"url": "https://i.pinimg.com/400x300/0d/f6/f1/0df6f1f0bfe7aaca849c1bbc3607a34b.jpg"
+},
+"600x": 
+-
+{
+
+"width": 600,
+"height": 600,
+"url": "https://i.pinimg.com/600x/0d/f6/f1/0df6f1f0bfe7aaca849c1bbc3607a34b.jpg"
+},
+"1200x": 
+-
+{
+
+"width": 1200,
+"height": 1200,
+"url": "https://i.pinimg.com/1200x/0d/f6/f1/0df6f1f0bfe7aaca849c1bbc3607a34b.jpg"
+}
+}
+},
+"parent_pin_id": "string",
+"pin_metrics": 
+-
+{
+
+"90d": 
+-
+{
+
+"pin_click": 7,
+"impression": 2,
+"clickthrough": 3
+},
+"lifetime_metrics": 
+-
+{
+
+"pin_click": 7,
+"impression": 2,
+"clickthrough": 3,
+"reaction": 10,
+"comment": 2
+}
+}
+}

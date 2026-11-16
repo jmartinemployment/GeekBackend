@@ -1,0 +1,57 @@
+URL: https://support.google.com/youtube/answer/10059070?hl=en
+HTTP: 200
+
+Skip to main content
+YouTube Help
+Sign in
+Help Center
+Community
+Creator Tips
+YouTube
+Fix a problemWatch videosManage your account & settingsSupervised experiences on YouTubeYouTube PremiumCreate & grow your channelMonetize your contentPolicy, safety, & copyright
+Create ShortsGet started creating YouTube Shorts
+Get started creating YouTube Shorts
+
+YouTube Shorts is a way for anyone to connect with a new audience using just a smartphone and the Shorts camera in the YouTube app. YouTube’s Shorts creation tools makes it easy to create short-form videos that are up to 3 minutes long with our multi-segment camera.
+
+Changes to Shorts views count
+
+Starting 3/31/2025, we're updating how Shorts views are counted. Views will count the number of times a Short starts to play or replay, with no minimum watch time requirement. This update will give creators a more complete view of how their short videos are doing, especially when they share content on different platforms.
+
+We will keep the existing Shorts view metric, now called “Engaged views,” in YouTube Analytics so you can see how many viewers chose to continue watching your video. You can use “Engaged views” to compare the performance across all of your Shorts in YouTube Analytics. Learn how to compare your performance.
+
+This change will not directly impact the YouTube Partner Program (YPP) eligibility and Shorts ad revenue sharing. They will both be based on "Engaged Shorts views." So creators' eligibility and earnings will not change. Learn more about Shorts monetization policies and the YouTube Partner Program eligibility.
+
+Learn more about YouTube Shorts
+How do I create Shorts?
+How will viewers find my Shorts?
+Can I earn money from my Shorts?
+
+Learn about why you should create Shorts.
+
+Give feedback about this article
+Was this helpful?YesNo
+Need more help?
+Try these next steps:
+Post to the help community
+Get answers from community members
+Create Shorts
+Get started creating YouTube Shorts
+Create YouTube Shorts
+Enhance your Shorts
+Get Started with Shorts templates
+Effect Maker on YouTube
+Create YouTube Shorts from your videos
+Upload YouTube Shorts
+Create YouTube Shorts with remixed content
+Reply to comments with your YouTube Shorts
+Add a related video to your YouTube Shorts
+Understand three-minute YouTube Shorts
+Music eligibility for YouTube Shorts
+Create AI-generated soundtrack in Shorts with Dream Track
+Create content for Shorts using AI-generated features
+Create, use & manage your avatar on YouTube
+Your data and using AI features on YouTube
+©2026 Google  Privacy Policy  YouTube Terms of Service
+Language
+English‎

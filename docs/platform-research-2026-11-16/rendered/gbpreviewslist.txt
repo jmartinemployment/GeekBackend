@@ -1,0 +1,218 @@
+URL: https://developers.google.com/my-business/reference/rest/v4/accounts.locations.reviews/list
+HTTP: 200
+
+Skip to main content
+Business Profile APIs
+/
+Sign in
+Guides
+Reference
+Samples
+Support
+Overview
+Account Management
+Business Calls
+Business Information
+Lodging
+Media
+Notifications
+Performance
+Place Actions
+Verifications
+v4.9
+Overview
+Change log
+REST Resources
+accounts
+accounts.admins
+accounts.invitations
+accounts.locations
+accounts.locations.admins
+accounts.locations.followers
+accounts.locations.insuranceNetworks
+accounts.locations.localPosts
+accounts.locations.media
+accounts.locations.media.customers
+accounts.locations.questions
+accounts.locations.questions.answers
+accounts.locations.reviews
+Overview
+deleteReply
+get
+list
+updateReply
+accounts.locations.verifications
+attributes
+categories
+chains
+googleLocations
+Types
+AdminRole
+AttributeValueType
+Author
+BasicMetricsRequest
+CategoryView
+Date
+FoodMenus
+HealthProviderAttributes
+InsuranceNetwork
+Metric
+MetricOption
+MetricValue
+Notifications
+PostalAddress
+ServiceBusinessContext
+ServiceList
+TimeRange
+Shared.Types
+Deprecation schedule
+Latest Business Profile API updates
+Check edit status for locations and attributes with the new v1alpha endpoints. See the Edit Status guide or the Latest Updates page.
+Home
+Products
+Business Profile APIs
+Reference
+Was this helpful?
+Method: accounts.locations.reviews.list
+On this page
+HTTP request
+Path parameters
+Query parameters
+Request body
+Response body
+Authorization scopes
+Page Summary
+
+Returns the paginated list of reviews for the specified location. This operation is only valid if the specified location is verified.
+
+HTTP request
+
+GET https://mybusiness.googleapis.com/v4/{parent=accounts/*/locations/*}/reviews
+
+The URL uses gRPC Transcoding syntax.
+
+Path parameters
+Parameters
+parent	
+
+string
+
+The name of the location to fetch reviews for.
+
+Query parameters
+Parameters
+pageSize	
+
+integer
+
+How many reviews to fetch per page. The maximum pageSize is 50.
+
+
+pageToken	
+
+string
+
+If specified, it fetches the next page of reviews.
+
+
+orderBy	
+
+string
+
+Specifies the field to sort reviews by. If unspecified, the order of reviews returned will default to updateTime desc. Valid orders to sort by are rating, rating desc and updateTime desc.
+
+Request body
+
+The request body must be empty.
+
+Response body
+
+Response message for Reviews.ListReviews.
+
+If successful, the response body contains data with the following structure:
+
+JSON representation
+
+{
+  "reviews": [
+    {
+      object (Review)
+    }
+  ],
+  "averageRating": number,
+  "totalReviewCount": integer,
+  "nextPageToken": string
+}
+Fields
+reviews[]	
+
+object (Review)
+
+The reviews.
+
+
+averageRating	
+
+number
+
+The average star rating of all reviews for this location on a scale of 1 to 5, where 5 is the highest rating.
+
+
+totalReviewCount	
+
+integer
+
+The total number of reviews for this location.
+
+
+nextPageToken	
+
+string
+
+If the number of reviews exceeded the requested page size, this field is populated with a token to fetch the next page of reviews on a subsequent call to reviews.list. If there are no more reviews, this field is not present in the response.
+
+Authorization scopes
+
+Requires one of the following OAuth scopes:
+
+https://www.googleapis.com/auth/plus.business.manage
+https://www.googleapis.com/auth/business.manage
+
+For more information, see the OAuth 2.0 Overview.
+
+Was this helpful?
+
+No recommendations at this time.
+
+Try signing in to your Google account.
+
+Except as otherwise noted, the content of this page is licensed under the Creative Commons Attribution 4.0 License, and code samples are licensed under the Apache 2.0 License. For details, see the Google Developers Site Policies. Java is a registered trademark of Oracle and/or its affiliates.
+
+Last updated 2026-04-07 UTC.
+
+Product Info
+Terms of Service
+Usage Limits
+Pricing
+Help
+Support
+Build
+Android
+Chrome
+Firebase
+Google AI Studio
+Google Antigravity
+Google Cloud
+Google Play
+View all
+Android
+Chrome
+Firebase
+Google Cloud Platform
+Google AI
+All products
+Terms
+Privacy
+Info
+Chat
+API

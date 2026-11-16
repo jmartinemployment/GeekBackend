@@ -1,0 +1,49 @@
+URL: https://support.google.com/youtube/answer/71673?hl=en
+HTTP: 200
+
+Skip to main content
+YouTube Help
+Sign in
+Help Center
+Community
+Creator Tips
+YouTube
+Fix a problemWatch videosManage your account & settingsSupervised experiences on YouTubeYouTube PremiumCreate & grow your channelMonetize your contentPolicy, safety, & copyright
+Upload videosUpload videos longer than 15 minutes
+Upload videos longer than 15 minutes
+
+Computer Android phone & tabletiPhone & iPad
+Increase your video length limit
+
+By default, you can upload videos that are up to 15 minutes long. Verified accounts can upload videos longer than 15 minutes.
+
+To verify your Google Account:
+
+On a computer, go to https://www.youtube.com/verify.
+Follow the steps to verify your Google Account. You can choose to get a verification code through a text message on a mobile device or an automated voice call.
+
+Make sure you're using an up-to-date version of your browser to upload files greater than 20 GB.
+
+Maximum upload size
+
+The maximum file size you can upload is 256 GB or 12 hours, whichever is less. We've changed the limits on uploads in the past, so you may see older videos that are longer than 12 hours.
+
+Troubleshoot common issues
+I verified my account but my video still won’t play.
+I don’t know whether I verified my account yet.
+I already verified my account but I can't upload long videos.
+My video is larger than 256 GB.
+Give feedback about this article
+Was this helpful?YesNo
+Need more help?
+Try these next steps:
+Post to the help community
+Get answers from community members
+Upload videos
+Upload YouTube videos
+Upload videos longer than 15 minutes
+Upload High Dynamic Range (HDR) videos
+Record & upload a video
+©2026 Google  Privacy Policy  YouTube Terms of Service
+Language
+English‎

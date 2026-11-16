@@ -1,0 +1,74 @@
+URL: https://support.google.com/youtube/answer/72431?hl=en
+HTTP: 200
+
+Skip to main content
+YouTube Help
+Sign in
+Help Center
+Community
+Creator Tips
+YouTube
+Fix a problemWatch videosManage your account & settingsSupervised experiences on YouTubeYouTube PremiumCreate & grow your channelMonetize your contentPolicy, safety, & copyright
+Edit videos & video settingsAdd custom thumbnails on YouTube
+Add custom thumbnails on YouTube
+
+Custom video and Shorts thumbnails let your audience view a quick snapshot of your content. You can choose from auto generated suggested options, or upload your own if your account is verified. Make sure your thumbnail follows our Community Guidelines.
+
+Note: Custom thumbnails for Shorts are currently only available to add in YouTube Studio on a computer. Your account must be verified to use this feature.
+Computer Android phone & tabletiPhone & iPad
+Add a custom video thumbnail
+Sign in to YouTube Studio.
+From the left menu, select Content .
+Go to the video you’d like to edit  click .
+Below “Thumbnail,” click Upload file to create a custom video thumbnail from an image on your device or select Get suggestions to generate a thumbnail.
+Click SAVE.
+Add a custom Short thumbnail
+Sign in to YouTube Studio.
+From the left menu, select Content   Shorts at the top.
+Go to the Short you’d like to edit  click .
+Below “Thumbnail,” click Upload file to create a custom Shorts thumbnail from an image on your device.
+For uploaded files, the recommended aspect ratio is 9:16.
+Click SAVE.
+Note: It may take time for your thumbnail changes to appear on YouTube.
+Watch how to add a custom video thumbnail
+
+Watch the following video from the YouTube Creators channel if you’d like a tutorial on how to add a custom video thumbnail on YouTube.
+
+Subscribe to the YouTube Creators channel for the latest news, updates, and tips.
+Get creator tips for video thumbnails.
+Generate thumbnails using Ask Studio
+
+Use Ask Studio to get suggestions on custom thumbnails for your videos. Ask Studio analyzes your video’s transcript and themes to suggest thumbnails that are tailored to your video.
+
+To generate a thumbnail:
+
+Open Ask Studio within your publishing workflow.
+Enter a prompt like "Create a thumbnail."
+In the chat box, click Add  to select your video for suggestions or upload reference images.
+Use follow-up prompts to make any changes.
+For example, you can prompt Ask Studio to make the text on your thumbnail larger.
+Review the generated suggestions.
+Custom thumbnail best practices
+Image size & resolution
+Thumbnail policies
+Custom thumbnail limits
+Why are my custom thumbnails turned off?
+Give feedback about this article
+Was this helpful?YesNo
+Need more help?
+Try these next steps:
+Post to the help community
+Get answers from community members
+Edit videos & video settings
+Add custom thumbnails on YouTube
+Test & compare thumbnails
+Add end screens to videos
+Add info cards to videos
+Trim your videos
+Blur your videos
+Add an audio track to your video
+Learn about Ask Studio in YouTube Studio
+A/B test titles & thumbnails
+©2026 Google  Privacy Policy  YouTube Terms of Service
+Language
+English‎

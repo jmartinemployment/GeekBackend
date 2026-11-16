@@ -1,0 +1,83 @@
+URL: https://support.google.com/youtube/answer/4603579?hl=en
+HTTP: 200
+
+Skip to main content
+YouTube Help
+Sign in
+Help Center
+Community
+Creator Tips
+YouTube
+Fix a problemWatch videosManage your account & settingsSupervised experiences on YouTubeYouTube PremiumCreate & grow your channelMonetize your contentPolicy, safety, & copyright
+Video and audio formatting specifications
+These features are only available to music label and distributor partners who use YouTube Studio Content Manager and the YouTube DDEX feed with version 3.6+ of the Electronic Release Notification (ERN) standard.
+You must be either the copyright holder or the authorized representative of the copyright owner for all video and audio files that you deliver to YouTube.
+Video formatting guidelines
+
+The following guidelines describe the formatting specifications that yield the highest quality for playing videos on YouTube. YouTube encourages partners to upload videos that are as close to the original, high quality source format as possible to increase the likelihood that your videos will play in higher quality (HQ). Note that YouTube always re-encodes videos to optimize their playback quality.
+
+File format: YouTube prefers the original, 1080p HD broadcast format that you have in your digital content library, as well as DVD-compliant MPEG-2 program streams saved with a .MPG extension. If you cannot submit videos in MPEG-2 format, then MPEG-4 is the preferred format. The following specifications provide optimal playback of MPEG-2 and MPEG-4 videos:
+
+MPEG-2
+
+Audio codec: MPEG Layer II or Dolby AC-3
+Audio bitrate: 128 kbps or better
+ 
+
+MPEG-4
+
+Video codec: H.264
+Audio codec: AAC
+Audio bitrate: 128 kbps or better
+
+Framerate: Videos should be in their native frame rates without resampling. For film sources, a 24fps or 25fps progressive master yields the best results. Typically, frame rates are set at 24, 25 or 30 frames per second. Please do not use resampling techniques since they can cause images to shudder and often result in lower quality video. Examples of undesirable techniques include upsampling and transfer processes such as Telecine pulldown.
+
+Aspect ratio: Videos should be in their native aspect ratios, and uploaded videos should never include letterboxing or pillarboxing bars. The YouTube player automatically frames videos to ensure that they are displayed correctly, without cropping or stretching, regardless of the size of the video or player. See Advanced encoding for visual examples.
+
+If the video's native aspect ratio is 1.77:1 and the total frame size also has a 1.77:1 aspect ratio, use 16:9 matting with square pixels and no border.
+If the video's native aspect ratio is 1.77:1 and the total frame size does not have a 1.77:1 aspect ratio, use 16:9 matting with square pixels and a single-color border with no variations over time.
+If the video's native aspect ratio is 1.33:1 and the total frame size also has a 1.33:1 aspect ratio, use 4:3 matting with square pixels and no border.
+If the video's native aspect ratio is 1.33:1 and the total frame size does not have a 1.33:1 aspect ratio, use 4:3 matting with square pixels and a single-color border with no variations over time.
+
+If theatrical releases have a "pan-and-scan" version as well as the original 16:9 version, upload both versions separately.
+
+Video resolution: YouTube prefers high-definition videos and, in general, you should provide videos in the highest resolution available to provide the maximum degree of flexibility in the encoding and playback processes. For videos intended for sale or rental, you should provide a minimum resolution of 1920x1080 with a 16:9 aspect ratio. For content with or without ads, YouTube does not set a minimum resolution but recommends a resolution of at least 1280x720 for video that has a 16:9 aspect ratio and a resolution of at least 640x480 for video that has a 4:3 aspect ratio.
+
+You may consider providing reduced quality videos if those videos will not be publicly visible on YouTube and are only being uploaded to serve as Content ID references. These videos can be a typical "one quarter" resolution – i.e. 320x240. However, the videos must be greater than 200 lines to yield effective references.
+
+Video bitrate: Since bitrate is highly dependent on codec, there is no recommended minimum value. Videos should be optimized for frame rate, aspect ratio and resolution rather than bitrate. Bitrates of 50 or 80Mbps are common for videos intended for sale or rental.
+
+Immersive Audio: We support Eclipsa Audio PCM and Eclipsa Audio Opus in an MP4 file. Recommended sampling rate is 48kHz.
+
+If you are unable to encode your videos using the preferred specifications, you can still submit your video in .WMV, .AVI, .MOV and .FLV formats. In this case, we recommend that you upload the highest quality video possible. YouTube will still accept your video content and then re-encode your video files as necessary. However, the quality of your videos may not be optimal and could make your videos ineligible for HQ encoding. If you are not able to encode your videos using the preferred specifications, we recommend that you upload a few test videos online to ensure that you are satisfied with the playback quality on YouTube.
+
+Audio file guidelines
+
+The following guidelines are for audio tracks that you provide to YouTube. These guidelines describe the formatting specifications that yield the highest quality for playing audio on YouTube and for matching your audio tracks to the audio tracks of user-uploaded videos. Note that an audio track would only be played back on YouTube if you have opted to include that track in YouTube's AudioSwap program. Generally, we recommend that you upload the highest quality audio possible.
+
+Supported file formats:
+MP3 audio in MP3/WAV container
+PCM audio in WAV container
+AAC audio in MOV container
+FLAC audio
+ 
+Minimum audio bitrate for lossy formats: 64 kbps
+Minimum audible duration: 33 seconds (excluding silence and background noise)
+Maximum duration: None
+Give feedback about this article
+Was this helpful?YesNo
+Need more help?
+Try these next steps:
+Post to the help community
+Get answers from community members
+Content delivery basics
+Background Requirements
+Choose an upload method
+Upload content with the Package uploader
+Video and audio formatting specifications
+YouTube recommended upload encoding settings
+File format for resources
+Encoding specifications for music videos
+©2026 Google  Privacy Policy  YouTube Terms of Service
+Language
+English‎
