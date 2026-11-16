@@ -114,11 +114,14 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    "summoned" for the API reply rule; this is treated as satisfied and is proven only by a live test (Phase 6).
    **Still not known, and no one can be asked:** how many customers a self-serve app may have before Enterprise
    ("a limited number of end-users"). It will show up in X's billing and access limits when X is built.
-4. **Sending comment text to Claude is still unruled on every platform except Meta's wording.** Meta
-   requires the provider to agree in writing to use the data "solely for you and at your direction". LinkedIn,
-   YouTube, Google, TikTok, Pinterest and X say nothing about inference (X and Pinterest forbid training).
-   `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stays empty per platform until each is recorded, and the tenant's
-   `ai_consent_accepted_at` is a second gate on top of it.
+4. **Sending a tenant's content to Claude. DECIDED (Jeff, 2026-11-16, "agreed").** The AI sees a tenant's content only
+   for that tenant, and only after that tenant has accepted the AI terms (`tenants.ai_consent_accepted_at`). It is
+   never mixed with another tenant's content, it is kept 30 days at most (section 1a), and it is never used to train
+   a model. Without that acceptance the AI sees nothing and a person writes the replies by hand. No per-platform
+   ruling is asked of any platform. Meta's condition (an AI provider must agree in writing to use the data "solely
+   for you and at your direction") is met by Anthropic's agreement and must be checked before Meta content is
+   sent; until then `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stays empty for every platform and each comment is held
+   (`blocked_no_clearance`).
 5. **Status checks that Meta, Pinterest and TikTok document as polling.** Instagram container status
    ("once a minute for up to 5 minutes"), Pinterest video media status and TikTok publish status are polls.
    Proposal: use a platform webhook where one exists (TikTok has `post.publish.*` events); otherwise check
