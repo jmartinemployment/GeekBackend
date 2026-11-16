@@ -28,7 +28,7 @@ public sealed class VoiceOwnerIntegrationTests
     private static async Task<Guid> NewTenantAsync()
     {
         var created = await Tenants().CreateTenantAsync(new(
-            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", null, "dispatch@example.test", "+15615550101"));
+            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101"));
         Assert.True(created.IsSuccess, created.Error);
         return created.Value!.Id;
     }

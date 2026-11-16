@@ -35,7 +35,7 @@ public sealed class VoiceIntegrationTests
     private static async Task<Guid> ActiveTenantAsync(VoiceRepository store)
     {
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "Palm Beach", "dispatch@example.test", "+15615550101"));
+            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101"));
         Assert.True(created.IsSuccess, created.Error);
         var id = created.Value!.Id;
 
@@ -54,7 +54,7 @@ public sealed class VoiceIntegrationTests
         var store = NewRepository();
 
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", null, "dispatch@example.test", "+15615550101"));
+            "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101"));
         Assert.True(created.IsSuccess, created.Error);
         Assert.Equal(VoiceTenantStatuses.PendingPayment, created.Value!.Status);
         var id = created.Value.Id;
@@ -86,7 +86,7 @@ public sealed class VoiceIntegrationTests
         var number = (await store.GetTelephonyAsync(first)).Value!.AssignedPhoneNumber;
 
         var second = await store.CreateTenantAsync(new(
-            "Other HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", null, "other@example.test", "+15615550102"));
+            "Other HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "other@example.test", "+15615550102"));
         var clash = await store.ActivateTenantAsync(second.Value!.Id, new(
             VoiceSubscriptionTiers.Pro, 148m, 1000, 0.50m, "I-" + Unique(), "VAULT-" + Unique(), Now, Now.AddMonths(1), "active",
             "AC" + Unique(), "ciphertext", number, "PN" + Unique(), null, null, null, "not_started", false));

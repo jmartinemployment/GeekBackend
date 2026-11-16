@@ -92,7 +92,6 @@ public sealed record CreateVoiceTenantCommand(
     DateTimeOffset ComplianceAttestedAt,
     string CountryCode,
     string StateCode,
-    string? County,
     string ContactEmail,
     string ContactPhone);
 
@@ -107,7 +106,6 @@ public sealed record VoiceTenant(
     DateTimeOffset ComplianceAttestedAt,
     string CountryCode,
     string StateCode,
-    string? County,
     string ContactEmail,
     string ContactPhone,
     string Status,

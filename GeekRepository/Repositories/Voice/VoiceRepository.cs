@@ -28,7 +28,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         id AS Id, business_name AS BusinessName, industry_vertical AS IndustryVertical, business_activity_code AS BusinessActivityCode,
         requires_addendum AS RequiresAddendum,
         addendum_signed_at AS AddendumSignedAt, host(addendum_ip_address) AS AddendumIpAddress,
-        compliance_attested_at AS ComplianceAttestedAt, country_code AS CountryCode, state_code AS StateCode, county AS County,
+        compliance_attested_at AS ComplianceAttestedAt, country_code AS CountryCode, state_code AS StateCode,
         contact_email AS ContactEmail, contact_phone AS ContactPhone, status AS Status, created_at AS CreatedAt
         """;
     private const string ConfigColumns = """
@@ -58,10 +58,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             var row = await conn.QuerySingleAsync<TenantRow>(new CommandDefinition($"""
                 INSERT INTO geek_voice.tenants (
                     id, business_name, industry_vertical, business_activity_code, requires_addendum, addendum_signed_at, addendum_ip_address,
-                    compliance_attested_at, country_code, state_code, county, contact_email, contact_phone)
+                    compliance_attested_at, country_code, state_code, contact_email, contact_phone)
                 VALUES (
                     @TenantId, @BusinessName, @IndustryVertical, @BusinessActivityCode, @RequiresAddendum, @AddendumSignedAt, @AddendumIpAddress::inet,
-                    @ComplianceAttestedAt, @CountryCode, @StateCode, @County, @ContactEmail, @ContactPhone)
+                    @ComplianceAttestedAt, @CountryCode, @StateCode, @ContactEmail, @ContactPhone)
                 RETURNING {TenantColumns};
                 """,
                 new
@@ -76,7 +76,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     ComplianceAttestedAt = command.ComplianceAttestedAt.UtcDateTime,
                     command.CountryCode,
                     command.StateCode,
-                    command.County,
                     command.ContactEmail,
                     command.ContactPhone,
                 },
@@ -657,7 +656,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public DateTime ComplianceAttestedAt { get; set; }
         public string CountryCode { get; set; } = "";
         public string StateCode { get; set; } = "";
-        public string? County { get; set; }
         public string ContactEmail { get; set; } = "";
         public string ContactPhone { get; set; } = "";
         public string Status { get; set; } = "";
@@ -665,7 +663,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
         public VoiceTenant ToModel() => new(
             Id, BusinessName, IndustryVertical, BusinessActivityCode, RequiresAddendum, AddendumSignedAt is null ? null : Utc(AddendumSignedAt.Value),
-            AddendumIpAddress, Utc(ComplianceAttestedAt), CountryCode, StateCode, County, ContactEmail, ContactPhone, Status, Utc(CreatedAt));
+            AddendumIpAddress, Utc(ComplianceAttestedAt), CountryCode, StateCode, ContactEmail, ContactPhone, Status, Utc(CreatedAt));
     }
 
     private sealed class TelephonyRow

@@ -30,7 +30,7 @@ public sealed class OnboardingEligibilityTests
         }
 
         private static VoiceTenant Tenant(CreateVoiceTenantCommand c) => new(NewTenant, c.BusinessName, c.IndustryVertical, c.BusinessActivityCode, c.RequiresAddendum,
-            c.AddendumSignedAt, c.AddendumIpAddress, c.ComplianceAttestedAt, c.CountryCode, c.StateCode, c.County, c.ContactEmail, c.ContactPhone,
+            c.AddendumSignedAt, c.AddendumIpAddress, c.ComplianceAttestedAt, c.CountryCode, c.StateCode, c.ContactEmail, c.ContactPhone,
             VoiceTenantStatuses.PendingPayment, Now);
 
         public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
@@ -48,7 +48,7 @@ public sealed class OnboardingEligibilityTests
 
     private static ValidateEligibilityRequest Signup(
         string? activity = "238220", string? country = "US", bool? attested = true, bool? addendumSigned = null) =>
-        new("Boca Cool HVAC", activity, country, "FL", "Palm Beach", "owner@bocacool.example", "+15615550101", attested, addendumSigned);
+        new("Boca Cool HVAC", activity, country, "FL", "owner@bocacool.example", "+15615550101", attested, addendumSigned);
 
     private static readonly VisitorOrigin FromUs = new("203.0.113.9", "US");
 
@@ -70,7 +70,6 @@ public sealed class OnboardingEligibilityTests
         Assert.Null(created.AddendumSignedAt);
         Assert.Null(created.AddendumIpAddress);
         Assert.Equal("US", created.CountryCode);
-        Assert.Equal("Palm Beach", created.County);
         Assert.Equal("238220", created.BusinessActivityCode);
         Assert.Equal("Plumbing, heating, & air-conditioning contractors", created.IndustryVertical);
     }

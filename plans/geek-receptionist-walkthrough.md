@@ -32,6 +32,10 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
    - Open for Jeff: the receptionist's script reads "works in {industry}", which now gives the IRS name, e.g. "works in Plumbing,
      heating, & air-conditioning contractors".
 
+5a. **County is gone.** Jeff: "Why do you ask County?" then "eliminate" (2026-11-16). It was optional and nothing read it. Removed
+   from the signup form, GeekAPI's request, the tenant record and the store; migration 0066 drops the column. **Committed locally,
+   not pushed.**
+
 ## Not working yet (from before the walkthrough)
 
 5. ~~`GEEK_BACKEND_API_KEY` on Vercel~~: done. Jeff re-added it as Sensitive (Production) at 14:47 on 2026-11-16, redeployed at 14:47:57;

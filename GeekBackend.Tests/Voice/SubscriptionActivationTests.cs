@@ -30,7 +30,7 @@ public sealed class SubscriptionActivationTests
         new(TenantId, "STARTER", "I-SUBSCRIPTION123", "VAULT-TOKEN-456", "561", sms);
 
     private static VoiceTenant Tenant(string status = VoiceTenantStatuses.PendingPayment, string state = "FL") => new(
-        TenantId, "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Paid, "US", state, "Palm Beach", "owner@bocacool.example", "+15615550101", status, Paid);
+        TenantId, "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Paid, "US", state, "owner@bocacool.example", "+15615550101", status, Paid);
 
     private sealed class Store(List<string> calls) : IVoiceStore
     {

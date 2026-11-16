@@ -46,7 +46,6 @@ public sealed record ValidateEligibilityRequest(
     string? BusinessActivityCode,
     string? CountryCode,
     string? StateCode,
-    string? County,
     string? ContactEmail,
     string? ContactPhone,
     bool? ComplianceAttested,
@@ -111,7 +110,6 @@ public sealed class OnboardingEligibility(IVoiceStore voice, OnboardingOptions o
             now,
             request.CountryCode!,
             request.StateCode ?? string.Empty,
-            request.County,
             request.ContactEmail ?? string.Empty,
             request.ContactPhone ?? string.Empty), ct).ConfigureAwait(false);
 
