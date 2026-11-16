@@ -47,6 +47,31 @@ around: no scraping, no session cookies, no unofficial APIs.
    comments. No reaction to a comment is documented, so the agent does not react on Instagram. Section
    2d.
 
+## 1a. Standing product facts and the question rule (Jeff, 2026-11-16)
+
+These are fixed. Anything written for GeekSocial, including a question to a platform, starts from them.
+
+1. **Tenant ownership.** Each customer (tenant) connects their own social or Google Business Profile accounts
+   through OAuth. The tenant is the owner or administrator of those accounts.
+2. **A human approves every reply and post.** The product drafts AI-written replies to incoming comments and
+   reviews; a person (the business owner or their staff) must review and approve each one before it is posted. It
+   is not an autonomous or unattended posting bot.
+3. **A 30-day window.** Triage of a comment or review happens within 30 days of receiving it. Incoming reviews and
+   comments are stored in our own database only to power an instant approval inbox (the platform's API is never
+   queried live on page load). Content older than 30 days is not needed and is purged on a rolling 30-day
+   schedule. Where a platform allows less, the shorter limit applies (LinkedIn: 48 hours for member comments, 24
+   hours for commenter profile data).
+4. **No external data extraction.** Content from a platform API is used only inside the product, for the connected
+   tenant's own reply workflow: never exported, resold, aggregated across tenants, or used to train AI models.
+
+**The question rule.** Ask a platform only a question that is genuinely ambiguous and applies to a single-tenant,
+human-approved inbox inside a 30-day window. Do not ask about unattended-bot consent, archiving beyond 30 days,
+resale of data or multi-account scraping. Keep each question short and tied to the exact policy text.
+
+**Proposal under fact 3 (mine, not decided):** purge the text of a comment, review or reply at 30 days (48 hours
+for LinkedIn member comments) and keep only identifiers, timestamps, the outcome and the audit row, none of which
+carries platform Content.
+
 ## 1b. Gate 7a findings that need Jeff's decision
 
 1. **No autonomous sending. DECIDED (Jeff, 2026-11-16, replacing the earlier opt-in decision):** care must be
@@ -61,19 +86,16 @@ around: no scraping, no session cookies, no unofficial APIs.
    **What this changes in what is already built (no code is changed at Gate 7a):** `AutoSendCategories` on
    `SocialAccount`, the auto-send step in the Orchestrator, and the auto-send settings on the Accounts page are
    to be removed in a later gate, and the Sender must refuse any send whose draft was not approved by a person.
-2. **Google's content-storage rule: its scope is unclear, and my first reading was too broad.** The policy's
-   "Content storage" section (re-read in a browser) says: "You cannot pre-fetch, cache, index, or store any
-   content provided through the Business Profile APIs ("Content") for use outside of your Business Profile
-   project except for limited amounts of Content. You can store limited amounts of Content only to improve the
-   performance of your project." Stored Content "must be stored temporarily for no more than 30 calendar days",
-   "securely", and "cannot be manipulated or aggregated in any way". The restriction is worded around storing
-   Content "for use outside of your Business Profile project" and around caching "to improve the performance of
-   your project". Whether it also limits an inbox that holds a review so a person can approve a reply to it, and
-   how long we may keep that review or our reply, is not stated. Earlier text in this document called it a 30-day
-   cap on review history; that is not established. It needs Google's answer or a legal reading before Google
-   code. A separate clause matters too: a tool provider "cannot develop your own API that allows your clients to
-   access the Business Profile APIs through automatic or programmatic computer scripts", so tenants may use our
-   screen but not our API against Google's.
+2. **Google's content-storage rule. DECIDED by design (Jeff, 2026-11-16): no question is put to Google.** Google's
+   policy ("Content storage", re-read in a browser) restricts storing Content "for use outside of your Business
+   Profile project" and caching "to improve the performance of your project", and says what is stored "must be
+   stored temporarily for no more than 30 calendar days", "securely", and "cannot be manipulated or aggregated in
+   any way". Standing fact 3 keeps every stored review inside 30 days and standing fact 4 forbids aggregation, so
+   the product meets the rule on either reading and nothing applicable to this workflow remains ambiguous.
+   YouTube (refresh or delete stored data within 30 days) and Pinterest (delete within 30 days) are met by the
+   same window. Still true and separate: a tool provider "cannot develop your own API that allows your clients to
+   access the Business Profile APIs through automatic or programmatic computer scripts", so tenants use our screen,
+   never an API of ours against Google's.
 3. **X needs a sales conversation before any X code.** Three self-serve limits are stated and unresolved:
    an API reply is allowed only if the post's author "summoned" the replier (whether a commenter's reply to
    a customer's post counts is unknown; X's Automation Rules, read in a browser, do allow an automated reply to
@@ -467,7 +489,7 @@ Meta (Platform Terms, developer policies; check the current versions):
 
 | Platform | Rule | Effect |
 |---|---|---|
-| Google Business Profile | Content stored under the policy's exception "must be stored temporarily for no more than 30 calendar days" and "cannot be manipulated or aggregated"; the rule is worded around storage "for use outside of your Business Profile project" and caching "to improve the performance of your project" | scope unclear (section 1b, item 2); do not assume a review history is allowed or forbidden |
+| Google Business Profile | Content stored under the policy's exception "must be stored temporarily for no more than 30 calendar days" and "cannot be manipulated or aggregated" | met by the 30-day window and by no aggregation (section 1a and 1b, item 2) |
 | YouTube | refresh or delete stored authorized data within 30 days; delete within 7 days of a request or revoked consent; no derived data; no cross-owner aggregation | per-tenant stores and a deletion path |
 | Pinterest | no storing API-accessed information without written consent; delete within 30 days | applies to published-post records |
 | Meta | each client's data kept separate; a deletion-callback URL receives a `signed_request` and returns `{url, confirmation_code}` | per-tenant isolation; build the callback |
