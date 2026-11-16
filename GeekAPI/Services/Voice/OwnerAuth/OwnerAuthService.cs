@@ -68,7 +68,11 @@ public sealed class OwnerAuthService(
 
         var tenant = await store.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
         if (!tenant.IsSuccess)
-            return Result<OwnerLoginCreated>.Failure(tenant.Error ?? "The tenant could not be read.", tenant.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+        {
+            if (tenant.ErrorCode == VoiceFailureCodes.NotFound)
+                return Refuse<OwnerLoginCreated>("No account has that id.", VoiceFailureCodes.NotFound);
+            return StoreFailed<OwnerLoginCreated>(tenant.ErrorCode, "Your login could not be created because the account store did not answer. Try again in a moment.");
+        }
         if (tenant.Value!.Status != VoiceTenantStatuses.Active)
             return Refuse<OwnerLoginCreated>("An owner login can be created only after the subscription is active.", OwnerAuthFailureCodes.TenantNotActive);
 
@@ -85,7 +89,10 @@ public sealed class OwnerAuthService(
         if (created.ErrorCode == VoiceFailureCodes.Conflict)
             return Refuse<OwnerLoginCreated>("A login already exists for this account or this email. If you just created it, sign in with that email and password.", OwnerAuthFailureCodes.OwnerExists);
 
-        return Result<OwnerLoginCreated>.Failure(created.Error ?? "The login could not be saved.", created.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+        if (created.ErrorCode is VoiceFailureCodes.NotFound or VoiceFailureCodes.InvalidRequest)
+            return Refuse<OwnerLoginCreated>(created.Error ?? "The login was refused.", created.ErrorCode);
+        return StoreFailed<OwnerLoginCreated>(created.ErrorCode,
+            "Your login could not be confirmed because the account store did not answer. It may have been created: sign in with that email and password before trying again.");
     }
 
     public async Task<Result<OwnerSession>> SignInAsync(OwnerSignInRequest? request, CancellationToken ct = default)
@@ -100,19 +107,19 @@ public sealed class OwnerAuthService(
         if (!login.IsSuccess)
         {
             // An email with no login, or one that is not an email at all, is the same refusal as a wrong password.
-            if (login.ErrorCode is VoiceFailureCodes.NotFound or VoiceFailureCodes.InvalidRequest || login.Status == ResultStatus.NotFound)
+            if (login.ErrorCode is VoiceFailureCodes.NotFound or VoiceFailureCodes.InvalidRequest)
             {
-                passwords.VerifyDecoy(request.Password);
+                passwords.CheckDecoy(request.Password);
                 return WrongCredentials();
             }
-            return Result<OwnerSession>.Failure(login.Error ?? "The login could not be read.", login.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+            return StoreFailed<OwnerSession>(login.ErrorCode, SignInUnavailable);
         }
 
         var owner = login.Value!;
-        bool matches;
+        PasswordCheck check;
         try
         {
-            matches = passwords.Verify(owner.PasswordHash, request.Password);
+            check = passwords.Check(owner.PasswordHash, request.Password);
         }
         catch (FormatException)
         {
@@ -120,11 +127,14 @@ public sealed class OwnerAuthService(
             return Result<OwnerSession>.Failure("The login could not be checked.", VoiceFailureCodes.StoreUnavailable);
         }
 
-        if (!matches)
+        if (check == PasswordCheck.Wrong)
         {
             logger.LogWarning("A sign-in to owner login {OwnerLoginId} was refused: wrong password.", owner.Id);
             return WrongCredentials();
         }
+
+        if (check == PasswordCheck.RightButOutdated)
+            await ReplaceOutdatedHashAsync(owner.Id, request.Password, ct).ConfigureAwait(false);
 
         var session = await StartAsync(owner.Id, owner.TenantId, owner.Email, ct).ConfigureAwait(false);
         if (session.IsSuccess) logger.LogInformation("Owner login {OwnerLoginId} signed in.", owner.Id);
@@ -149,7 +159,7 @@ public sealed class OwnerAuthService(
                 return Refuse<OwnerSession>("That sign-in has ended. Sign in again.", OwnerAuthFailureCodes.RefreshTokenReused);
             if (rotated.ErrorCode is VoiceFailureCodes.NotFound or VoiceFailureCodes.InvalidRequest)
                 return Refuse<OwnerSession>("That sign-in has expired. Sign in again.", OwnerAuthFailureCodes.RefreshTokenInvalid);
-            return Result<OwnerSession>.Failure(rotated.Error ?? "The sign-in could not be renewed.", rotated.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+            return StoreFailed<OwnerSession>(rotated.ErrorCode, "The sign-in could not be renewed because the account store did not answer. Try again in a moment.");
         }
 
         var owner = rotated.Value!;
@@ -164,7 +174,9 @@ public sealed class OwnerAuthService(
 
         var revoked = await owners.RevokeRefreshTokenFamilyAsync(ReceptionistTokens.HashRefreshToken(request.RefreshToken), ct).ConfigureAwait(false);
         if (revoked.IsSuccess) return Result<bool>.Success(true);
-        return Result<bool>.Failure(revoked.Error ?? "The sign-in could not be ended.", revoked.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+        if (revoked.ErrorCode == VoiceFailureCodes.InvalidRequest)
+            return Refuse<bool>(revoked.Error ?? "A refresh token is required.", VoiceFailureCodes.InvalidRequest);
+        return StoreFailed<bool>(revoked.ErrorCode, "The sign-in could not be ended because the account store did not answer.");
     }
 
     /// <summary>Starts a new sign-in: stores its first refresh token in a new family, then signs an access token. The refresh token is
@@ -175,7 +187,7 @@ public sealed class OwnerAuthService(
         var stored = await owners.StoreRefreshTokenAsync(
             new StoreVoiceRefreshTokenCommand(ownerLoginId, Guid.NewGuid(), refresh.Hash, refresh.ExpiresAt), ct).ConfigureAwait(false);
         if (!stored.IsSuccess)
-            return Result<OwnerSession>.Failure(stored.Error ?? "The sign-in could not be saved.", stored.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+            return StoreFailed<OwnerSession>(stored.ErrorCode, SignInUnavailable);
 
         return Result<OwnerSession>.Success(SessionFor(ownerLoginId, tenantId, email, refresh));
     }
@@ -185,6 +197,29 @@ public sealed class OwnerAuthService(
         var access = tokens.IssueAccessToken(ownerLoginId, tenantId, email);
         return new OwnerSession(access.Token, access.ExpiresAt, refresh.Token, refresh.ExpiresAt, tenantId, email);
     }
+
+    private const string SignInUnavailable = "Sign-in is not available right now because the account store did not answer. Try again in a moment.";
+
+    /// <summary>
+    /// Replaces a hash made at a lower cost than the hasher now uses, while the password is at hand, so every login ends up at the current
+    /// cost. A failure is logged and the sign-in goes on: the old hash still checks, and the next sign-in tries again.
+    /// </summary>
+    private async Task ReplaceOutdatedHashAsync(Guid ownerLoginId, string password, CancellationToken ct)
+    {
+        var updated = await owners.UpdateOwnerPasswordHashAsync(new UpdateVoiceOwnerPasswordCommand(ownerLoginId, passwords.Hash(password)), ct)
+            .ConfigureAwait(false);
+        if (updated.IsSuccess)
+            logger.LogInformation("The password hash of owner login {OwnerLoginId} was replaced at the current cost.", ownerLoginId);
+        else
+            logger.LogError("The outdated password hash of owner login {OwnerLoginId} could not be replaced: {Code}.", ownerLoginId, updated.ErrorCode);
+    }
+
+    /// <summary>
+    /// A store failure as the person sees it. The store's own wording names GeekRepository and its status, which the person can do nothing
+    /// with; HttpVoiceOwnerRepository has already logged it. The code is kept, so the status stays the same.
+    /// </summary>
+    private static Result<T> StoreFailed<T>(string? code, string sentence) =>
+        Result<T>.Failure(sentence, code ?? VoiceFailureCodes.StoreUnavailable);
 
     private Result<T>? CheckConfigured<T>()
     {

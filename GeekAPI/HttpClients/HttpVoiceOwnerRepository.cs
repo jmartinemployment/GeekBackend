@@ -30,6 +30,9 @@ public sealed class HttpVoiceOwnerRepository(HttpClient http, ILogger<HttpVoiceO
     public Task<Result<VoiceOwnerLogin>> FindOwnerLoginByEmailAsync(string email, CancellationToken ct = default) =>
         SendAsync<VoiceOwnerLogin>("internal/v1/owner-logins/find", new { email }, ct);
 
+    public Task<Result<bool>> UpdateOwnerPasswordHashAsync(UpdateVoiceOwnerPasswordCommand command, CancellationToken ct = default) =>
+        SendAsync<bool>("internal/v1/owner-logins/password", command, ct);
+
     public Task<Result<bool>> StoreRefreshTokenAsync(StoreVoiceRefreshTokenCommand command, CancellationToken ct = default) =>
         SendAsync<bool>("internal/v1/owner-refresh-tokens", command, ct);
 

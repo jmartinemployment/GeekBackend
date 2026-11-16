@@ -425,7 +425,7 @@ app.UseAuthorization();
 app.UseMiddleware<LegacyAuthRetiredMiddleware>();
 app.UseMiddleware<ApiKeyMiddleware>();
 // After ApiKeyMiddleware: the limiter keys on the visitor address the portal forwards, which is believed only once the key is verified.
-// Geek-Receptionist's signup routes carry the cap (OnboardingRateLimit); nothing else is limited here.
+// Geek-Receptionist's signup routes and owner sign-in carry the caps (OnboardingRateLimit); nothing else is limited here.
 app.UseRateLimiter();
 app.MapControllers();
 app.MapReceptionist();

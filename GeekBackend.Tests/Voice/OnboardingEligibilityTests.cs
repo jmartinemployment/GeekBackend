@@ -288,7 +288,10 @@ public sealed class OnboardingEligibilityTests
     }
 }
 
-/// <summary>The cap on the public signup routes: ten per address per hour, one bucket per address, no queue, and a 429 with a code.</summary>
+/// <summary>
+/// The caps on the public signup routes and on owner sign-in: ten per address per hour, one bucket per address (an IPv6 address counts as
+/// its /64), no queue, a 429 with a code, and sign-in counted apart from signup.
+/// </summary>
 public sealed class OnboardingRateLimitTests
 {
     private static DefaultHttpContext From(string? address)
@@ -347,6 +350,38 @@ public sealed class OnboardingRateLimitTests
         context.Response.Body.Position = 0;
         using var json = System.Text.Json.JsonDocument.Parse(context.Response.Body);
         Assert.Equal(OnboardingRateLimit.Code, json.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public void Every_address_in_one_IPv6_64_block_shares_one_bucket_and_the_next_block_has_its_own()
+    {
+        using var limiter = Limiter();
+        for (var i = 0; i < OnboardingRateLimit.PermitsPerWindow; i++)
+            Assert.True(Acquire(limiter, $"2001:db8:1:2::{i + 1:x}"), $"call {i + 1}");
+
+        Assert.False(Acquire(limiter, "2001:db8:1:2:ffff:ffff:ffff:fffe"));
+        Assert.True(Acquire(limiter, "2001:db8:1:3::1"));
+    }
+
+    [Fact]
+    public void An_IPv4_address_written_in_IPv6_form_counts_as_the_IPv4_address() =>
+        Assert.Equal(OnboardingRateLimit.AddressKey(From("203.0.113.9")), OnboardingRateLimit.AddressKey(From("::ffff:203.0.113.9")));
+
+    [Fact]
+    public void Signing_in_has_its_own_allowance_that_signup_calls_do_not_use_up()
+    {
+        var attribute = typeof(OwnerAuthController).GetMethod(nameof(OwnerAuthController.SignIn), [typeof(GeekAPI.Services.Voice.OwnerAuth.OwnerSignInRequest), typeof(CancellationToken)])!
+            .GetCustomAttributes(typeof(Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute), inherit: false)
+            .Cast<Microsoft.AspNetCore.RateLimiting.EnableRateLimitingAttribute>().Single();
+        Assert.Equal(OnboardingRateLimit.SignInPolicyName, attribute.PolicyName);
+        Assert.NotEqual(OnboardingRateLimit.PolicyName, OnboardingRateLimit.SignInPolicyName);
+
+        using var signup = Limiter();
+        using var signIn = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(OnboardingRateLimit.SignInPartition);
+        for (var i = 0; i < OnboardingRateLimit.PermitsPerWindow; i++) Acquire(signup, "203.0.113.9");
+
+        Assert.False(Acquire(signup, "203.0.113.9"));
+        Assert.True(Acquire(signIn, "203.0.113.9"));
     }
 
     [Fact]

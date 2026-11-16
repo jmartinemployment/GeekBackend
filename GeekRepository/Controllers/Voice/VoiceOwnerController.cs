@@ -29,6 +29,10 @@ public sealed class VoiceOwnerController(IVoiceOwnerStore owners) : ControllerBa
     public async Task<IActionResult> Find([FromBody] OwnerEmailRequest request, CancellationToken ct) =>
         request is null ? BadRequest("An email is required.") : ToAction(await owners.FindOwnerLoginByEmailAsync(request.Email ?? string.Empty, ct));
 
+    [HttpPost("internal/v1/owner-logins/password")]
+    public async Task<IActionResult> UpdatePassword([FromBody] UpdateVoiceOwnerPasswordCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A password hash is required.") : ToAction(await owners.UpdateOwnerPasswordHashAsync(command, ct));
+
     [HttpPost("internal/v1/owner-refresh-tokens")]
     public async Task<IActionResult> Store([FromBody] StoreVoiceRefreshTokenCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A refresh token is required.") : ToAction(await owners.StoreRefreshTokenAsync(command, ct), StatusCodes.Status201Created);

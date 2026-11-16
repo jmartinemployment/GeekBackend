@@ -74,9 +74,26 @@ public sealed class OwnerAuthTests
         /// <summary>When set, a renewal answers this and changes nothing, as GeekRepository does when its transaction does not commit.</summary>
         public Result<RotatedVoiceRefreshToken>? RotateFails { get; set; }
 
+        /// <summary>When set, creating a login answers this and stores nothing.</summary>
+        public Result<VoiceOwnerLogin>? CreateFails { get; set; }
+
+        /// <summary>When set, replacing a password hash answers this and changes nothing.</summary>
+        public Result<bool>? UpdatePasswordFails { get; set; }
+
+        public Task<Result<bool>> UpdateOwnerPasswordHashAsync(UpdateVoiceOwnerPasswordCommand command, CancellationToken ct = default)
+        {
+            Calls++;
+            if (UpdatePasswordFails is { } failure) return Task.FromResult(failure);
+            var i = Logins.FindIndex(l => l.Id == command.OwnerLoginId);
+            if (i < 0) return Task.FromResult(Result<bool>.Failure("No login.", VoiceFailureCodes.NotFound));
+            Logins[i] = Logins[i] with { PasswordHash = command.PasswordHash };
+            return Task.FromResult(Result<bool>.Success(true));
+        }
+
         public Task<Result<VoiceOwnerLogin>> CreateOwnerLoginAsync(CreateVoiceOwnerLoginCommand command, CancellationToken ct = default)
         {
             Calls++;
+            if (CreateFails is { } failure) return Task.FromResult(failure);
             var email = command.Email.ToLowerInvariant();
             if (Logins.Any(l => l.TenantId == command.TenantId || l.Email == email))
                 return Task.FromResult(Result<VoiceOwnerLogin>.Failure("exists", VoiceFailureCodes.Conflict));
@@ -181,7 +198,7 @@ public sealed class OwnerAuthTests
         Assert.Equal(new OwnerLoginCreated(Tenant, login.Id), created.Value);
         Assert.Equal("owner@example.com", login.Email);
         Assert.DoesNotContain(Password, login.PasswordHash);
-        Assert.True(new OwnerPasswords().Verify(login.PasswordHash, Password));
+        Assert.Equal(PasswordCheck.Right, new OwnerPasswords().Check(login.PasswordHash, Password));
     }
 
     [Fact]
@@ -386,6 +403,7 @@ public sealed class OwnerAuthTests
 
         Assert.Equal(VoiceFailureCodes.StoreUnavailable, failed.ErrorCode);
         Assert.Equal(503, OwnerAuthController.StatusFor(failed.ErrorCode));
+        Assert.DoesNotContain("GeekRepository", failed.Error);
         Assert.True(retried.IsSuccess, retried.Error);
     }
 
@@ -402,6 +420,53 @@ public sealed class OwnerAuthTests
         Assert.Equal(OwnerAuthFailureCodes.RefreshTokenInvalid, unknown.ErrorCode);
         Assert.True(signedOut.IsSuccess);
         Assert.Equal(OwnerAuthFailureCodes.RefreshTokenReused, afterSignOut.ErrorCode);
+    }
+
+    [Fact]
+    public async Task A_hash_made_at_a_lower_cost_is_replaced_at_sign_in_and_the_owner_is_signed_in()
+    {
+        var rig = new Rig();
+        await rig.SignedInAsync();
+        var cheap = new Microsoft.AspNetCore.Identity.PasswordHasher<OwnerPasswords>(
+            Microsoft.Extensions.Options.Options.Create(new Microsoft.AspNetCore.Identity.PasswordHasherOptions { IterationCount = 1000 }));
+        var outdated = cheap.HashPassword(null!, Password);
+        rig.Owners.Logins[0] = rig.Owners.Logins[0] with { PasswordHash = outdated };
+        Assert.Equal(PasswordCheck.RightButOutdated, new OwnerPasswords().Check(outdated, Password));
+
+        var session = await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password));
+
+        Assert.True(session.IsSuccess, session.Error);
+        Assert.NotEqual(outdated, rig.Owners.Logins[0].PasswordHash);
+        Assert.Equal(PasswordCheck.Right, new OwnerPasswords().Check(rig.Owners.Logins[0].PasswordHash, Password));
+    }
+
+    [Fact]
+    public async Task A_hash_that_could_not_be_replaced_is_logged_and_the_owner_is_still_signed_in()
+    {
+        var rig = new Rig();
+        await rig.SignedInAsync();
+        var cheap = new Microsoft.AspNetCore.Identity.PasswordHasher<OwnerPasswords>(
+            Microsoft.Extensions.Options.Options.Create(new Microsoft.AspNetCore.Identity.PasswordHasherOptions { IterationCount = 1000 }));
+        rig.Owners.Logins[0] = rig.Owners.Logins[0] with { PasswordHash = cheap.HashPassword(null!, Password) };
+        rig.Owners.UpdatePasswordFails = Result<bool>.Failure("GeekRepository timed out.", VoiceFailureCodes.StoreUnavailable);
+
+        var session = await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password));
+
+        Assert.True(session.IsSuccess, session.Error);
+        Assert.Contains(rig.Log.Lines, line => line.Contains("could not be replaced", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_login_whose_save_went_unanswered_tells_the_owner_to_try_signing_in_and_names_no_service()
+    {
+        var rig = new Rig();
+        rig.Owners.CreateFails = Result<VoiceOwnerLogin>.Failure("GeekRepository timed out.", VoiceFailureCodes.StoreUnavailable);
+
+        var created = await rig.Service.CreateLoginAsync(new CreateOwnerLoginRequest(Tenant, "owner@example.com", Password, null));
+
+        Assert.Equal(VoiceFailureCodes.StoreUnavailable, created.ErrorCode);
+        Assert.Contains("sign in", created.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("GeekRepository", created.Error);
     }
 
     [Fact]

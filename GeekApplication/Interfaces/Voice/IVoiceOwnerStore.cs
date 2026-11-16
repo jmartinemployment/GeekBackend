@@ -15,6 +15,9 @@ public interface IVoiceOwnerStore
     /// <summary>NotFound when no login has that email. The email is compared lower-cased.</summary>
     Task<Result<VoiceOwnerLogin>> FindOwnerLoginByEmailAsync(string email, CancellationToken ct = default);
 
+    /// <summary>Replaces a login's password hash. NotFound when the login does not exist.</summary>
+    Task<Result<bool>> UpdateOwnerPasswordHashAsync(UpdateVoiceOwnerPasswordCommand command, CancellationToken ct = default);
+
     /// <summary>Stores the first refresh token of a new sign-in.</summary>
     Task<Result<bool>> StoreRefreshTokenAsync(StoreVoiceRefreshTokenCommand command, CancellationToken ct = default);
 

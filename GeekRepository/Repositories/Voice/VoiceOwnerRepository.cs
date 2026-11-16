@@ -23,6 +23,8 @@ public sealed class VoiceOwnerRepository(IDbConnectionFactory db, ILogger<VoiceO
         var email = NormalizeEmail(command.Email);
         if (email is null) return Invalid<VoiceOwnerLogin>("A valid email is required.");
         if (string.IsNullOrWhiteSpace(command.PasswordHash)) return Invalid<VoiceOwnerLogin>("A password hash is required.");
+        if (command.DisplayName is not null && command.DisplayName.Any(char.IsControl))
+            return Invalid<VoiceOwnerLogin>("A display name cannot hold control characters.");
 
         try
         {
@@ -64,6 +66,19 @@ public sealed class VoiceOwnerRepository(IDbConnectionFactory db, ILogger<VoiceO
             new { Email = normalized },
             cancellationToken: ct));
         return row is null ? NotFound<VoiceOwnerLogin>("No login has that email.") : Result<VoiceOwnerLogin>.Success(row);
+    }
+
+    public async Task<Result<bool>> UpdateOwnerPasswordHashAsync(UpdateVoiceOwnerPasswordCommand command, CancellationToken ct = default)
+    {
+        if (command.OwnerLoginId == Guid.Empty) return Invalid<bool>("A login is required.");
+        if (string.IsNullOrWhiteSpace(command.PasswordHash)) return Invalid<bool>("A password hash is required.");
+
+        await using var conn = await OpenAsync(ct);
+        var updated = await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE geek_voice.owner_logins SET password_hash = @PasswordHash WHERE id = @OwnerLoginId;",
+            new { command.OwnerLoginId, command.PasswordHash },
+            cancellationToken: ct));
+        return updated == 1 ? Result<bool>.Success(true) : NotFound<bool>("No login has that id.");
     }
 
     public async Task<Result<bool>> StoreRefreshTokenAsync(StoreVoiceRefreshTokenCommand command, CancellationToken ct = default)
@@ -230,14 +245,17 @@ public sealed class VoiceOwnerRepository(IDbConnectionFactory db, ILogger<VoiceO
         }
     }
 
-    /// <summary>Trimmed and lower-cased, the one form a login is stored and looked up in. Null when it cannot be an email.</summary>
+    /// <summary>
+    /// Trimmed and lower-cased, the one form a login is stored and looked up in. Null when it cannot be an email, which includes one
+    /// holding a control character: Postgres refuses NUL in text, so such an email would otherwise fail in the database instead of here.
+    /// </summary>
     public static string? NormalizeEmail(string? email)
     {
         if (string.IsNullOrWhiteSpace(email)) return null;
         var normalized = email.Trim().ToLowerInvariant();
         if (normalized.Length is < 3 or > 254) return null;
         var at = normalized.IndexOf('@', StringComparison.Ordinal);
-        if (at < 1 || at != normalized.LastIndexOf('@') || at == normalized.Length - 1 || normalized.Any(char.IsWhiteSpace)) return null;
+        if (at < 1 || at != normalized.LastIndexOf('@') || at == normalized.Length - 1 || normalized.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) return null;
         return normalized;
     }
 

@@ -49,11 +49,13 @@ public static class VoiceServiceRegistration
                 sp.GetRequiredService<ILogger<HttpVoiceOwnerRepository>>()));
         services.AddSingleton(ReceptionistTokenOptions.FromEnvironment());
         services.AddSingleton<ReceptionistTokens>();
-        services.AddSingleton<OwnerPasswords>();
+        // Made here, at startup, so the decoy hash exists before the first sign-in and the first unknown email takes no longer than the rest.
+        services.AddSingleton(new OwnerPasswords());
         services.AddScoped<OwnerAuthService>();
         services.AddRateLimiter(options =>
         {
             options.AddPolicy(OnboardingRateLimit.PolicyName, OnboardingRateLimit.Partition);
+            options.AddPolicy(OnboardingRateLimit.SignInPolicyName, OnboardingRateLimit.SignInPartition);
             options.OnRejected = (rejected, ct) => OnboardingRateLimit.WriteRejection(rejected.HttpContext, ct);
         });
         return services;

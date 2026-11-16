@@ -11,8 +11,8 @@ namespace GeekAPI.Controllers.Voice;
 /// <summary>
 /// Geek-Receptionist's owner accounts (docs/Geek-Receptionist.md sections 5 and 7). Every route is called by the portal's server with
 /// X-API-Key, and <see cref="RequireApiKeyAttribute"/> refuses a call without it, a GeekOAuth token included; the owner's browser never
-/// calls GeekAPI. Creating a login and signing in carry the per-visitor cap, because both need no
-/// token; refresh and sign-out need a refresh token, which cannot be guessed. Answers holding tokens are never cached. A refusal is
+/// calls GeekAPI. Creating a login carries the signup cap and signing in its own cap of the same size, because
+/// both need no token; refresh and sign-out need a refresh token, which cannot be guessed. Answers holding tokens are never cached. A refusal is
 /// answered with its message and its code.
 /// </summary>
 [ApiController]
@@ -29,7 +29,7 @@ public sealed class OwnerAuthController(OwnerAuthService owners) : ControllerBas
     }
 
     [HttpPost("api/v1/owner-auth/sign-in")]
-    [EnableRateLimiting(OnboardingRateLimit.PolicyName)]
+    [EnableRateLimiting(OnboardingRateLimit.SignInPolicyName)]
     public async Task<IActionResult> SignIn([FromBody] OwnerSignInRequest request, CancellationToken ct)
     {
         var result = await owners.SignInAsync(request, ct);

@@ -9,6 +9,9 @@ public sealed record VoiceOwnerLogin(Guid Id, Guid TenantId, string Email, strin
 /// <summary>The email is stored lower-cased. A tenant has one login and an email belongs to one login: either clash is a conflict.</summary>
 public sealed record CreateVoiceOwnerLoginCommand(Guid TenantId, string Email, string PasswordHash, string? DisplayName);
 
+/// <summary>A login's new password hash, made by GeekAPI when the stored one was made at a lower cost than the hasher now uses.</summary>
+public sealed record UpdateVoiceOwnerPasswordCommand(Guid OwnerLoginId, string PasswordHash);
+
 /// <summary>A refresh token as GeekAPI stores it: only its hash. Every token of one sign-in shares a family, so a reused token can end the whole sign-in.</summary>
 public sealed record StoreVoiceRefreshTokenCommand(Guid OwnerLoginId, Guid FamilyId, string TokenHash, DateTimeOffset ExpiresAt);
 

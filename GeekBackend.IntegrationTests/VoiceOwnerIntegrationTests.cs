@@ -94,6 +94,20 @@ public sealed class VoiceOwnerIntegrationTests
     }
 
     [Fact]
+    public async Task A_password_hash_is_replaced_and_an_unknown_login_is_not_found()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var owners = Owners();
+        var (_, login) = await NewLoginAsync(owners);
+        var replacement = "hash-" + Unique();
+
+        Assert.True((await owners.UpdateOwnerPasswordHashAsync(new(login.Id, replacement))).IsSuccess);
+        Assert.Equal(replacement, (await owners.FindOwnerLoginByEmailAsync(login.Email)).Value!.PasswordHash);
+        Assert.Equal(VoiceFailureCodes.NotFound, (await owners.UpdateOwnerPasswordHashAsync(new(Guid.NewGuid(), replacement))).ErrorCode);
+    }
+
+    [Fact]
     public async Task A_renewal_stores_the_replacement_in_the_family_and_a_replay_after_the_grace_ends_it()
     {
         if (!IntegrationTestConfig.IsDatabaseConfigured) return;

@@ -39,6 +39,14 @@ public sealed class VoiceOwnerStoreTests
         await AssertInvalid(Store().CreateOwnerLoginAsync(new CreateVoiceOwnerLoginCommand(Tenant, "not-an-email", "hash", null)));
         await AssertInvalid(Store().CreateOwnerLoginAsync(new CreateVoiceOwnerLoginCommand(Tenant, "a@b.co", "  ", null)));
         await AssertInvalid(Store().CreateOwnerLoginAsync(new CreateVoiceOwnerLoginCommand(Tenant, "a@b.co", "", null)));
+        await AssertInvalid(Store().CreateOwnerLoginAsync(new CreateVoiceOwnerLoginCommand(Tenant, "a@b.co", "hash", "Dana\0")));
+    }
+
+    [Fact]
+    public async Task Replacing_a_password_hash_needs_a_login_and_a_hash()
+    {
+        await AssertInvalid(Store().UpdateOwnerPasswordHashAsync(new UpdateVoiceOwnerPasswordCommand(Guid.Empty, "hash")));
+        await AssertInvalid(Store().UpdateOwnerPasswordHashAsync(new UpdateVoiceOwnerPasswordCommand(Guid.NewGuid(), " ")));
     }
 
     [Theory]
@@ -50,6 +58,8 @@ public sealed class VoiceOwnerStoreTests
     [InlineData("a@")]
     [InlineData("a@@b.co")]
     [InlineData("a b@c.co")]
+    [InlineData("a\0@b.co")]
+    [InlineData("a\u0007@b.co")]
     public async Task An_email_that_cannot_be_one_is_refused_without_a_lookup(string? email) =>
         await AssertInvalid(Store().FindOwnerLoginByEmailAsync(email!));
 
@@ -93,6 +103,7 @@ public sealed class VoiceOwnerStoreTests
 
         public Task<Result<VoiceOwnerLogin>> CreateOwnerLoginAsync(CreateVoiceOwnerLoginCommand command, CancellationToken ct = default) => Task.FromResult(Create);
         public Task<Result<VoiceOwnerLogin>> FindOwnerLoginByEmailAsync(string email, CancellationToken ct = default) => Task.FromResult(Create);
+        public Task<Result<bool>> UpdateOwnerPasswordHashAsync(UpdateVoiceOwnerPasswordCommand command, CancellationToken ct = default) => Task.FromResult(Result<bool>.Success(true));
         public Task<Result<bool>> StoreRefreshTokenAsync(StoreVoiceRefreshTokenCommand command, CancellationToken ct = default) => Task.FromResult(Result<bool>.Success(true));
         public Task<Result<RotatedVoiceRefreshToken>> RotateRefreshTokenAsync(RotateVoiceRefreshTokenCommand command, CancellationToken ct = default) => Task.FromResult(Rotate);
         public Task<Result<bool>> RevokeRefreshTokenFamilyAsync(string tokenHash, CancellationToken ct = default) => Task.FromResult(Result<bool>.Success(true));
@@ -145,6 +156,7 @@ public sealed class VoiceOwnerStoreTests
         Assert.Equal(400, StatusOf(await controller.Create(null!, default)));
         Assert.Equal(400, StatusOf(await controller.Find(null!, default)));
         Assert.Equal(400, StatusOf(await controller.Store(null!, default)));
+        Assert.Equal(400, StatusOf(await controller.UpdatePassword(null!, default)));
         Assert.Equal(400, StatusOf(await controller.Rotate(null!, default)));
         Assert.Equal(400, StatusOf(await controller.Revoke(null!, default)));
     }
