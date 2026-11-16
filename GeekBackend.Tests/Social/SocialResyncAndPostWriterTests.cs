@@ -70,7 +70,7 @@ public class SocialResyncAndPostWriterTests
             : new SocialCommentPage { Comments = { Comment("C2") } }));
         var (resync, store, wake, _) = Resync(reader, ev => Result<bool>.Success(ev.PlatformCommentId == "C2"));
 
-        var result = await resync.ResyncAsync(AccountId, CancellationToken.None);
+        var result = await resync.ResyncAsync(TestTenant.Id, AccountId, CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal(1, result.Value!.PostsRead);
@@ -90,7 +90,7 @@ public class SocialResyncAndPostWriterTests
         var reader = new FakeReader((_, _) => Result<SocialCommentPage>.Failure("Meta could not be reached.", SocialFailureCodes.PlatformUnavailable));
         var (resync, _, _, log) = Resync(reader, _ => Result<bool>.Success(true));
 
-        var result = await resync.ResyncAsync(AccountId, CancellationToken.None);
+        var result = await resync.ResyncAsync(TestTenant.Id, AccountId, CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.PlatformUnavailable, result.ErrorCode);
         Assert.Contains("0 comment(s) were stored", result.Error, StringComparison.Ordinal);

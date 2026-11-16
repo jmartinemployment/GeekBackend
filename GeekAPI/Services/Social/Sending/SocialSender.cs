@@ -93,7 +93,7 @@ public sealed class SocialSender
                 action, account.Platform, account.Id, failureCode, error);
         }
 
-        var stored = await _store.RecordAuditAsync(new ActionAudit
+        var stored = await _store.RecordAuditAsync(account.TenantId, new ActionAudit
         {
             AccountId = account.Id,
             Platform = account.Platform,

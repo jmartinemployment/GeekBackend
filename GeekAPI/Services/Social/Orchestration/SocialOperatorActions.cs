@@ -71,12 +71,12 @@ public sealed class SocialOperatorActions
     }
 
     /// <summary>A person's edit of a pending draft. The Reviewer checks the new text first; a refusal changes nothing.</summary>
-    public async Task<Result<SocialReviewed<ReplyDraft>>> EditAsync(Guid draftId, string text, CancellationToken ct)
+    public async Task<Result<SocialReviewed<ReplyDraft>>> EditAsync(Guid tenantId, Guid draftId, string text, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(text))
             return Result<SocialReviewed<ReplyDraft>>.Failure("The reply needs text.", SocialFailureCodes.InvalidRequest);
 
-        var draft = await _store.GetDraftAsync(draftId, ct).ConfigureAwait(false);
+        var draft = await _store.GetDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
         if (!draft.IsSuccess)
             return Pass<SocialReviewed<ReplyDraft>>(draft.Error, draft.ErrorCode, "load the draft");
         if (draft.Value!.Status != ReplyDraftStatuses.Pending)
@@ -88,11 +88,11 @@ public sealed class SocialOperatorActions
         if (violations.Value is { } broken)
             return Result<SocialReviewed<ReplyDraft>>.Success(SocialReviewed<ReplyDraft>.Refused(broken));
 
-        var edited = await _store.EditDraftAsync(draftId, new EditReplyDraftCommand { DraftText = text.Trim() }, ct).ConfigureAwait(false);
+        var edited = await _store.EditDraftAsync(tenantId, draftId, new EditReplyDraftCommand { DraftText = text.Trim() }, ct).ConfigureAwait(false);
         if (!edited.IsSuccess)
             return Pass<SocialReviewed<ReplyDraft>>(edited.Error, edited.ErrorCode, "edit the draft");
 
-        await _realtime.DraftChangedAsync(draftId, edited.Value!.AccountId, edited.Value.Status, ct).ConfigureAwait(false);
+        await _realtime.DraftChangedAsync(tenantId, draftId, edited.Value!.AccountId, edited.Value.Status, ct).ConfigureAwait(false);
         return Result<SocialReviewed<ReplyDraft>>.Success(SocialReviewed<ReplyDraft>.Made(edited.Value));
     }
 
@@ -100,9 +100,9 @@ public sealed class SocialOperatorActions
     /// Approves a pending draft whose text passes the Reviewer, then sends it at once. A draft a person
     /// must write is approved only after its text is written. A refusal approves nothing.
     /// </summary>
-    public async Task<Result<SocialReviewed<SocialApproval>>> ApproveAsync(Guid draftId, string actorUserId, CancellationToken ct)
+    public async Task<Result<SocialReviewed<SocialApproval>>> ApproveAsync(Guid tenantId, Guid draftId, string actorUserId, CancellationToken ct)
     {
-        var draft = await _store.GetDraftAsync(draftId, ct).ConfigureAwait(false);
+        var draft = await _store.GetDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
         if (!draft.IsSuccess)
             return Pass<SocialReviewed<SocialApproval>>(draft.Error, draft.ErrorCode, "load the draft");
         if (draft.Value!.Status != ReplyDraftStatuses.Pending)
@@ -116,7 +116,7 @@ public sealed class SocialOperatorActions
         if (violations.Value is { } broken)
             return Result<SocialReviewed<SocialApproval>>.Success(SocialReviewed<SocialApproval>.Refused(broken));
 
-        var approved = await _store.TransitionDraftAsync(draftId, new TransitionReplyDraftCommand
+        var approved = await _store.TransitionDraftAsync(tenantId, draftId, new TransitionReplyDraftCommand
         {
             From = ReplyDraftStatuses.Pending,
             To = ReplyDraftStatuses.Approved,
@@ -126,9 +126,9 @@ public sealed class SocialOperatorActions
             return Pass<SocialReviewed<SocialApproval>>(approved.Error, approved.ErrorCode, "approve the draft");
 
         _logger.LogInformation("Draft {DraftId} was approved by {UserId}.", draftId, actorUserId);
-        await _realtime.DraftChangedAsync(draftId, approved.Value!.AccountId, ReplyDraftStatuses.Approved, ct).ConfigureAwait(false);
+        await _realtime.DraftChangedAsync(tenantId, draftId, approved.Value!.AccountId, ReplyDraftStatuses.Approved, ct).ConfigureAwait(false);
 
-        var sent = await _sendStep.SendAsync(draftId, actorUserId, ct).ConfigureAwait(false);
+        var sent = await _sendStep.SendAsync(tenantId, draftId, actorUserId, ct).ConfigureAwait(false);
         var outcome = sent.IsSuccess
             ? sent.Value!
             : new SocialSendOutcome { Code = sent.ErrorCode, Error = $"Approved, and the send could not start: {sent.Error}", Draft = approved.Value };
@@ -140,19 +140,19 @@ public sealed class SocialOperatorActions
     }
 
     /// <summary>Sends an approved draft a limit or a pause held back.</summary>
-    public Task<Result<SocialSendOutcome>> SendAsync(Guid draftId, string actorUserId, CancellationToken ct) =>
-        _sendStep.SendAsync(draftId, actorUserId, ct);
+    public Task<Result<SocialSendOutcome>> SendAsync(Guid tenantId, Guid draftId, string actorUserId, CancellationToken ct) =>
+        _sendStep.SendAsync(tenantId, draftId, actorUserId, ct);
 
     /// <summary>Rejects a pending or approved draft. Nothing is sent and it cannot be sent later.</summary>
-    public async Task<Result<ReplyDraft>> RejectAsync(Guid draftId, string actorUserId, CancellationToken ct)
+    public async Task<Result<ReplyDraft>> RejectAsync(Guid tenantId, Guid draftId, string actorUserId, CancellationToken ct)
     {
-        var draft = await _store.GetDraftAsync(draftId, ct).ConfigureAwait(false);
+        var draft = await _store.GetDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
         if (!draft.IsSuccess)
             return Pass<ReplyDraft>(draft.Error, draft.ErrorCode, "load the draft");
         if (draft.Value!.Status is not (ReplyDraftStatuses.Pending or ReplyDraftStatuses.Approved))
             return Result<ReplyDraft>.Failure($"The draft is {draft.Value.Status} and can no longer be rejected.", SocialFailureCodes.Conflict);
 
-        var rejected = await _store.TransitionDraftAsync(draftId, new TransitionReplyDraftCommand
+        var rejected = await _store.TransitionDraftAsync(tenantId, draftId, new TransitionReplyDraftCommand
         {
             From = draft.Value.Status,
             To = ReplyDraftStatuses.Rejected,
@@ -162,7 +162,7 @@ public sealed class SocialOperatorActions
             return Pass<ReplyDraft>(rejected.Error, rejected.ErrorCode, "reject the draft");
 
         _logger.LogInformation("Draft {DraftId} was rejected by {UserId}.", draftId, actorUserId);
-        await _realtime.DraftChangedAsync(draftId, rejected.Value!.AccountId, ReplyDraftStatuses.Rejected, ct).ConfigureAwait(false);
+        await _realtime.DraftChangedAsync(tenantId, draftId, rejected.Value!.AccountId, ReplyDraftStatuses.Rejected, ct).ConfigureAwait(false);
         return rejected;
     }
 
@@ -175,9 +175,9 @@ public sealed class SocialOperatorActions
     /// only one it may carry); the Sender publishes it once; then it is stored. A post that went live and
     /// could not be stored is reported as such, with the platform's id, and is never published again.
     /// </summary>
-    public async Task<Result<SocialReviewed<SocialPost>>> PublishAsync(Guid accountId, SocialPostRequest post, string actorUserId, CancellationToken ct)
+    public async Task<Result<SocialReviewed<SocialPost>>> PublishAsync(Guid tenantId, Guid accountId, SocialPostRequest post, string actorUserId, CancellationToken ct)
     {
-        var account = await _store.GetAccountAsync(accountId, ct).ConfigureAwait(false);
+        var account = await _store.GetAccountAsync(tenantId, accountId, ct).ConfigureAwait(false);
         if (!account.IsSuccess)
             return Pass<SocialReviewed<SocialPost>>(account.Error, account.ErrorCode, "load the account");
         if (account.Value!.Status != SocialAccountStatuses.Connected)
@@ -199,7 +199,7 @@ public sealed class SocialOperatorActions
         if (!review.Value!.Passed)
             return Result<SocialReviewed<SocialPost>>.Success(SocialReviewed<SocialPost>.Refused(review.Value.Violations));
 
-        var token = await _tokens.GetTokenAsync(accountId, ct).ConfigureAwait(false);
+        var token = await _tokens.GetTokenAsync(tenantId, accountId, ct).ConfigureAwait(false);
         if (!token.IsSuccess)
             return Pass<SocialReviewed<SocialPost>>(token.Error, token.ErrorCode, "get the token");
 
@@ -208,7 +208,7 @@ public sealed class SocialOperatorActions
             return Result<SocialReviewed<SocialPost>>.Failure(published.Error!, published.ErrorCode!);
 
         var now = Now();
-        var stored = await _store.RecordPostAsync(new RecordSocialPostCommand
+        var stored = await _store.RecordPostAsync(tenantId, new RecordSocialPostCommand
         {
             AccountId = accountId,
             PlatformPostId = published.Value!.PlatformPostId,
@@ -232,15 +232,15 @@ public sealed class SocialOperatorActions
     }
 
     /// <summary>Likes the comment an event is about, as the account. One attempt, audited by the Sender.</summary>
-    public async Task<Result<SocialReactionResult>> ReactAsync(Guid eventId, string reactionType, string actorUserId, CancellationToken ct)
+    public async Task<Result<SocialReactionResult>> ReactAsync(Guid tenantId, Guid eventId, string reactionType, string actorUserId, CancellationToken ct)
     {
-        var ev = await _store.GetEventAsync(eventId, ct).ConfigureAwait(false);
+        var ev = await _store.GetEventAsync(tenantId, eventId, ct).ConfigureAwait(false);
         if (!ev.IsSuccess)
             return Pass<SocialReactionResult>(ev.Error, ev.ErrorCode, "load the comment");
         if (string.IsNullOrWhiteSpace(ev.Value!.PlatformCommentId))
             return Result<SocialReactionResult>.Failure("This event names no comment to react to.", SocialFailureCodes.InvalidRequest);
 
-        var account = await _store.GetAccountAsync(ev.Value.AccountId, ct).ConfigureAwait(false);
+        var account = await _store.GetAccountAsync(tenantId, ev.Value.AccountId, ct).ConfigureAwait(false);
         if (!account.IsSuccess)
             return Pass<SocialReactionResult>(account.Error, account.ErrorCode, "load the account");
         if (account.Value!.Status != SocialAccountStatuses.Connected)
@@ -248,7 +248,7 @@ public sealed class SocialOperatorActions
         if (account.Value.SendsDisabled)
             return Result<SocialReactionResult>.Failure("Sends are paused for this account.", SocialFailureCodes.Conflict);
 
-        var token = await _tokens.GetTokenAsync(account.Value.Id, ct).ConfigureAwait(false);
+        var token = await _tokens.GetTokenAsync(tenantId, account.Value.Id, ct).ConfigureAwait(false);
         if (!token.IsSuccess)
             return Pass<SocialReactionResult>(token.Error, token.ErrorCode, "get the token");
 
@@ -261,11 +261,11 @@ public sealed class SocialOperatorActions
     }
 
     /// <summary>Reads the comments the webhooks may have missed under the account's posts and takes in the new ones.</summary>
-    public Task<Result<SocialResyncResult>> ResyncAsync(Guid accountId, CancellationToken ct) =>
-        _resync.ResyncAsync(accountId, ct);
+    public Task<Result<SocialResyncResult>> ResyncAsync(Guid tenantId, Guid accountId, CancellationToken ct) =>
+        _resync.ResyncAsync(tenantId, accountId, ct);
 
     /// <summary>Saves which categories an account sends without a person, and its pause switch. Complaint and sensitive never auto-send.</summary>
-    public async Task<Result<SocialAccount>> UpdateSettingsAsync(Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct)
+    public async Task<Result<SocialAccount>> UpdateSettingsAsync(Guid tenantId, Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct)
     {
         var unknown = command.AutoSendCategories.FirstOrDefault(c => !ReplyCategories.IsKnown(c));
         if (unknown is not null)
@@ -275,7 +275,7 @@ public sealed class SocialOperatorActions
         if (never is not null)
             return Result<SocialAccount>.Failure($"A {never} reply always waits for a person; it cannot auto-send.", SocialFailureCodes.InvalidRequest);
 
-        var updated = await _store.UpdateSettingsAsync(accountId, new UpdateSocialAccountSettingsCommand
+        var updated = await _store.UpdateSettingsAsync(tenantId, accountId, new UpdateSocialAccountSettingsCommand
         {
             AutoSendCategories = command.AutoSendCategories.Distinct(StringComparer.Ordinal).ToList(),
             SendsDisabled = command.SendsDisabled,
@@ -285,14 +285,14 @@ public sealed class SocialOperatorActions
 
         _logger.LogInformation("Account {AccountId} settings saved: auto-send {Categories}, sends paused {Paused}.",
             accountId, string.Join(", ", updated.Value!.AutoSendCategories), updated.Value.SendsDisabled);
-        await _realtime.AccountChangedAsync(accountId, updated.Value.Status, ct).ConfigureAwait(false);
+        await _realtime.AccountChangedAsync(tenantId, accountId, updated.Value.Status, ct).ConfigureAwait(false);
         return updated;
     }
 
     /// <summary>Null when the reply text passes, the rules it breaks when it does not, or a failed Result when the Reviewer could not run.</summary>
     private async Task<Result<IReadOnlyList<string>?>> ReviewReplyAsync(ReplyDraft draft, string text, CancellationToken ct)
     {
-        var ev = await _store.GetEventAsync(draft.EngagementEventId, ct).ConfigureAwait(false);
+        var ev = await _store.GetEventAsync(draft.TenantId, draft.EngagementEventId, ct).ConfigureAwait(false);
         if (!ev.IsSuccess)
             return Pass<IReadOnlyList<string>?>(ev.Error, ev.ErrorCode, "load the comment");
 

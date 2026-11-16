@@ -63,7 +63,7 @@ public class SocialSendStepTests
     {
         public int Calls { get; private set; }
 
-        public Task<Result<SocialToken>> GetTokenAsync(Guid accountId, CancellationToken ct = default)
+        public Task<Result<SocialToken>> GetTokenAsync(Guid tenantId, Guid accountId, CancellationToken ct = default)
         {
             Calls++;
             return Task.FromResult(answer(accountId));
@@ -187,7 +187,7 @@ public class SocialSendStepTests
     {
         var rig = Build();
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.True(result.Value!.Sent);
@@ -217,7 +217,7 @@ public class SocialSendStepTests
         var rig = Build();
         rig.Writer.OnReply = _ => Result<SocialReplyResult>.Failure("Meta refused the call (HTTP 400, error 100).", code);
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.False(result.Value!.Sent);
@@ -238,7 +238,7 @@ public class SocialSendStepTests
             ? Result<ReplyDraft>.Failure("GeekRepository is down.", SocialFailureCodes.StoreUnavailable)
             : Result<ReplyDraft>.Success(Draft(command.To)));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Sent);
         Assert.Equal(SocialFailureCodes.StoreUnavailable, result.Value.Code);
@@ -254,7 +254,7 @@ public class SocialSendStepTests
     {
         var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(status)));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.Conflict, result.ErrorCode);
         Assert.Empty(rig.Writer.Replies);
@@ -266,7 +266,7 @@ public class SocialSendStepTests
     {
         var rig = Build(store => store.OnGetAccount = _ => Result<SocialAccount>.Success(Account(paused: true)));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Held);
         Assert.Empty(rig.Writer.Replies);
@@ -279,7 +279,7 @@ public class SocialSendStepTests
     {
         var rig = Build(store => store.OnGetAccount = _ => Result<SocialAccount>.Success(Account(status: SocialAccountStatuses.ReconnectRequired)));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Held);
         Assert.Equal(SocialFailureCodes.TokenInvalid, result.Value.Code);
@@ -291,7 +291,7 @@ public class SocialSendStepTests
     {
         var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(text: "Call us — today at 561-555-0100.")));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.False(result.Value!.Sent);
         Assert.False(result.Value.Held);
@@ -306,8 +306,8 @@ public class SocialSendStepTests
         var other = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(text: "See https://example.com/elsewhere for more.")));
         var own = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(text: $"See {PostLink} for more.")));
 
-        Assert.False((await other.Step.SendAsync(DraftId, "u", CancellationToken.None)).Value!.Sent);
-        Assert.True((await own.Step.SendAsync(DraftId, "u", CancellationToken.None)).Value!.Sent);
+        Assert.False((await other.Step.SendAsync(TestTenant.Id, DraftId, "u", CancellationToken.None)).Value!.Sent);
+        Assert.True((await own.Step.SendAsync(TestTenant.Id, DraftId, "u", CancellationToken.None)).Value!.Sent);
     }
 
     [Fact]
@@ -318,7 +318,7 @@ public class SocialSendStepTests
             Audit(ActionKinds.Reply, ActionOutcomes.Failed, SocialFailureCodes.RateLimited, TimeSpan.FromMinutes(5)),
         }));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Held);
         Assert.Equal(SocialFailureCodes.RateLimited, result.Value.Code);
@@ -336,7 +336,7 @@ public class SocialSendStepTests
             Audit(ActionKinds.Reply, ActionOutcomes.Failed, SocialFailureCodes.InvalidRequest, TimeSpan.FromMinutes(1)),
         }));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Sent);
     }
@@ -349,7 +349,7 @@ public class SocialSendStepTests
             .ToArray();
         var rig = Build(store => store.OnListAudit = (_, _) => Result<IReadOnlyList<ActionAudit>>.Success(rows));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Held);
         Assert.Equal(Now.UtcDateTime.AddMinutes(60 - SocialSendLimits.RepliesPerAccountPerHour), result.Value.RetryAfter);
@@ -360,7 +360,7 @@ public class SocialSendStepTests
     {
         var rig = Build(tokens: new FakeTokens(_ => Result<SocialToken>.Failure("Meta is down.", SocialFailureCodes.PlatformUnavailable)));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Held);
         Assert.Equal(SocialFailureCodes.PlatformUnavailable, result.Value.Code);
@@ -374,7 +374,7 @@ public class SocialSendStepTests
         var rig = Build(store => store.OnTransitionDraft = (_, _) =>
             Result<ReplyDraft>.Failure("Sends are paused for this account.", SocialFailureCodes.Conflict));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Held);
         Assert.Empty(rig.Writer.Replies);
@@ -385,7 +385,7 @@ public class SocialSendStepTests
     {
         var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Failure("down", SocialFailureCodes.StoreUnavailable));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);
         Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Error);
@@ -413,7 +413,7 @@ public class SocialSendStepTests
     {
         var rig = Build(store => store.OnRecordAudit = _ => Result<ActionAudit>.Failure("down", SocialFailureCodes.StoreUnavailable));
 
-        var result = await rig.Step.SendAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Step.SendAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.Value!.Sent);
         Assert.Contains(rig.SenderLog.Entries, e => e.Level == LogLevel.Error && e.Message.Contains("audit row", StringComparison.Ordinal));

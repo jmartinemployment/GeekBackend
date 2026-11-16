@@ -19,12 +19,16 @@ namespace GeekBackend.Tests.Social;
 /// </summary>
 public class SocialSchemaParityTests
 {
-    private static readonly string SqlPath = Path.GetFullPath(Path.Combine(
-        AppContext.BaseDirectory, "..", "..", "..", "..",
-        "GeekRepository", "Migrations", "Sql", "0043_geek_social_schema.sql"));
+    private static string ScriptPath(string name) => Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory, "..", "..", "..", "..", "GeekRepository", "Migrations", "Sql", name));
 
-    /// <summary>The script with its comments removed, so prose that names a constraint cannot satisfy a test.</summary>
-    private static string Sql => Regex.Replace(File.ReadAllText(SqlPath), @"--[^\n]*", string.Empty);
+    /// <summary>
+    /// The geek_social scripts, 0043 (the schema) and 0064 (tenants), with their comments removed, so prose that
+    /// names a constraint cannot satisfy a test.
+    /// </summary>
+    private static string Sql => Regex.Replace(
+        File.ReadAllText(ScriptPath("0043_geek_social_schema.sql")) + "\n" + File.ReadAllText(ScriptPath("0064_geek_social_tenants.sql")),
+        @"--[^\n]*", string.Empty);
 
     private static SocialDbContext NewContext() =>
         new(new DbContextOptionsBuilder<SocialDbContext>().UseNpgsql("Host=localhost;Database=never-opened").Options);
@@ -113,6 +117,7 @@ public class SocialSchemaParityTests
 
     public static IEnumerable<object[]> Tables() => new[]
     {
+        new object[] { typeof(SocialTenantRow), "tenants" },
         new object[] { typeof(SocialAccountRow), "social_accounts" },
         new object[] { typeof(SocialPostRow), "social_posts" },
         new object[] { typeof(EngagementEventRow), "engagement_events" },
@@ -124,8 +129,11 @@ public class SocialSchemaParityTests
     {
         var block = Regex.Match(Sql, $@"CREATE TABLE IF NOT EXISTS geek_social\.{table}\s*\((.*?)\n\);", RegexOptions.Singleline);
         Assert.True(block.Success, $"geek_social.{table} is not created by 0043.");
-        return Regex.Matches(block.Groups[1].Value, @"^ {4}([a-z_]+)\s+(?:uuid|text\[\]|text|boolean|integer|bytea|timestamptz)\b", RegexOptions.Multiline)
-            .Select(m => m.Groups[1].Value).OrderBy(c => c, StringComparer.Ordinal).ToArray();
+        var created = Regex.Matches(block.Groups[1].Value, @"^ {4}([a-z_]+)\s+(?:uuid|text\[\]|text|boolean|integer|bytea|timestamptz)\b", RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value);
+        var added = Regex.Matches(Sql, $@"ALTER TABLE geek_social\.{table}\s+ADD COLUMN IF NOT EXISTS ([a-z_]+)\s+uuid\b")
+            .Select(m => m.Groups[1].Value);
+        return created.Concat(added).OrderBy(c => c, StringComparer.Ordinal).ToArray();
     }
 
     [Theory]

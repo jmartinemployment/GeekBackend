@@ -19,6 +19,9 @@ public static class SocialAccountStatuses
 public sealed class SocialAccount
 {
     public Guid Id { get; set; }
+
+    /// <summary>The tenant that owns the account.</summary>
+    public Guid TenantId { get; set; }
     public string Platform { get; set; } = string.Empty;
 
     /// <summary>The platform's own id: a Page id, an Instagram account id, or an organization or person URN.</summary>
@@ -111,6 +114,9 @@ public static class EngagementKinds
 public sealed class EngagementEvent
 {
     public Guid Id { get; set; }
+
+    /// <summary>The tenant that owns the account the event belongs to. The store sets it; a caller leaves it empty.</summary>
+    public Guid TenantId { get; set; }
 
     /// <summary>The connected account the event belongs to. The store sets it from <see cref="PlatformAccountId"/>; a caller leaves it empty.</summary>
     public Guid AccountId { get; set; }
@@ -308,6 +314,9 @@ public static class ReplyDraftStatuses
 public sealed class ReplyDraft
 {
     public Guid Id { get; set; }
+
+    /// <summary>The tenant the draft belongs to.</summary>
+    public Guid TenantId { get; set; }
     public Guid AccountId { get; set; }
     public Guid EngagementEventId { get; set; }
     public string Platform { get; set; } = string.Empty;
@@ -410,4 +419,20 @@ public sealed class ActionAudit
     public string? ActorUserId { get; set; }
 
     public DateTime OccurredAt { get; set; }
+}
+
+/// <summary>One customer of GeekSocial: the person who signed up, and the accounts and content that belong to them.</summary>
+public sealed class SocialTenant
+{
+    public Guid Id { get; set; }
+
+    /// <summary>The GeekOAuth user id (the token's sub) of the person who owns the tenant.</summary>
+    public Guid OwnerUserId { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>When the tenant accepted the AI terms, or null while they have not.</summary>
+    public DateTime? AiConsentAcceptedAt { get; set; }
+
+    public DateTime CreatedAt { get; set; }
 }

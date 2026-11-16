@@ -4,6 +4,22 @@ The routes the GeekSocial screen calls. Every route below needs a GeekOAuth acce
 the scope `geeksocial.manage` (policy `GeekSocialManage`); a token without it gets 403. The webhook
 routes under `api/social/webhooks/*` are the platforms' and are not listed here.
 
+**Tenants.** GeekSocial is multi-tenant. A signed-in person owns one tenant, made by `POST /api/social/tenant`
+and never on the way past a read. Every route below except the tenant routes answers `403 forbidden`
+("Sign up for GeekSocial before using it.") until they have one, and reads and writes only that tenant's
+accounts, drafts, comments, posts and audit rows. A row of another tenant answers `404 not_found`, the same
+as a row that does not exist. A comment reaches the AI only after the tenant has accepted the AI terms; until
+then it is held as `blocked_no_clearance` and is never sent to the model.
+
+| Route | What it does |
+|---|---|
+| `GET /api/social/tenant` | The person's tenant `{ id, ownerUserId, name, aiConsentAcceptedAt, createdAt }`, or 404 before sign-up. |
+| `POST /api/social/tenant` | Signs up. Body `{ "name": "..." }`. 409 when the person already has a tenant. |
+| `POST /api/social/tenant/ai-terms` | Records that the tenant accepted the AI terms. The first acceptance stands. |
+
+Not built yet: the check that the person has a confirmed email and phone before connecting an account (it needs
+GeekOAuth to say so), and removing auto-send.
+
 JSON is camelCase. Times are UTC ISO 8601. Every failure is answered with
 
 ```json
@@ -146,7 +162,9 @@ A comment view:
 
 Hub: `/hubs/social-realtime` on GeekAPI. Connect with the access token (`accessTokenFactory`); the
 hub requires the same scope. Messages carry ids and states only, never text. Read the text through
-the routes above.
+the routes above. A connection joins the group of its own tenant and receives that tenant's messages only;
+the hub refuses a connection from a person who has not signed up (`HubException`: "Sign up for GeekSocial
+before connecting.").
 
 | Message | Body |
 |---|---|

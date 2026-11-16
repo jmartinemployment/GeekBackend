@@ -26,9 +26,22 @@ public sealed class SocialEventsController : ControllerBase
             : SocialResults.Failed(this, result.ErrorCode, result.Error);
     }
 
+    /// <summary>The comments no tenant's Triage has decided, across every tenant, for recovery after a restart.</summary>
+    [HttpGet("untriaged")]
+    public async Task<IActionResult> ListUntriaged([FromQuery] int limit = 0, CancellationToken ct = default) =>
+        SocialResults.ToAction(this, await _social.ListUntriagedEventsAsync(limit, ct));
+
+    /// <summary>One event with its tenant, for the orchestrator to learn whose it is from a webhook wake.</summary>
+    [HttpGet("{eventId:guid}/across-tenants")]
+    public async Task<IActionResult> GetAcrossTenants(Guid eventId, CancellationToken ct) =>
+        SocialResults.ToAction(this, await _social.GetEventAcrossTenantsAsync(eventId, ct));
+
     [HttpGet("{eventId:guid}")]
-    public async Task<IActionResult> Get(Guid eventId, CancellationToken ct) =>
-        SocialResults.ToAction(this, await _social.GetEventAsync(eventId, ct));
+    public async Task<IActionResult> Get(Guid eventId, CancellationToken ct)
+    {
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.GetEventAsync(tenantId, eventId, ct));
+    }
 
     /// <summary>Events by where Triage left them. triageState is required: a triage outcome, or untriaged for the comments with none.</summary>
     [HttpGet]
@@ -36,14 +49,18 @@ public sealed class SocialEventsController : ControllerBase
         [FromQuery] string? triageState,
         [FromQuery] Guid? accountId,
         [FromQuery] int limit = 0,
-        CancellationToken ct = default) =>
-        SocialResults.ToAction(this, await _social.ListEventsAsync(triageState ?? string.Empty, accountId, limit, ct));
+        CancellationToken ct = default)
+    {
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.ListEventsAsync(tenantId, triageState ?? string.Empty, accountId, limit, ct));
+    }
 
     /// <summary>409 when the event's triage is already decided and not one an operator may re-run.</summary>
     [HttpPost("{eventId:guid}/triage")]
     public async Task<IActionResult> RecordTriage(Guid eventId, [FromBody] RecordTriageOutcomeCommand command, CancellationToken ct)
     {
         if (command is null) return BadRequest("An outcome is required.");
-        return SocialResults.ToAction(this, await _social.RecordTriageOutcomeAsync(eventId, command, ct));
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.RecordTriageOutcomeAsync(tenantId, eventId, command, ct));
     }
 }

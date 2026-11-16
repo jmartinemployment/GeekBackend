@@ -94,6 +94,7 @@ public class SocialOrchestratorTests
             OnPurge = _ => Result<SocialPurgeResult>.Success(new SocialPurgeResult()),
             OnListEvents = (_, _, _) => Result<IReadOnlyList<EngagementEvent>>.Success(Array.Empty<EngagementEvent>()),
             OnGetEvent = id => Result<EngagementEvent>.Success(Comment(id)),
+            OnGetTenant = id => Result<SocialTenant>.Success(new SocialTenant { Id = id, Name = "Test", AiConsentAcceptedAt = Now.UtcDateTime }),
             OnGetAccount = id => Result<SocialAccount>.Success(new SocialAccount { Id = id, Platform = SocialPlatforms.Facebook, DisplayName = "Geek @ Your Spot" }),
             OnListPosts = (_, _) => Result<IReadOnlyList<SocialPost>>.Success(new[]
             {
@@ -278,6 +279,61 @@ public class SocialOrchestratorTests
         Assert.Equal(TriageOutcomes.ReplyNeeded, Assert.Single(rig.Outcomes).Command.Outcome);
         Assert.Equal(new[] { "draft", "outcome" }, rig.Store.Writes);
         Assert.Equal(1, rig.Status.Snapshot().DraftsPending);
+    }
+
+    [Fact]
+    public async Task A_comment_is_handled_for_the_tenant_that_owns_it_and_nobody_else_hears_of_it()
+    {
+        var tenant = Guid.Parse("aaaaaaaa-0000-0000-0000-00000000000a");
+        var id = Guid.NewGuid();
+        var rig = Build(
+            script: store => store.OnGetEvent = eventId =>
+            {
+                var owned = Comment(eventId);
+                owned.TenantId = tenant;
+                return Result<EngagementEvent>.Success(owned);
+            },
+            triage: _ => Decide(needsReply: true, ReplyCategories.Question),
+            drafter: _ => Written($"Yes, we work Saturdays. The details are at {PostLink}."));
+
+        await rig.Orchestrator.TakeInAsync(id, CancellationToken.None);
+
+        // Every read and write the orchestrator made for this comment named the comment's tenant, none another.
+        Assert.NotEmpty(rig.Store.TenantsSeen);
+        Assert.All(rig.Store.TenantsSeen, seen => Assert.Equal(tenant, seen));
+        // And the screen was told for that tenant alone.
+        Assert.NotEmpty(rig.Realtime.Tenants);
+        Assert.All(rig.Realtime.Tenants, seen => Assert.Equal(tenant, seen));
+    }
+
+    [Fact]
+    public async Task A_comment_of_a_tenant_that_has_not_accepted_the_ai_terms_is_held_and_never_sent_to_the_model()
+    {
+        var rig = Build(
+            script: store => store.OnGetTenant = id => Result<SocialTenant>.Success(new SocialTenant { Id = id, Name = "Test", AiConsentAcceptedAt = null }),
+            triage: _ => throw new InvalidOperationException("Triage must not be called for a tenant that has not accepted the AI terms."),
+            drafter: _ => throw new InvalidOperationException("The drafter must not be called for a tenant that has not accepted the AI terms."));
+
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Empty(rig.Triage.Requests);
+        Assert.Empty(rig.Drafter.Requests);
+        Assert.Equal(TriageOutcomes.BlockedNoClearance, Assert.Single(rig.Outcomes).Command.Outcome);
+    }
+
+    [Fact]
+    public async Task A_tenant_that_cannot_be_loaded_stalls_the_comment_and_is_not_decided()
+    {
+        var rig = Build(
+            script: store => store.OnGetTenant = _ => Result<SocialTenant>.Failure("The social store failed.", SocialFailureCodes.StoreUnavailable),
+            triage: _ => throw new InvalidOperationException("Triage must not be called when the tenant could not be loaded."));
+
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Empty(rig.Triage.Requests);
+        Assert.Empty(rig.Outcomes);
+        var failure = Assert.Single(rig.Status.Snapshot().Failures);
+        Assert.Equal(("load the tenant", SocialFailureCodes.StoreUnavailable), (failure.Step, failure.Code));
     }
 
     [Fact]
@@ -1012,7 +1068,7 @@ public class SocialOrchestratorTests
             return Result<EngagementEvent>.Success(Comment(eventId));
         };
 
-        var result = await rig.Orchestrator.RerunAsync(id, CancellationToken.None);
+        var result = await rig.Orchestrator.RerunAsync(TestTenant.Id, id, CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Single(rig.Triage.Requests);
@@ -1031,7 +1087,7 @@ public class SocialOrchestratorTests
             return Result<EngagementEvent>.Success(done);
         });
 
-        var result = await rig.Orchestrator.RerunAsync(Guid.NewGuid(), CancellationToken.None);
+        var result = await rig.Orchestrator.RerunAsync(TestTenant.Id, Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.Conflict, result.ErrorCode);
         Assert.Empty(rig.Triage.Requests);

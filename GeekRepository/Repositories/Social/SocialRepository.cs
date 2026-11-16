@@ -32,6 +32,7 @@ public sealed class SocialRepository : ISocialStore
 
     private const string AccountColumns = """
         id AS Id,
+        tenant_id AS TenantId,
         platform AS Platform,
         platform_account_id AS PlatformAccountId,
         display_name AS DisplayName,
@@ -58,6 +59,7 @@ public sealed class SocialRepository : ISocialStore
     // The text and the author's name come back only while their deadline is ahead.
     private const string EventSelect = """
         SELECT e.id AS Id,
+               e.tenant_id AS TenantId,
                e.account_id AS AccountId,
                e.platform AS Platform,
                e.platform_event_id AS PlatformEventId,
@@ -83,6 +85,7 @@ public sealed class SocialRepository : ISocialStore
 
     private const string DraftColumns = """
         id AS Id,
+        tenant_id AS TenantId,
         account_id AS AccountId,
         engagement_event_id AS EngagementEventId,
         platform AS Platform,
@@ -133,9 +136,62 @@ public sealed class SocialRepository : ISocialStore
         _logger = logger;
     }
 
+    // ----- Tenants -----
+
+    public Task<Result<SocialTenant>> GetTenantByOwnerAsync(Guid ownerUserId, CancellationToken ct = default) =>
+        GuardAsync("get a tenant", async () =>
+        {
+            if (ownerUserId == Guid.Empty) return Invalid<SocialTenant>("ownerUserId is required.");
+            var row = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.OwnerUserId == ownerUserId, ct).ConfigureAwait(false);
+            return row is null ? NotFound<SocialTenant>("No tenant for this person.") : Result<SocialTenant>.Success(ToTenant(row));
+        }, ct);
+
+    public Task<Result<SocialTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) =>
+        GuardAsync("get a tenant by id", async () =>
+        {
+            if (tenantId == Guid.Empty) return Invalid<SocialTenant>("tenantId is required.");
+            var row = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tenantId, ct).ConfigureAwait(false);
+            return row is null ? NotFound<SocialTenant>("No such tenant.") : Result<SocialTenant>.Success(ToTenant(row));
+        }, ct);
+
+    public Task<Result<SocialTenant>> CreateTenantAsync(CreateSocialTenantCommand command, CancellationToken ct = default) =>
+        GuardAsync("create a tenant", async () =>
+        {
+            if (command is null) return Invalid<SocialTenant>("A tenant is required.");
+            if (command.OwnerUserId == Guid.Empty) return Invalid<SocialTenant>("ownerUserId is required.");
+            if (string.IsNullOrWhiteSpace(command.Name)) return Invalid<SocialTenant>("name is required.");
+
+            var row = new SocialTenantRow
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = command.OwnerUserId,
+                Name = command.Name.Trim(),
+                CreatedAt = SocialTime.Normalize(Now()),
+            };
+            _db.Tenants.Add(row);
+            // The unique index on the owner makes a second sign-up of the same person a conflict, not a second tenant.
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return Result<SocialTenant>.Success(ToTenant(row));
+        }, ct);
+
+    public Task<Result<SocialTenant>> AcceptAiTermsAsync(Guid tenantId, DateTime at, CancellationToken ct = default) =>
+        GuardAsync("accept the AI terms", async () =>
+        {
+            if (at == default) return Invalid<SocialTenant>("at is required.");
+            DateTime? accepted = SocialTime.Normalize(at);
+
+            // The first acceptance stands; a repeat changes nothing, so the recorded time is when they first agreed.
+            await _db.Tenants
+                .Where(t => t.Id == tenantId && t.AiConsentAcceptedAt == null)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.AiConsentAcceptedAt, accepted), ct).ConfigureAwait(false);
+
+            var row = await _db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tenantId, ct).ConfigureAwait(false);
+            return row is null ? NotFound<SocialTenant>("No such tenant.") : Result<SocialTenant>.Success(ToTenant(row));
+        }, ct);
+
     // ----- Accounts -----
 
-    public Task<Result<SocialAccount>> ConnectAccountAsync(ConnectSocialAccountCommand command, CancellationToken ct = default) =>
+    public Task<Result<SocialAccount>> ConnectAccountAsync(Guid tenantId, ConnectSocialAccountCommand command, CancellationToken ct = default) =>
         GuardAsync("connect an account", async () =>
         {
             if (command is null) return Invalid<SocialAccount>("An account is required.");
@@ -148,11 +204,16 @@ public sealed class SocialRepository : ISocialStore
                 .FirstOrDefaultAsync(a => a.Platform == command.Platform && a.PlatformAccountId == command.PlatformAccountId, ct)
                 .ConfigureAwait(false);
 
+            // One account belongs to one tenant. Another tenant's account is never taken over and never named.
+            if (row is not null && row.TenantId != tenantId)
+                return Conflict<SocialAccount>("That account is already connected to another customer.");
+
             if (row is null)
             {
                 row = new SocialAccountRow
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = tenantId,
                     Platform = command.Platform,
                     PlatformAccountId = command.PlatformAccountId.Trim(),
                 };
@@ -172,31 +233,31 @@ public sealed class SocialRepository : ISocialStore
             return Result<SocialAccount>.Success(ToAccount(row));
         }, ct);
 
-    public Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(CancellationToken ct = default) =>
+    public Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(Guid tenantId, CancellationToken ct = default) =>
         GuardAsync("list accounts", async () =>
         {
             using var conn = await OpenAsync(ct).ConfigureAwait(false);
             var rows = await conn.QueryAsync<AccountReadRow>(new CommandDefinition(
-                $"SELECT {AccountColumns} FROM geek_social.social_accounts ORDER BY display_name, platform", cancellationToken: ct)).ConfigureAwait(false);
+                $"SELECT {AccountColumns} FROM geek_social.social_accounts WHERE tenant_id = @tenantId ORDER BY display_name, platform", new { tenantId }, cancellationToken: ct)).ConfigureAwait(false);
             return Result<IReadOnlyList<SocialAccount>>.Success(rows.Select(r => r.ToModel()).ToList());
         }, ct);
 
-    public Task<Result<SocialAccount>> GetAccountAsync(Guid accountId, CancellationToken ct = default) =>
+    public Task<Result<SocialAccount>> GetAccountAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
         GuardAsync("get an account", async () =>
         {
-            var account = await ReadAccountAsync(accountId, ct).ConfigureAwait(false);
+            var account = await ReadAccountAsync(tenantId, accountId, ct).ConfigureAwait(false);
             return account is null ? NotFound<SocialAccount>("No such account.") : Result<SocialAccount>.Success(account);
         }, ct);
 
-    public Task<Result<SocialAccountCredential>> GetCredentialAsync(Guid accountId, CancellationToken ct = default) =>
+    public Task<Result<SocialAccountCredential>> GetCredentialAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
         GuardAsync("get a credential", async () =>
         {
             using var conn = await OpenAsync(ct).ConfigureAwait(false);
             var row = await conn.QuerySingleOrDefaultAsync<CredentialReadRow>(new CommandDefinition(
                 """
                 SELECT id AS Id, token_cipher AS TokenCipher, token_iv AS TokenIv, token_tag AS TokenTag, token_expires_at AS TokenExpiresAt
-                FROM geek_social.social_accounts WHERE id = @accountId
-                """, new { accountId }, cancellationToken: ct)).ConfigureAwait(false);
+                FROM geek_social.social_accounts WHERE id = @accountId AND tenant_id = @tenantId
+                """, new { accountId, tenantId }, cancellationToken: ct)).ConfigureAwait(false);
 
             return row is null
                 ? NotFound<SocialAccountCredential>("No such account.")
@@ -213,13 +274,13 @@ public sealed class SocialRepository : ISocialStore
                 });
         }, ct);
 
-    public Task<Result<SocialAccount>> StoreTokenAsync(Guid accountId, StoreSocialTokenCommand command, CancellationToken ct = default) =>
+    public Task<Result<SocialAccount>> StoreTokenAsync(Guid tenantId, Guid accountId, StoreSocialTokenCommand command, CancellationToken ct = default) =>
         GuardAsync("store a token", async () =>
         {
             if (command is null) return Invalid<SocialAccount>("A token is required.");
             if (TokenProblem(command.Token) is { } tokenProblem) return Invalid<SocialAccount>(tokenProblem);
 
-            var row = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct).ConfigureAwait(false);
+            var row = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == accountId && a.TenantId == tenantId, ct).ConfigureAwait(false);
             if (row is null) return NotFound<SocialAccount>("No such account.");
 
             ApplyToken(row, command.Token);
@@ -229,10 +290,10 @@ public sealed class SocialRepository : ISocialStore
             return Result<SocialAccount>.Success(ToAccount(row));
         }, ct);
 
-    public Task<Result<SocialAccount>> MarkReconnectRequiredAsync(Guid accountId, CancellationToken ct = default) =>
+    public Task<Result<SocialAccount>> MarkReconnectRequiredAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
         GuardAsync("mark an account for reconnection", async () =>
         {
-            var row = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct).ConfigureAwait(false);
+            var row = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == accountId && a.TenantId == tenantId, ct).ConfigureAwait(false);
             if (row is null) return NotFound<SocialAccount>("No such account.");
 
             row.Status = SocialAccountStatuses.ReconnectRequired;
@@ -241,7 +302,7 @@ public sealed class SocialRepository : ISocialStore
             return Result<SocialAccount>.Success(ToAccount(row));
         }, ct);
 
-    public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) =>
+    public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid tenantId, Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) =>
         GuardAsync("update account settings", async () =>
         {
             if (command is null) return Invalid<SocialAccount>("Settings are required.");
@@ -255,7 +316,7 @@ public sealed class SocialRepository : ISocialStore
                     return Invalid<SocialAccount>($"Unknown category '{category}'.");
             }
 
-            var row = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == accountId, ct).ConfigureAwait(false);
+            var row = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == accountId && a.TenantId == tenantId, ct).ConfigureAwait(false);
             if (row is null) return NotFound<SocialAccount>("No such account.");
 
             row.AutoSendCategories = categories;
@@ -267,7 +328,7 @@ public sealed class SocialRepository : ISocialStore
 
     // ----- Posts -----
 
-    public Task<Result<SocialPost>> RecordPostAsync(RecordSocialPostCommand command, CancellationToken ct = default) =>
+    public Task<Result<SocialPost>> RecordPostAsync(Guid tenantId, RecordSocialPostCommand command, CancellationToken ct = default) =>
         GuardAsync("record a post", async () =>
         {
             if (command is null) return Invalid<SocialPost>("A post is required.");
@@ -276,7 +337,7 @@ public sealed class SocialRepository : ISocialStore
             if (!SocialPostKinds.All.Contains(command.Kind)) return Invalid<SocialPost>($"Unknown post kind '{command.Kind}'.");
 
             var platform = await _db.Accounts.AsNoTracking()
-                .Where(a => a.Id == command.AccountId)
+                .Where(a => a.Id == command.AccountId && a.TenantId == tenantId)
                 .Select(a => a.Platform)
                 .FirstOrDefaultAsync(ct).ConfigureAwait(false);
             if (platform is null) return NotFound<SocialPost>("No such account.");
@@ -284,6 +345,7 @@ public sealed class SocialRepository : ISocialStore
             var row = new SocialPostRow
             {
                 Id = Guid.NewGuid(),
+                TenantId = tenantId,
                 AccountId = command.AccountId,
                 Platform = platform,
                 PlatformPostId = command.PlatformPostId.Trim(),
@@ -299,13 +361,13 @@ public sealed class SocialRepository : ISocialStore
             return Result<SocialPost>.Success(ToPost(row));
         }, ct);
 
-    public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid accountId, int limit, CancellationToken ct = default) =>
+    public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid tenantId, Guid accountId, int limit, CancellationToken ct = default) =>
         GuardAsync("list posts", async () =>
         {
             using var conn = await OpenAsync(ct).ConfigureAwait(false);
             var rows = await conn.QueryAsync<SocialPost>(new CommandDefinition(
-                $"SELECT {PostColumns} FROM geek_social.social_posts WHERE account_id = @accountId ORDER BY created_at DESC LIMIT @limit",
-                new { accountId, limit = ClampLimit(limit) }, cancellationToken: ct)).ConfigureAwait(false);
+                $"SELECT {PostColumns} FROM geek_social.social_posts WHERE tenant_id = @tenantId AND account_id = @accountId ORDER BY created_at DESC LIMIT @limit",
+                new { tenantId, accountId, limit = ClampLimit(limit) }, cancellationToken: ct)).ConfigureAwait(false);
             return Result<IReadOnlyList<SocialPost>>.Success(rows.ToList());
         }, ct);
 
@@ -326,11 +388,11 @@ public sealed class SocialRepository : ISocialStore
             if (engagementEvent.Kind.StartsWith("reaction_", StringComparison.Ordinal) && string.IsNullOrWhiteSpace(engagementEvent.ReactionType))
                 return Invalid<bool>("A reaction event needs reactionType.");
 
-            var accountId = await _db.Accounts.AsNoTracking()
+            var owner = await _db.Accounts.AsNoTracking()
                 .Where(a => a.Platform == engagementEvent.Platform && a.PlatformAccountId == engagementEvent.PlatformAccountId)
-                .Select(a => (Guid?)a.Id)
+                .Select(a => new { a.Id, a.TenantId })
                 .FirstOrDefaultAsync(ct).ConfigureAwait(false);
-            if (accountId is null)
+            if (owner is null)
                 return NotFound<bool>($"No connected {engagementEvent.Platform} account matches the event's account.");
 
             var received = SocialTime.Normalize(engagementEvent.ReceivedAt);
@@ -346,11 +408,11 @@ public sealed class SocialRepository : ISocialStore
 
             var inserted = await _db.Database.ExecuteSqlInterpolatedAsync($"""
                 INSERT INTO geek_social.engagement_events (
-                    id, account_id, platform, platform_event_id, kind, platform_post_id, platform_comment_id,
+                    id, tenant_id, account_id, platform, platform_event_id, kind, platform_post_id, platform_comment_id,
                     parent_platform_comment_id, author_platform_id, author_display_name, text, reaction_type,
                     occurred_at, received_at, text_expires_at, author_expires_at)
                 VALUES (
-                    {id}, {accountId.Value}, {engagementEvent.Platform}, {engagementEvent.PlatformEventId}, {engagementEvent.Kind},
+                    {id}, {owner.TenantId}, {owner.Id}, {engagementEvent.Platform}, {engagementEvent.PlatformEventId}, {engagementEvent.Kind},
                     {engagementEvent.PlatformPostId}, {engagementEvent.PlatformCommentId}, {engagementEvent.ParentPlatformCommentId},
                     {engagementEvent.AuthorPlatformId}, {engagementEvent.AuthorDisplayName}, {engagementEvent.Text}, {engagementEvent.ReactionType},
                     {occurred}, {received}, {textExpires}, {authorExpires})
@@ -360,14 +422,14 @@ public sealed class SocialRepository : ISocialStore
             return Result<bool>.Success(inserted == 1);
         }, ct);
 
-    public Task<Result<EngagementEvent>> GetEventAsync(Guid eventId, CancellationToken ct = default) =>
+    public Task<Result<EngagementEvent>> GetEventAsync(Guid tenantId, Guid eventId, CancellationToken ct = default) =>
         GuardAsync("get an event", async () =>
         {
-            var row = await ReadEventAsync(eventId, ct).ConfigureAwait(false);
+            var row = await ReadEventAsync(tenantId, eventId, ct).ConfigureAwait(false);
             return row is null ? NotFound<EngagementEvent>("No such event.") : Result<EngagementEvent>.Success(row);
         }, ct);
 
-    public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(string triageState, Guid? accountId, int limit, CancellationToken ct = default) =>
+    public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(Guid tenantId, string triageState, Guid? accountId, int limit, CancellationToken ct = default) =>
         GuardAsync("list events", async () =>
         {
             if (!TriageOutcomes.IsKnownFilter(triageState))
@@ -375,9 +437,9 @@ public sealed class SocialRepository : ISocialStore
 
             // Recovery reads the comments Triage never decided, oldest first; an operator's list is newest first.
             var untriaged = triageState == TriageOutcomes.Untriaged;
-            var condition = untriaged
+            var condition = "e.tenant_id = @tenantId AND " + (untriaged
                 ? "e.triage_outcome IS NULL AND e.kind = 'comment_created'"
-                : "e.triage_outcome = @triageState";
+                : "e.triage_outcome = @triageState");
             var order = untriaged ? "e.received_at ASC" : "e.received_at DESC";
 
             using var conn = await OpenAsync(ct).ConfigureAwait(false);
@@ -389,11 +451,35 @@ public sealed class SocialRepository : ISocialStore
                 ORDER BY {order}
                 LIMIT @limit
                 """,
-                new { triageState, accountId, limit = ClampLimit(limit), now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
+                new { tenantId, triageState, accountId, limit = ClampLimit(limit), now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
             return Result<IReadOnlyList<EngagementEvent>>.Success(rows.ToList());
         }, ct);
 
-    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) =>
+    public Task<Result<EngagementEvent>> GetEventAcrossTenantsAsync(Guid eventId, CancellationToken ct = default) =>
+        GuardAsync("get an event across tenants", async () =>
+        {
+            using var conn = await OpenAsync(ct).ConfigureAwait(false);
+            var row = await conn.QuerySingleOrDefaultAsync<EngagementEvent>(new CommandDefinition(
+                $"{EventSelect} WHERE e.id = @eventId", new { eventId, now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
+            return row is null ? NotFound<EngagementEvent>("No such event.") : Result<EngagementEvent>.Success(row);
+        }, ct);
+
+    public Task<Result<IReadOnlyList<EngagementEvent>>> ListUntriagedEventsAsync(int limit, CancellationToken ct = default) =>
+        GuardAsync("list untriaged events", async () =>
+        {
+            using var conn = await OpenAsync(ct).ConfigureAwait(false);
+            var rows = await conn.QueryAsync<EngagementEvent>(new CommandDefinition(
+                $"""
+                {EventSelect}
+                WHERE e.triage_outcome IS NULL AND e.kind = 'comment_created'
+                ORDER BY e.received_at ASC
+                LIMIT @limit
+                """,
+                new { limit = ClampLimit(limit), now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
+            return Result<IReadOnlyList<EngagementEvent>>.Success(rows.ToList());
+        }, ct);
+
+    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid tenantId, Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) =>
         GuardAsync("record a triage outcome", async () =>
         {
             if (command is null) return Invalid<EngagementEvent>("An outcome is required.");
@@ -412,6 +498,7 @@ public sealed class SocialRepository : ISocialStore
             // Lands from no outcome, or from one an operator may re-run; a decided event is never decided twice.
             var changed = await _db.Events
                 .Where(e => e.Id == eventId
+                    && e.TenantId == tenantId
                     && e.Kind == EngagementKinds.CommentCreated
                     && (e.TriageOutcome == null || rerunnable.Contains(e.TriageOutcome)))
                 .ExecuteUpdateAsync(s => s
@@ -421,19 +508,19 @@ public sealed class SocialRepository : ISocialStore
 
             if (changed == 0)
             {
-                var current = await ReadEventAsync(eventId, ct).ConfigureAwait(false);
+                var current = await ReadEventAsync(tenantId, eventId, ct).ConfigureAwait(false);
                 if (current is null) return NotFound<EngagementEvent>("No such event.");
                 if (current.Kind != EngagementKinds.CommentCreated) return Invalid<EngagementEvent>("Only comment events are triaged.");
                 return Conflict<EngagementEvent>($"The event's triage is already {current.TriageOutcome}.");
             }
 
-            var recorded = await ReadEventAsync(eventId, ct).ConfigureAwait(false);
+            var recorded = await ReadEventAsync(tenantId, eventId, ct).ConfigureAwait(false);
             return recorded is null ? NotFound<EngagementEvent>("No such event.") : Result<EngagementEvent>.Success(recorded);
         }, ct);
 
     // ----- Reply drafts -----
 
-    public Task<Result<ReplyDraft>> CreateDraftAsync(CreateReplyDraftCommand command, CancellationToken ct = default) =>
+    public Task<Result<ReplyDraft>> CreateDraftAsync(Guid tenantId, CreateReplyDraftCommand command, CancellationToken ct = default) =>
         GuardAsync("create a draft", async () =>
         {
             if (command is null) return Invalid<ReplyDraft>("A draft is required.");
@@ -453,7 +540,7 @@ public sealed class SocialRepository : ISocialStore
             }
 
             var source = await _db.Events.AsNoTracking()
-                .Where(e => e.Id == command.EngagementEventId)
+                .Where(e => e.Id == command.EngagementEventId && e.TenantId == tenantId)
                 .Select(e => new { e.AccountId, e.Platform })
                 .FirstOrDefaultAsync(ct).ConfigureAwait(false);
             if (source is null) return NotFound<ReplyDraft>("No such event.");
@@ -462,6 +549,7 @@ public sealed class SocialRepository : ISocialStore
             var row = new ReplyDraftRow
             {
                 Id = Guid.NewGuid(),
+                TenantId = tenantId,
                 AccountId = source.AccountId,
                 EngagementEventId = command.EngagementEventId,
                 Platform = source.Platform,
@@ -478,14 +566,14 @@ public sealed class SocialRepository : ISocialStore
             return Result<ReplyDraft>.Success(ToDraft(row));
         }, ct);
 
-    public Task<Result<ReplyDraft>> GetDraftAsync(Guid draftId, CancellationToken ct = default) =>
+    public Task<Result<ReplyDraft>> GetDraftAsync(Guid tenantId, Guid draftId, CancellationToken ct = default) =>
         GuardAsync("get a draft", async () =>
         {
-            var draft = await ReadDraftAsync(draftId, ct).ConfigureAwait(false);
+            var draft = await ReadDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
             return draft is null ? NotFound<ReplyDraft>("No such draft.") : Result<ReplyDraft>.Success(draft);
         }, ct);
 
-    public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(string? status, Guid? accountId, int limit, CancellationToken ct = default) =>
+    public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(Guid tenantId, string? status, Guid? accountId, int limit, CancellationToken ct = default) =>
         GuardAsync("list drafts", async () =>
         {
             if (status is not null && !ReplyDraftStatuses.IsKnown(status))
@@ -495,38 +583,51 @@ public sealed class SocialRepository : ISocialStore
             var rows = await conn.QueryAsync<DraftReadRow>(new CommandDefinition(
                 $"""
                 SELECT {DraftColumns} FROM geek_social.reply_drafts
-                WHERE (@status::text IS NULL OR status = @status)
+                WHERE tenant_id = @tenantId
+                  AND (@status::text IS NULL OR status = @status)
                   AND (@accountId::uuid IS NULL OR account_id = @accountId)
                 ORDER BY created_at DESC
                 LIMIT @limit
                 """,
-                new { status, accountId, limit = ClampLimit(limit) }, cancellationToken: ct)).ConfigureAwait(false);
+                new { tenantId, status, accountId, limit = ClampLimit(limit) }, cancellationToken: ct)).ConfigureAwait(false);
             return Result<IReadOnlyList<ReplyDraft>>.Success(rows.Select(r => r.ToModel()).ToList());
         }, ct);
 
-    public Task<Result<ReplyDraft>> EditDraftAsync(Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) =>
+    public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAcrossTenantsAsync(string status, int limit, CancellationToken ct = default) =>
+        GuardAsync("list drafts across tenants", async () =>
+        {
+            if (!ReplyDraftStatuses.IsKnown(status)) return Invalid<IReadOnlyList<ReplyDraft>>($"Unknown status '{status}'.");
+
+            using var conn = await OpenAsync(ct).ConfigureAwait(false);
+            var rows = await conn.QueryAsync<DraftReadRow>(new CommandDefinition(
+                $"SELECT {DraftColumns} FROM geek_social.reply_drafts WHERE status = @status ORDER BY created_at ASC LIMIT @limit",
+                new { status, limit = ClampLimit(limit) }, cancellationToken: ct)).ConfigureAwait(false);
+            return Result<IReadOnlyList<ReplyDraft>>.Success(rows.Select(r => r.ToModel()).ToList());
+        }, ct);
+
+    public Task<Result<ReplyDraft>> EditDraftAsync(Guid tenantId, Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) =>
         GuardAsync("edit a draft", async () =>
         {
             if (command is null || string.IsNullOrWhiteSpace(command.DraftText)) return Invalid<ReplyDraft>("draftText is required.");
 
             var text = command.DraftText;
             var changed = await _db.Drafts
-                .Where(d => d.Id == draftId && d.Status == ReplyDraftStatuses.Pending)
+                .Where(d => d.Id == draftId && d.TenantId == tenantId && d.Status == ReplyDraftStatuses.Pending)
                 .ExecuteUpdateAsync(s => s.SetProperty(d => d.DraftText, text), ct).ConfigureAwait(false);
 
             if (changed == 0)
             {
-                var current = await ReadDraftAsync(draftId, ct).ConfigureAwait(false);
+                var current = await ReadDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
                 return current is null
                     ? NotFound<ReplyDraft>("No such draft.")
                     : Conflict<ReplyDraft>($"The draft is {current.Status} and can no longer be edited.");
             }
 
-            var edited = await ReadDraftAsync(draftId, ct).ConfigureAwait(false);
+            var edited = await ReadDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
             return edited is null ? NotFound<ReplyDraft>("No such draft.") : Result<ReplyDraft>.Success(edited);
         }, ct);
 
-    public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default) =>
+    public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid tenantId, Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default) =>
         GuardAsync("move a draft", async () =>
         {
             if (command is null) return Invalid<ReplyDraft>("A transition is required.");
@@ -551,7 +652,7 @@ public sealed class SocialRepository : ISocialStore
             DateTime? decidedAt = to is ReplyDraftStatuses.Approved or ReplyDraftStatuses.Rejected ? at : null;
             DateTime? startedAt = to == ReplyDraftStatuses.Sending ? at : null;
 
-            var query = _db.Drafts.Where(d => d.Id == draftId && d.Status == command.From);
+            var query = _db.Drafts.Where(d => d.Id == draftId && d.TenantId == tenantId && d.Status == command.From);
             if (to == ReplyDraftStatuses.Sending)
             {
                 // A send never begins from an account that is paused or must be reconnected.
@@ -568,20 +669,20 @@ public sealed class SocialRepository : ISocialStore
 
             if (changed == 0)
             {
-                var current = await ReadDraftAsync(draftId, ct).ConfigureAwait(false);
+                var current = await ReadDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
                 if (current is null) return NotFound<ReplyDraft>("No such draft.");
                 if (current.Status == command.From && to == ReplyDraftStatuses.Sending)
                     return Conflict<ReplyDraft>("Sends are paused for this account, or it must be reconnected first.");
                 return Conflict<ReplyDraft>($"The draft is {current.Status}, not {command.From}.");
             }
 
-            var moved = await ReadDraftAsync(draftId, ct).ConfigureAwait(false);
+            var moved = await ReadDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
             return moved is null ? NotFound<ReplyDraft>("No such draft.") : Result<ReplyDraft>.Success(moved);
         }, ct);
 
     // ----- Audit -----
 
-    public Task<Result<ActionAudit>> RecordAuditAsync(ActionAudit audit, CancellationToken ct = default) =>
+    public Task<Result<ActionAudit>> RecordAuditAsync(Guid tenantId, ActionAudit audit, CancellationToken ct = default) =>
         GuardAsync("record an audit row", async () =>
         {
             if (audit is null) return Invalid<ActionAudit>("An audit row is required.");
@@ -595,6 +696,7 @@ public sealed class SocialRepository : ISocialStore
             var row = new ActionAuditRow
             {
                 Id = audit.Id == Guid.Empty ? Guid.NewGuid() : audit.Id,
+                TenantId = tenantId,
                 AccountId = audit.AccountId,
                 Platform = audit.Platform,
                 Action = audit.Action,
@@ -611,18 +713,19 @@ public sealed class SocialRepository : ISocialStore
             return Result<ActionAudit>.Success(ToAudit(row));
         }, ct);
 
-    public Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid? accountId, int limit, CancellationToken ct = default) =>
+    public Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid tenantId, Guid? accountId, int limit, CancellationToken ct = default) =>
         GuardAsync("list audit rows", async () =>
         {
             using var conn = await OpenAsync(ct).ConfigureAwait(false);
             var rows = await conn.QueryAsync<ActionAudit>(new CommandDefinition(
                 $"""
                 SELECT {AuditColumns} FROM geek_social.action_audit
-                WHERE (@accountId::uuid IS NULL OR account_id = @accountId)
+                WHERE tenant_id = @tenantId
+                  AND (@accountId::uuid IS NULL OR account_id = @accountId)
                 ORDER BY occurred_at DESC
                 LIMIT @limit
                 """,
-                new { accountId, limit = ClampLimit(limit) }, cancellationToken: ct)).ConfigureAwait(false);
+                new { tenantId, accountId, limit = ClampLimit(limit) }, cancellationToken: ct)).ConfigureAwait(false);
             return Result<IReadOnlyList<ActionAudit>>.Success(rows.ToList());
         }, ct);
 
@@ -653,7 +756,7 @@ public sealed class SocialRepository : ISocialStore
             var cutoff = SocialTime.Normalize(at);
             var candidates = await _db.Drafts.AsNoTracking()
                 .Where(d => d.Status == ReplyDraftStatuses.Sending && (d.SendingStartedAt == null || d.SendingStartedAt < cutoff))
-                .Select(d => new { d.Id, d.AccountId, d.Platform })
+                .Select(d => new { d.Id, d.TenantId, d.AccountId, d.Platform })
                 .ToListAsync(ct).ConfigureAwait(false);
 
             var failed = new List<Guid>();
@@ -671,6 +774,7 @@ public sealed class SocialRepository : ISocialStore
                 _db.Audit.Add(new ActionAuditRow
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = candidate.TenantId,
                     AccountId = candidate.AccountId,
                     Platform = candidate.Platform,
                     Action = ActionKinds.Reply,
@@ -690,29 +794,29 @@ public sealed class SocialRepository : ISocialStore
 
     // ----- Reads and helpers -----
 
-    private async Task<SocialAccount?> ReadAccountAsync(Guid accountId, CancellationToken ct)
+    private async Task<SocialAccount?> ReadAccountAsync(Guid tenantId, Guid accountId, CancellationToken ct)
     {
         using var conn = await OpenAsync(ct).ConfigureAwait(false);
         var row = await conn.QuerySingleOrDefaultAsync<AccountReadRow>(new CommandDefinition(
-            $"SELECT {AccountColumns} FROM geek_social.social_accounts WHERE id = @accountId",
-            new { accountId }, cancellationToken: ct)).ConfigureAwait(false);
+            $"SELECT {AccountColumns} FROM geek_social.social_accounts WHERE id = @accountId AND tenant_id = @tenantId",
+            new { accountId, tenantId }, cancellationToken: ct)).ConfigureAwait(false);
         return row?.ToModel();
     }
 
-    private async Task<ReplyDraft?> ReadDraftAsync(Guid draftId, CancellationToken ct)
+    private async Task<ReplyDraft?> ReadDraftAsync(Guid tenantId, Guid draftId, CancellationToken ct)
     {
         using var conn = await OpenAsync(ct).ConfigureAwait(false);
         var row = await conn.QuerySingleOrDefaultAsync<DraftReadRow>(new CommandDefinition(
-            $"SELECT {DraftColumns} FROM geek_social.reply_drafts WHERE id = @draftId",
-            new { draftId }, cancellationToken: ct)).ConfigureAwait(false);
+            $"SELECT {DraftColumns} FROM geek_social.reply_drafts WHERE id = @draftId AND tenant_id = @tenantId",
+            new { draftId, tenantId }, cancellationToken: ct)).ConfigureAwait(false);
         return row?.ToModel();
     }
 
-    private async Task<EngagementEvent?> ReadEventAsync(Guid eventId, CancellationToken ct)
+    private async Task<EngagementEvent?> ReadEventAsync(Guid tenantId, Guid eventId, CancellationToken ct)
     {
         using var conn = await OpenAsync(ct).ConfigureAwait(false);
         return await conn.QuerySingleOrDefaultAsync<EngagementEvent>(new CommandDefinition(
-            $"{EventSelect} WHERE e.id = @eventId", new { eventId, now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
+            $"{EventSelect} WHERE e.id = @eventId AND e.tenant_id = @tenantId", new { eventId, tenantId, now = Now() }, cancellationToken: ct)).ConfigureAwait(false);
     }
 
     private async Task<IDbConnection> OpenAsync(CancellationToken ct)
@@ -790,9 +894,19 @@ public sealed class SocialRepository : ISocialStore
         }
     }
 
+    private static SocialTenant ToTenant(SocialTenantRow row) => new()
+    {
+        Id = row.Id,
+        OwnerUserId = row.OwnerUserId,
+        Name = row.Name,
+        AiConsentAcceptedAt = row.AiConsentAcceptedAt,
+        CreatedAt = row.CreatedAt,
+    };
+
     private static SocialAccount ToAccount(SocialAccountRow row) => new()
     {
         Id = row.Id,
+        TenantId = row.TenantId,
         Platform = row.Platform,
         PlatformAccountId = row.PlatformAccountId,
         DisplayName = row.DisplayName,
@@ -820,6 +934,7 @@ public sealed class SocialRepository : ISocialStore
     private static ReplyDraft ToDraft(ReplyDraftRow row) => new()
     {
         Id = row.Id,
+        TenantId = row.TenantId,
         AccountId = row.AccountId,
         EngagementEventId = row.EngagementEventId,
         Platform = row.Platform,
@@ -854,6 +969,7 @@ public sealed class SocialRepository : ISocialStore
     private sealed class AccountReadRow
     {
         public Guid Id { get; set; }
+        public Guid TenantId { get; set; }
         public string Platform { get; set; } = string.Empty;
         public string PlatformAccountId { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
@@ -866,6 +982,7 @@ public sealed class SocialRepository : ISocialStore
         public SocialAccount ToModel() => new()
         {
             Id = Id,
+            TenantId = TenantId,
             Platform = Platform,
             PlatformAccountId = PlatformAccountId,
             DisplayName = DisplayName,
@@ -881,6 +998,7 @@ public sealed class SocialRepository : ISocialStore
     private sealed class DraftReadRow
     {
         public Guid Id { get; set; }
+        public Guid TenantId { get; set; }
         public Guid AccountId { get; set; }
         public Guid EngagementEventId { get; set; }
         public string Platform { get; set; } = string.Empty;
@@ -898,6 +1016,7 @@ public sealed class SocialRepository : ISocialStore
         public ReplyDraft ToModel() => new()
         {
             Id = Id,
+            TenantId = TenantId,
             AccountId = AccountId,
             EngagementEventId = EngagementEventId,
             Platform = Platform,

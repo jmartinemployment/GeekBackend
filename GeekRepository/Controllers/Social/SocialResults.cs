@@ -16,6 +16,24 @@ internal static class SocialResults
     public static IActionResult ToAction<T>(ControllerBase controller, Result<T> result) =>
         result.IsSuccess ? controller.Ok(result.Value) : Failed(controller, result.ErrorCode, result.Error);
 
+    /// <summary>The header GeekAPI sends with every tenant-scoped call: the tenant the signed-in person owns.</summary>
+    public const string TenantHeader = "X-Social-Tenant-Id";
+
+    /// <summary>
+    /// Reads the tenant a call is for. A call with no tenant, or one that is not a tenant id, is refused 400 and
+    /// never answered from "every tenant", so a caller that forgot its tenant fails loudly instead of leaking.
+    /// </summary>
+    public static bool TryTenant(ControllerBase controller, out Guid tenantId, out IActionResult refusal)
+    {
+        tenantId = Guid.Empty;
+        refusal = null!;
+        var raw = controller.Request.Headers[TenantHeader].ToString();
+        if (Guid.TryParse(raw, out tenantId) && tenantId != Guid.Empty) return true;
+
+        refusal = controller.BadRequest($"{TenantHeader} is required and must be a tenant id.");
+        return false;
+    }
+
     public static IActionResult Failed(ControllerBase controller, string? errorCode, string? error)
     {
         var message = string.IsNullOrWhiteSpace(error) ? "The social store failed." : error;

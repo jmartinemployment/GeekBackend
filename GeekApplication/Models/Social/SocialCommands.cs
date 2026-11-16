@@ -122,3 +122,15 @@ public sealed class SocialFailInterruptedSendsCommand
 {
     public DateTime At { get; set; }
 }
+
+public sealed class CreateSocialTenantCommand
+{
+    public Guid OwnerUserId { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class SocialAcceptAiTermsCommand
+{
+    public DateTime At { get; set; }
+}

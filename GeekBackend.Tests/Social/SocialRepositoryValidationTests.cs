@@ -52,12 +52,12 @@ public class SocialRepositoryValidationTests
         var repo = NewRepository();
         var good = new ConnectSocialAccountCommand { Platform = SocialPlatforms.Facebook, PlatformAccountId = "123", DisplayName = "Page", Token = ValidToken(), ConnectedAt = Now };
 
-        AssertInvalid(await repo.ConnectAccountAsync(new ConnectSocialAccountCommand { Platform = "myspace", PlatformAccountId = "1", DisplayName = "x", Token = ValidToken(), ConnectedAt = Now }));
-        AssertInvalid(await repo.ConnectAccountAsync(new ConnectSocialAccountCommand { Platform = good.Platform, PlatformAccountId = " ", DisplayName = "x", Token = ValidToken(), ConnectedAt = Now }));
-        AssertInvalid(await repo.ConnectAccountAsync(new ConnectSocialAccountCommand { Platform = good.Platform, PlatformAccountId = "1", DisplayName = "", Token = ValidToken(), ConnectedAt = Now }));
-        AssertInvalid(await repo.ConnectAccountAsync(new ConnectSocialAccountCommand { Platform = good.Platform, PlatformAccountId = "1", DisplayName = "x", Token = new SocialEncryptedToken { Cipher = new byte[] { 1 }, Iv = new byte[11], Tag = new byte[16] }, ConnectedAt = Now }));
-        AssertInvalid(await repo.ConnectAccountAsync(new ConnectSocialAccountCommand { Platform = good.Platform, PlatformAccountId = "1", DisplayName = "x", Token = new SocialEncryptedToken { Cipher = Array.Empty<byte>(), Iv = new byte[12], Tag = new byte[16] }, ConnectedAt = Now }));
-        AssertInvalid(await repo.StoreTokenAsync(Guid.NewGuid(), new StoreSocialTokenCommand { Token = new SocialEncryptedToken { Cipher = new byte[] { 1 }, Iv = new byte[12], Tag = new byte[15] } }));
+        AssertInvalid(await repo.ConnectAccountAsync(TestTenant.Id, new ConnectSocialAccountCommand { Platform = "myspace", PlatformAccountId = "1", DisplayName = "x", Token = ValidToken(), ConnectedAt = Now }));
+        AssertInvalid(await repo.ConnectAccountAsync(TestTenant.Id, new ConnectSocialAccountCommand { Platform = good.Platform, PlatformAccountId = " ", DisplayName = "x", Token = ValidToken(), ConnectedAt = Now }));
+        AssertInvalid(await repo.ConnectAccountAsync(TestTenant.Id, new ConnectSocialAccountCommand { Platform = good.Platform, PlatformAccountId = "1", DisplayName = "", Token = ValidToken(), ConnectedAt = Now }));
+        AssertInvalid(await repo.ConnectAccountAsync(TestTenant.Id, new ConnectSocialAccountCommand { Platform = good.Platform, PlatformAccountId = "1", DisplayName = "x", Token = new SocialEncryptedToken { Cipher = new byte[] { 1 }, Iv = new byte[11], Tag = new byte[16] }, ConnectedAt = Now }));
+        AssertInvalid(await repo.ConnectAccountAsync(TestTenant.Id, new ConnectSocialAccountCommand { Platform = good.Platform, PlatformAccountId = "1", DisplayName = "x", Token = new SocialEncryptedToken { Cipher = Array.Empty<byte>(), Iv = new byte[12], Tag = new byte[16] }, ConnectedAt = Now }));
+        AssertInvalid(await repo.StoreTokenAsync(TestTenant.Id, Guid.NewGuid(), new StoreSocialTokenCommand { Token = new SocialEncryptedToken { Cipher = new byte[] { 1 }, Iv = new byte[12], Tag = new byte[15] } }));
     }
 
     [Theory]
@@ -66,7 +66,7 @@ public class SocialRepositoryValidationTests
     [InlineData("anything-else")]
     public async Task No_setting_can_send_a_complaint_or_a_sensitive_comment_without_a_person(string category)
     {
-        var result = await NewRepository().UpdateSettingsAsync(Guid.NewGuid(), new UpdateSocialAccountSettingsCommand { AutoSendCategories = new List<string> { ReplyCategories.Question, category } });
+        var result = await NewRepository().UpdateSettingsAsync(TestTenant.Id, Guid.NewGuid(), new UpdateSocialAccountSettingsCommand { AutoSendCategories = new List<string> { ReplyCategories.Question, category } });
 
         AssertInvalid(result);
     }
@@ -76,9 +76,9 @@ public class SocialRepositoryValidationTests
     {
         var repo = NewRepository();
 
-        AssertInvalid(await repo.RecordPostAsync(new RecordSocialPostCommand { AccountId = Guid.Empty, PlatformPostId = "p", Kind = SocialPostKinds.Link }));
-        AssertInvalid(await repo.RecordPostAsync(new RecordSocialPostCommand { AccountId = Guid.NewGuid(), PlatformPostId = "", Kind = SocialPostKinds.Link }));
-        AssertInvalid(await repo.RecordPostAsync(new RecordSocialPostCommand { AccountId = Guid.NewGuid(), PlatformPostId = "p", Kind = "video" }));
+        AssertInvalid(await repo.RecordPostAsync(TestTenant.Id, new RecordSocialPostCommand { AccountId = Guid.Empty, PlatformPostId = "p", Kind = SocialPostKinds.Link }));
+        AssertInvalid(await repo.RecordPostAsync(TestTenant.Id, new RecordSocialPostCommand { AccountId = Guid.NewGuid(), PlatformPostId = "", Kind = SocialPostKinds.Link }));
+        AssertInvalid(await repo.RecordPostAsync(TestTenant.Id, new RecordSocialPostCommand { AccountId = Guid.NewGuid(), PlatformPostId = "p", Kind = "video" }));
     }
 
     private static EngagementEvent Comment() => new()
@@ -114,10 +114,10 @@ public class SocialRepositoryValidationTests
     {
         var repo = NewRepository();
 
-        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = Guid.Empty, Category = ReplyCategories.Question, DraftText = "Hi" }));
-        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = Guid.NewGuid(), Category = "rant", DraftText = "Hi" }));
-        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = Guid.NewGuid(), Category = ReplyCategories.Question, DraftText = " ", NeedsHumanReason = null }));
-        AssertInvalid(await repo.EditDraftAsync(Guid.NewGuid(), new EditReplyDraftCommand { DraftText = "  " }));
+        AssertInvalid(await repo.CreateDraftAsync(TestTenant.Id, new CreateReplyDraftCommand { EngagementEventId = Guid.Empty, Category = ReplyCategories.Question, DraftText = "Hi" }));
+        AssertInvalid(await repo.CreateDraftAsync(TestTenant.Id, new CreateReplyDraftCommand { EngagementEventId = Guid.NewGuid(), Category = "rant", DraftText = "Hi" }));
+        AssertInvalid(await repo.CreateDraftAsync(TestTenant.Id, new CreateReplyDraftCommand { EngagementEventId = Guid.NewGuid(), Category = ReplyCategories.Question, DraftText = " ", NeedsHumanReason = null }));
+        AssertInvalid(await repo.EditDraftAsync(TestTenant.Id, Guid.NewGuid(), new EditReplyDraftCommand { DraftText = "  " }));
     }
 
     [Fact]
@@ -126,10 +126,10 @@ public class SocialRepositoryValidationTests
         var repo = NewRepository();
         var id = Guid.NewGuid();
 
-        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string>() }));
-        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string> { "swearing" } }));
-        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string> { ReviewRules.EmDash, "swearing" } }));
-        AssertInvalid(await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = " ", NeedsHumanReason = "A person must answer.", ReviewRefusal = new List<string> { ReviewRules.EmDash } }));
+        AssertInvalid(await repo.CreateDraftAsync(TestTenant.Id, new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string>() }));
+        AssertInvalid(await repo.CreateDraftAsync(TestTenant.Id, new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string> { "swearing" } }));
+        AssertInvalid(await repo.CreateDraftAsync(TestTenant.Id, new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = "Hi", ReviewRefusal = new List<string> { ReviewRules.EmDash, "swearing" } }));
+        AssertInvalid(await repo.CreateDraftAsync(TestTenant.Id, new CreateReplyDraftCommand { EngagementEventId = id, Category = ReplyCategories.Question, DraftText = " ", NeedsHumanReason = "A person must answer.", ReviewRefusal = new List<string> { ReviewRules.EmDash } }));
     }
 
     [Fact]
@@ -138,12 +138,12 @@ public class SocialRepositoryValidationTests
         var repo = NewRepository();
         var id = Guid.NewGuid();
 
-        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = "maybe", At = Now }));
-        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Untriaged, At = Now }));
-        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, At = Now }));
-        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, FailureCode = "oops", At = Now }));
-        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, FailureCode = SocialFailureCodes.RateLimited, At = Now }));
-        AssertInvalid(await repo.RecordTriageOutcomeAsync(id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(TestTenant.Id, id, new RecordTriageOutcomeCommand { Outcome = "maybe", At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(TestTenant.Id, id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Untriaged, At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(TestTenant.Id, id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(TestTenant.Id, id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, FailureCode = "oops", At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(TestTenant.Id, id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, FailureCode = SocialFailureCodes.RateLimited, At = Now }));
+        AssertInvalid(await repo.RecordTriageOutcomeAsync(TestTenant.Id, id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded }));
     }
 
     [Fact]
@@ -153,16 +153,16 @@ public class SocialRepositoryValidationTests
         var id = Guid.NewGuid();
 
         // Not an edge of the state machine.
-        AssertInvalid(await repo.TransitionDraftAsync(id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Sent, SentPlatformCommentId = "c", At = Now }));
-        AssertInvalid(await repo.TransitionDraftAsync(id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sent, To = ReplyDraftStatuses.Sending, At = Now }));
+        AssertInvalid(await repo.TransitionDraftAsync(TestTenant.Id, id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Sent, SentPlatformCommentId = "c", At = Now }));
+        AssertInvalid(await repo.TransitionDraftAsync(TestTenant.Id, id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sent, To = ReplyDraftStatuses.Sending, At = Now }));
         // Sent has no comment id; failed has no code or an unknown one.
-        AssertInvalid(await repo.TransitionDraftAsync(id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sending, To = ReplyDraftStatuses.Sent, At = Now }));
-        AssertInvalid(await repo.TransitionDraftAsync(id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sending, To = ReplyDraftStatuses.Failed, At = Now }));
-        AssertInvalid(await repo.TransitionDraftAsync(id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sending, To = ReplyDraftStatuses.Failed, FailureCode = "oops", At = Now }));
+        AssertInvalid(await repo.TransitionDraftAsync(TestTenant.Id, id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sending, To = ReplyDraftStatuses.Sent, At = Now }));
+        AssertInvalid(await repo.TransitionDraftAsync(TestTenant.Id, id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sending, To = ReplyDraftStatuses.Failed, At = Now }));
+        AssertInvalid(await repo.TransitionDraftAsync(TestTenant.Id, id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sending, To = ReplyDraftStatuses.Failed, FailureCode = "oops", At = Now }));
         // A field that belongs to a different state.
-        AssertInvalid(await repo.TransitionDraftAsync(id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, FailureCode = SocialFailureCodes.RateLimited, At = Now }));
-        AssertInvalid(await repo.TransitionDraftAsync(id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, SentPlatformCommentId = "c", At = Now }));
-        AssertInvalid(await repo.TransitionDraftAsync(id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved }));
+        AssertInvalid(await repo.TransitionDraftAsync(TestTenant.Id, id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, FailureCode = SocialFailureCodes.RateLimited, At = Now }));
+        AssertInvalid(await repo.TransitionDraftAsync(TestTenant.Id, id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, SentPlatformCommentId = "c", At = Now }));
+        AssertInvalid(await repo.TransitionDraftAsync(TestTenant.Id, id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved }));
     }
 
     [Fact]
@@ -178,7 +178,7 @@ public class SocialRepositoryValidationTests
         var noTime = Row(); noTime.OccurredAt = default;
 
         foreach (var bad in new[] { unknownAction, unknownOutcome, failedWithoutCode, unknownWithBadCode, noTime })
-            AssertInvalid(await repo.RecordAuditAsync(bad));
+            AssertInvalid(await repo.RecordAuditAsync(TestTenant.Id, bad));
     }
 
     [Fact]
@@ -186,9 +186,9 @@ public class SocialRepositoryValidationTests
     {
         var repo = NewRepository();
 
-        AssertInvalid(await repo.ListDraftsAsync("archived", null, 10));
-        AssertInvalid(await repo.ListEventsAsync("archived", null, 10));
-        AssertInvalid(await repo.ListEventsAsync(string.Empty, null, 10));
+        AssertInvalid(await repo.ListDraftsAsync(TestTenant.Id, "archived", null, 10));
+        AssertInvalid(await repo.ListEventsAsync(TestTenant.Id, "archived", null, 10));
+        AssertInvalid(await repo.ListEventsAsync(TestTenant.Id, string.Empty, null, 10));
         AssertInvalid(await repo.PurgeExpiredAsync(default));
         AssertInvalid(await repo.FailInterruptedSendsAsync(default));
     }
@@ -196,7 +196,7 @@ public class SocialRepositoryValidationTests
     [Fact]
     public async Task A_database_failure_is_a_failed_result_that_says_so_and_leaks_nothing()
     {
-        var result = await NewRepository().ListAccountsAsync();
+        var result = await NewRepository().ListAccountsAsync(TestTenant.Id);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);

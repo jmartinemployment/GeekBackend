@@ -115,7 +115,7 @@ public class SocialConnectServiceTests
         var rig = Build();
         var state = StartedState(rig);
 
-        var result = await rig.Service.CompleteAsync(SocialPlatforms.Facebook, "user-1", "CODE1", state, Redirect, Webhook, CancellationToken.None);
+        var result = await rig.Service.CompleteAsync(TestTenant.Id, SocialPlatforms.Facebook, "user-1", "CODE1", state, Redirect, Webhook, CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         var account = Assert.Single(result.Value!.Accounts);
@@ -139,7 +139,7 @@ public class SocialConnectServiceTests
         var rig = Build();
         var state = StartedState(rig, "user-1");
 
-        var result = await rig.Service.CompleteAsync(SocialPlatforms.Facebook, "user-2", "CODE1", state, Redirect, Webhook, CancellationToken.None);
+        var result = await rig.Service.CompleteAsync(TestTenant.Id, SocialPlatforms.Facebook, "user-2", "CODE1", state, Redirect, Webhook, CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.Forbidden, result.ErrorCode);
         Assert.Equal(0, rig.Connector.Exchanges);
@@ -151,7 +151,7 @@ public class SocialConnectServiceTests
         var rig = Build();
         var state = StartedState(rig);
 
-        var result = await rig.Service.CompleteAsync(SocialPlatforms.Facebook, "user-1", "CODE1", state,
+        var result = await rig.Service.CompleteAsync(TestTenant.Id, SocialPlatforms.Facebook, "user-1", "CODE1", state,
             new Uri("https://elsewhere.example.com/callback"), Webhook, CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.Forbidden, result.ErrorCode);
@@ -163,7 +163,7 @@ public class SocialConnectServiceTests
     {
         var rig = Build();
 
-        var result = await rig.Service.CompleteAsync(SocialPlatforms.Facebook, "user-1", "CODE1", "not-a-state", Redirect, Webhook, CancellationToken.None);
+        var result = await rig.Service.CompleteAsync(TestTenant.Id, SocialPlatforms.Facebook, "user-1", "CODE1", "not-a-state", Redirect, Webhook, CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.InvalidRequest, result.ErrorCode);
         Assert.Equal(0, rig.Connector.Exchanges);
@@ -185,7 +185,7 @@ public class SocialConnectServiceTests
         var state = StartedState(rig);
         clock.Now = Now + SocialConnectService.StateLifetime + TimeSpan.FromSeconds(1);
 
-        var result = await rig.Service.CompleteAsync(SocialPlatforms.Facebook, "user-1", "CODE1", state, Redirect, Webhook, CancellationToken.None);
+        var result = await rig.Service.CompleteAsync(TestTenant.Id, SocialPlatforms.Facebook, "user-1", "CODE1", state, Redirect, Webhook, CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.InvalidRequest, result.ErrorCode);
         Assert.Equal(0, rig.Connector.Exchanges);
@@ -198,7 +198,7 @@ public class SocialConnectServiceTests
         rig.Connector.OnSubscribe = () => Result<SocialWebhookSubscription>.Failure("Meta did not subscribe the Page.", SocialFailureCodes.Forbidden);
         var state = StartedState(rig);
 
-        var result = await rig.Service.CompleteAsync(SocialPlatforms.Facebook, "user-1", "CODE1", state, Redirect, Webhook, CancellationToken.None);
+        var result = await rig.Service.CompleteAsync(TestTenant.Id, SocialPlatforms.Facebook, "user-1", "CODE1", state, Redirect, Webhook, CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         var subscription = Assert.Single(result.Value!.Subscriptions);

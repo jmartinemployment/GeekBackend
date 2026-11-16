@@ -24,32 +24,48 @@ public class SocialControllerMappingTests
         public Func<Result<EngagementEvent>>? Triage { get; init; }
         public Func<string, Result<IReadOnlyList<EngagementEvent>>>? ListEvents { get; init; }
 
-        public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) => Task.FromResult(Triage!());
-        public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(string triageState, Guid? accountId, int limit, CancellationToken ct = default) => Task.FromResult(ListEvents!(triageState));
+        public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid tenantId, Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) => Task.FromResult(Triage!());
+        public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(Guid tenantId, string triageState, Guid? accountId, int limit, CancellationToken ct = default) => Task.FromResult(ListEvents!(triageState));
 
-        public Task<Result<SocialAccount>> GetAccountAsync(Guid accountId, CancellationToken ct = default) => Task.FromResult(Account!());
-        public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default) => Task.FromResult(Transition!());
+        public Task<Result<SocialAccount>> GetAccountAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) => Task.FromResult(Account!());
+        public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid tenantId, Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default) => Task.FromResult(Transition!());
         public Task<Result<bool>> RecordEventAsync(EngagementEvent engagementEvent, CancellationToken ct = default) => Task.FromResult(Event!());
 
-        public Task<Result<SocialAccount>> ConnectAccountAsync(ConnectSocialAccountCommand command, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<SocialAccountCredential>> GetCredentialAsync(Guid accountId, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<SocialAccount>> StoreTokenAsync(Guid accountId, StoreSocialTokenCommand command, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<SocialAccount>> MarkReconnectRequiredAsync(Guid accountId, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<SocialPost>> RecordPostAsync(RecordSocialPostCommand command, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid accountId, int limit, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<EngagementEvent>> GetEventAsync(Guid eventId, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<ReplyDraft>> CreateDraftAsync(CreateReplyDraftCommand command, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<ReplyDraft>> GetDraftAsync(Guid draftId, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(string? status, Guid? accountId, int limit, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<ReplyDraft>> EditDraftAsync(Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<ActionAudit>> RecordAuditAsync(ActionAudit audit, CancellationToken ct = default) => throw Unscripted();
-        public Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid? accountId, int limit, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialAccount>> ConnectAccountAsync(Guid tenantId, ConnectSocialAccountCommand command, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(Guid tenantId, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialAccountCredential>> GetCredentialAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialAccount>> StoreTokenAsync(Guid tenantId, Guid accountId, StoreSocialTokenCommand command, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialAccount>> MarkReconnectRequiredAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid tenantId, Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialPost>> RecordPostAsync(Guid tenantId, RecordSocialPostCommand command, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid tenantId, Guid accountId, int limit, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<EngagementEvent>> GetEventAsync(Guid tenantId, Guid eventId, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<ReplyDraft>> CreateDraftAsync(Guid tenantId, CreateReplyDraftCommand command, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<ReplyDraft>> GetDraftAsync(Guid tenantId, Guid draftId, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(Guid tenantId, string? status, Guid? accountId, int limit, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<ReplyDraft>> EditDraftAsync(Guid tenantId, Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<ActionAudit>> RecordAuditAsync(Guid tenantId, ActionAudit audit, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid tenantId, Guid? accountId, int limit, CancellationToken ct = default) => throw Unscripted();
         public Task<Result<SocialPurgeResult>> PurgeExpiredAsync(DateTime asOf, CancellationToken ct = default) => throw Unscripted();
         public Task<Result<SocialInterruptedSends>> FailInterruptedSendsAsync(DateTime at, CancellationToken ct = default) => throw Unscripted();
 
+        public Task<Result<SocialTenant>> GetTenantByOwnerAsync(Guid ownerUserId, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialTenant>> CreateTenantAsync(CreateSocialTenantCommand command, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<SocialTenant>> AcceptAiTermsAsync(Guid tenantId, DateTime at, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<EngagementEvent>> GetEventAcrossTenantsAsync(Guid eventId, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<IReadOnlyList<EngagementEvent>>> ListUntriagedEventsAsync(int limit, CancellationToken ct = default) => throw Unscripted();
+        public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAcrossTenantsAsync(string status, int limit, CancellationToken ct = default) => throw Unscripted();
+
         private static NotSupportedException Unscripted() => new("This test did not script that call.");
+    }
+
+    /// <summary>A request that carries the tenant header, as GeekAPI's calls do.</summary>
+    private static ControllerContext WithTenant()
+    {
+        var http = new DefaultHttpContext();
+        http.Request.Headers["X-Social-Tenant-Id"] = TestTenant.Id.ToString();
+        return new ControllerContext { HttpContext = http };
     }
 
     [Theory]
@@ -64,6 +80,7 @@ public class SocialControllerMappingTests
     {
         var failure = code is null ? Result<SocialAccount>.Failure("It failed.") : Result<SocialAccount>.Failure("It failed.", code);
         var controller = new SocialAccountsController(new ScriptedStore { Account = () => failure });
+        controller.ControllerContext = WithTenant();
 
         var action = await controller.Get(Guid.NewGuid(), CancellationToken.None);
 
@@ -78,6 +95,7 @@ public class SocialControllerMappingTests
         {
             Transition = () => Result<ReplyDraft>.Failure("The draft is sent, not pending.", SocialFailureCodes.Conflict),
         });
+        controller.ControllerContext = WithTenant();
 
         var action = await controller.Transition(
             Guid.NewGuid(),
@@ -94,6 +112,7 @@ public class SocialControllerMappingTests
     public async Task An_event_answers_whether_it_was_new(bool inserted)
     {
         var controller = new SocialEventsController(new ScriptedStore { Event = () => Result<bool>.Success(inserted) });
+        controller.ControllerContext = WithTenant();
 
         var action = await controller.Record(new EngagementEvent(), CancellationToken.None);
 
@@ -105,6 +124,7 @@ public class SocialControllerMappingTests
     public async Task A_failed_event_is_the_failure_not_an_inserted_flag()
     {
         var controller = new SocialEventsController(new ScriptedStore { Event = () => Result<bool>.Failure("No connected facebook account matches the event's account.", SocialFailureCodes.NotFound) });
+        controller.ControllerContext = WithTenant();
 
         var action = await controller.Record(new EngagementEvent(), CancellationToken.None);
 
@@ -118,6 +138,7 @@ public class SocialControllerMappingTests
         {
             Triage = () => Result<EngagementEvent>.Failure("The event's triage is already reply_needed.", SocialFailureCodes.Conflict),
         });
+        controller.ControllerContext = WithTenant();
 
         var action = await controller.RecordTriage(
             Guid.NewGuid(),
@@ -140,6 +161,7 @@ public class SocialControllerMappingTests
                 return Result<IReadOnlyList<EngagementEvent>>.Failure("Unknown triage state ''.", SocialFailureCodes.InvalidRequest);
             },
         });
+        controller.ControllerContext = WithTenant();
 
         var action = await controller.List(triageState: null, accountId: null, limit: 0, CancellationToken.None);
 

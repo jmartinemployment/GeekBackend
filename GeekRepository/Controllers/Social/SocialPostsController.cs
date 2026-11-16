@@ -19,13 +19,15 @@ public sealed class SocialPostsController : ControllerBase
     public async Task<IActionResult> Record([FromBody] RecordSocialPostCommand command, CancellationToken ct)
     {
         if (command is null) return BadRequest("A post is required.");
-        return SocialResults.ToAction(this, await _social.RecordPostAsync(command, ct));
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.RecordPostAsync(tenantId, command, ct));
     }
 
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] Guid accountId, [FromQuery] int limit = 0, CancellationToken ct = default)
     {
         if (accountId == Guid.Empty) return BadRequest("accountId is required.");
-        return SocialResults.ToAction(this, await _social.ListPostsAsync(accountId, limit, ct));
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.ListPostsAsync(tenantId, accountId, limit, ct));
     }
 }

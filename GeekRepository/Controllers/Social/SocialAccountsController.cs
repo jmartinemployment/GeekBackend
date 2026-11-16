@@ -19,37 +19,52 @@ public sealed class SocialAccountsController : ControllerBase
     public async Task<IActionResult> Connect([FromBody] ConnectSocialAccountCommand command, CancellationToken ct)
     {
         if (command is null) return BadRequest("An account is required.");
-        return SocialResults.ToAction(this, await _social.ConnectAccountAsync(command, ct));
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.ConnectAccountAsync(tenantId, command, ct));
     }
 
     [HttpGet]
-    public async Task<IActionResult> List(CancellationToken ct) =>
-        SocialResults.ToAction(this, await _social.ListAccountsAsync(ct));
+    public async Task<IActionResult> List(CancellationToken ct)
+    {
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.ListAccountsAsync(tenantId, ct));
+    }
 
     [HttpGet("{accountId:guid}")]
-    public async Task<IActionResult> Get(Guid accountId, CancellationToken ct) =>
-        SocialResults.ToAction(this, await _social.GetAccountAsync(accountId, ct));
+    public async Task<IActionResult> Get(Guid accountId, CancellationToken ct)
+    {
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.GetAccountAsync(tenantId, accountId, ct));
+    }
 
     /// <summary>The stored ciphertext, for GeekAPI to decrypt. Reachable only with the internal service key.</summary>
     [HttpGet("{accountId:guid}/credential")]
-    public async Task<IActionResult> GetCredential(Guid accountId, CancellationToken ct) =>
-        SocialResults.ToAction(this, await _social.GetCredentialAsync(accountId, ct));
+    public async Task<IActionResult> GetCredential(Guid accountId, CancellationToken ct)
+    {
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.GetCredentialAsync(tenantId, accountId, ct));
+    }
 
     [HttpPut("{accountId:guid}/token")]
     public async Task<IActionResult> StoreToken(Guid accountId, [FromBody] StoreSocialTokenCommand command, CancellationToken ct)
     {
         if (command is null) return BadRequest("A token is required.");
-        return SocialResults.ToAction(this, await _social.StoreTokenAsync(accountId, command, ct));
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.StoreTokenAsync(tenantId, accountId, command, ct));
     }
 
     [HttpPost("{accountId:guid}/reconnect-required")]
-    public async Task<IActionResult> MarkReconnectRequired(Guid accountId, CancellationToken ct) =>
-        SocialResults.ToAction(this, await _social.MarkReconnectRequiredAsync(accountId, ct));
+    public async Task<IActionResult> MarkReconnectRequired(Guid accountId, CancellationToken ct)
+    {
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.MarkReconnectRequiredAsync(tenantId, accountId, ct));
+    }
 
     [HttpPut("{accountId:guid}/settings")]
     public async Task<IActionResult> UpdateSettings(Guid accountId, [FromBody] UpdateSocialAccountSettingsCommand command, CancellationToken ct)
     {
         if (command is null) return BadRequest("Settings are required.");
-        return SocialResults.ToAction(this, await _social.UpdateSettingsAsync(accountId, command, ct));
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.UpdateSettingsAsync(tenantId, accountId, command, ct));
     }
 }

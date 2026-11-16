@@ -48,9 +48,9 @@ public sealed class SocialTokenProvider : ISocialTokenProvider
         _logger = logger;
     }
 
-    public async Task<Result<SocialToken>> GetTokenAsync(Guid accountId, CancellationToken ct = default)
+    public async Task<Result<SocialToken>> GetTokenAsync(Guid tenantId, Guid accountId, CancellationToken ct = default)
     {
-        var account = await _store.GetAccountAsync(accountId, ct).ConfigureAwait(false);
+        var account = await _store.GetAccountAsync(tenantId, accountId, ct).ConfigureAwait(false);
         if (!account.IsSuccess)
             return Result<SocialToken>.Failure(account.Error!, account.ErrorCode ?? SocialFailureCodes.StoreUnavailable);
 
@@ -58,7 +58,7 @@ public sealed class SocialTokenProvider : ISocialTokenProvider
             return Result<SocialToken>.Failure(
                 "The account must be reconnected before anything can be sent from it.", SocialFailureCodes.TokenInvalid);
 
-        var credential = await _store.GetCredentialAsync(accountId, ct).ConfigureAwait(false);
+        var credential = await _store.GetCredentialAsync(tenantId, accountId, ct).ConfigureAwait(false);
         if (!credential.IsSuccess)
             return Result<SocialToken>.Failure(credential.Error!, credential.ErrorCode ?? SocialFailureCodes.StoreUnavailable);
 
@@ -116,7 +116,7 @@ public sealed class SocialTokenProvider : ISocialTokenProvider
         if (!sealedToken.IsSuccess)
             return Result<SocialToken>.Failure(sealedToken.Error!, sealedToken.ErrorCode!);
 
-        var stored = await _store.StoreTokenAsync(account.Id, new StoreSocialTokenCommand { Token = sealedToken.Value! }, ct).ConfigureAwait(false);
+        var stored = await _store.StoreTokenAsync(account.TenantId, account.Id, new StoreSocialTokenCommand { Token = sealedToken.Value! }, ct).ConfigureAwait(false);
         if (!stored.IsSuccess)
             return Result<SocialToken>.Failure(stored.Error!, stored.ErrorCode ?? SocialFailureCodes.StoreUnavailable);
 
@@ -128,7 +128,7 @@ public sealed class SocialTokenProvider : ISocialTokenProvider
 
     private async Task<Result<SocialToken>> RequireReconnectAsync(SocialAccount account, string reason, string code, CancellationToken ct)
     {
-        var marked = await _store.MarkReconnectRequiredAsync(account.Id, ct).ConfigureAwait(false);
+        var marked = await _store.MarkReconnectRequiredAsync(account.TenantId, account.Id, ct).ConfigureAwait(false);
         if (!marked.IsSuccess)
         {
             // The grant is gone and the store would not say so: the caller must see the store's failure, not a quiet token_invalid.
@@ -141,7 +141,7 @@ public sealed class SocialTokenProvider : ISocialTokenProvider
     }
 
     private Task<Result<ActionAudit>> AuditAsync(SocialAccount account, string outcome, string? failureCode, DateTime at, CancellationToken ct) =>
-        _store.RecordAuditAsync(new ActionAudit
+        _store.RecordAuditAsync(account.TenantId, new ActionAudit
         {
             AccountId = account.Id,
             Platform = account.Platform,

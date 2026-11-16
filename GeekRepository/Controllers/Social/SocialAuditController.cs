@@ -19,10 +19,14 @@ public sealed class SocialAuditController : ControllerBase
     public async Task<IActionResult> Record([FromBody] ActionAudit audit, CancellationToken ct)
     {
         if (audit is null) return BadRequest("An audit row is required.");
-        return SocialResults.ToAction(this, await _social.RecordAuditAsync(audit, ct));
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.RecordAuditAsync(tenantId, audit, ct));
     }
 
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] Guid? accountId, [FromQuery] int limit = 0, CancellationToken ct = default) =>
-        SocialResults.ToAction(this, await _social.ListAuditAsync(accountId, limit, ct));
+    public async Task<IActionResult> List([FromQuery] Guid? accountId, [FromQuery] int limit = 0, CancellationToken ct = default)
+    {
+        if (!SocialResults.TryTenant(this, out var tenantId, out var refusal)) return refusal;
+        return SocialResults.ToAction(this, await _social.ListAuditAsync(tenantId, accountId, limit, ct));
+    }
 }

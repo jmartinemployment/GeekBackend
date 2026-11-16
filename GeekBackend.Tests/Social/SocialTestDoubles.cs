@@ -68,20 +68,26 @@ internal sealed class FakeRealtime : GeekAPI.Services.Social.Realtime.ISocialRea
 {
     public List<(string Message, Guid Id, Guid AccountId, string State)> Sent { get; } = new();
 
-    public Task DraftChangedAsync(Guid draftId, Guid accountId, string status, CancellationToken ct = default)
+    /// <summary>The tenant each message in <see cref="Sent"/> was addressed to, in the same order.</summary>
+    public List<Guid> Tenants { get; } = new();
+
+    public Task DraftChangedAsync(Guid tenantId, Guid draftId, Guid accountId, string status, CancellationToken ct = default)
     {
+        Tenants.Add(tenantId);
         Sent.Add(("draftChanged", draftId, accountId, status));
         return Task.CompletedTask;
     }
 
-    public Task CommentChangedAsync(Guid eventId, Guid accountId, string outcome, CancellationToken ct = default)
+    public Task CommentChangedAsync(Guid tenantId, Guid eventId, Guid accountId, string outcome, CancellationToken ct = default)
     {
+        Tenants.Add(tenantId);
         Sent.Add(("commentChanged", eventId, accountId, outcome));
         return Task.CompletedTask;
     }
 
-    public Task AccountChangedAsync(Guid accountId, string status, CancellationToken ct = default)
+    public Task AccountChangedAsync(Guid tenantId, Guid accountId, string status, CancellationToken ct = default)
     {
+        Tenants.Add(tenantId);
         Sent.Add(("accountChanged", accountId, accountId, status));
         return Task.CompletedTask;
     }
@@ -109,7 +115,7 @@ internal sealed class FakeSendStep : GeekAPI.Services.Social.Orchestration.ISoci
         return Task.FromResult(OnAutoSend(draft));
     }
 
-    public Task<Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>> SendAsync(Guid draftId, string? actorUserId, CancellationToken ct)
+    public Task<Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>> SendAsync(Guid tenantId, Guid draftId, string? actorUserId, CancellationToken ct)
     {
         Sends.Add((draftId, actorUserId));
         return Task.FromResult(OnSend(draftId));
@@ -123,4 +129,10 @@ internal sealed class FakeSendStep : GeekAPI.Services.Social.Orchestration.ISoci
 
     public Task<Result<List<string>>> ApprovedLinksAsync(EngagementEvent ev, CancellationToken ct) =>
         Task.FromResult(OnApprovedLinks(ev));
+}
+
+/// <summary>The tenant every test that does not care about tenants acts for; a test about isolation uses its own.</summary>
+internal static class TestTenant
+{
+    public static readonly Guid Id = Guid.Parse("11111111-1111-1111-1111-111111111111");
 }

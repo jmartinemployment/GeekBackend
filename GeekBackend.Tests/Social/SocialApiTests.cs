@@ -101,7 +101,7 @@ public class SocialApiTests
             public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => throw new NotSupportedException();
             public IClientProxy Client(string connectionId) => throw new NotSupportedException();
             public IClientProxy Clients(IReadOnlyList<string> connectionIds) => throw new NotSupportedException();
-            public IClientProxy Group(string groupName) => throw new NotSupportedException();
+            public IClientProxy Group(string groupName) => new ThrowingProxy();
             public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => throw new NotSupportedException();
             public IClientProxy Groups(IReadOnlyList<string> groupNames) => throw new NotSupportedException();
             public IClientProxy User(string userId) => throw new NotSupportedException();
@@ -121,7 +121,7 @@ public class SocialApiTests
         var log = new RecordingLog<SocialRealtimeNotifier>();
         var notifier = new SocialRealtimeNotifier(new ThrowingHubContext(), log);
 
-        await notifier.DraftChangedAsync(Guid.NewGuid(), Guid.NewGuid(), ReplyDraftStatuses.Sent);
+        await notifier.DraftChangedAsync(TestTenant.Id, Guid.NewGuid(), Guid.NewGuid(), ReplyDraftStatuses.Sent);
 
         var line = Assert.Single(log.Entries);
         Assert.Equal(LogLevel.Error, line.Level);

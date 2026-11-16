@@ -7,6 +7,7 @@ namespace GeekRepository.Data.Entities.Social;
 public sealed class SocialAccountRow
 {
     public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
     public string Platform { get; set; } = string.Empty;
     public string PlatformAccountId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
@@ -24,6 +25,7 @@ public sealed class SocialAccountRow
 public sealed class SocialPostRow
 {
     public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
     public Guid AccountId { get; set; }
     public string Platform { get; set; } = string.Empty;
     public string PlatformPostId { get; set; } = string.Empty;
@@ -38,6 +40,7 @@ public sealed class SocialPostRow
 public sealed class EngagementEventRow
 {
     public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
     public Guid AccountId { get; set; }
     public string Platform { get; set; } = string.Empty;
     public string PlatformEventId { get; set; } = string.Empty;
@@ -61,6 +64,7 @@ public sealed class EngagementEventRow
 public sealed class ReplyDraftRow
 {
     public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
     public Guid AccountId { get; set; }
     public Guid EngagementEventId { get; set; }
     public string Platform { get; set; } = string.Empty;
@@ -79,6 +83,7 @@ public sealed class ReplyDraftRow
 public sealed class ActionAuditRow
 {
     public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
     public Guid? AccountId { get; set; }
     public string Platform { get; set; } = string.Empty;
     public string Action { get; set; } = string.Empty;
@@ -89,4 +94,13 @@ public sealed class ActionAuditRow
     public string? FailureDetail { get; set; }
     public string? ActorUserId { get; set; }
     public DateTime OccurredAt { get; set; }
+}
+
+public sealed class SocialTenantRow
+{
+    public Guid Id { get; set; }
+    public Guid OwnerUserId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public DateTime? AiConsentAcceptedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
 }

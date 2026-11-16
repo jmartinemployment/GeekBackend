@@ -85,7 +85,7 @@ public sealed class SocialConnectService
     /// place; an account whose subscription failed is still connected and the failure is shown with it.
     /// </summary>
     public async Task<Result<SocialConnectResult>> CompleteAsync(
-        string platform, string userId, string code, string state, Uri redirectUri, Uri webhookUrl, CancellationToken ct)
+        Guid tenantId, string platform, string userId, string code, string state, Uri redirectUri, Uri webhookUrl, CancellationToken ct)
     {
         var connector = ConnectorFor(platform);
         if (connector is null)
@@ -126,7 +126,7 @@ public sealed class SocialConnectService
         if (!exchanged.IsSuccess)
         {
             _logger.LogError("A {Platform} connection failed at the code exchange: {Code}. {Error}", platform, exchanged.ErrorCode, exchanged.Error);
-            await AuditAsync(null, platform, ActionKinds.Connect, exchanged.ErrorCode, exchanged.Error, null, userId, now, ct).ConfigureAwait(false);
+            await AuditAsync(tenantId, null, platform, ActionKinds.Connect, exchanged.ErrorCode, exchanged.Error, null, userId, now, ct).ConfigureAwait(false);
             return Result<SocialConnectResult>.Failure(exchanged.Error!, exchanged.ErrorCode!);
         }
 
@@ -140,7 +140,7 @@ public sealed class SocialConnectService
                 return Result<SocialConnectResult>.Failure(sealedToken.Error!, sealedToken.ErrorCode!);
             }
 
-            var stored = await _store.ConnectAccountAsync(new ConnectSocialAccountCommand
+            var stored = await _store.ConnectAccountAsync(tenantId, new ConnectSocialAccountCommand
             {
                 Platform = granted.Platform,
                 PlatformAccountId = granted.PlatformAccountId,
@@ -157,11 +157,11 @@ public sealed class SocialConnectService
 
             var account = stored.Value!;
             result.Accounts.Add(account);
-            await AuditAsync(account.Id, platform, ActionKinds.Connect, null, null, account.PlatformAccountId, userId, now, ct).ConfigureAwait(false);
-            await _realtime.AccountChangedAsync(account.Id, account.Status, ct).ConfigureAwait(false);
+            await AuditAsync(tenantId, account.Id, platform, ActionKinds.Connect, null, null, account.PlatformAccountId, userId, now, ct).ConfigureAwait(false);
+            await _realtime.AccountChangedAsync(tenantId, account.Id, account.Status, ct).ConfigureAwait(false);
 
             var subscribed = await connector.EnsureWebhookSubscriptionAsync(account, granted.Token, webhookUrl, ct).ConfigureAwait(false);
-            await AuditAsync(account.Id, platform, ActionKinds.SubscribeWebhook,
+            await AuditAsync(tenantId, account.Id, platform, ActionKinds.SubscribeWebhook,
                 subscribed.IsSuccess ? null : subscribed.ErrorCode, subscribed.Error, account.PlatformAccountId, userId, now, ct).ConfigureAwait(false);
             if (!subscribed.IsSuccess)
             {
@@ -186,11 +186,11 @@ public sealed class SocialConnectService
         SocialPlatforms.IsKnown(platform) ? _services.GetKeyedService<ISocialAccountConnector>(platform) : null;
 
     private async Task AuditAsync(
-        Guid? accountId, string platform, string action, string? failureCode, string? error,
+        Guid tenantId, Guid? accountId, string platform, string action, string? failureCode, string? error,
         string? platformObjectId, string userId, DateTime at, CancellationToken ct)
     {
         var succeeded = failureCode is null && error is null;
-        var stored = await _store.RecordAuditAsync(new ActionAudit
+        var stored = await _store.RecordAuditAsync(tenantId, new ActionAudit
         {
             AccountId = accountId,
             Platform = platform,

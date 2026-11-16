@@ -1,9 +1,26 @@
-# GeekSocial Gate 7b: tenants and the onboarding gate (design, no code yet)
+# GeekSocial Gate 7b: tenants and the onboarding gate (built 2026-11-16, local only; see Status)
 
 Written 2026-11-16 from the code as it stands. Decisions it rests on are in `docs/PLATFORM-CAPABILITIES.md`
 sections 1a and 1b (Jeff, 2026-11-16): tenants own their accounts, a person approves every reply and post,
 stored comments are purged at 30 days, a tenant's content reaches the AI only for that tenant and only after that
 tenant accepted the AI terms, and every tenant registers their own platform apps.
+
+## Status (2026-11-16)
+
+Built, in GeekBackend, not pushed, and **not run against a Postgres** (no database was available): migration
+`0064_geek_social_tenants.sql`, `geek_social.tenants`, `tenant_id` on the five tables, every `ISocialStore` method
+scoped to a tenant (a row of another tenant answers not found), the `X-Social-Tenant-Id` header between GeekAPI and
+GeekRepository (a call with none is a 400), the tenant routes, tenant-scoped SignalR groups (the hub used to send
+to every connection), the AI-terms hold in the orchestrator, and 3,967 passing unit tests including the isolation
+tests. The integration tests for isolation are written and compile, but they return at once when TEST_DATABASE_URL
+is unset, so they have verified nothing yet.
+
+Differences from the design below: **no row-level security** (the repository writes through EF Core and reads
+through Dapper on separate connections, so a per-transaction tenant setting would not reach both; a policy nothing
+sets would be a property asserted and not enforced); a tenant is made by an explicit sign-up route.
+
+Not built: the confirmed email and phone check (the source of the claim is undecided); removing auto-send; the
+screen's sign-up page and its handling of the 403.
 
 ## What exists today
 

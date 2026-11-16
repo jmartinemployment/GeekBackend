@@ -45,9 +45,9 @@ public sealed class SocialResync
         _logger = logger;
     }
 
-    public async Task<Result<SocialResyncResult>> ResyncAsync(Guid accountId, CancellationToken ct)
+    public async Task<Result<SocialResyncResult>> ResyncAsync(Guid tenantId, Guid accountId, CancellationToken ct)
     {
-        var account = await _store.GetAccountAsync(accountId, ct).ConfigureAwait(false);
+        var account = await _store.GetAccountAsync(tenantId, accountId, ct).ConfigureAwait(false);
         if (!account.IsSuccess)
             return Fail<SocialResyncResult>("load the account", account.ErrorCode, account.Error, accountId);
 
@@ -56,11 +56,11 @@ public sealed class SocialResync
             return Fail<SocialResyncResult>("find a reader", SocialFailureCodes.NotSupported,
                 $"GeekSocial cannot read {account.Value.Platform} comments yet.", accountId);
 
-        var token = await _tokens.GetTokenAsync(accountId, ct).ConfigureAwait(false);
+        var token = await _tokens.GetTokenAsync(tenantId, accountId, ct).ConfigureAwait(false);
         if (!token.IsSuccess)
             return Fail<SocialResyncResult>("get the token", token.ErrorCode, token.Error, accountId);
 
-        var posts = await _store.ListPostsAsync(accountId, PostsRead, ct).ConfigureAwait(false);
+        var posts = await _store.ListPostsAsync(tenantId, accountId, PostsRead, ct).ConfigureAwait(false);
         if (!posts.IsSuccess)
             return Fail<SocialResyncResult>("list the posts", posts.ErrorCode, posts.Error, accountId);
 

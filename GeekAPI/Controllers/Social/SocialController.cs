@@ -68,17 +68,65 @@ public sealed class SocialController : ControllerBase
         },
     });
 
+    // ----- Tenant -----
+
+    public sealed class CreateTenantBody
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+
+    /// <summary>The signed-in person's tenant. 404 until they have signed up for GeekSocial.</summary>
+    [HttpGet("tenant")]
+    public async Task<IActionResult> GetTenant(CancellationToken ct)
+    {
+        var owner = OwnerId();
+        if (owner is null) return Failure("The token's subject is not a user id.", SocialFailureCodes.Forbidden);
+        return Answer(await _store.GetTenantByOwnerAsync(owner.Value, ct));
+    }
+
+    /// <summary>Signs the person up for GeekSocial. 409 when they already have a tenant.</summary>
+    [HttpPost("tenant")]
+    public async Task<IActionResult> CreateTenant([FromBody] CreateTenantBody body, CancellationToken ct)
+    {
+        var owner = OwnerId();
+        if (owner is null) return Failure("The token's subject is not a user id.", SocialFailureCodes.Forbidden);
+        return Answer(await _store.CreateTenantAsync(new CreateSocialTenantCommand { OwnerUserId = owner.Value, Name = body?.Name ?? string.Empty }, ct));
+    }
+
+    /// <summary>The person accepts the AI terms. Until they do, none of their content reaches the AI.</summary>
+    [HttpPost("tenant/ai-terms")]
+    public async Task<IActionResult> AcceptAiTerms(CancellationToken ct)
+    {
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        return Answer(await _store.AcceptAiTermsAsync(tenantId, DateTime.UtcNow, ct));
+    }
+
     // ----- Accounts -----
 
     [HttpGet("accounts")]
-    public async Task<IActionResult> Accounts(CancellationToken ct) => Answer(await _store.ListAccountsAsync(ct));
+    public async Task<IActionResult> Accounts(CancellationToken ct)
+    {
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        return Answer(await _store.ListAccountsAsync(tenantId, ct));
+    }
 
     [HttpPut("accounts/{id:guid}/settings")]
-    public async Task<IActionResult> UpdateSettings(Guid id, [FromBody] UpdateSocialAccountSettingsCommand body, CancellationToken ct) =>
-        Answer(await _actions.UpdateSettingsAsync(id, body, ct));
+    public async Task<IActionResult> UpdateSettings(Guid id, [FromBody] UpdateSocialAccountSettingsCommand body, CancellationToken ct)
+    {
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        return Answer(await _actions.UpdateSettingsAsync(tenantId, id, body, ct));
+    }
 
     [HttpPost("accounts/{id:guid}/resync")]
-    public async Task<IActionResult> Resync(Guid id, CancellationToken ct) => Answer(await _actions.ResyncAsync(id, ct));
+    public async Task<IActionResult> Resync(Guid id, CancellationToken ct)
+    {
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        return Answer(await _actions.ResyncAsync(tenantId, id, ct));
+    }
 
     // ----- Connecting -----
 
@@ -112,8 +160,11 @@ public sealed class SocialController : ControllerBase
         if (string.IsNullOrWhiteSpace(body.Code) || string.IsNullOrWhiteSpace(body.State))
             return Failure("code and state are required.", SocialFailureCodes.InvalidRequest);
 
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+
         var webhook = new Uri($"{Request.Scheme}://{Request.Host}/api/social/webhooks/meta");
-        return Answer(await _connect.CompleteAsync(SocialPlatforms.Facebook, UserId(), body.Code, body.State, redirect, webhook, ct));
+        return Answer(await _connect.CompleteAsync(tenantId, SocialPlatforms.Facebook, UserId(), body.Code, body.State, redirect, webhook, ct));
     }
 
     // ----- Drafts -----
@@ -129,7 +180,9 @@ public sealed class SocialController : ControllerBase
         if (status is not null && !ReplyDraftStatuses.IsKnown(status))
             return Failure($"Unknown status '{status}'.", SocialFailureCodes.InvalidRequest);
 
-        var drafts = await _store.ListDraftsAsync(status, accountId, Limit(limit), ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var drafts = await _store.ListDraftsAsync(tenantId, status, accountId, Limit(limit), ct);
         if (!drafts.IsSuccess)
             return Failure(drafts.Error!, drafts.ErrorCode);
 
@@ -141,14 +194,18 @@ public sealed class SocialController : ControllerBase
     [HttpGet("drafts/{id:guid}")]
     public async Task<IActionResult> Draft(Guid id, CancellationToken ct)
     {
-        var draft = await _store.GetDraftAsync(id, ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var draft = await _store.GetDraftAsync(tenantId, id, ct);
         return draft.IsSuccess ? Answer(await ViewAsync(draft.Value!, ct)) : Failure(draft.Error!, draft.ErrorCode);
     }
 
     [HttpPut("drafts/{id:guid}")]
     public async Task<IActionResult> EditDraft(Guid id, [FromBody] EditDraftBody body, CancellationToken ct)
     {
-        var edited = await _actions.EditAsync(id, body.DraftText, ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var edited = await _actions.EditAsync(tenantId, id, body.DraftText, ct);
         if (!edited.IsSuccess)
             return Failure(edited.Error!, edited.ErrorCode);
         if (edited.Value!.Violations is { } violations)
@@ -159,7 +216,9 @@ public sealed class SocialController : ControllerBase
     [HttpPost("drafts/{id:guid}/approve")]
     public async Task<IActionResult> Approve(Guid id, CancellationToken ct)
     {
-        var approved = await _actions.ApproveAsync(id, UserId(), ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var approved = await _actions.ApproveAsync(tenantId, id, UserId(), ct);
         if (!approved.IsSuccess)
             return Failure(approved.Error!, approved.ErrorCode);
         if (approved.Value!.Violations is { } violations)
@@ -173,7 +232,9 @@ public sealed class SocialController : ControllerBase
     [HttpPost("drafts/{id:guid}/send")]
     public async Task<IActionResult> Send(Guid id, CancellationToken ct)
     {
-        var sent = await _actions.SendAsync(id, UserId(), ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var sent = await _actions.SendAsync(tenantId, id, UserId(), ct);
         if (!sent.IsSuccess)
             return Failure(sent.Error!, sent.ErrorCode);
 
@@ -186,7 +247,9 @@ public sealed class SocialController : ControllerBase
     [HttpPost("drafts/{id:guid}/reject")]
     public async Task<IActionResult> Reject(Guid id, CancellationToken ct)
     {
-        var rejected = await _actions.RejectAsync(id, UserId(), ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var rejected = await _actions.RejectAsync(tenantId, id, UserId(), ct);
         return rejected.IsSuccess ? Answer(await ViewAsync(rejected.Value!, ct)) : Failure(rejected.Error!, rejected.ErrorCode);
     }
 
@@ -203,14 +266,18 @@ public sealed class SocialController : ControllerBase
         if (!TriageOutcomes.IsKnownFilter(state))
             return Failure($"state must be one of: {string.Join(", ", TriageOutcomes.Filters)}.", SocialFailureCodes.InvalidRequest);
 
-        var events = await _store.ListEventsAsync(state!, accountId, Limit(limit), ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var events = await _store.ListEventsAsync(tenantId, state!, accountId, Limit(limit), ct);
         return events.IsSuccess ? Ok(events.Value!.Select(CommentView)) : Failure(events.Error!, events.ErrorCode);
     }
 
     [HttpPost("comments/{id:guid}/rerun")]
     public async Task<IActionResult> Rerun(Guid id, CancellationToken ct)
     {
-        var rerun = await _orchestrator.RerunAsync(id, ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var rerun = await _orchestrator.RerunAsync(tenantId, id, ct);
         return rerun.IsSuccess
             ? Ok(new { outcome = rerun.Value!.TriageOutcome, failureCode = rerun.Value.TriageFailureCode })
             : Failure(rerun.Error!, rerun.ErrorCode);
@@ -219,7 +286,9 @@ public sealed class SocialController : ControllerBase
     [HttpPost("comments/{id:guid}/react")]
     public async Task<IActionResult> React(Guid id, [FromBody] ReactBody body, CancellationToken ct)
     {
-        var reacted = await _actions.ReactAsync(id, body.ReactionType, UserId(), ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var reacted = await _actions.ReactAsync(tenantId, id, body.ReactionType, UserId(), ct);
         return reacted.IsSuccess ? Ok(new { platformReactionId = reacted.Value!.PlatformReactionId }) : Failure(reacted.Error!, reacted.ErrorCode);
     }
 
@@ -236,7 +305,9 @@ public sealed class SocialController : ControllerBase
     {
         if (accountId is not { } id)
             return Failure("accountId is required.", SocialFailureCodes.InvalidRequest);
-        return Answer(await _store.ListPostsAsync(id, Limit(limit), ct));
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        return Answer(await _store.ListPostsAsync(tenantId, id, Limit(limit), ct));
     }
 
     [HttpPost("posts/copy")]
@@ -249,7 +320,9 @@ public sealed class SocialController : ControllerBase
         if (body.Post.ScheduledFor is { } at)
             body.Post.ScheduledFor = DateTime.SpecifyKind(at.ToUniversalTime(), DateTimeKind.Utc);
 
-        var published = await _actions.PublishAsync(body.AccountId, body.Post, UserId(), ct);
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        var published = await _actions.PublishAsync(tenantId, body.AccountId, body.Post, UserId(), ct);
         if (!published.IsSuccess)
             return Failure(published.Error!, published.ErrorCode);
         return published.Value!.Violations is { } violations ? Refused(violations) : Ok(published.Value.Value);
@@ -258,15 +331,19 @@ public sealed class SocialController : ControllerBase
     // ----- Audit -----
 
     [HttpGet("audit")]
-    public async Task<IActionResult> Audit([FromQuery] Guid? accountId, [FromQuery] int? limit, CancellationToken ct) =>
-        Answer(await _store.ListAuditAsync(accountId, Limit(limit), ct));
+    public async Task<IActionResult> Audit([FromQuery] Guid? accountId, [FromQuery] int? limit, CancellationToken ct)
+    {
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        return Answer(await _store.ListAuditAsync(tenantId, accountId, Limit(limit), ct));
+    }
 
     // ----- Views -----
 
     /// <summary>The draft with the comment it answers. The comment's text and author are null once their retention has run out.</summary>
     private async Task<Result<object>> ViewAsync(ReplyDraft draft, CancellationToken ct)
     {
-        var ev = await _store.GetEventAsync(draft.EngagementEventId, ct);
+        var ev = await _store.GetEventAsync(draft.TenantId, draft.EngagementEventId, ct);
         if (!ev.IsSuccess)
             return Result<object>.Failure(ev.Error!, ev.ErrorCode ?? SocialFailureCodes.StoreUnavailable);
 
@@ -323,6 +400,27 @@ public sealed class SocialController : ControllerBase
     };
 
     // ----- Answers -----
+
+    private Guid? OwnerId() => Guid.TryParse(User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) && id != Guid.Empty ? id : null;
+
+    /// <summary>
+    /// The tenant the signed-in person owns, or the refusal to answer with. A person with no tenant is told to sign
+    /// up; a tenant is never made on the way past, so a read can never create one.
+    /// </summary>
+    private async Task<(Guid TenantId, IActionResult? Refusal)> TenantAsync(CancellationToken ct)
+    {
+        var owner = OwnerId();
+        if (owner is null)
+            return (Guid.Empty, Failure("The token's subject is not a user id.", SocialFailureCodes.Forbidden));
+
+        var tenant = await _store.GetTenantByOwnerAsync(owner.Value, ct);
+        if (tenant.IsSuccess)
+            return (tenant.Value!.Id, null);
+
+        return tenant.ErrorCode == SocialFailureCodes.NotFound
+            ? (Guid.Empty, Failure("Sign up for GeekSocial before using it.", SocialFailureCodes.Forbidden))
+            : (Guid.Empty, Failure(tenant.Error!, tenant.ErrorCode));
+    }
 
     private string UserId() =>
         User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier)

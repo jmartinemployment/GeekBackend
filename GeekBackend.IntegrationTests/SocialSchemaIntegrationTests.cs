@@ -36,11 +36,35 @@ public sealed class SocialSchemaIntegrationTests
         return new SocialRepository(new SocialDbContext(options), new NpgsqlConnectionFactory(url), clock, NullLogger<SocialRepository>.Instance);
     }
 
+    private static readonly Guid OwnerOne = Guid.Parse("a0000000-0000-0000-0000-000000000001");
+    private static readonly Guid OwnerTwo = Guid.Parse("a0000000-0000-0000-0000-000000000002");
+    private static readonly Lazy<Guid> TenantOne = new(() => EnsureTenant(OwnerOne));
+    private static readonly Lazy<Guid> TenantTwo = new(() => EnsureTenant(OwnerTwo));
+
+    /// <summary>The tenant every test that does not care about tenants acts for. Made once, with a fixed owner.</summary>
+    private static Guid Tenant => TenantOne.Value;
+
+    /// <summary>A second tenant, for the tests that check one cannot reach the other.</summary>
+    private static Guid OtherTenant => TenantTwo.Value;
+
+    /// <summary>The tenant of this owner, made if it does not exist yet; a failure is a failed test, never a guess.</summary>
+    private static Guid EnsureTenant(Guid owner)
+    {
+        var repo = NewRepository(new MovableClock());
+        var found = repo.GetTenantByOwnerAsync(owner).GetAwaiter().GetResult();
+        if (found.IsSuccess) return found.Value!.Id;
+        Assert.Equal(SocialFailureCodes.NotFound, found.ErrorCode);
+
+        var created = repo.CreateTenantAsync(new CreateSocialTenantCommand { OwnerUserId = owner, Name = "Integration test tenant" }).GetAwaiter().GetResult();
+        Assert.True(created.IsSuccess, created.Error);
+        return created.Value!.Id;
+    }
+
     private static SocialEncryptedToken Token() => new() { Cipher = new byte[] { 1, 2, 3, 4 }, Iv = new byte[12], Tag = new byte[16], ExpiresAt = T0.AddDays(60) };
 
     private static async Task<SocialAccount> ConnectAsync(SocialRepository repo, string platform = SocialPlatforms.LinkedInOrganization)
     {
-        var connected = await repo.ConnectAccountAsync(new ConnectSocialAccountCommand
+        var connected = await repo.ConnectAccountAsync(Tenant, new ConnectSocialAccountCommand
         {
             Platform = platform,
             PlatformAccountId = $"test-{Guid.NewGuid():N}",
@@ -107,7 +131,7 @@ public sealed class SocialSchemaIntegrationTests
         Assert.False(account.SendsDisabled);
 
         // Connecting the same platform account again replaces its token and keeps its row.
-        var again = await repo.ConnectAccountAsync(new ConnectSocialAccountCommand
+        var again = await repo.ConnectAccountAsync(Tenant, new ConnectSocialAccountCommand
         {
             Platform = account.Platform,
             PlatformAccountId = account.PlatformAccountId,
@@ -119,14 +143,14 @@ public sealed class SocialSchemaIntegrationTests
         Assert.Equal(account.Id, again.Value!.Id);
         Assert.Equal("Renamed", again.Value.DisplayName);
 
-        var credential = await repo.GetCredentialAsync(account.Id);
+        var credential = await repo.GetCredentialAsync(Tenant, account.Id);
         Assert.True(credential.IsSuccess, credential.Error);
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, credential.Value!.Token.Cipher);
         Assert.Equal(12, credential.Value.Token.Iv.Length);
         Assert.Equal(16, credential.Value.Token.Tag.Length);
         Assert.Equal(T0.AddDays(60), credential.Value.Token.ExpiresAt);
 
-        var settings = await repo.UpdateSettingsAsync(account.Id, new UpdateSocialAccountSettingsCommand
+        var settings = await repo.UpdateSettingsAsync(Tenant, account.Id, new UpdateSocialAccountSettingsCommand
         {
             AutoSendCategories = new List<string> { ReplyCategories.Praise, ReplyCategories.Question },
             SendsDisabled = true,
@@ -135,7 +159,7 @@ public sealed class SocialSchemaIntegrationTests
         Assert.Equal(new[] { ReplyCategories.Praise, ReplyCategories.Question }, settings.Value!.AutoSendCategories);
         Assert.True(settings.Value.SendsDisabled);
 
-        var listed = await repo.ListAccountsAsync();
+        var listed = await repo.ListAccountsAsync(Tenant);
         Assert.True(listed.IsSuccess, listed.Error);
         Assert.Contains(listed.Value!, a => a.Id == account.Id && a.SendsDisabled);
 
@@ -202,7 +226,7 @@ public sealed class SocialSchemaIntegrationTests
         Assert.Equal(1, await ScalarAsync(
             "SELECT count(*) FROM geek_social.engagement_events WHERE platform_event_id = @e", ("e", burst.PlatformEventId)));
 
-        var fresh = await repo.GetEventAsync(evt.Id);
+        var fresh = await repo.GetEventAsync(Tenant, evt.Id);
         Assert.True(fresh.IsSuccess, fresh.Error);
         Assert.Equal("Hello there", fresh.Value!.Text);
         Assert.Equal("Jane Commenter", fresh.Value.AuthorDisplayName);
@@ -212,13 +236,13 @@ public sealed class SocialSchemaIntegrationTests
 
         // Past 24 hours the commenter's name is no longer returned, though the text still is.
         clock.Now = T0.AddHours(25);
-        var dayOld = await repo.GetEventAsync(evt.Id);
+        var dayOld = await repo.GetEventAsync(Tenant, evt.Id);
         Assert.Equal("Hello there", dayOld.Value!.Text);
         Assert.Null(dayOld.Value.AuthorDisplayName);
 
         // Past 48 hours the text is no longer returned, before the purge has touched the row.
         clock.Now = T0.AddHours(49);
-        var twoDaysOld = await repo.GetEventAsync(evt.Id);
+        var twoDaysOld = await repo.GetEventAsync(Tenant, evt.Id);
         Assert.Null(twoDaysOld.Value!.Text);
         Assert.Equal(1, await ScalarAsync("SELECT count(*) FROM geek_social.engagement_events WHERE id = @id AND text IS NOT NULL", ("id", evt.Id)));
 
@@ -247,7 +271,7 @@ public sealed class SocialSchemaIntegrationTests
         var evt = CommentOn(account);
         Assert.True((await repo.RecordEventAsync(evt)).IsSuccess);
 
-        var created = await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = evt.Id, Category = ReplyCategories.Question, DraftText = "Thanks for asking." });
+        var created = await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand { EngagementEventId = evt.Id, Category = ReplyCategories.Question, DraftText = "Thanks for asking." });
         Assert.True(created.IsSuccess, created.Error);
         var draft = created.Value!;
         Assert.Equal(ReplyDraftStatuses.Pending, draft.Status);
@@ -255,14 +279,14 @@ public sealed class SocialSchemaIntegrationTests
         Assert.Equal(account.Platform, draft.Platform);
 
         // A second draft for the same comment is refused while the first is live.
-        var second = await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = evt.Id, Category = ReplyCategories.Question, DraftText = "Another." });
+        var second = await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand { EngagementEventId = evt.Id, Category = ReplyCategories.Question, DraftText = "Another." });
         Assert.Equal(SocialFailureCodes.Conflict, second.ErrorCode);
 
-        var edited = await repo.EditDraftAsync(draft.Id, new EditReplyDraftCommand { DraftText = "Thanks for asking, Jane." });
+        var edited = await repo.EditDraftAsync(Tenant, draft.Id, new EditReplyDraftCommand { DraftText = "Thanks for asking, Jane." });
         Assert.True(edited.IsSuccess, edited.Error);
         Assert.Equal("Thanks for asking, Jane.", edited.Value!.DraftText);
 
-        var racers = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => NewRepository(clock).TransitionDraftAsync(draft.Id, new TransitionReplyDraftCommand
+        var racers = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => NewRepository(clock).TransitionDraftAsync(Tenant, draft.Id, new TransitionReplyDraftCommand
         {
             From = ReplyDraftStatuses.Pending,
             To = ReplyDraftStatuses.Approved,
@@ -272,32 +296,32 @@ public sealed class SocialSchemaIntegrationTests
         Assert.All(racers.Where(r => !r.IsSuccess), r => Assert.Equal(SocialFailureCodes.Conflict, r.ErrorCode));
 
         // An approved draft is no longer editable.
-        var lateEdit = await repo.EditDraftAsync(draft.Id, new EditReplyDraftCommand { DraftText = "Too late." });
+        var lateEdit = await repo.EditDraftAsync(Tenant, draft.Id, new EditReplyDraftCommand { DraftText = "Too late." });
         Assert.Equal(SocialFailureCodes.Conflict, lateEdit.ErrorCode);
 
         // A paused account does not begin a send, and the draft stays approved.
-        await repo.UpdateSettingsAsync(account.Id, new UpdateSocialAccountSettingsCommand { SendsDisabled = true });
-        var paused = await repo.TransitionDraftAsync(draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Approved, To = ReplyDraftStatuses.Sending, At = T0 });
+        await repo.UpdateSettingsAsync(Tenant, account.Id, new UpdateSocialAccountSettingsCommand { SendsDisabled = true });
+        var paused = await repo.TransitionDraftAsync(Tenant, draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Approved, To = ReplyDraftStatuses.Sending, At = T0 });
         Assert.Equal(SocialFailureCodes.Conflict, paused.ErrorCode);
-        Assert.Equal(ReplyDraftStatuses.Approved, (await repo.GetDraftAsync(draft.Id)).Value!.Status);
+        Assert.Equal(ReplyDraftStatuses.Approved, (await repo.GetDraftAsync(Tenant, draft.Id)).Value!.Status);
 
         // Nor does an account that must be reconnected.
-        await repo.UpdateSettingsAsync(account.Id, new UpdateSocialAccountSettingsCommand { SendsDisabled = false });
-        await repo.MarkReconnectRequiredAsync(account.Id);
-        var needsReconnect = await repo.TransitionDraftAsync(draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Approved, To = ReplyDraftStatuses.Sending, At = T0 });
+        await repo.UpdateSettingsAsync(Tenant, account.Id, new UpdateSocialAccountSettingsCommand { SendsDisabled = false });
+        await repo.MarkReconnectRequiredAsync(Tenant, account.Id);
+        var needsReconnect = await repo.TransitionDraftAsync(Tenant, draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Approved, To = ReplyDraftStatuses.Sending, At = T0 });
         Assert.Equal(SocialFailureCodes.Conflict, needsReconnect.ErrorCode);
 
         // Reconnected, the send begins, and finishing it records the id the platform returned.
-        await repo.StoreTokenAsync(account.Id, new StoreSocialTokenCommand { Token = Token() });
-        var sending = await repo.TransitionDraftAsync(draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Approved, To = ReplyDraftStatuses.Sending, At = T0.AddMinutes(1) });
+        await repo.StoreTokenAsync(Tenant, account.Id, new StoreSocialTokenCommand { Token = Token() });
+        var sending = await repo.TransitionDraftAsync(Tenant, draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Approved, To = ReplyDraftStatuses.Sending, At = T0.AddMinutes(1) });
         Assert.True(sending.IsSuccess, sending.Error);
         Assert.Equal(T0.AddMinutes(1), sending.Value!.SendingStartedAt);
-        var sent = await repo.TransitionDraftAsync(draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sending, To = ReplyDraftStatuses.Sent, SentPlatformCommentId = "platform-comment-9", At = T0.AddMinutes(2) });
+        var sent = await repo.TransitionDraftAsync(Tenant, draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Sending, To = ReplyDraftStatuses.Sent, SentPlatformCommentId = "platform-comment-9", At = T0.AddMinutes(2) });
         Assert.True(sent.IsSuccess, sent.Error);
         Assert.Equal("platform-comment-9", sent.Value!.SentPlatformCommentId);
 
         // A sent comment stays answered.
-        var again = await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = evt.Id, Category = ReplyCategories.Question, DraftText = "Again." });
+        var again = await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand { EngagementEventId = evt.Id, Category = ReplyCategories.Question, DraftText = "Again." });
         Assert.Equal(SocialFailureCodes.Conflict, again.ErrorCode);
 
         // The database refuses a sent draft with no platform id, for a writer that is not this code.
@@ -316,44 +340,44 @@ public sealed class SocialSchemaIntegrationTests
 
         var rejectedEvent = CommentOn(account);
         Assert.True((await repo.RecordEventAsync(rejectedEvent)).IsSuccess);
-        var first = (await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = rejectedEvent.Id, Category = ReplyCategories.Praise, DraftText = "Thank you." })).Value!;
-        var rejected = await repo.TransitionDraftAsync(first.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Rejected, At = T0 });
+        var first = (await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand { EngagementEventId = rejectedEvent.Id, Category = ReplyCategories.Praise, DraftText = "Thank you." })).Value!;
+        var rejected = await repo.TransitionDraftAsync(Tenant, first.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Rejected, At = T0 });
         Assert.True(rejected.IsSuccess, rejected.Error);
         Assert.Equal(T0, rejected.Value!.DecidedAt);
-        var replacement = await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = rejectedEvent.Id, Category = ReplyCategories.Praise, DraftText = "Thanks so much." });
+        var replacement = await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand { EngagementEventId = rejectedEvent.Id, Category = ReplyCategories.Praise, DraftText = "Thanks so much." });
         Assert.True(replacement.IsSuccess, replacement.Error);
 
         var interruptedEvent = CommentOn(account);
         Assert.True((await repo.RecordEventAsync(interruptedEvent)).IsSuccess);
-        var draft = (await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = interruptedEvent.Id, Category = ReplyCategories.Question, DraftText = "Here is the answer." })).Value!;
-        Assert.True((await repo.TransitionDraftAsync(draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, At = T0 })).IsSuccess);
-        Assert.True((await repo.TransitionDraftAsync(draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Approved, To = ReplyDraftStatuses.Sending, At = T0 })).IsSuccess);
+        var draft = (await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand { EngagementEventId = interruptedEvent.Id, Category = ReplyCategories.Question, DraftText = "Here is the answer." })).Value!;
+        Assert.True((await repo.TransitionDraftAsync(Tenant, draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, At = T0 })).IsSuccess);
+        Assert.True((await repo.TransitionDraftAsync(Tenant, draft.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Approved, To = ReplyDraftStatuses.Sending, At = T0 })).IsSuccess);
 
         var recovered = await repo.FailInterruptedSendsAsync(T0.AddMinutes(10));
         Assert.True(recovered.IsSuccess, recovered.Error);
         Assert.Contains(draft.Id, recovered.Value!.DraftIds);
 
-        var failed = (await repo.GetDraftAsync(draft.Id)).Value!;
+        var failed = (await repo.GetDraftAsync(Tenant, draft.Id)).Value!;
         Assert.Equal(ReplyDraftStatuses.Failed, failed.Status);
         Assert.Equal(SocialFailureCodes.OutcomeUnknown, failed.FailureCode);
 
-        var audit = await repo.ListAuditAsync(account.Id, 50);
+        var audit = await repo.ListAuditAsync(Tenant, account.Id, 50);
         Assert.True(audit.IsSuccess, audit.Error);
         var row = Assert.Single(audit.Value!, a => a.ReplyDraftId == draft.Id);
         Assert.Equal(ActionOutcomes.OutcomeUnknown, row.Outcome);
         Assert.Equal(SocialFailureCodes.OutcomeUnknown, row.FailureCode);
 
         // The platform may have posted it, so the comment is still held and nothing resends it.
-        var blocked = await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = interruptedEvent.Id, Category = ReplyCategories.Question, DraftText = "Again." });
+        var blocked = await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand { EngagementEventId = interruptedEvent.Id, Category = ReplyCategories.Question, DraftText = "Again." });
         Assert.Equal(SocialFailureCodes.Conflict, blocked.ErrorCode);
 
         // A second recovery finds nothing left to fail.
         var none = await repo.FailInterruptedSendsAsync(T0.AddMinutes(20));
         Assert.DoesNotContain(draft.Id, none.Value!.DraftIds);
 
-        var post = await repo.RecordPostAsync(new RecordSocialPostCommand { AccountId = account.Id, PlatformPostId = $"post-{Guid.NewGuid():N}", Kind = SocialPostKinds.Link, Text = "New article", LinkUrl = "https://geekatyourspot.com/blog/x", PublishedAt = T0 });
+        var post = await repo.RecordPostAsync(Tenant, new RecordSocialPostCommand { AccountId = account.Id, PlatformPostId = $"post-{Guid.NewGuid():N}", Kind = SocialPostKinds.Link, Text = "New article", LinkUrl = "https://geekatyourspot.com/blog/x", PublishedAt = T0 });
         Assert.True(post.IsSuccess, post.Error);
-        var posts = await repo.ListPostsAsync(account.Id, 10);
+        var posts = await repo.ListPostsAsync(Tenant, account.Id, 10);
         Assert.Contains(posts.Value!, p => p.Id == post.Value!.Id && p.LinkUrl == "https://geekatyourspot.com/blog/x");
     }
 
@@ -376,32 +400,32 @@ public sealed class SocialSchemaIntegrationTests
         Assert.True((await repo.RecordEventAsync(reaction)).IsSuccess);
 
         // Recovery after a restart finds the comment, oldest first, and not the reaction.
-        var untriaged = await repo.ListEventsAsync(TriageOutcomes.Untriaged, account.Id, 50);
+        var untriaged = await repo.ListEventsAsync(Tenant, TriageOutcomes.Untriaged, account.Id, 50);
         Assert.True(untriaged.IsSuccess, untriaged.Error);
         Assert.Contains(untriaged.Value!, e => e.Id == comment.Id && e.TriageOutcome is null);
         Assert.DoesNotContain(untriaged.Value!, e => e.Id == reaction.Id);
 
         // Only a comment is triaged.
-        var notAComment = await repo.RecordTriageOutcomeAsync(reaction.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = T0 });
+        var notAComment = await repo.RecordTriageOutcomeAsync(Tenant, reaction.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = T0 });
         Assert.Equal(SocialFailureCodes.InvalidRequest, notAComment.ErrorCode);
 
         // A failure keeps its code, shows in the operator's list, and an operator's re-run replaces it.
-        var failed = await repo.RecordTriageOutcomeAsync(comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, FailureCode = SocialFailureCodes.PlatformUnavailable, At = T0 });
+        var failed = await repo.RecordTriageOutcomeAsync(Tenant, comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.Failed, FailureCode = SocialFailureCodes.PlatformUnavailable, At = T0 });
         Assert.True(failed.IsSuccess, failed.Error);
         Assert.Equal(SocialFailureCodes.PlatformUnavailable, failed.Value!.TriageFailureCode);
         Assert.Equal(T0, failed.Value.TriagedAt);
-        var failedList = await repo.ListEventsAsync(TriageOutcomes.Failed, account.Id, 50);
+        var failedList = await repo.ListEventsAsync(Tenant, TriageOutcomes.Failed, account.Id, 50);
         Assert.Contains(failedList.Value!, e => e.Id == comment.Id);
-        Assert.DoesNotContain((await repo.ListEventsAsync(TriageOutcomes.Untriaged, account.Id, 50)).Value!, e => e.Id == comment.Id);
+        Assert.DoesNotContain((await repo.ListEventsAsync(Tenant, TriageOutcomes.Untriaged, account.Id, 50)).Value!, e => e.Id == comment.Id);
 
-        var rerun = await repo.RecordTriageOutcomeAsync(comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, At = T0.AddMinutes(1) });
+        var rerun = await repo.RecordTriageOutcomeAsync(Tenant, comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, At = T0.AddMinutes(1) });
         Assert.True(rerun.IsSuccess, rerun.Error);
         Assert.Null(rerun.Value!.TriageFailureCode);
 
         // A decided event is never decided twice, however the second caller got there.
-        var twice = await repo.RecordTriageOutcomeAsync(comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = T0.AddMinutes(2) });
+        var twice = await repo.RecordTriageOutcomeAsync(Tenant, comment.Id, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = T0.AddMinutes(2) });
         Assert.Equal(SocialFailureCodes.Conflict, twice.ErrorCode);
-        Assert.Equal(TriageOutcomes.ReplyNeeded, (await repo.GetEventAsync(comment.Id)).Value!.TriageOutcome);
+        Assert.Equal(TriageOutcomes.ReplyNeeded, (await repo.GetEventAsync(Tenant, comment.Id)).Value!.TriageOutcome);
 
         // The database refuses a failure code on an event that did not fail, and an outcome on a reaction.
         var other = CommentOn(account);
@@ -423,7 +447,7 @@ public sealed class SocialSchemaIntegrationTests
         var comment = CommentOn(account);
         Assert.True((await repo.RecordEventAsync(comment)).IsSuccess);
 
-        var refused = await repo.CreateDraftAsync(new CreateReplyDraftCommand
+        var refused = await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand
         {
             EngagementEventId = comment.Id,
             Category = ReplyCategories.Question,
@@ -435,15 +459,15 @@ public sealed class SocialSchemaIntegrationTests
         Assert.Equal(T0, refused.Value.DecidedAt);
 
         // Read back through Dapper: text[] arrives as the rules, in order, and a passed draft carries none.
-        var read = (await repo.GetDraftAsync(refused.Value.Id)).Value!;
+        var read = (await repo.GetDraftAsync(Tenant, refused.Value.Id)).Value!;
         Assert.Equal(new[] { ReviewRules.EmDash, ReviewRules.Smb }, read.ReviewRefusal);
-        Assert.Contains((await repo.ListDraftsAsync(ReplyDraftStatuses.Rejected, account.Id, 50)).Value!, d => d.Id == refused.Value.Id && d.ReviewRefusal is { Count: 2 });
+        Assert.Contains((await repo.ListDraftsAsync(Tenant, ReplyDraftStatuses.Rejected, account.Id, 50)).Value!, d => d.Id == refused.Value.Id && d.ReviewRefusal is { Count: 2 });
 
         // A refused draft holds nothing: a new draft for the same comment can be made, and nothing moves the refused one.
-        var replacement = await repo.CreateDraftAsync(new CreateReplyDraftCommand { EngagementEventId = comment.Id, Category = ReplyCategories.Question, DraftText = "Thanks for the question." });
+        var replacement = await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand { EngagementEventId = comment.Id, Category = ReplyCategories.Question, DraftText = "Thanks for the question." });
         Assert.True(replacement.IsSuccess, replacement.Error);
         Assert.Null(replacement.Value!.ReviewRefusal);
-        var moved = await repo.TransitionDraftAsync(refused.Value.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Rejected, To = ReplyDraftStatuses.Approved, At = T0 });
+        var moved = await repo.TransitionDraftAsync(Tenant, refused.Value.Id, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Rejected, To = ReplyDraftStatuses.Approved, At = T0 });
         Assert.Equal(SocialFailureCodes.InvalidRequest, moved.ErrorCode);
 
         // The database refuses a rule it does not know, and a refused draft that is not rejected.
@@ -451,5 +475,113 @@ public sealed class SocialSchemaIntegrationTests
             "UPDATE geek_social.reply_drafts SET review_refusal = ARRAY['swearing'] WHERE id = @id", ("id", refused.Value.Id)));
         Assert.Equal("23514", await SqlStateOfAsync(
             "UPDATE geek_social.reply_drafts SET status = 'pending' WHERE id = @id", ("id", refused.Value.Id)));
+    }
+
+    [Fact]
+    public async Task One_tenant_cannot_read_list_change_or_send_anything_of_another()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var repo = NewRepository(new MovableClock());
+
+        var account = await ConnectAsync(repo);
+        var evt = CommentOn(account);
+        Assert.True((await repo.RecordEventAsync(evt)).IsSuccess);
+        var draft = (await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand
+            { EngagementEventId = evt.Id, Category = ReplyCategories.Question, DraftText = "Thanks for asking." })).Value!;
+        var post = (await repo.RecordPostAsync(Tenant, new RecordSocialPostCommand
+            { AccountId = account.Id, PlatformPostId = $"post-{Guid.NewGuid():N}", Kind = SocialPostKinds.Link, Text = "A post", LinkUrl = "https://example.com" })).Value!;
+        Assert.True((await repo.RecordAuditAsync(Tenant, new ActionAudit
+            { Platform = account.Platform, AccountId = account.Id, Action = ActionKinds.Publish, Outcome = ActionOutcomes.Succeeded, OccurredAt = T0 })).IsSuccess);
+
+        // Every way of reaching the first tenant's rows, asked as the other tenant, answers not found or an empty list.
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.GetAccountAsync(OtherTenant, account.Id)).ErrorCode);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.GetCredentialAsync(OtherTenant, account.Id)).ErrorCode);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.StoreTokenAsync(OtherTenant, account.Id, new StoreSocialTokenCommand { Token = Token() })).ErrorCode);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.MarkReconnectRequiredAsync(OtherTenant, account.Id)).ErrorCode);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.UpdateSettingsAsync(OtherTenant, account.Id, new UpdateSocialAccountSettingsCommand { SendsDisabled = true })).ErrorCode);
+        Assert.DoesNotContain((await repo.ListAccountsAsync(OtherTenant)).Value!, a => a.Id == account.Id);
+
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.GetEventAsync(OtherTenant, evt.Id)).ErrorCode);
+        Assert.DoesNotContain((await repo.ListEventsAsync(OtherTenant, TriageOutcomes.Untriaged, null, 200)).Value!, e => e.Id == evt.Id);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.RecordTriageOutcomeAsync(OtherTenant, evt.Id,
+            new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = T0 })).ErrorCode);
+
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.GetDraftAsync(OtherTenant, draft.Id)).ErrorCode);
+        Assert.DoesNotContain((await repo.ListDraftsAsync(OtherTenant, null, null, 200)).Value!, d => d.Id == draft.Id);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.EditDraftAsync(OtherTenant, draft.Id, new EditReplyDraftCommand { DraftText = "Changed." })).ErrorCode);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.TransitionDraftAsync(OtherTenant, draft.Id,
+            new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, At = T0 })).ErrorCode);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.CreateDraftAsync(OtherTenant, new CreateReplyDraftCommand
+            { EngagementEventId = evt.Id, Category = ReplyCategories.Question, DraftText = "Mine now." })).ErrorCode);
+
+        Assert.Empty((await repo.ListPostsAsync(OtherTenant, account.Id, 50)).Value!);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.RecordPostAsync(OtherTenant, new RecordSocialPostCommand
+            { AccountId = account.Id, PlatformPostId = "x", Kind = SocialPostKinds.Link, Text = "t", LinkUrl = "https://example.com" })).ErrorCode);
+        Assert.DoesNotContain((await repo.ListAuditAsync(OtherTenant, account.Id, 200)).Value!, a => a.AccountId == account.Id);
+
+        // Nothing the other tenant tried changed the first tenant's draft or account.
+        Assert.Equal(ReplyDraftStatuses.Pending, (await repo.GetDraftAsync(Tenant, draft.Id)).Value!.Status);
+        Assert.Equal("Thanks for asking.", (await repo.GetDraftAsync(Tenant, draft.Id)).Value!.DraftText);
+        Assert.False((await repo.GetAccountAsync(Tenant, account.Id)).Value!.SendsDisabled);
+        Assert.Contains((await repo.ListPostsAsync(Tenant, account.Id, 50)).Value!, p => p.Id == post.Id);
+    }
+
+    [Fact]
+    public async Task An_account_belongs_to_one_tenant_and_another_cannot_take_it_over()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var repo = NewRepository(new MovableClock());
+        var account = await ConnectAsync(repo);
+
+        var taken = await repo.ConnectAccountAsync(OtherTenant, new ConnectSocialAccountCommand
+        {
+            Platform = account.Platform,
+            PlatformAccountId = account.PlatformAccountId,
+            DisplayName = "Not mine",
+            Token = Token(),
+            ConnectedAt = T0,
+        });
+
+        Assert.Equal(SocialFailureCodes.Conflict, taken.ErrorCode);
+        var still = (await repo.GetAccountAsync(Tenant, account.Id)).Value!;
+        Assert.Equal(Tenant, still.TenantId);
+        Assert.Equal("Integration test account", still.DisplayName);
+    }
+
+    [Fact]
+    public async Task An_event_is_stored_for_the_tenant_that_owns_the_account_it_names()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var repo = NewRepository(new MovableClock());
+        var account = await ConnectAsync(repo);
+        var evt = CommentOn(account);
+        Assert.True((await repo.RecordEventAsync(evt)).IsSuccess);
+
+        var owner = await repo.GetEventAcrossTenantsAsync(evt.Id);
+        Assert.Equal(Tenant, owner.Value!.TenantId);
+        Assert.Contains((await repo.ListUntriagedEventsAsync(200)).Value!, e => e.Id == evt.Id && e.TenantId == Tenant);
+    }
+
+    [Fact]
+    public async Task A_person_has_one_tenant_and_the_ai_terms_keep_the_first_acceptance()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var repo = NewRepository(new MovableClock());
+        var owner = Guid.NewGuid();
+
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.GetTenantByOwnerAsync(owner)).ErrorCode);
+        var created = (await repo.CreateTenantAsync(new CreateSocialTenantCommand { OwnerUserId = owner, Name = "Acme" })).Value!;
+        Assert.Null(created.AiConsentAcceptedAt);
+        Assert.Equal(SocialFailureCodes.Conflict, (await repo.CreateTenantAsync(new CreateSocialTenantCommand { OwnerUserId = owner, Name = "Acme again" })).ErrorCode);
+
+        var first = (await repo.AcceptAiTermsAsync(created.Id, T0)).Value!;
+        var second = (await repo.AcceptAiTermsAsync(created.Id, T0.AddDays(3))).Value!;
+        Assert.Equal(T0, first.AiConsentAcceptedAt);
+        Assert.Equal(T0, second.AiConsentAcceptedAt);
+        Assert.Equal(SocialFailureCodes.NotFound, (await repo.AcceptAiTermsAsync(Guid.NewGuid(), T0)).ErrorCode);
     }
 }

@@ -11,6 +11,8 @@ namespace GeekBackend.Tests.Social;
 /// </summary>
 internal sealed class FakeSocialStore : ISocialStore
 {
+    public Func<Guid, Result<SocialTenant>>? OnGetTenantByOwner { get; set; }
+    public Func<Guid, Result<SocialTenant>>? OnGetTenant { get; set; }
     public Func<EngagementEvent, Result<bool>>? OnRecordEvent { get; set; }
     public Func<Guid, Result<EngagementEvent>>? OnGetEvent { get; set; }
     public Func<string, Guid?, int, Result<IReadOnlyList<EngagementEvent>>>? OnListEvents { get; set; }
@@ -44,6 +46,15 @@ internal sealed class FakeSocialStore : ISocialStore
 
     public List<EngagementEvent> RecordedEvents { get; } = new();
 
+    /// <summary>The tenant of every tenant-scoped call, in order, so a test can check which tenant a component asked for.</summary>
+    public List<Guid> TenantsSeen { get; } = new();
+
+    private Task<Result<T>> Seen<T>(Guid tenantId, Result<T> answer)
+    {
+        TenantsSeen.Add(tenantId);
+        return Task.FromResult(answer);
+    }
+
     private static T Scripted<T>(T? script, string method) where T : class =>
         script ?? throw new InvalidOperationException($"The test did not script {method}.");
 
@@ -53,11 +64,11 @@ internal sealed class FakeSocialStore : ISocialStore
         return Task.FromResult(Scripted(OnRecordEvent, nameof(RecordEventAsync))(engagementEvent));
     }
 
-    public Task<Result<EngagementEvent>> GetEventAsync(Guid eventId, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnGetEvent, nameof(GetEventAsync))(eventId));
+    public Task<Result<EngagementEvent>> GetEventAsync(Guid tenantId, Guid eventId, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnGetEvent, nameof(GetEventAsync))(eventId));
 
-    public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(string triageState, Guid? accountId, int limit, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnListEvents, nameof(ListEventsAsync))(triageState, accountId, limit));
+    public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(Guid tenantId, string triageState, Guid? accountId, int limit, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnListEvents, nameof(ListEventsAsync))(triageState, accountId, limit));
 
     public Task<Result<SocialPurgeResult>> PurgeExpiredAsync(DateTime asOf, CancellationToken ct = default) =>
         Task.FromResult(Scripted(OnPurge, nameof(PurgeExpiredAsync))(asOf));
@@ -65,65 +76,86 @@ internal sealed class FakeSocialStore : ISocialStore
     public Task<Result<SocialInterruptedSends>> FailInterruptedSendsAsync(DateTime at, CancellationToken ct = default) =>
         Task.FromResult(Scripted(OnFailInterruptedSends, nameof(FailInterruptedSendsAsync))(at));
 
-    public Task<Result<SocialAccount>> GetAccountAsync(Guid accountId, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnGetAccount, nameof(GetAccountAsync))(accountId));
+    public Task<Result<SocialAccount>> GetAccountAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnGetAccount, nameof(GetAccountAsync))(accountId));
 
-    public Task<Result<SocialAccountCredential>> GetCredentialAsync(Guid accountId, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnGetCredential, nameof(GetCredentialAsync))(accountId));
+    public Task<Result<SocialAccountCredential>> GetCredentialAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnGetCredential, nameof(GetCredentialAsync))(accountId));
 
-    public Task<Result<SocialAccount>> StoreTokenAsync(Guid accountId, StoreSocialTokenCommand command, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnStoreToken, nameof(StoreTokenAsync))(accountId, command));
+    public Task<Result<SocialAccount>> StoreTokenAsync(Guid tenantId, Guid accountId, StoreSocialTokenCommand command, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnStoreToken, nameof(StoreTokenAsync))(accountId, command));
 
-    public Task<Result<SocialAccount>> MarkReconnectRequiredAsync(Guid accountId, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnMarkReconnectRequired, nameof(MarkReconnectRequiredAsync))(accountId));
+    public Task<Result<SocialAccount>> MarkReconnectRequiredAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnMarkReconnectRequired, nameof(MarkReconnectRequiredAsync))(accountId));
 
-    public Task<Result<SocialAccount>> ConnectAccountAsync(ConnectSocialAccountCommand command, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnConnectAccount, nameof(ConnectAccountAsync))(command));
+    public Task<Result<SocialAccount>> ConnectAccountAsync(Guid tenantId, ConnectSocialAccountCommand command, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnConnectAccount, nameof(ConnectAccountAsync))(command));
 
-    public Task<Result<ActionAudit>> RecordAuditAsync(ActionAudit audit, CancellationToken ct = default)
+    public Task<Result<ActionAudit>> RecordAuditAsync(Guid tenantId, ActionAudit audit, CancellationToken ct = default)
     {
         Audits.Add(audit);
-        return Task.FromResult(Scripted(OnRecordAudit, nameof(RecordAuditAsync))(audit));
+        return Seen(tenantId, Scripted(OnRecordAudit, nameof(RecordAuditAsync))(audit));
     }
 
-    public Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(CancellationToken ct = default) => NotUsed<IReadOnlyList<SocialAccount>>();
-    public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnUpdateSettings, nameof(UpdateSettingsAsync))(accountId, command));
-    public Task<Result<SocialPost>> RecordPostAsync(RecordSocialPostCommand command, CancellationToken ct = default)
+    public Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(Guid tenantId, CancellationToken ct = default) => NotUsed<IReadOnlyList<SocialAccount>>();
+    public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid tenantId, Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnUpdateSettings, nameof(UpdateSettingsAsync))(accountId, command));
+    public Task<Result<SocialPost>> RecordPostAsync(Guid tenantId, RecordSocialPostCommand command, CancellationToken ct = default)
     {
         Writes.Add("post");
-        return Task.FromResult(Scripted(OnRecordPost, nameof(RecordPostAsync))(command));
+        return Seen(tenantId, Scripted(OnRecordPost, nameof(RecordPostAsync))(command));
     }
-    public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid accountId, int limit, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnListPosts, nameof(ListPostsAsync))(accountId, limit));
-    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default)
+    public Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid tenantId, Guid accountId, int limit, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnListPosts, nameof(ListPostsAsync))(accountId, limit));
+    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid tenantId, Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default)
     {
         Writes.Add("outcome");
-        return Task.FromResult(Scripted(OnRecordTriageOutcome, nameof(RecordTriageOutcomeAsync))(eventId, command));
+        return Seen(tenantId, Scripted(OnRecordTriageOutcome, nameof(RecordTriageOutcomeAsync))(eventId, command));
     }
 
-    public Task<Result<ReplyDraft>> CreateDraftAsync(CreateReplyDraftCommand command, CancellationToken ct = default)
+    public Task<Result<ReplyDraft>> CreateDraftAsync(Guid tenantId, CreateReplyDraftCommand command, CancellationToken ct = default)
     {
         Writes.Add("draft");
-        return Task.FromResult(Scripted(OnCreateDraft, nameof(CreateDraftAsync))(command));
+        return Seen(tenantId, Scripted(OnCreateDraft, nameof(CreateDraftAsync))(command));
     }
-    public Task<Result<ReplyDraft>> GetDraftAsync(Guid draftId, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnGetDraft, nameof(GetDraftAsync))(draftId));
-    public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(string? status, Guid? accountId, int limit, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnListDrafts, nameof(ListDraftsAsync))(status, accountId, limit));
-    public Task<Result<ReplyDraft>> EditDraftAsync(Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default)
+    public Task<Result<ReplyDraft>> GetDraftAsync(Guid tenantId, Guid draftId, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnGetDraft, nameof(GetDraftAsync))(draftId));
+    public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(Guid tenantId, string? status, Guid? accountId, int limit, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnListDrafts, nameof(ListDraftsAsync))(status, accountId, limit));
+    public Task<Result<ReplyDraft>> EditDraftAsync(Guid tenantId, Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default)
     {
         Writes.Add("edit");
-        return Task.FromResult(Scripted(OnEditDraft, nameof(EditDraftAsync))(draftId, command));
+        return Seen(tenantId, Scripted(OnEditDraft, nameof(EditDraftAsync))(draftId, command));
     }
-    public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default)
+    public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid tenantId, Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default)
     {
         Transitions.Add((draftId, command));
         Writes.Add($"{command.From}->{command.To}");
-        return Task.FromResult(Scripted(OnTransitionDraft, nameof(TransitionDraftAsync))(draftId, command));
+        return Seen(tenantId, Scripted(OnTransitionDraft, nameof(TransitionDraftAsync))(draftId, command));
     }
-    public Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid? accountId, int limit, CancellationToken ct = default) =>
-        Task.FromResult(Scripted(OnListAudit, nameof(ListAuditAsync))(accountId, limit));
+    public Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid tenantId, Guid? accountId, int limit, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnListAudit, nameof(ListAuditAsync))(accountId, limit));
+
+
+    public Task<Result<SocialTenant>> GetTenantByOwnerAsync(Guid ownerUserId, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnGetTenantByOwner, nameof(GetTenantByOwnerAsync))(ownerUserId));
+    public Task<Result<SocialTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnGetTenant, nameof(GetTenantAsync))(tenantId));
+
+    public Task<Result<SocialTenant>> CreateTenantAsync(CreateSocialTenantCommand command, CancellationToken ct = default) => throw Unscripted();
+    public Task<Result<SocialTenant>> AcceptAiTermsAsync(Guid tenantId, DateTime at, CancellationToken ct = default) => throw Unscripted();
+
+    // The platform reads (no tenant) answer from the script of their tenant-scoped counterpart, so a test scripts one thing.
+    public Task<Result<EngagementEvent>> GetEventAcrossTenantsAsync(Guid eventId, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnGetEvent, nameof(GetEventAcrossTenantsAsync))(eventId));
+
+    public Task<Result<IReadOnlyList<EngagementEvent>>> ListUntriagedEventsAsync(int limit, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnListEvents, nameof(ListUntriagedEventsAsync))(TriageOutcomes.Untriaged, null, limit));
+
+    public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAcrossTenantsAsync(string status, int limit, CancellationToken ct = default) =>
+        Task.FromResult(Scripted(OnListDrafts, nameof(ListDraftsAcrossTenantsAsync))(status, null, limit));
+
+    private static NotSupportedException Unscripted() => new("The component under test should not reach for this store method.");
 
     private static Task<Result<T>> NotUsed<T>() =>
         throw new InvalidOperationException("This store method is not used by the component under test.");

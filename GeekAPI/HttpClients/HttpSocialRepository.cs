@@ -19,6 +19,9 @@ namespace GeekAPI.HttpClients;
 /// </summary>
 public sealed class HttpSocialRepository : ISocialStore
 {
+    /// <summary>The header every tenant-scoped call carries; GeekRepository refuses a call without it.</summary>
+    public const string TenantHeader = "X-Social-Tenant-Id";
+
     private const int MessageLimit = 300;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -36,104 +39,128 @@ public sealed class HttpSocialRepository : ISocialStore
         _logger = logger;
     }
 
+    // ----- Tenants -----
+
+    public Task<Result<SocialTenant>> GetTenantByOwnerAsync(Guid ownerUserId, CancellationToken ct = default) =>
+        SendAsync<SocialTenant>(null, HttpMethod.Get, $"repo/social/tenants/by-owner/{ownerUserId}", null, ct);
+
+    public Task<Result<SocialTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) =>
+        SendAsync<SocialTenant>(null, HttpMethod.Get, $"repo/social/tenants/{tenantId}", null, ct);
+
+    public Task<Result<SocialTenant>> CreateTenantAsync(CreateSocialTenantCommand command, CancellationToken ct = default) =>
+        SendAsync<SocialTenant>(null, HttpMethod.Post, "repo/social/tenants", command, ct);
+
+    public Task<Result<SocialTenant>> AcceptAiTermsAsync(Guid tenantId, DateTime at, CancellationToken ct = default) =>
+        SendAsync<SocialTenant>(null, HttpMethod.Post, $"repo/social/tenants/{tenantId}/ai-terms", new SocialAcceptAiTermsCommand { At = at }, ct);
+
     // ----- Accounts -----
 
-    public Task<Result<SocialAccount>> ConnectAccountAsync(ConnectSocialAccountCommand command, CancellationToken ct = default) =>
-        SendAsync<SocialAccount>(HttpMethod.Post, "repo/social/accounts", command, ct);
+    public Task<Result<SocialAccount>> ConnectAccountAsync(Guid tenantId, ConnectSocialAccountCommand command, CancellationToken ct = default) =>
+        SendAsync<SocialAccount>(tenantId, HttpMethod.Post, "repo/social/accounts", command, ct);
 
-    public async Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(CancellationToken ct = default) =>
-        AsReadOnly(await SendAsync<List<SocialAccount>>(HttpMethod.Get, "repo/social/accounts", null, ct).ConfigureAwait(false));
+    public async Task<Result<IReadOnlyList<SocialAccount>>> ListAccountsAsync(Guid tenantId, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<SocialAccount>>(tenantId, HttpMethod.Get, "repo/social/accounts", null, ct).ConfigureAwait(false));
 
-    public Task<Result<SocialAccount>> GetAccountAsync(Guid accountId, CancellationToken ct = default) =>
-        SendAsync<SocialAccount>(HttpMethod.Get, $"repo/social/accounts/{accountId}", null, ct);
+    public Task<Result<SocialAccount>> GetAccountAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
+        SendAsync<SocialAccount>(tenantId, HttpMethod.Get, $"repo/social/accounts/{accountId}", null, ct);
 
-    public Task<Result<SocialAccountCredential>> GetCredentialAsync(Guid accountId, CancellationToken ct = default) =>
-        SendAsync<SocialAccountCredential>(HttpMethod.Get, $"repo/social/accounts/{accountId}/credential", null, ct);
+    public Task<Result<SocialAccountCredential>> GetCredentialAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
+        SendAsync<SocialAccountCredential>(tenantId, HttpMethod.Get, $"repo/social/accounts/{accountId}/credential", null, ct);
 
-    public Task<Result<SocialAccount>> StoreTokenAsync(Guid accountId, StoreSocialTokenCommand command, CancellationToken ct = default) =>
-        SendAsync<SocialAccount>(HttpMethod.Put, $"repo/social/accounts/{accountId}/token", command, ct);
+    public Task<Result<SocialAccount>> StoreTokenAsync(Guid tenantId, Guid accountId, StoreSocialTokenCommand command, CancellationToken ct = default) =>
+        SendAsync<SocialAccount>(tenantId, HttpMethod.Put, $"repo/social/accounts/{accountId}/token", command, ct);
 
-    public Task<Result<SocialAccount>> MarkReconnectRequiredAsync(Guid accountId, CancellationToken ct = default) =>
-        SendAsync<SocialAccount>(HttpMethod.Post, $"repo/social/accounts/{accountId}/reconnect-required", new { }, ct);
+    public Task<Result<SocialAccount>> MarkReconnectRequiredAsync(Guid tenantId, Guid accountId, CancellationToken ct = default) =>
+        SendAsync<SocialAccount>(tenantId, HttpMethod.Post, $"repo/social/accounts/{accountId}/reconnect-required", new { }, ct);
 
-    public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) =>
-        SendAsync<SocialAccount>(HttpMethod.Put, $"repo/social/accounts/{accountId}/settings", command, ct);
+    public Task<Result<SocialAccount>> UpdateSettingsAsync(Guid tenantId, Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct = default) =>
+        SendAsync<SocialAccount>(tenantId, HttpMethod.Put, $"repo/social/accounts/{accountId}/settings", command, ct);
 
     // ----- Posts -----
 
-    public Task<Result<SocialPost>> RecordPostAsync(RecordSocialPostCommand command, CancellationToken ct = default) =>
-        SendAsync<SocialPost>(HttpMethod.Post, "repo/social/posts", command, ct);
+    public Task<Result<SocialPost>> RecordPostAsync(Guid tenantId, RecordSocialPostCommand command, CancellationToken ct = default) =>
+        SendAsync<SocialPost>(tenantId, HttpMethod.Post, "repo/social/posts", command, ct);
 
-    public async Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid accountId, int limit, CancellationToken ct = default) =>
+    public async Task<Result<IReadOnlyList<SocialPost>>> ListPostsAsync(Guid tenantId, Guid accountId, int limit, CancellationToken ct = default) =>
         AsReadOnly(await SendAsync<List<SocialPost>>(
-            HttpMethod.Get, $"repo/social/posts?accountId={accountId}&limit={limit}", null, ct).ConfigureAwait(false));
+            tenantId, HttpMethod.Get, $"repo/social/posts?accountId={accountId}&limit={limit}", null, ct).ConfigureAwait(false));
 
     // ----- Engagement events -----
 
     public async Task<Result<bool>> RecordEventAsync(EngagementEvent engagementEvent, CancellationToken ct = default)
     {
-        var result = await SendAsync<SocialEventStored>(HttpMethod.Post, "repo/social/events", engagementEvent, ct).ConfigureAwait(false);
+        var result = await SendAsync<SocialEventStored>(null, HttpMethod.Post, "repo/social/events", engagementEvent, ct).ConfigureAwait(false);
         return result.IsSuccess
             ? Result<bool>.Success(result.Value!.Inserted)
             : Result<bool>.Failure(result.Error ?? "Recording the event failed.", result.ErrorCode ?? SocialFailureCodes.StoreUnavailable);
     }
 
-    public Task<Result<EngagementEvent>> GetEventAsync(Guid eventId, CancellationToken ct = default) =>
-        SendAsync<EngagementEvent>(HttpMethod.Get, $"repo/social/events/{eventId}", null, ct);
+    public Task<Result<EngagementEvent>> GetEventAsync(Guid tenantId, Guid eventId, CancellationToken ct = default) =>
+        SendAsync<EngagementEvent>(tenantId, HttpMethod.Get, $"repo/social/events/{eventId}", null, ct);
 
-    public async Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(string triageState, Guid? accountId, int limit, CancellationToken ct = default)
+    public async Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(Guid tenantId, string triageState, Guid? accountId, int limit, CancellationToken ct = default)
     {
         var path = new StringBuilder("repo/social/events?limit=").Append(limit)
             .Append("&triageState=").Append(Uri.EscapeDataString(triageState ?? string.Empty));
         if (accountId is not null) path.Append("&accountId=").Append(accountId.Value);
-        return AsReadOnly(await SendAsync<List<EngagementEvent>>(HttpMethod.Get, path.ToString(), null, ct).ConfigureAwait(false));
+        return AsReadOnly(await SendAsync<List<EngagementEvent>>(tenantId, HttpMethod.Get, path.ToString(), null, ct).ConfigureAwait(false));
     }
 
-    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) =>
-        SendAsync<EngagementEvent>(HttpMethod.Post, $"repo/social/events/{eventId}/triage", command, ct);
+    public Task<Result<EngagementEvent>> GetEventAcrossTenantsAsync(Guid eventId, CancellationToken ct = default) =>
+        SendAsync<EngagementEvent>(null, HttpMethod.Get, $"repo/social/events/{eventId}/across-tenants", null, ct);
+
+    public async Task<Result<IReadOnlyList<EngagementEvent>>> ListUntriagedEventsAsync(int limit, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<EngagementEvent>>(null, HttpMethod.Get, $"repo/social/events/untriaged?limit={limit}", null, ct).ConfigureAwait(false));
+
+    public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid tenantId, Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) =>
+        SendAsync<EngagementEvent>(tenantId, HttpMethod.Post, $"repo/social/events/{eventId}/triage", command, ct);
 
     // ----- Reply drafts -----
 
-    public Task<Result<ReplyDraft>> CreateDraftAsync(CreateReplyDraftCommand command, CancellationToken ct = default) =>
-        SendAsync<ReplyDraft>(HttpMethod.Post, "repo/social/drafts", command, ct);
+    public Task<Result<ReplyDraft>> CreateDraftAsync(Guid tenantId, CreateReplyDraftCommand command, CancellationToken ct = default) =>
+        SendAsync<ReplyDraft>(tenantId, HttpMethod.Post, "repo/social/drafts", command, ct);
 
-    public Task<Result<ReplyDraft>> GetDraftAsync(Guid draftId, CancellationToken ct = default) =>
-        SendAsync<ReplyDraft>(HttpMethod.Get, $"repo/social/drafts/{draftId}", null, ct);
+    public Task<Result<ReplyDraft>> GetDraftAsync(Guid tenantId, Guid draftId, CancellationToken ct = default) =>
+        SendAsync<ReplyDraft>(tenantId, HttpMethod.Get, $"repo/social/drafts/{draftId}", null, ct);
 
-    public async Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(string? status, Guid? accountId, int limit, CancellationToken ct = default)
+    public async Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAsync(Guid tenantId, string? status, Guid? accountId, int limit, CancellationToken ct = default)
     {
         var path = new StringBuilder("repo/social/drafts?limit=").Append(limit);
         if (status is not null) path.Append("&status=").Append(Uri.EscapeDataString(status));
         if (accountId is not null) path.Append("&accountId=").Append(accountId.Value);
-        return AsReadOnly(await SendAsync<List<ReplyDraft>>(HttpMethod.Get, path.ToString(), null, ct).ConfigureAwait(false));
+        return AsReadOnly(await SendAsync<List<ReplyDraft>>(tenantId, HttpMethod.Get, path.ToString(), null, ct).ConfigureAwait(false));
     }
 
-    public Task<Result<ReplyDraft>> EditDraftAsync(Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) =>
-        SendAsync<ReplyDraft>(HttpMethod.Put, $"repo/social/drafts/{draftId}/text", command, ct);
+    public async Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAcrossTenantsAsync(string status, int limit, CancellationToken ct = default) =>
+        AsReadOnly(await SendAsync<List<ReplyDraft>>(
+            null, HttpMethod.Get, $"repo/social/drafts/across-tenants?status={Uri.EscapeDataString(status ?? string.Empty)}&limit={limit}", null, ct).ConfigureAwait(false));
 
-    public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default) =>
-        SendAsync<ReplyDraft>(HttpMethod.Post, $"repo/social/drafts/{draftId}/transition", command, ct);
+    public Task<Result<ReplyDraft>> EditDraftAsync(Guid tenantId, Guid draftId, EditReplyDraftCommand command, CancellationToken ct = default) =>
+        SendAsync<ReplyDraft>(tenantId, HttpMethod.Put, $"repo/social/drafts/{draftId}/text", command, ct);
+
+    public Task<Result<ReplyDraft>> TransitionDraftAsync(Guid tenantId, Guid draftId, TransitionReplyDraftCommand command, CancellationToken ct = default) =>
+        SendAsync<ReplyDraft>(tenantId, HttpMethod.Post, $"repo/social/drafts/{draftId}/transition", command, ct);
 
     // ----- Audit -----
 
-    public Task<Result<ActionAudit>> RecordAuditAsync(ActionAudit audit, CancellationToken ct = default) =>
-        SendAsync<ActionAudit>(HttpMethod.Post, "repo/social/audit", audit, ct);
+    public Task<Result<ActionAudit>> RecordAuditAsync(Guid tenantId, ActionAudit audit, CancellationToken ct = default) =>
+        SendAsync<ActionAudit>(tenantId, HttpMethod.Post, "repo/social/audit", audit, ct);
 
-    public async Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid? accountId, int limit, CancellationToken ct = default)
+    public async Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid tenantId, Guid? accountId, int limit, CancellationToken ct = default)
     {
         var path = new StringBuilder("repo/social/audit?limit=").Append(limit);
         if (accountId is not null) path.Append("&accountId=").Append(accountId.Value);
-        return AsReadOnly(await SendAsync<List<ActionAudit>>(HttpMethod.Get, path.ToString(), null, ct).ConfigureAwait(false));
+        return AsReadOnly(await SendAsync<List<ActionAudit>>(tenantId, HttpMethod.Get, path.ToString(), null, ct).ConfigureAwait(false));
     }
 
     // ----- Retention and recovery -----
 
     public Task<Result<SocialPurgeResult>> PurgeExpiredAsync(DateTime asOf, CancellationToken ct = default) =>
-        SendAsync<SocialPurgeResult>(HttpMethod.Post, "repo/social/maintenance/purge", new SocialPurgeCommand { AsOf = asOf }, ct);
+        SendAsync<SocialPurgeResult>(null, HttpMethod.Post, "repo/social/maintenance/purge", new SocialPurgeCommand { AsOf = asOf }, ct);
 
     public Task<Result<SocialInterruptedSends>> FailInterruptedSendsAsync(DateTime at, CancellationToken ct = default) =>
         SendAsync<SocialInterruptedSends>(
-            HttpMethod.Post, "repo/social/maintenance/fail-interrupted-sends", new SocialFailInterruptedSendsCommand { At = at }, ct);
+            null, HttpMethod.Post, "repo/social/maintenance/fail-interrupted-sends", new SocialFailInterruptedSendsCommand { At = at }, ct);
 
     // ----- transport -----
 
@@ -142,11 +169,16 @@ public sealed class HttpSocialRepository : ISocialStore
             ? Result<IReadOnlyList<T>>.Success(result.Value!)
             : Result<IReadOnlyList<T>>.Failure(result.Error ?? "The list failed.", result.ErrorCode ?? SocialFailureCodes.StoreUnavailable);
 
-    private async Task<Result<T>> SendAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
+    private async Task<Result<T>> SendAsync<T>(Guid? tenantId, HttpMethod method, string path, object? body, CancellationToken ct)
     {
         try
         {
             using var request = new HttpRequestMessage(method, path);
+            if (tenantId is { } tenant)
+            {
+                if (tenant == Guid.Empty) return Result<T>.Failure("A tenant is required.", SocialFailureCodes.InvalidRequest);
+                request.Headers.Add(TenantHeader, tenant.ToString());
+            }
             if (body is not null)
                 request.Content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json");
 

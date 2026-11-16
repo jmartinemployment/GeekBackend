@@ -151,7 +151,7 @@ public interface IOutboundTextReviewer
 /// </summary>
 public interface ISocialTokenProvider
 {
-    Task<Result<SocialToken>> GetTokenAsync(Guid accountId, CancellationToken ct = default);
+    Task<Result<SocialToken>> GetTokenAsync(Guid tenantId, Guid accountId, CancellationToken ct = default);
 }
 
 /// <summary>

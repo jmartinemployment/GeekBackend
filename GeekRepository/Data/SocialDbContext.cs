@@ -19,6 +19,7 @@ public sealed class SocialDbContext(DbContextOptions<SocialDbContext> options) :
 {
     public const string Schema = "geek_social";
 
+    public DbSet<SocialTenantRow> Tenants => Set<SocialTenantRow>();
     public DbSet<SocialAccountRow> Accounts => Set<SocialAccountRow>();
     public DbSet<SocialPostRow> Posts => Set<SocialPostRow>();
     public DbSet<EngagementEventRow> Events => Set<EngagementEventRow>();
@@ -27,6 +28,13 @@ public sealed class SocialDbContext(DbContextOptions<SocialDbContext> options) :
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<SocialTenantRow>(e =>
+        {
+            e.ToTable("tenants", Schema);
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.OwnerUserId).IsUnique().HasDatabaseName("ux_social_tenants_owner");
+        });
+
         modelBuilder.Entity<SocialAccountRow>(e =>
         {
             e.ToTable("social_accounts", Schema);

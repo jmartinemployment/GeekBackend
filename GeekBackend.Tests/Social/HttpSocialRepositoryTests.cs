@@ -63,7 +63,7 @@ public class HttpSocialRepositoryTests
     {
         var (repo, handler, _) = Build(_ => Json(new { id = AccountId, platform = "facebook", platformAccountId = "123", displayName = "Geek Page", status = "connected", autoSendCategories = QuestionOnly, sendsDisabled = false }));
 
-        var result = await repo.GetAccountAsync(AccountId);
+        var result = await repo.GetAccountAsync(TestTenant.Id, AccountId);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal("Geek Page", result.Value!.DisplayName);
@@ -82,7 +82,7 @@ public class HttpSocialRepositoryTests
     {
         var (repo, _, _) = Build(_ => Text(status, body));
 
-        var result = await repo.GetAccountAsync(AccountId);
+        var result = await repo.GetAccountAsync(TestTenant.Id, AccountId);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(expected, result.ErrorCode);
@@ -94,7 +94,7 @@ public class HttpSocialRepositoryTests
     {
         var (repo, _, log) = Build(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
 
-        var result = await repo.GetAccountAsync(AccountId);
+        var result = await repo.GetAccountAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);
         Assert.Single(log.Lines);
@@ -105,7 +105,7 @@ public class HttpSocialRepositoryTests
     {
         var (repo, _, log) = Build(_ => throw new HttpRequestException("connection refused"));
 
-        var result = await repo.ListAccountsAsync();
+        var result = await repo.ListAccountsAsync(TestTenant.Id);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);
@@ -118,11 +118,11 @@ public class HttpSocialRepositoryTests
     {
         var (repo, _, _) = Build(_ => Text(HttpStatusCode.ServiceUnavailable, "The social store failed."));
 
-        Assert.False((await repo.ListAccountsAsync()).IsSuccess);
-        Assert.False((await repo.ListPostsAsync(AccountId, 10)).IsSuccess);
-        Assert.False((await repo.ListDraftsAsync(null, null, 10)).IsSuccess);
-        Assert.False((await repo.ListAuditAsync(null, 10)).IsSuccess);
-        Assert.False((await repo.ListEventsAsync(TriageOutcomes.Untriaged, null, 10)).IsSuccess);
+        Assert.False((await repo.ListAccountsAsync(TestTenant.Id)).IsSuccess);
+        Assert.False((await repo.ListPostsAsync(TestTenant.Id, AccountId, 10)).IsSuccess);
+        Assert.False((await repo.ListDraftsAsync(TestTenant.Id, null, null, 10)).IsSuccess);
+        Assert.False((await repo.ListAuditAsync(TestTenant.Id, null, 10)).IsSuccess);
+        Assert.False((await repo.ListEventsAsync(TestTenant.Id, TriageOutcomes.Untriaged, null, 10)).IsSuccess);
     }
 
     [Fact]
@@ -130,13 +130,13 @@ public class HttpSocialRepositoryTests
     {
         var (repo, _, log) = Build(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{ the comment: 'secret comment text' ", Encoding.UTF8, "application/json") });
 
-        var result = await repo.GetEventAsync(Guid.NewGuid());
+        var result = await repo.GetEventAsync(TestTenant.Id, Guid.NewGuid());
 
         Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);
         Assert.DoesNotContain(log.Lines, l => l.Contains("secret comment text", StringComparison.Ordinal));
 
         var (nullBody, _, _) = Build(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("null", Encoding.UTF8, "application/json") });
-        Assert.Equal(SocialFailureCodes.StoreUnavailable, (await nullBody.GetEventAsync(Guid.NewGuid())).ErrorCode);
+        Assert.Equal(SocialFailureCodes.StoreUnavailable, (await nullBody.GetEventAsync(TestTenant.Id, Guid.NewGuid())).ErrorCode);
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public class HttpSocialRepositoryTests
     {
         var (repo, _, log) = Build(_ => Text(HttpStatusCode.ServiceUnavailable, "secret comment text"));
 
-        await repo.ListDraftsAsync("pending", AccountId, 25);
+        await repo.ListDraftsAsync(TestTenant.Id, "pending", AccountId, 25);
 
         var line = Assert.Single(log.Lines);
         Assert.Contains("503", line, StringComparison.Ordinal);
@@ -182,12 +182,12 @@ public class HttpSocialRepositoryTests
         var (repo, handler, _) = Build(_ => Json(new List<object>()));
         var draft = Guid.NewGuid();
 
-        await repo.ListDraftsAsync("pending", AccountId, 10);
-        await repo.ListPostsAsync(AccountId, 5);
-        await repo.ListAuditAsync(AccountId, 7);
-        await repo.ListAuditAsync(null, 7);
-        await repo.ListEventsAsync(TriageOutcomes.Untriaged, null, 50);
-        await repo.ListEventsAsync(TriageOutcomes.BlockedNoClearance, AccountId, 20);
+        await repo.ListDraftsAsync(TestTenant.Id, "pending", AccountId, 10);
+        await repo.ListPostsAsync(TestTenant.Id, AccountId, 5);
+        await repo.ListAuditAsync(TestTenant.Id, AccountId, 7);
+        await repo.ListAuditAsync(TestTenant.Id, null, 7);
+        await repo.ListEventsAsync(TestTenant.Id, TriageOutcomes.Untriaged, null, 50);
+        await repo.ListEventsAsync(TestTenant.Id, TriageOutcomes.BlockedNoClearance, AccountId, 20);
 
         Assert.Equal(
             new[]
@@ -202,7 +202,7 @@ public class HttpSocialRepositoryTests
             handler.Requests.Select(r => r.PathAndQuery).ToArray());
 
         var (post, postHandler, _) = Build(_ => Json(new { id = draft, status = "approved" }));
-        await post.TransitionDraftAsync(draft, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, At = new DateTime(2026, 11, 9, 15, 0, 0, DateTimeKind.Utc) });
+        await post.TransitionDraftAsync(TestTenant.Id, draft, new TransitionReplyDraftCommand { From = ReplyDraftStatuses.Pending, To = ReplyDraftStatuses.Approved, At = new DateTime(2026, 11, 9, 15, 0, 0, DateTimeKind.Utc) });
         var sent = postHandler.Requests.Single();
         Assert.Equal(HttpMethod.Post, sent.Method);
         Assert.Equal($"/repo/social/drafts/{draft}/transition", sent.PathAndQuery);
@@ -218,7 +218,7 @@ public class HttpSocialRepositoryTests
         var eventId = Guid.NewGuid();
         var (repo, handler, _) = Build(_ => Json(new { id = eventId, triageOutcome = "reply_needed" }));
 
-        var recorded = await repo.RecordTriageOutcomeAsync(eventId, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, At = new DateTime(2026, 11, 9, 15, 0, 0, DateTimeKind.Utc) });
+        var recorded = await repo.RecordTriageOutcomeAsync(TestTenant.Id, eventId, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, At = new DateTime(2026, 11, 9, 15, 0, 0, DateTimeKind.Utc) });
 
         Assert.True(recorded.IsSuccess, recorded.Error);
         Assert.Equal(TriageOutcomes.ReplyNeeded, recorded.Value!.TriageOutcome);
@@ -229,7 +229,7 @@ public class HttpSocialRepositoryTests
         Assert.Equal("reply_needed", json.RootElement.GetProperty("outcome").GetString());
 
         var (loser, _, _) = Build(_ => Text(HttpStatusCode.Conflict, "The event's triage is already reply_needed."));
-        var lost = await loser.RecordTriageOutcomeAsync(eventId, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = DateTime.UtcNow });
+        var lost = await loser.RecordTriageOutcomeAsync(TestTenant.Id, eventId, new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.NoReplyNeeded, At = DateTime.UtcNow });
         Assert.Equal(SocialFailureCodes.Conflict, lost.ErrorCode);
     }
 
@@ -238,7 +238,7 @@ public class HttpSocialRepositoryTests
     {
         var (repo, handler, _) = Build(_ => Json(new { id = Guid.NewGuid(), status = "rejected", reviewRefusal = new[] { ReviewRules.EmDash } }));
 
-        var created = await repo.CreateDraftAsync(new CreateReplyDraftCommand
+        var created = await repo.CreateDraftAsync(TestTenant.Id, new CreateReplyDraftCommand
         {
             EngagementEventId = Guid.NewGuid(),
             Category = ReplyCategories.Question,
@@ -258,7 +258,7 @@ public class HttpSocialRepositoryTests
         var cipher = new byte[] { 9, 8, 7 };
         var (repo, _, _) = Build(_ => Json(new { accountId = AccountId, token = new { cipher = Convert.ToBase64String(cipher), iv = Convert.ToBase64String(new byte[12]), tag = Convert.ToBase64String(new byte[16]), expiresAt = (DateTime?)null } }));
 
-        var result = await repo.GetCredentialAsync(AccountId);
+        var result = await repo.GetCredentialAsync(TestTenant.Id, AccountId);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal(cipher, result.Value!.Token.Cipher);
@@ -273,6 +273,6 @@ public class HttpSocialRepositoryTests
         await cts.CancelAsync();
         var (repo, _, _) = Build(_ => Json(new { }));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repo.GetAccountAsync(AccountId, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => repo.GetAccountAsync(TestTenant.Id, AccountId, cts.Token));
     }
 }

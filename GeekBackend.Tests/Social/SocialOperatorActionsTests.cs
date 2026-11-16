@@ -93,7 +93,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build();
 
-        var result = await rig.Actions.EditAsync(DraftId, $"  Yes, see {PostLink}.  ", CancellationToken.None);
+        var result = await rig.Actions.EditAsync(TestTenant.Id, DraftId, $"  Yes, see {PostLink}.  ", CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Null(result.Value!.Violations);
@@ -106,7 +106,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build();
 
-        var result = await rig.Actions.EditAsync(DraftId, "Email us at owner@example.com — today.", CancellationToken.None);
+        var result = await rig.Actions.EditAsync(TestTenant.Id, DraftId, "Email us at owner@example.com — today.", CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Contains(ReviewRules.EmDash, result.Value!.Violations!);
@@ -119,7 +119,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(ReplyDraftStatuses.Sent)));
 
-        var result = await rig.Actions.EditAsync(DraftId, "New text.", CancellationToken.None);
+        var result = await rig.Actions.EditAsync(TestTenant.Id, DraftId, "New text.", CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.Conflict, result.ErrorCode);
     }
@@ -131,7 +131,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build();
 
-        var result = await rig.Actions.ApproveAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Actions.ApproveAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.True(result.Value!.Value!.Send.Sent);
@@ -144,7 +144,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(text: string.Empty, reason: "It names an invoice.")));
 
-        var result = await rig.Actions.ApproveAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Actions.ApproveAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.InvalidRequest, result.ErrorCode);
         Assert.Empty(rig.Store.Transitions);
@@ -156,7 +156,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(text: "Our SMB plan starts today.")));
 
-        var result = await rig.Actions.ApproveAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Actions.ApproveAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.Contains(ReviewRules.Smb, result.Value!.Violations!);
         Assert.Empty(rig.Store.Transitions);
@@ -169,7 +169,7 @@ public class SocialOperatorActionsTests
         var rig = Build();
         rig.SendStep.OnSend = _ => Result<SocialSendOutcome>.Failure("GeekRepository is down.", SocialFailureCodes.StoreUnavailable);
 
-        var result = await rig.Actions.ApproveAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Actions.ApproveAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         var approval = result.Value!.Value!;
@@ -185,7 +185,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(status)));
 
-        var result = await rig.Actions.RejectAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Actions.RejectAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal(new[] { $"{status}->rejected" }, rig.Store.Writes);
@@ -196,7 +196,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft(ReplyDraftStatuses.Sent)));
 
-        var result = await rig.Actions.RejectAsync(DraftId, "user-1", CancellationToken.None);
+        var result = await rig.Actions.RejectAsync(TestTenant.Id, DraftId, "user-1", CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.Conflict, result.ErrorCode);
     }
@@ -213,7 +213,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build();
 
-        var result = await rig.Actions.PublishAsync(AccountId, Post(), "user-1", CancellationToken.None);
+        var result = await rig.Actions.PublishAsync(TestTenant.Id, AccountId, Post(), "user-1", CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal("POST9", result.Value!.Value!.PlatformPostId);
@@ -227,7 +227,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build();
 
-        var result = await rig.Actions.PublishAsync(AccountId, Post("Read more at https://example.com/other."), "user-1", CancellationToken.None);
+        var result = await rig.Actions.PublishAsync(TestTenant.Id, AccountId, Post("Read more at https://example.com/other."), "user-1", CancellationToken.None);
 
         Assert.Contains(ReviewRules.UnapprovedLink, result.Value!.Violations!);
         Assert.Empty(rig.Writer.Posts);
@@ -238,7 +238,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build(store => store.OnRecordPost = _ => Result<SocialPost>.Failure("down", SocialFailureCodes.StoreUnavailable));
 
-        var result = await rig.Actions.PublishAsync(AccountId, Post(), "user-1", CancellationToken.None);
+        var result = await rig.Actions.PublishAsync(TestTenant.Id, AccountId, Post(), "user-1", CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);
         Assert.Contains("POST9", result.Error, StringComparison.Ordinal);
@@ -253,7 +253,7 @@ public class SocialOperatorActionsTests
             Id = id, Platform = SocialPlatforms.Facebook, Status = SocialAccountStatuses.Connected, SendsDisabled = true,
         }));
 
-        var result = await rig.Actions.PublishAsync(AccountId, Post(), "user-1", CancellationToken.None);
+        var result = await rig.Actions.PublishAsync(TestTenant.Id, AccountId, Post(), "user-1", CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.Conflict, result.ErrorCode);
         Assert.Empty(rig.Writer.Posts);
@@ -264,7 +264,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build();
 
-        var result = await rig.Actions.ReactAsync(Guid.NewGuid(), SocialReactionTypes.Like, "user-1", CancellationToken.None);
+        var result = await rig.Actions.ReactAsync(TestTenant.Id, Guid.NewGuid(), SocialReactionTypes.Like, "user-1", CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal("COMMENT1", Assert.Single(rig.Writer.Reactions).PlatformTargetId);
@@ -281,7 +281,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build();
 
-        var result = await rig.Actions.UpdateSettingsAsync(AccountId,
+        var result = await rig.Actions.UpdateSettingsAsync(TestTenant.Id, AccountId,
             new UpdateSocialAccountSettingsCommand { AutoSendCategories = new List<string> { ReplyCategories.Praise, category } }, CancellationToken.None);
 
         Assert.Equal(SocialFailureCodes.InvalidRequest, result.ErrorCode);
@@ -292,7 +292,7 @@ public class SocialOperatorActionsTests
     {
         var rig = Build();
 
-        var result = await rig.Actions.UpdateSettingsAsync(AccountId, new UpdateSocialAccountSettingsCommand
+        var result = await rig.Actions.UpdateSettingsAsync(TestTenant.Id, AccountId, new UpdateSocialAccountSettingsCommand
         {
             AutoSendCategories = new List<string> { ReplyCategories.Praise, ReplyCategories.Praise },
             SendsDisabled = true,

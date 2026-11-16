@@ -141,7 +141,7 @@ public sealed class SocialOrchestrator : BackgroundService
         var attempted = new HashSet<Guid>();
         while (true)
         {
-            var batch = await store.ListEventsAsync(TriageOutcomes.Untriaged, null, RecoveryBatch, ct).ConfigureAwait(false);
+            var batch = await store.ListUntriagedEventsAsync(RecoveryBatch, ct).ConfigureAwait(false);
             if (!batch.IsSuccess)
             {
                 allSucceeded &= Fail("list undecided events", batch.ErrorCode, batch.Error, null);
@@ -153,7 +153,7 @@ public sealed class SocialOrchestrator : BackgroundService
             foreach (var pending in fresh)
             {
                 recovered++;
-                if (await HandleSafelyAsync(scope.ServiceProvider, store, pending.Id, ct).ConfigureAwait(false) == Handled.Stalled)
+                if (await HandleSafelyAsync(scope.ServiceProvider, store, pending.TenantId, pending.Id, ct).ConfigureAwait(false) == Handled.Stalled)
                     stalled++;
             }
 
@@ -179,7 +179,13 @@ public sealed class SocialOrchestrator : BackgroundService
         using var scope = _scopes.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<ISocialStore>();
 
-        await HandleAsync(scope.ServiceProvider, store, eventId, ct).ConfigureAwait(false);
+        // The wake carries only the event id: read it once, across tenants, to learn whose it is.
+        var owner = await store.GetEventAcrossTenantsAsync(eventId, ct).ConfigureAwait(false);
+        if (owner.IsSuccess)
+            await HandleAsync(scope.ServiceProvider, store, owner.Value!.TenantId, eventId, ct).ConfigureAwait(false);
+        else
+            Fail("load an event", owner.ErrorCode, owner.Error, eventId);
+
         await PurgeAsync(store, ct).ConfigureAwait(false);
         await SendWaitingAsync(scope.ServiceProvider, ct).ConfigureAwait(false);
     }
@@ -189,12 +195,12 @@ public sealed class SocialOrchestrator : BackgroundService
     /// once more. A comment that was decided (a reply needed or not) is a conflict and is not run.
     /// Returns the outcome stored on the comment afterwards.
     /// </summary>
-    public async Task<Result<EngagementEvent>> RerunAsync(Guid eventId, CancellationToken ct)
+    public async Task<Result<EngagementEvent>> RerunAsync(Guid tenantId, Guid eventId, CancellationToken ct)
     {
         using var scope = _scopes.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<ISocialStore>();
 
-        var before = await store.GetEventAsync(eventId, ct).ConfigureAwait(false);
+        var before = await store.GetEventAsync(tenantId, eventId, ct).ConfigureAwait(false);
         if (!before.IsSuccess)
             return before;
         if (before.Value!.Kind != EngagementKinds.CommentCreated)
@@ -202,12 +208,12 @@ public sealed class SocialOrchestrator : BackgroundService
         if (before.Value.TriageOutcome is { } decided && !TriageOutcomes.Rerunnable.Contains(decided))
             return Result<EngagementEvent>.Failure($"The comment is already decided ({decided}).", SocialFailureCodes.Conflict);
 
-        var handled = await HandleAsync(scope.ServiceProvider, store, eventId, ct, rerun: true).ConfigureAwait(false);
+        var handled = await HandleAsync(scope.ServiceProvider, store, tenantId, eventId, ct, rerun: true).ConfigureAwait(false);
         if (handled == Handled.Stalled)
             return Result<EngagementEvent>.Failure(
                 "A step could not complete; the comment is unchanged. The failure is on the status page.", SocialFailureCodes.StoreUnavailable);
 
-        return await store.GetEventAsync(eventId, ct).ConfigureAwait(false);
+        return await store.GetEventAsync(tenantId, eventId, ct).ConfigureAwait(false);
     }
 
     private async Task SendWaitingAsync(IServiceProvider services, CancellationToken ct)
@@ -218,11 +224,11 @@ public sealed class SocialOrchestrator : BackgroundService
     }
 
     /// <summary>One event in recovery: an exception is recorded and logged and the rest still run.</summary>
-    private async Task<Handled> HandleSafelyAsync(IServiceProvider services, ISocialStore store, Guid eventId, CancellationToken ct)
+    private async Task<Handled> HandleSafelyAsync(IServiceProvider services, ISocialStore store, Guid tenantId, Guid eventId, CancellationToken ct)
     {
         try
         {
-            return await HandleAsync(services, store, eventId, ct).ConfigureAwait(false);
+            return await HandleAsync(services, store, tenantId, eventId, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -237,11 +243,11 @@ public sealed class SocialOrchestrator : BackgroundService
     }
 
     /// <summary>The reply path for one event, in the plan's order (steps 1 to 6), then auto-send.</summary>
-    internal async Task<Handled> HandleAsync(IServiceProvider services, ISocialStore store, Guid eventId, CancellationToken ct, bool rerun = false)
+    internal async Task<Handled> HandleAsync(IServiceProvider services, ISocialStore store, Guid tenantId, Guid eventId, CancellationToken ct, bool rerun = false)
     {
         // 1. Load it. Only a new comment is triaged, and a decided one is never decided again here; an
         // operator action re-runs a blocked or failed one.
-        var loaded = await store.GetEventAsync(eventId, ct).ConfigureAwait(false);
+        var loaded = await store.GetEventAsync(tenantId, eventId, ct).ConfigureAwait(false);
         if (!loaded.IsSuccess)
         {
             Fail("load an event", loaded.ErrorCode, loaded.Error, eventId);
@@ -266,11 +272,11 @@ public sealed class SocialOrchestrator : BackgroundService
         if (string.IsNullOrWhiteSpace(ev.Text))
         {
             _logger.LogError("Event {EventId} has no comment text (scrubbed past its retention, or empty), so it cannot be triaged.", ev.Id);
-            return await RecordAsync(store, ev.Id, TriageOutcomes.Failed, SocialFailureCodes.InvalidRequest, ct).ConfigureAwait(false);
+            return await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.Failed, SocialFailureCodes.InvalidRequest, ct).ConfigureAwait(false);
         }
 
         // 3. The account and the post, for context and for the only link a reply may carry.
-        var account = await store.GetAccountAsync(ev.AccountId, ct).ConfigureAwait(false);
+        var account = await store.GetAccountAsync(ev.TenantId, ev.AccountId, ct).ConfigureAwait(false);
         if (!account.IsSuccess)
         {
             Fail("load the account", account.ErrorCode, account.Error, ev.Id);
@@ -283,13 +289,13 @@ public sealed class SocialOrchestrator : BackgroundService
             && string.Equals(ev.AuthorPlatformId, account.Value!.PlatformAccountId, StringComparison.Ordinal))
         {
             _logger.LogInformation("Event {EventId} is the account's own comment; no reply is needed.", ev.Id);
-            return await RecordAsync(store, ev.Id, TriageOutcomes.NoReplyNeeded, null, ct).ConfigureAwait(false);
+            return await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.NoReplyNeeded, null, ct).ConfigureAwait(false);
         }
 
         SocialPost? post = null;
         if (!string.IsNullOrWhiteSpace(ev.PlatformPostId))
         {
-            var posts = await store.ListPostsAsync(ev.AccountId, PostLookup, ct).ConfigureAwait(false);
+            var posts = await store.ListPostsAsync(ev.TenantId, ev.AccountId, PostLookup, ct).ConfigureAwait(false);
             if (!posts.IsSuccess)
             {
                 Fail("load the post", posts.ErrorCode, posts.Error, ev.Id);
@@ -298,6 +304,18 @@ public sealed class SocialOrchestrator : BackgroundService
 
             post = posts.Value!.FirstOrDefault(p => string.Equals(p.PlatformPostId, ev.PlatformPostId, StringComparison.Ordinal));
         }
+
+        // 3b. A tenant's comments reach the AI only after that tenant accepted the AI terms. Until then the comment is held
+        // (blocked_no_clearance, which an operator re-runs once they have), and never sent to the model.
+        var tenant = await store.GetTenantAsync(ev.TenantId, ct).ConfigureAwait(false);
+        if (!tenant.IsSuccess)
+        {
+            Fail("load the tenant", tenant.ErrorCode, tenant.Error, ev.Id);
+            return Handled.Stalled;
+        }
+
+        if (tenant.Value!.AiConsentAcceptedAt is null)
+            return await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.BlockedNoClearance, null, ct).ConfigureAwait(false);
 
         // 4. Triage.
         var triage = await services.GetRequiredService<IEngagementTriage>().TriageAsync(new TriageRequest
@@ -314,7 +332,7 @@ public sealed class SocialOrchestrator : BackgroundService
 
         var decision = triage.Value!;
         if (!decision.NeedsReply)
-            return await RecordAsync(store, ev.Id, TriageOutcomes.NoReplyNeeded, null, ct).ConfigureAwait(false);
+            return await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.NoReplyNeeded, null, ct).ConfigureAwait(false);
 
         // 5. A person writes it, or the drafter does and the Reviewer checks it.
         CreateReplyDraftCommand draft;
@@ -375,11 +393,11 @@ public sealed class SocialOrchestrator : BackgroundService
             }
         }
 
-        var created = await store.CreateDraftAsync(draft, ct).ConfigureAwait(false);
+        var created = await store.CreateDraftAsync(ev.TenantId, draft, ct).ConfigureAwait(false);
         if (created.IsSuccess)
         {
             _status.RecordDraft(kind);
-            await _realtime.DraftChangedAsync(created.Value!.Id, ev.AccountId, created.Value.Status, ct).ConfigureAwait(false);
+            await _realtime.DraftChangedAsync(ev.TenantId, created.Value!.Id, ev.AccountId, created.Value.Status, ct).ConfigureAwait(false);
         }
         else if (created.ErrorCode == SocialFailureCodes.Conflict)
         {
@@ -394,7 +412,7 @@ public sealed class SocialOrchestrator : BackgroundService
         }
 
         // 6. Only now is the comment marked answered, so a crash before this leaves it for recovery.
-        var outcome = await RecordAsync(store, ev.Id, TriageOutcomes.ReplyNeeded, null, ct).ConfigureAwait(false);
+        var outcome = await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.ReplyNeeded, null, ct).ConfigureAwait(false);
 
         // 7. Auto-send, for a draft the account sends without a person. It runs after the outcome is
         // stored, so whatever happens to the send, the comment is not drafted again.
@@ -417,17 +435,17 @@ public sealed class SocialOrchestrator : BackgroundService
         if (code == SocialFailureCodes.ClearanceRequired)
         {
             _logger.LogWarning("Event {EventId} is held: {Platform} is not cleared to send comment text to Claude.", ev.Id, ev.Platform);
-            return RecordAsync(store, ev.Id, TriageOutcomes.BlockedNoClearance, null, ct);
+            return RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.BlockedNoClearance, null, ct);
         }
 
         var failure = SocialFailureCodes.IsKnown(code) ? code! : SocialFailureCodes.ModelFailed;
         Fail(step, failure, null, ev.Id);
-        return RecordAsync(store, ev.Id, TriageOutcomes.Failed, failure, ct);
+        return RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.Failed, failure, ct);
     }
 
-    private async Task<Handled> RecordAsync(ISocialStore store, Guid eventId, string outcome, string? failureCode, CancellationToken ct)
+    private async Task<Handled> RecordAsync(ISocialStore store, Guid tenantId, Guid eventId, string outcome, string? failureCode, CancellationToken ct)
     {
-        var recorded = await store.RecordTriageOutcomeAsync(eventId, new RecordTriageOutcomeCommand
+        var recorded = await store.RecordTriageOutcomeAsync(tenantId, eventId, new RecordTriageOutcomeCommand
         {
             Outcome = outcome,
             FailureCode = failureCode,
@@ -437,7 +455,7 @@ public sealed class SocialOrchestrator : BackgroundService
         if (recorded.IsSuccess)
         {
             _status.RecordOutcome(outcome);
-            await _realtime.CommentChangedAsync(eventId, recorded.Value!.AccountId, outcome, ct).ConfigureAwait(false);
+            await _realtime.CommentChangedAsync(tenantId, eventId, recorded.Value!.AccountId, outcome, ct).ConfigureAwait(false);
             return Handled.Decided;
         }
 

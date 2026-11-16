@@ -99,7 +99,7 @@ public class SocialTokenProviderTests
     {
         var h = Build(expiresAt: null, connector: new FakeConnector(null));
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.True(token.IsSuccess, token.Error);
         Assert.Equal(OldTokenValue, token.Value!.Reveal());
@@ -113,7 +113,7 @@ public class SocialTokenProviderTests
     {
         var h = Build(In(SocialTokenProvider.RenewalWindow + TimeSpan.FromHours(1)), connector: new FakeConnector(null));
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(OldTokenValue, token.Value!.Reveal());
         Assert.Equal(0, h.Connector!.Refreshes);
@@ -125,7 +125,7 @@ public class SocialTokenProviderTests
         var newExpiry = In(TimeSpan.FromDays(60));
         var h = Build(In(TimeSpan.FromDays(2)), connector: new FakeConnector(_ => Result<SocialToken>.Success(new SocialToken(NewTokenValue, newExpiry))));
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.True(token.IsSuccess, token.Error);
         Assert.Equal(NewTokenValue, token.Value!.Reveal());
@@ -145,7 +145,7 @@ public class SocialTokenProviderTests
     {
         var h = Build(In(TimeSpan.FromDays(2)), connector: new FakeConnector(_ => Result<SocialToken>.Failure("none", SocialFailureCodes.NotSupported)));
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(OldTokenValue, token.Value!.Reveal());
         Assert.Empty(h.Stored);
@@ -160,7 +160,7 @@ public class SocialTokenProviderTests
     {
         var h = Build(In(TimeSpan.FromDays(2)), connector: new FakeConnector(_ => Result<SocialToken>.Failure("refused", code)));
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(code, token.ErrorCode);
         Assert.Single(h.MarkedReconnect);
@@ -177,7 +177,7 @@ public class SocialTokenProviderTests
     {
         var h = Build(In(TimeSpan.FromDays(2)), connector: new FakeConnector(_ => Result<SocialToken>.Failure("later", code)));
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(code, token.ErrorCode);
         Assert.Empty(h.MarkedReconnect);
@@ -189,7 +189,7 @@ public class SocialTokenProviderTests
     {
         var h = Build(In(TimeSpan.FromMinutes(-1)), connector: new FakeConnector(null));
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(SocialFailureCodes.TokenInvalid, token.ErrorCode);
         Assert.Single(h.MarkedReconnect);
@@ -202,7 +202,7 @@ public class SocialTokenProviderTests
         var h = Build(null, SocialAccountStatuses.ReconnectRequired);
         h.Store.OnGetCredential = _ => throw new InvalidOperationException("The credential must not be read.");
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(SocialFailureCodes.TokenInvalid, token.ErrorCode);
         Assert.Empty(h.MarkedReconnect);
@@ -216,8 +216,8 @@ public class SocialTokenProviderTests
         var noCredential = Build(null);
         noCredential.Store.OnGetCredential = _ => Result<SocialAccountCredential>.Failure("gone", SocialFailureCodes.NotFound);
 
-        Assert.Equal(SocialFailureCodes.StoreUnavailable, (await noAccount.Provider.GetTokenAsync(AccountId)).ErrorCode);
-        Assert.Equal(SocialFailureCodes.NotFound, (await noCredential.Provider.GetTokenAsync(AccountId)).ErrorCode);
+        Assert.Equal(SocialFailureCodes.StoreUnavailable, (await noAccount.Provider.GetTokenAsync(TestTenant.Id, AccountId)).ErrorCode);
+        Assert.Equal(SocialFailureCodes.NotFound, (await noCredential.Provider.GetTokenAsync(TestTenant.Id, AccountId)).ErrorCode);
     }
 
     [Fact]
@@ -228,7 +228,7 @@ public class SocialTokenProviderTests
 
         foreach (var h in new[] { noKey, wrongKey })
         {
-            var token = await h.Provider.GetTokenAsync(AccountId);
+            var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
             Assert.Equal(SocialFailureCodes.EncryptionUnavailable, token.ErrorCode);
             Assert.Empty(h.MarkedReconnect);
@@ -242,7 +242,7 @@ public class SocialTokenProviderTests
         var h = Build(In(TimeSpan.FromMinutes(-1)));
         h.Store.OnMarkReconnectRequired = _ => Result<SocialAccount>.Failure("down", SocialFailureCodes.StoreUnavailable);
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(SocialFailureCodes.StoreUnavailable, token.ErrorCode);
     }
@@ -252,7 +252,7 @@ public class SocialTokenProviderTests
     {
         var h = Build(In(TimeSpan.FromDays(2)), connector: null);
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(SocialFailureCodes.NotConfigured, token.ErrorCode);
     }
@@ -263,7 +263,7 @@ public class SocialTokenProviderTests
         var h = Build(In(TimeSpan.FromDays(2)), connector: new FakeConnector(_ => Result<SocialToken>.Success(new SocialToken(NewTokenValue, In(TimeSpan.FromDays(60))))));
         h.Store.OnStoreToken = (_, _) => Result<SocialAccount>.Failure("down", SocialFailureCodes.StoreUnavailable);
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(SocialFailureCodes.StoreUnavailable, token.ErrorCode);
         Assert.Empty(h.Audits);
@@ -275,7 +275,7 @@ public class SocialTokenProviderTests
         var h = Build(In(TimeSpan.FromDays(2)), connector: new FakeConnector(_ => Result<SocialToken>.Success(new SocialToken(NewTokenValue, In(TimeSpan.FromDays(60))))));
         h.Store.OnRecordAudit = _ => Result<ActionAudit>.Failure("down", SocialFailureCodes.StoreUnavailable);
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.Equal(SocialFailureCodes.StoreUnavailable, token.ErrorCode);
     }
@@ -285,7 +285,7 @@ public class SocialTokenProviderTests
     {
         var h = Build(In(TimeSpan.FromDays(2)), connector: new FakeConnector(t => Result<SocialToken>.Failure("Meta refused the call (HTTP 400, error 190).", SocialFailureCodes.TokenInvalid)));
 
-        var token = await h.Provider.GetTokenAsync(AccountId);
+        var token = await h.Provider.GetTokenAsync(TestTenant.Id, AccountId);
 
         Assert.DoesNotContain(OldTokenValue, token.Error);
         Assert.DoesNotContain("EAAB", token.Error);

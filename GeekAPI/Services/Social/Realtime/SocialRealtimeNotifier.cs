@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.SignalR;
 namespace GeekAPI.Services.Social.Realtime;
 
 /// <summary>
-/// Sends GeekSocial's messages to every connection on <see cref="SocialRealtimeHub"/>. Only a caller
-/// holding geeksocial.manage can connect, so every connection is an operator of the same Pages.
+/// Sends GeekSocial's messages to the connections of one tenant on <see cref="SocialRealtimeHub"/>, and to no one
+/// else: a message names accounts, drafts and states that belong to that tenant alone.
 /// </summary>
 public sealed class SocialRealtimeNotifier : ISocialRealtime
 {
@@ -22,20 +22,20 @@ public sealed class SocialRealtimeNotifier : ISocialRealtime
         _logger = logger;
     }
 
-    public Task DraftChangedAsync(Guid draftId, Guid accountId, string status, CancellationToken ct = default) =>
-        SendAsync(DraftChanged, new { draftId, accountId, status }, ct);
+    public Task DraftChangedAsync(Guid tenantId, Guid draftId, Guid accountId, string status, CancellationToken ct = default) =>
+        SendAsync(tenantId, DraftChanged, new { draftId, accountId, status }, ct);
 
-    public Task CommentChangedAsync(Guid eventId, Guid accountId, string outcome, CancellationToken ct = default) =>
-        SendAsync(CommentChanged, new { eventId, accountId, outcome }, ct);
+    public Task CommentChangedAsync(Guid tenantId, Guid eventId, Guid accountId, string outcome, CancellationToken ct = default) =>
+        SendAsync(tenantId, CommentChanged, new { eventId, accountId, outcome }, ct);
 
-    public Task AccountChangedAsync(Guid accountId, string status, CancellationToken ct = default) =>
-        SendAsync(AccountChanged, new { accountId, status }, ct);
+    public Task AccountChangedAsync(Guid tenantId, Guid accountId, string status, CancellationToken ct = default) =>
+        SendAsync(tenantId, AccountChanged, new { accountId, status }, ct);
 
-    private async Task SendAsync(string message, object body, CancellationToken ct)
+    private async Task SendAsync(Guid tenantId, string message, object body, CancellationToken ct)
     {
         try
         {
-            await _hub.Clients.All.SendAsync(message, body, ct).ConfigureAwait(false);
+            await _hub.Clients.Group(SocialRealtimeHub.TenantGroup(tenantId)).SendAsync(message, body, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
