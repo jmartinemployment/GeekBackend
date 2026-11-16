@@ -68,9 +68,11 @@ These are fixed. Anything written for GeekSocial, including a question to a plat
 human-approved inbox inside a 30-day window. Do not ask about unattended-bot consent, archiving beyond 30 days,
 resale of data or multi-account scraping. Keep each question short and tied to the exact policy text.
 
-**Under fact 3 nothing is kept beyond 30 days** (Jeff, 2026-11-16): not comment or review text, not replies, and
-not the rows that point to them. A record is deleted whole when it is 30 days old (LinkedIn member comment text
-at 48 hours). Everything a send needs to be safe (the one-answer-per-comment guard, the uncertain-outcome hold,
+**Under fact 3 the original comment or review is kept for up to 30 days, and nothing is kept beyond that** (Jeff,
+2026-11-16). The original is kept so the person approving a reply can see exactly what the AI is answering. The
+text, the reply drafts and the rows that point to them are deleted whole when the item is 30 days old (LinkedIn
+member comment text at 48 hours). **A draft never outlives the text it answers:** when a comment's text is
+purged its drafts go with it, so nobody is asked to approve a reply without seeing its source. Everything a send needs to be safe (the one-answer-per-comment guard, the uncertain-outcome hold,
 the 30-replies-an-hour limit and the 15-minute cooldown) works on hours, not months. A resync must read only
 items inside the 30-day window, so a purged item cannot be fetched and drafted again.
 
