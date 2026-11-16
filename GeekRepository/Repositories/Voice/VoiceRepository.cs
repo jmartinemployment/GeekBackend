@@ -9,6 +9,8 @@ using GeekApplication.Results;
 using GeekRepository.Infrastructure;
 using Npgsql;
 
+using static GeekRepository.Repositories.Voice.VoiceResults;
+
 namespace GeekRepository.Repositories.Voice;
 
 /// <summary>
@@ -524,10 +526,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     }
 
     // ----- Failures -----
-
-    private static Result<T> Invalid<T>(string message) => Result<T>.Failure(message, VoiceFailureCodes.InvalidRequest);
-
-    private static Result<T> NotFound<T>(string message) => Result<T>.Failure(message, VoiceFailureCodes.NotFound);
 
     /// <summary>Unique, check, foreign-key and malformed-value violations are the caller's mistake; every other database fault propagates.</summary>
     private static bool IsRefusal(PostgresException ex) => ex.SqlState is PostgresErrorCodes.UniqueViolation

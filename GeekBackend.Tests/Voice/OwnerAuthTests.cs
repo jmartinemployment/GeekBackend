@@ -368,8 +368,8 @@ public sealed class OwnerAuthTests
         var replay = await rig.Service.RefreshAsync(new OwnerRefreshRequest(first.RefreshToken));
         var afterReplay = await rig.Service.RefreshAsync(new OwnerRefreshRequest(second.RefreshToken));
 
-        Assert.Equal(OwnerAuthFailureCodes.RefreshTokenReused, replay.ErrorCode);
-        Assert.Equal(OwnerAuthFailureCodes.RefreshTokenReused, afterReplay.ErrorCode);
+        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, replay.ErrorCode);
+        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, afterReplay.ErrorCode);
     }
 
     [Fact]
@@ -419,7 +419,7 @@ public sealed class OwnerAuthTests
 
         Assert.Equal(OwnerAuthFailureCodes.RefreshTokenInvalid, unknown.ErrorCode);
         Assert.True(signedOut.IsSuccess);
-        Assert.Equal(OwnerAuthFailureCodes.RefreshTokenReused, afterSignOut.ErrorCode);
+        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, afterSignOut.ErrorCode);
     }
 
     [Fact]
@@ -489,7 +489,7 @@ public sealed class OwnerAuthTests
     [InlineData(VoiceFailureCodes.InvalidRequest, 400)]
     [InlineData(OwnerAuthFailureCodes.InvalidCredentials, 401)]
     [InlineData(OwnerAuthFailureCodes.RefreshTokenInvalid, 401)]
-    [InlineData(OwnerAuthFailureCodes.RefreshTokenReused, 401)]
+    [InlineData(VoiceOwnerFailureCodes.RefreshTokenReused, 401)]
     [InlineData(VoiceFailureCodes.NotFound, 404)]
     [InlineData(OwnerAuthFailureCodes.OwnerExists, 409)]
     [InlineData(OwnerAuthFailureCodes.TenantNotActive, 409)]
@@ -594,6 +594,25 @@ public sealed class OwnerAuthTests
         Assert.Equal(401, refusal.StatusCode);
         Assert.Contains(RequireApiKeyAttribute.FailureCode, System.Text.Json.JsonSerializer.Serialize(refusal.Value));
         Assert.Null(passed.Result);
+    }
+
+    [Fact]
+    public async Task Both_receptionist_store_clients_read_a_refusal_the_same_way()
+    {
+        static HttpClient Http(HttpStatusCode status, string body) =>
+            new(new Answer(status, body)) { BaseAddress = new Uri("https://repo.example.test/") };
+        const string reused = "{\"error\":\"used\",\"code\":\"refresh_token_reused\"}";
+        const string uncoded = "{\"error\":\"taken\"}";
+
+        var tenants = new HttpVoiceRepository(Http(HttpStatusCode.Conflict, reused), NullLogger<HttpVoiceRepository>.Instance);
+        var owners = new HttpVoiceOwnerRepository(Http(HttpStatusCode.Conflict, reused), NullLogger<HttpVoiceOwnerRepository>.Instance);
+        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, (await tenants.GetTenantAsync(Tenant)).ErrorCode);
+        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, (await owners.FindOwnerLoginByEmailAsync("a@b.co")).ErrorCode);
+
+        var plain = new HttpVoiceRepository(Http(HttpStatusCode.Conflict, uncoded), NullLogger<HttpVoiceRepository>.Instance);
+        Assert.Equal(VoiceFailureCodes.Conflict, (await plain.GetTenantAsync(Tenant)).ErrorCode);
+        var missingRoute = new HttpVoiceOwnerRepository(Http(HttpStatusCode.NotFound, ""), NullLogger<HttpVoiceOwnerRepository>.Instance);
+        Assert.Equal(VoiceFailureCodes.StoreUnavailable, (await missingRoute.FindOwnerLoginByEmailAsync("a@b.co")).ErrorCode);
     }
 
     private sealed class Answer(HttpStatusCode status, string body) : HttpMessageHandler

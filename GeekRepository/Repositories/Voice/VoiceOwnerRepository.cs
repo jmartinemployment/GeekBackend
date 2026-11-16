@@ -5,6 +5,8 @@ using GeekApplication.Results;
 using GeekRepository.Infrastructure;
 using Npgsql;
 
+using static GeekRepository.Repositories.Voice.VoiceResults;
+
 namespace GeekRepository.Repositories.Voice;
 
 /// <summary>
@@ -258,10 +260,6 @@ public sealed class VoiceOwnerRepository(IDbConnectionFactory db, ILogger<VoiceO
         if (at < 1 || at != normalized.LastIndexOf('@') || at == normalized.Length - 1 || normalized.Any(c => char.IsWhiteSpace(c) || char.IsControl(c))) return null;
         return normalized;
     }
-
-    private static Result<T> Invalid<T>(string message) => Result<T>.Failure(message, VoiceFailureCodes.InvalidRequest);
-
-    private static Result<T> NotFound<T>(string message) => Result<T>.Failure(message, VoiceFailureCodes.NotFound);
 
     private sealed record OwnerRow(Guid Id, Guid TenantId, string Email);
 

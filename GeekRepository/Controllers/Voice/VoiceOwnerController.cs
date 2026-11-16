@@ -19,7 +19,7 @@ public sealed record OwnerEmailRequest(string? Email);
 /// </summary>
 [ApiController]
 [Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]
-public sealed class VoiceOwnerController(IVoiceOwnerStore owners) : ControllerBase
+public sealed class VoiceOwnerController(IVoiceOwnerStore owners) : VoiceStoreController
 {
     [HttpPost("internal/v1/owner-logins")]
     public async Task<IActionResult> Create([FromBody] CreateVoiceOwnerLoginCommand command, CancellationToken ct) =>
@@ -44,19 +44,4 @@ public sealed class VoiceOwnerController(IVoiceOwnerStore owners) : ControllerBa
     [HttpPost("internal/v1/owner-refresh-tokens/revoke")]
     public async Task<IActionResult> Revoke([FromBody] RefreshTokenHashRequest request, CancellationToken ct) =>
         request is null ? BadRequest("A token hash is required.") : ToAction(await owners.RevokeRefreshTokenFamilyAsync(request.TokenHash ?? string.Empty, ct));
-
-    private IActionResult ToAction<T>(Result<T> result, int successStatus = StatusCodes.Status200OK)
-    {
-        if (result.IsSuccess) return StatusCode(successStatus, result.Value);
-        var message = string.IsNullOrWhiteSpace(result.Error) ? "The owner store failed." : result.Error;
-        if (result.Status == ResultStatus.NotFound) return NotFound(message);
-        return result.ErrorCode switch
-        {
-            VoiceFailureCodes.NotFound => NotFound(message),
-            VoiceFailureCodes.InvalidRequest => BadRequest(message),
-            VoiceFailureCodes.Conflict => Conflict(message),
-            VoiceOwnerFailureCodes.RefreshTokenReused => Conflict(new { error = message, code = result.ErrorCode }),
-            _ => StatusCode(StatusCodes.Status503ServiceUnavailable, message),
-        };
-    }
 }

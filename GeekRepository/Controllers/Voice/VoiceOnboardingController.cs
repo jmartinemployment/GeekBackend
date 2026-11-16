@@ -14,7 +14,7 @@ namespace GeekRepository.Controllers.Voice;
 [ApiController]
 [Route("internal/v1/onboarding/tenants")]
 [Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]
-public sealed class VoiceOnboardingController(IVoiceStore voice) : ControllerBase
+public sealed class VoiceOnboardingController(IVoiceStore voice) : VoiceStoreController
 {
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateVoiceTenantCommand command, CancellationToken ct) =>
@@ -27,19 +27,4 @@ public sealed class VoiceOnboardingController(IVoiceStore voice) : ControllerBas
     [HttpPost("{tenantId:guid}/activate")]
     public async Task<IActionResult> Activate(Guid tenantId, [FromBody] ActivateVoiceTenantCommand command, CancellationToken ct) =>
         command is null ? BadRequest("An activation is required.") : ToAction(await voice.ActivateTenantAsync(tenantId, command, ct));
-
-    private IActionResult ToAction<T>(Result<T> result)
-    {
-        if (result.IsSuccess) return Ok(result.Value);
-        var message = string.IsNullOrWhiteSpace(result.Error) ? "The voice store failed." : result.Error;
-        // A result made with Result<T>.NotFound carries a status and no code; it is a 404 all the same.
-        if (result.Status == ResultStatus.NotFound) return NotFound(message);
-        return result.ErrorCode switch
-        {
-            VoiceFailureCodes.NotFound => NotFound(message),
-            VoiceFailureCodes.InvalidRequest => BadRequest(message),
-            VoiceFailureCodes.Conflict => Conflict(message),
-            _ => StatusCode(StatusCodes.Status503ServiceUnavailable, message),
-        };
-    }
 }

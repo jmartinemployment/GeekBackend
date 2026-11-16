@@ -13,12 +13,10 @@ namespace GeekAPI.Controllers.Voice;
 /// </summary>
 internal static class OwnerTenantClaim
 {
-    internal const string TenantClaim = ReceptionistAuth.TenantClaim;
-
     /// <summary>Null when the token's tenant is the tenant in the URL; otherwise the 403 to send.</summary>
     internal static ObjectResult? Refuse(ClaimsPrincipal user, Guid tenantId)
     {
-        if (!Guid.TryParse(user.FindFirstValue(TenantClaim), out var claimed) || claimed == Guid.Empty)
+        if (!Guid.TryParse(user.FindFirstValue(ReceptionistAuth.TenantClaim), out var claimed) || claimed == Guid.Empty)
             return Forbidden("The sign-in carries no tenant.", McpFailureCodes.TenantUnverified);
         if (claimed != tenantId)
             return Forbidden("That tenant is not yours.", McpFailureCodes.TenantForbidden);

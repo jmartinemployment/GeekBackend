@@ -11,7 +11,6 @@ public static class OwnerAuthFailureCodes
     public const string OwnerExists = "owner_exists";
     public const string InvalidCredentials = "invalid_credentials";
     public const string RefreshTokenInvalid = "refresh_token_invalid";
-    public const string RefreshTokenReused = VoiceOwnerFailureCodes.RefreshTokenReused;
     public const string NotConfigured = "owner_auth_not_configured";
 }
 
@@ -156,7 +155,7 @@ public sealed class OwnerAuthService(
         if (!rotated.IsSuccess)
         {
             if (rotated.ErrorCode == VoiceOwnerFailureCodes.RefreshTokenReused)
-                return Refuse<OwnerSession>("That sign-in has ended. Sign in again.", OwnerAuthFailureCodes.RefreshTokenReused);
+                return Refuse<OwnerSession>("That sign-in has ended. Sign in again.", VoiceOwnerFailureCodes.RefreshTokenReused);
             if (rotated.ErrorCode is VoiceFailureCodes.NotFound or VoiceFailureCodes.InvalidRequest)
                 return Refuse<OwnerSession>("That sign-in has expired. Sign in again.", OwnerAuthFailureCodes.RefreshTokenInvalid);
             return StoreFailed<OwnerSession>(rotated.ErrorCode, "The sign-in could not be renewed because the account store did not answer. Try again in a moment.");

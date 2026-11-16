@@ -59,7 +59,7 @@ public sealed class OwnerAuthController(OwnerAuthService owners) : ControllerBas
         VoiceFailureCodes.InvalidRequest => StatusCodes.Status400BadRequest,
         OwnerAuthFailureCodes.InvalidCredentials
             or OwnerAuthFailureCodes.RefreshTokenInvalid
-            or OwnerAuthFailureCodes.RefreshTokenReused => StatusCodes.Status401Unauthorized,
+            or VoiceOwnerFailureCodes.RefreshTokenReused => StatusCodes.Status401Unauthorized,
         VoiceFailureCodes.NotFound => StatusCodes.Status404NotFound,
         OwnerAuthFailureCodes.OwnerExists
             or OwnerAuthFailureCodes.TenantNotActive
