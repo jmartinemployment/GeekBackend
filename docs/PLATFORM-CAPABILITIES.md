@@ -129,9 +129,14 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    then. No timer.
 6. **YouTube: not supported (Jeff, 2026-11-16).** The quota question, and the tenant-owned Cloud project decision recorded
    earlier on this item, are moot. The research stays in section 2g and the appendix in case this changes.
-7. **Pinterest: not supported (Jeff, 2026-11-16).** It can only publish, which is not what the product is for. **TikTok:
-   comments exist only in the Business API's Accounts API**, behind an access application form that has been required
-   since 2026-03-20; whether to accept that is still open. (YouTube is not supported; see item 6.)
+7. **Pinterest: not supported (Jeff, 2026-11-16).** It can only publish, which is not what the product is for.
+   **TikTok: DECIDED (Jeff, 2026-11-16): obtaining TikTok access is the tenant's responsibility.** Comments exist
+   only in the Business API's Accounts API, behind an access application form required since 2026-03-20; the
+   tenant, not GeekSocial, registers a TikTok developer app and obtains that access. **Notes, mine and not
+   decided:** TikTok developer registration is company-only; a webhook's signature is keyed with the app secret, so
+   each tenant's app secret must be stored encrypted and per tenant, and the tenant's app must be pointed at our
+   callback; whether a tenant-owned app is allowed for a product run by another developer was not read.
+   (YouTube is not supported; see item 6.)
 8. **Selling this needs platform approvals that cannot start in code**: Meta Advanced Access (App Review,
    Business Verification, Live mode), LinkedIn Standard tier, Google's Business Profile access form, X's
    enterprise conversation, YouTube's audit and quota extension, TikTok's registration and access form,
