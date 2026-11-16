@@ -100,12 +100,20 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    same window. Still true and separate: a tool provider "cannot develop your own API that allows your clients to
    access the Business Profile APIs through automatic or programmatic computer scripts", so tenants use our screen,
    never an API of ours against Google's.
-3. **X needs a sales conversation before any X code.** Three self-serve limits are stated and unresolved:
-   an API reply is allowed only if the post's author "summoned" the replier (whether a commenter's reply to
-   a customer's post counts is unknown; X's Automation Rules, read in a browser, do allow an automated reply to
-   someone who replied to the account's own post, once per interaction, with an opt-out, but that is a separate
-   rule from the API one); AI-generated replies need X's prior approval (per app or per customer is unknown);
-   and self-serve plans suit "a limited number of end-users" with no number given.
+3. **X. DECIDED (Jeff, 2026-11-16): X is built last, and X is not asked anything, because X offers no way to
+   contact it.** What Jeff reports X staff said on X Developer Community threads (the threads were not read or
+   cited here, so the URLs are still needed): there is no approval form, portal or ticket queue for AI reply
+   apps; and when replies follow X's rules (only when the other user initiates by mention, reply or quote, one
+   reply per interaction, through the official API, with human supervision and no unsolicited outreach) no extra
+   written approval is needed. Human approval before posting makes it human-assisted publishing, not an
+   autonomous bot. This answers the Developer Guidelines line "AI-powered app generates and posts replies:
+   Requires prior approval from X" as Jeff reads it. **Conditions the product must meet** (X's Automation Rules,
+   read in a browser): the replied-to user opted in by replying to or mentioning the account, an easy opt-out is
+   offered and honoured, one automated reply per interaction, and the reply is to the user's original post. A
+   commenter's reply to a tenant's post carries an @mention of the tenant, which is X's own definition of
+   "summoned" for the API reply rule; this is treated as satisfied and is proven only by a live test (Phase 6).
+   **Still not known, and no one can be asked:** how many customers a self-serve app may have before Enterprise
+   ("a limited number of end-users"). It will show up in X's billing and access limits when X is built.
 4. **Sending comment text to Claude is still unruled on every platform except Meta's wording.** Meta
    requires the provider to agree in writing to use the data "solely for you and at your direction". LinkedIn,
    YouTube, Google, TikTok, Pinterest and X say nothing about inference (X and Pinterest forbid training).
