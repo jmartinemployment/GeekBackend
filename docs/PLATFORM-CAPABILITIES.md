@@ -61,10 +61,19 @@ around: no scraping, no session cookies, no unofficial APIs.
    **What this changes in what is already built (no code is changed at Gate 7a):** `AutoSendCategories` on
    `SocialAccount`, the auto-send step in the Orchestrator, and the auto-send settings on the Accounts page are
    to be removed in a later gate, and the Sender must refuse any send whose draft was not approved by a person.
-2. **Google Business Profile limits storing review content to 30 days and bars aggregating it.** The
-   terms say Content "must be stored temporarily for no more than 30 calendar days" and "cannot be
-   manipulated or aggregated". That conflicts with keeping a review history, with drafts that quote the
-   review, and with Triage. It needs a legal reading before Google Business Profile is built.
+2. **Google's content-storage rule: its scope is unclear, and my first reading was too broad.** The policy's
+   "Content storage" section (re-read in a browser) says: "You cannot pre-fetch, cache, index, or store any
+   content provided through the Business Profile APIs ("Content") for use outside of your Business Profile
+   project except for limited amounts of Content. You can store limited amounts of Content only to improve the
+   performance of your project." Stored Content "must be stored temporarily for no more than 30 calendar days",
+   "securely", and "cannot be manipulated or aggregated in any way". The restriction is worded around storing
+   Content "for use outside of your Business Profile project" and around caching "to improve the performance of
+   your project". Whether it also limits an inbox that holds a review so a person can approve a reply to it, and
+   how long we may keep that review or our reply, is not stated. Earlier text in this document called it a 30-day
+   cap on review history; that is not established. It needs Google's answer or a legal reading before Google
+   code. A separate clause matters too: a tool provider "cannot develop your own API that allows your clients to
+   access the Business Profile APIs through automatic or programmatic computer scripts", so tenants may use our
+   screen but not our API against Google's.
 3. **X needs a sales conversation before any X code.** Three self-serve limits are stated and unresolved:
    an API reply is allowed only if the post's author "summoned" the replier (whether a commenter's reply to
    a customer's post counts is unknown; X's Automation Rules, read in a browser, do allow an automated reply to
@@ -458,7 +467,7 @@ Meta (Platform Terms, developer policies; check the current versions):
 
 | Platform | Rule | Effect |
 |---|---|---|
-| Google Business Profile | store Content "temporarily for no more than 30 calendar days"; it "cannot be manipulated or aggregated" | severe: conflicts with a review history and with drafts built on review text (section 1b, item 2) |
+| Google Business Profile | Content stored under the policy's exception "must be stored temporarily for no more than 30 calendar days" and "cannot be manipulated or aggregated"; the rule is worded around storage "for use outside of your Business Profile project" and caching "to improve the performance of your project" | scope unclear (section 1b, item 2); do not assume a review history is allowed or forbidden |
 | YouTube | refresh or delete stored authorized data within 30 days; delete within 7 days of a request or revoked consent; no derived data; no cross-owner aggregation | per-tenant stores and a deletion path |
 | Pinterest | no storing API-accessed information without written consent; delete within 30 days | applies to published-post records |
 | Meta | each client's data kept separate; a deletion-callback URL receives a `signed_request` and returns `{url, confirmation_code}` | per-tenant isolation; build the callback |

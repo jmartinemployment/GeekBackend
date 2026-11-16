@@ -1,0 +1,188 @@
+URL: https://developers.google.com/my-business/content/policies
+HTTP: 200
+
+Skip to main content
+Business Profile APIs
+/
+Sign in
+Guides
+Reference
+Samples
+Support
+Overview
+Business Profile overview
+Accounts
+OAuth
+Locations
+Best practices
+Latest updates
+Versioning
+Known issues
+API policies
+Quota limits
+Get started
+How to...
+FAQs
+Latest Business Profile API updates
+Check edit status for locations and attributes with the new v1alpha endpoints. See the Edit Status guide or the Latest Updates page.
+Home
+Products
+Business Profile APIs
+Guides
+Was this helpful?
+On this page
+General API policies
+Third-party policy
+Guidelines
+Transparency
+Reviews
+Q&A
+Security
+Termination of end-client relationship
+
+Business Profile APIs policies
+
+The goal of our policies is to ensure that the Business Profile APIs are used in ways that support and enhance Business Profile, and also provide a transparent and consistent experience to the end customer, which is the business owner.
+
+We may review your use of the Business Profile APIs at any time and for any reason in order to ensure that they comply with the Business Profile Terms of Service. Because we may change our policies at any time, check this Business Profile APIs policies page often for updates. It's your responsibility to keep up-to-date with, and adhere to, the policies posted here.
+
+General API policies
+
+You can only use the Business Profile APIs to create, manage, and report on business listings that you either own or are authorized to manage on behalf of the business owner, or to develop tools for end-clients to similarly manage their listings. Use of the Business Profile APIs for purposes outside the scope of these policies is prohibited. Users of the Business Profile APIs must adhere to all Business Profile policies.
+
+Google may deactivate your API project ID if your project is not adhering to Google's API policies. If your project is deactivated, you may reapply again.
+
+For any questions about the data available to you or how to access the data, fill this form.
+
+Third-party policy
+
+This section applies to the following groups:
+
+Agencies and other third parties that manage business listings on behalf of end-clients and provide software tools to those customers.
+Software developers that manage business listings on behalf of end-clients and provide tools to agencies and third parties.
+Guidelines
+
+Agencies or other third-parties that manage business listings on behalf of end-clients must follow the Business Profile third party policies and the Guidelines for how to represent your business on Google: Additional guidelines for authorized representatives.
+
+Transparency
+
+No matter what tool business owners use, we want them to understand how Business Profile performs for them. When you report and manage Business Profile data, be transparent to your customers. Also, be transparent to end-clients about any changes you or your tool makes to their accounts. If your tool makes any changes to an end-client’s account, such as when you add a new manager to the account, provide notice to the end-client of the change within 48 hours after the change is made. Make this notice separate and distinct from any other notices that Business Profile might automatically provide as a result of account-level changes.
+
+Reviews
+
+Business owners have the ability to respond to reviews of their business on Google. If you respond to reviews on behalf of your end-client, you must receive their authorization first. All responses to reviews must follow Google’s Prohibited and restricted content policies.
+
+Q&A
+
+Business owners have the ability to post and answer questions on their business on Google. If you post or respond to questions on behalf of your end-client, you must receive their authorization first. All responses to questions must follow Google’s Prohibited and restricted content policies.
+
+Security
+
+Business owners who have their business listings managed by third-parties have the right to expect their accounts to be kept safe. You must ensure the integrity and security of your end-clients' account credentials. To do this, you're expected to employ related best practices. For example, do not share account usernames and passwords, and do use business accounts. Third-parties are encouraged to follow Best practices for creating business accounts to limit the risk of unauthorized access to end-client account credentials.
+
+You're solely responsible to Google for your use of the Business Profile APIs. You must notify Google immediately if you become aware of any unauthorized use of your or your end-clients' password, Google Account, or any unique identifier that Google may require you to use, such as an API key, client ID, or a "developer identifier."
+
+Termination of end-client relationship
+
+You must provide your end-client with a quick and easy way to stop use of your APIs. When an end-client gives notice that they no longer use your APIs to manage their Business Profile accounts, you have seven business days to provide them the ability to disassociate their Business Profile account from your services and developer project, and regain exclusive control of their Business Profile account(s). If your tool had permission to manage or otherwise change the end-client’s account, you must also relinquish and remove those permissions accordingly.
+
+Policy enforcement
+
+Business Profile APIs policies are strictly enforced.
+
+Policy violations and termination
+
+Failure to comply with these policies may lead Google to disable your Business Profile APIs project. If the violation of your Business Profile APIs project is severe, we may disable it without warning. We send communications about policy violations to the email address associated with your Business Profile account.
+
+Demo account
+
+Upon request from Google, you must provide a demo account to your API tool within seven days of the request. The demo must be a live version of your tool, or a demo with the same functionality as the live version, so that we can review it for compliance with our policies. Failure to provide the demo, or any attempt to provide a false account of your live tool, constitutes a violation of these policies.
+
+Prohibited practices
+
+There are several practices with the Business Profile APIs that Google prohibits.
+
+Supplemental Business Profile projects
+
+If you provide the Business Profile APIs to end-clients or other third-party clients, you cannot require them to apply for their own Business Profile project in order to use the Business Profile APIs. We deny end-client applications for such projects.
+
+Automated use of your Business Profile project
+
+You cannot allow agencies, end-clients, or other third parties to use your Business Profile project, or your own APIs, in a way that allows those third parties to avoid applying for their own Business Profile project. Any automatic or programmatic use of Business Profile by agencies or end-clients requires them to use their own Business Profile project. You cannot provide indirect access to your Business Profile project. End users of your Business Profile APIs need to manually sign in to use it. They're not allowed automatic access to make manual or programmatic changes to their accounts.
+
+For example, if you're a tool provider that licenses listings-management software to agencies and end-clients, you cannot develop your own API that allows your clients to access the Business Profile APIs through automatic or programmatic computer scripts.
+
+Note: This policy doesn't restrict your own use of the Business Profile APIs in a programmatic or automated way. The policy just doesn't allow third-parties to access the Business Profile APIs in a programmatic or automated way when they use your API project. They're only allowed to apply it to their own API project.
+
+You may not use the Business Profile APIs to engage in abusive behaviors, which includes but isn't limited to fraudulent, abusive, or otherwise invalid activity. For example, you must not automate or trigger review replies, Q&As, listing creations, listing edits, or other actions without the user's prior specific and express consent. You may not use the Business Profile APIs to automatically revert changes made by Google.
+
+Content storage
+
+You cannot pre-fetch, cache, index, or store any content provided through the Business Profile APIs ("Content") for use outside of your Business Profile project except for limited amounts of Content. You can store limited amounts of Content only to improve the performance of your project.
+
+Stored Content must meet the following requirements:
+
+It must be stored temporarily for no more than 30 calendar days.
+It must be stored securely.
+It cannot be manipulated or aggregated in any way.
+
+At no time may you store Content in order to prevent Google from tracking usage of your Business Profile project.
+
+GoogleLocation
+
+You're only allowed to use the GoogleLocations endpoint to find the status of locations of merchants that already have a business relationship with your company, and only to use the endpoint to create or claim those locations on Business Profile.
+
+Use of this endpoint for any other purpose, which includes lead generation or other analysis, is against Google’s policies and will result in immediate revocation of your API access.
+
+Verification
+
+Verification options can only be initiated by a direct request from the owner of the location.
+
+Unauthorized use of branding and trademarks
+
+Your Business Profile APIs must not replicate the look and feel of the Business Profile user interface. Otherwise, it can confuse others and lead them to believe that your tool is a Google product.
+
+Content provided to you through the Service may contain the "brand features" of Google, its strategic partners, or other third-party rights holders of content that Google indexes. When Google provides those Brand Features or other attribution through the Service, you must display such attribution as provided, or as described in the Business Profile APIs documentation, and you must not delete or alter the attribution.
+
+You must comply with Google's brand permissions guidelines.
+
+Publicity
+
+Use of the Business Profile APIs doesn't create, suggest, or imply a partnership with, sponsorship by, or endorsement by Google. You cannot make any statement in regards to your use of the Business Profile APIs that suggests these types of relationship without Google’s prior written approval.
+
+Interference with Google activities
+
+Google may monitor and audit any Business Profile APIs activity to ensure compliance with all applicable policies and terms. You're not allowed to interfere when we monitor or audit your Business Profile APIs activity, nor are you allowed to conceal it from Google. Any interference is considered a violation of these policies.
+
+Was this helpful?
+
+Except as otherwise noted, the content of this page is licensed under the Creative Commons Attribution 4.0 License, and code samples are licensed under the Apache 2.0 License. For details, see the Google Developers Site Policies. Java is a registered trademark of Oracle and/or its affiliates.
+
+Last updated 2026-08-28 UTC.
+
+Product Info
+Terms of Service
+Usage Limits
+Pricing
+Help
+Support
+Build
+Android
+Chrome
+Firebase
+Google AI Studio
+Google Antigravity
+Google Cloud
+Google Play
+View all
+Android
+Chrome
+Firebase
+Google Cloud Platform
+Google AI
+All products
+Terms
+Privacy
+Info
+Chat
+API
