@@ -70,7 +70,7 @@ public sealed class RetellProvisionerTests
     {
         var handler = new StubHandler(respond ?? Happy);
         var log = new CapturingLogger();
-        var opts = options ?? new RetellOptions(Key, "gpt-4.1-mini", "https://api.example.test");
+        var opts = options ?? new RetellOptions(Key, "gpt-4.1-mini", "https://api.example.test", "webhook_key");
         return (new RetellProvisioner(new HttpClient(handler), opts, log), handler, log);
     }
 
@@ -120,7 +120,7 @@ public sealed class RetellProvisionerTests
     [Fact]
     public async Task Unset_variables_refuse_before_anything_is_created_and_the_log_names_them_without_a_value()
     {
-        var (provisioner, handler, log) = Make(options: new RetellOptions(Key, null, " "));
+        var (provisioner, handler, log) = Make(options: new RetellOptions(Key, null, " ", "webhook_key"));
 
         var result = await provisioner.ProvisionAsync(Tenant, Script, Telephony);
 
@@ -137,8 +137,8 @@ public sealed class RetellProvisionerTests
     [Fact]
     public void The_missing_list_is_in_the_plans_order_and_empty_when_all_are_set()
     {
-        Assert.Equal(["RETELL_API_KEY", "RETELL_LLM_MODEL", "PUBLIC_BASE_URL"], new RetellOptions(null, "", null).Missing());
-        Assert.Empty(new RetellOptions("k", "m", "https://x.test").Missing());
+        Assert.Equal(["RETELL_API_KEY", "RETELL_LLM_MODEL", "PUBLIC_BASE_URL", "RETELL_WEBHOOK_SECRET"], new RetellOptions(null, "", null, " ").Missing());
+        Assert.Empty(new RetellOptions("k", "m", "https://x.test", "w").Missing());
     }
 
     [Fact]
@@ -149,9 +149,10 @@ public sealed class RetellProvisionerTests
             ["RETELL_API_KEY"] = " key ",
             ["RETELL_LLM_MODEL"] = " gpt-4.1-mini ",
             ["PUBLIC_BASE_URL"] = " https://api.example.test/ ",
+            ["RETELL_WEBHOOK_SECRET"] = " webhook_key ",
         };
 
-        Assert.Equal(new RetellOptions("key", "gpt-4.1-mini", "https://api.example.test"), RetellOptions.From(name => vars.GetValueOrDefault(name)));
+        Assert.Equal(new RetellOptions("key", "gpt-4.1-mini", "https://api.example.test", "webhook_key"), RetellOptions.From(name => vars.GetValueOrDefault(name)));
     }
 
     [Theory]
@@ -223,7 +224,7 @@ public sealed class RetellProvisionerTests
     {
         var handler = new StubHandler(_ => throw new HttpRequestException("connection refused"));
         var log = new CapturingLogger();
-        var provisioner = new RetellProvisioner(new HttpClient(handler), new RetellOptions(Key, "gpt-4.1-mini", "https://api.example.test"), log);
+        var provisioner = new RetellProvisioner(new HttpClient(handler), new RetellOptions(Key, "gpt-4.1-mini", "https://api.example.test", "webhook_key"), log);
 
         var result = await provisioner.ProvisionAsync(Tenant, Script, Telephony);
 

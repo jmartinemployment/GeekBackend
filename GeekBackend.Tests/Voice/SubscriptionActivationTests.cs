@@ -155,7 +155,7 @@ public sealed class SubscriptionActivationTests
                 Store,
                 new PayPalBillingVerifier(new HttpClient(new Router("paypal", Calls, paypal ?? PayPalHappy)), new PayPalOptions("https://paypal.test", "client-id", "client-secret"), NullLogger<PayPalBillingVerifier>.Instance),
                 new TwilioProvisioner(new HttpClient(new Router("twilio", Calls, twilio ?? TwilioHappy)), twilioOptions ?? new TwilioOptions("ACmaster", "master-token", null), NullLogger<TwilioProvisioner>.Instance),
-                new RetellProvisioner(new HttpClient(new Router("retell", Calls, retell ?? RetellHappy)), retellOptions ?? new RetellOptions("key_retell", "gpt-4.1-mini", "https://api.example.test"), NullLogger<RetellProvisioner>.Instance),
+                new RetellProvisioner(new HttpClient(new Router("retell", Calls, retell ?? RetellHappy)), retellOptions ?? new RetellOptions("key_retell", "gpt-4.1-mini", "https://api.example.test", "key_webhook"), NullLogger<RetellProvisioner>.Instance),
                 protector,
                 NullLogger<SubscriptionActivation>.Instance);
         }
@@ -283,7 +283,7 @@ public sealed class SubscriptionActivationTests
     public async Task An_unset_variable_refuses_before_PayPal_Twilio_or_Retell_is_called(string which)
     {
         var world = which == "retell"
-            ? new World(retellOptions: new RetellOptions("key", null, "https://api.example.test"))
+            ? new World(retellOptions: new RetellOptions("key", null, "https://api.example.test", "key_webhook"))
             : new World(twilioOptions: new TwilioOptions(null, "master-token", null));
 
         var result = await world.Activation.ActivateAsync(Request());

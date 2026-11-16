@@ -9,7 +9,7 @@ namespace GeekAPI.Controllers.Voice;
 /// <summary>
 /// POST /api/receptionist/retell/webhook/{tenantId} (docs/Geek-Receptionist.md section 6): where each tenant's Retell agent posts its
 /// call events; RetellProvisioner gives the agent this address. Retell cannot send our API key, so ApiKeyMiddleware lets this prefix
-/// through and the X-Retell-Signature over the raw body is what authenticates a delivery: without RETELL_API_KEY nothing is accepted
+/// through and the X-Retell-Signature over the raw body is what authenticates a delivery: without RETELL_WEBHOOK_SECRET (the Retell key with the Webhook badge) nothing is accepted
 /// (503), and a delivery whose signature does not match or is more than five minutes old is refused (401). A recorded call answers
 /// 204, which is all Retell reads; a store that is down answers 503, so Retell delivers again.
 /// </summary>
@@ -39,9 +39,9 @@ public sealed class RetellWebhookController : ControllerBase
     [RequestSizeLimit(MaxBodyBytes)]
     public async Task<IActionResult> Receive(Guid tenantId, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(_options.ApiKey))
+        if (string.IsNullOrWhiteSpace(_options.WebhookKey))
         {
-            _logger.LogError("A Retell delivery for tenant {TenantId} was refused: RETELL_API_KEY is not set, so no signature can be checked.", tenantId);
+            _logger.LogError("A Retell delivery for tenant {TenantId} was refused: RETELL_WEBHOOK_SECRET is not set, so no signature can be checked.", tenantId);
             return Refuse(StatusCodes.Status503ServiceUnavailable, "Retell deliveries cannot be checked.", "retell_not_configured");
         }
 
@@ -52,7 +52,7 @@ public sealed class RetellWebhookController : ControllerBase
             body = buffer.ToArray();
         }
 
-        if (!RetellWebhookSignature.IsValid(body, Request.Headers[RetellWebhookSignature.Header], _options.ApiKey, _clock.GetUtcNow()))
+        if (!RetellWebhookSignature.IsValid(body, Request.Headers[RetellWebhookSignature.Header], _options.WebhookKey, _clock.GetUtcNow()))
         {
             _logger.LogWarning("A Retell delivery for tenant {TenantId} was refused: its signature did not match or was too old.", tenantId);
             return Refuse(StatusCodes.Status401Unauthorized, "The delivery's signature did not match.", "invalid_signature");

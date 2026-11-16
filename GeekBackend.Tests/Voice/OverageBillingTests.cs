@@ -266,7 +266,7 @@ public sealed class OverageBillingTests
         var standing = new TenantStanding(
             store,
             new FakeVoice(),
-            new RetellProvisioner(client, new RetellOptions("key", "gpt", "https://api.example"), NullLogger<RetellProvisioner>.Instance),
+            new RetellProvisioner(client, new RetellOptions("key", "gpt", "https://api.example", "webhook_key"), NullLogger<RetellProvisioner>.Instance),
             new TwilioProvisioner(client, new TwilioOptions("AC-MASTER", "master-token", null), NullLogger<TwilioProvisioner>.Instance),
             NullLogger<TenantStanding>.Instance);
         var log = new CapturingLogger<OverageBilling>();

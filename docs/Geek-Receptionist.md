@@ -210,7 +210,8 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | `TWILIO_MASTER_AUTH_TOKEN` | ✓ | Secret | Parent Twilio Auth Token used to create Subaccounts and manage TrustHub ISV profiles |
 | `PUBLIC_BASE_URL` | ✓ | `https://api.geekatyourspot.com` | Public HTTPS base URL of `GeekAPI` (no trailing slash); used for Twilio/Retell webhook URLs and `TwilioSignatureFilter` validation |
 | `VALIDATE_TWILIO_SIGNATURE` | | `true` | Defaults to `true`; `false` permitted only in local integration tests |
-| `RETELL_API_KEY` | ✓ | Secret | Retell AI API key used to programmatically create/update per-tenant voice agents, and the key `X-Retell-Signature` is checked with (Retell signs webhooks with the API key that carries the webhook badge, so this must be that key). Unset: the webhook answers 503 |
+| `RETELL_API_KEY` | ✓ | Secret | Retell AI API key used to programmatically create/update per-tenant voice agents |
+| `RETELL_WEBHOOK_SECRET` | ✓ | Secret | The Retell API key that carries the **Webhook** badge in Retell's dashboard (Settings, API Keys); `X-Retell-Signature` is checked with it, because Retell signs deliveries with that key only. The account has two keys (checked 2026-11-16): `RETELL_API_KEY` is "Geek @ Your Spot LLC" and this one is "Secret Key", the badged one. Unset: the webhook answers 503 and no signup is activated |
 | `RETELL_LLM_MODEL` | ✓ | Model name from Retell's list, e.g. `gpt-4.1-mini` | The live-call model every tenant's Retell agent uses at `temperature = 0.2`; a variable of its own, never shared with Content Creator's model variables; unset: activation fails with 503 `retell_not_configured` |
 | `PAYPAL_BASE_URL` | ✓ | Sandbox: `https://api-m.sandbox.paypal.com`<br>Live: `https://api-m.paypal.com` | PayPal REST API host for Subscription verification, Vault tokens, and `$0.50/min` overage capture |
 | `PAYPAL_CLIENT_ID` | ✓ | Client ID | PayPal REST app client ID |

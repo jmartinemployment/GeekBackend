@@ -183,11 +183,11 @@ public sealed class RetellCallRecorderTests
         Assert.False(RetellWebhookSignature.IsValid(body, "v=1,d=zz", Key, Now));
     }
 
-    private static async Task<(int Status, FakeVoice Store)> Post(string json, string? signature, string? apiKey = Key)
+    private static async Task<(int Status, FakeVoice Store)> Post(string json, string? signature, string? webhookKey = Key)
     {
         var store = new FakeVoice();
         var controller = new RetellWebhookController(
-            new RetellOptions(apiKey, "gpt", "https://api.example"),
+            new RetellOptions("api_key_without_the_webhook_badge", "gpt", "https://api.example", webhookKey),
             new RetellCallRecorder(store, NullLogger<RetellCallRecorder>.Instance),
             new FakeTimeProvider(Now),
             NullLogger<RetellWebhookController>.Instance);
@@ -223,7 +223,7 @@ public sealed class RetellCallRecorderTests
     public async Task Without_the_retell_key_nothing_is_accepted()
     {
         var json = Delivery();
-        Assert.Equal(503, (await Post(json, RetellWebhookSignature.Sign(Encoding.UTF8.GetBytes(json), Key, Now), apiKey: null)).Status);
+        Assert.Equal(503, (await Post(json, RetellWebhookSignature.Sign(Encoding.UTF8.GetBytes(json), Key, Now), webhookKey: null)).Status);
     }
 
     [Fact]
