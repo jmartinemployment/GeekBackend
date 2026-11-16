@@ -85,6 +85,7 @@ public static class VoiceEmbedding
 public sealed record CreateVoiceTenantCommand(
     string BusinessName,
     string IndustryVertical,
+    string BusinessActivityCode,
     bool RequiresAddendum,
     DateTimeOffset? AddendumSignedAt,
     string? AddendumIpAddress,
@@ -99,6 +100,7 @@ public sealed record VoiceTenant(
     Guid Id,
     string BusinessName,
     string IndustryVertical,
+    string? BusinessActivityCode,
     bool RequiresAddendum,
     DateTimeOffset? AddendumSignedAt,
     string? AddendumIpAddress,

@@ -11,7 +11,8 @@ namespace GeekBackend.Tests.Voice;
 
 /// <summary>
 /// The four rules of the self-service gate, in the plan's order, and what each leaves behind: a refused signup creates nothing,
-/// and an accepted one is exactly one pending tenant carrying the attestation and, where the industry needs it, the addendum.
+/// and an accepted one is exactly one pending tenant carrying the attestation, its IRS business activity code and, where the
+/// industry needs it, the addendum.
 /// </summary>
 public sealed class OnboardingEligibilityTests
 {
@@ -28,7 +29,7 @@ public sealed class OnboardingEligibilityTests
             return Task.FromResult(create is not null ? create() : Result<VoiceTenant>.Success(Tenant(command)));
         }
 
-        private static VoiceTenant Tenant(CreateVoiceTenantCommand c) => new(NewTenant, c.BusinessName, c.IndustryVertical, c.RequiresAddendum,
+        private static VoiceTenant Tenant(CreateVoiceTenantCommand c) => new(NewTenant, c.BusinessName, c.IndustryVertical, c.BusinessActivityCode, c.RequiresAddendum,
             c.AddendumSignedAt, c.AddendumIpAddress, c.ComplianceAttestedAt, c.CountryCode, c.StateCode, c.County, c.ContactEmail, c.ContactPhone,
             VoiceTenantStatuses.PendingPayment, Now);
 
@@ -46,8 +47,8 @@ public sealed class OnboardingEligibilityTests
     }
 
     private static ValidateEligibilityRequest Signup(
-        string industry = "HVAC", string? country = "US", bool? attested = true, bool? addendumSigned = null) =>
-        new("Boca Cool HVAC", industry, country, "FL", "Palm Beach", "owner@bocacool.example", "+15615550101", attested, addendumSigned);
+        string? activity = "238220", string? country = "US", bool? attested = true, bool? addendumSigned = null) =>
+        new("Boca Cool HVAC", activity, country, "FL", "Palm Beach", "owner@bocacool.example", "+15615550101", attested, addendumSigned);
 
     private static readonly VisitorOrigin FromUs = new("203.0.113.9", "US");
 
@@ -70,6 +71,38 @@ public sealed class OnboardingEligibilityTests
         Assert.Null(created.AddendumIpAddress);
         Assert.Equal("US", created.CountryCode);
         Assert.Equal("Palm Beach", created.County);
+        Assert.Equal("238220", created.BusinessActivityCode);
+        Assert.Equal("Plumbing, heating, & air-conditioning contractors", created.IndustryVertical);
+    }
+
+    [Theory]
+    [InlineData("541510")] // computer systems design: an AI consultancy that serves accounting firms is not an accounting firm
+    [InlineData("624410")] // childcare is social assistance, not healthcare and not education
+    [InlineData("541600")]
+    public async Task A_code_outside_the_excluded_ranges_passes_without_an_addendum(string activity)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup(activity), FromUs);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.False(Assert.Single(store.Created).RequiresAddendum);
+    }
+
+    [Theory]
+    [InlineData("HVAC")]
+    [InlineData("541511")] // NAICS has it; the 2025 Schedule C chart folds it into 541510
+    [InlineData("999000")] // "unclassified" would step around every rule
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task A_code_the_chart_does_not_have_is_refused_and_creates_nothing(string? activity)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup(activity), FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.BusinessActivityUnknown, result.ErrorCode);
+        Assert.Empty(store.Created);
     }
 
     [Theory]
@@ -88,12 +121,11 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Theory]
-    [InlineData("Healthcare")]
-    [InlineData("medical")]
-    [InlineData("DENTAL")]
-    [InlineData("Veterinary Clinic")]
-    [InlineData("Dental Lab")]
-    [InlineData("Hospital Supplies")]
+    [InlineData("621111")] // offices of physicians
+    [InlineData("621210")] // offices of dentists
+    [InlineData("622000")] // hospitals
+    [InlineData("623000")] // nursing and residential care
+    [InlineData("541940")] // veterinary services
     public async Task A_healthcare_industry_is_refused_whatever_the_flag_says(string industry)
     {
         foreach (var flag in new[] { false, true })
@@ -108,13 +140,13 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Theory]
-    [InlineData("Law Firm")]
-    [InlineData("legal services")]
-    [InlineData("Financial Services")]
-    [InlineData("Accounting")]
-    [InlineData("School")]
-    [InlineData("Preschool")]
-    [InlineData("Education")]
+    [InlineData("541100")] // legal services
+    [InlineData("541211")] // certified public accountants
+    [InlineData("541213")] // tax preparation
+    [InlineData("541214")] // payroll services
+    [InlineData("522100")] // banking
+    [InlineData("524210")] // insurance agencies
+    [InlineData("611000")] // educational services
     public async Task An_addendum_industry_is_blocked_while_addendums_are_not_published(string industry)
     {
         var store = new RecordingStore();
@@ -130,7 +162,7 @@ public sealed class OnboardingEligibilityTests
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store, addendums: true).ValidateAsync(Signup("Law Firm", addendumSigned: true), FromUs);
+        var result = await Gate(store, addendums: true).ValidateAsync(Signup("541100", addendumSigned: true), FromUs);
 
         Assert.True(result.IsSuccess, result.Error);
         var created = Assert.Single(store.Created);
@@ -146,7 +178,7 @@ public sealed class OnboardingEligibilityTests
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store, addendums: true).ValidateAsync(Signup("Accounting", addendumSigned: signed), FromUs);
+        var result = await Gate(store, addendums: true).ValidateAsync(Signup("541211", addendumSigned: signed), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.AddendumRequired, result.ErrorCode);
         Assert.Empty(store.Created);
@@ -220,11 +252,11 @@ public sealed class OnboardingEligibilityTests
         var store = new RecordingStore();
 
         // Wrong country, healthcare and no attestation at once: the country rule speaks first.
-        var first = await Gate(store).ValidateAsync(Signup("Medical", country: "CA", attested: false), FromUs);
+        var first = await Gate(store).ValidateAsync(Signup("621111", country: "CA", attested: false), FromUs);
         // Healthcare and no attestation: the industry rule speaks before the attestation rule.
-        var second = await Gate(store).ValidateAsync(Signup("Medical", attested: false), FromUs);
+        var second = await Gate(store).ValidateAsync(Signup("621111", attested: false), FromUs);
         // An addendum industry and no attestation: the block speaks before the attestation rule.
-        var third = await Gate(store, addendums: false).ValidateAsync(Signup("Legal", attested: false), FromUs);
+        var third = await Gate(store, addendums: false).ValidateAsync(Signup("541100", attested: false), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.CountryNotSupported, first.ErrorCode);
         Assert.Equal(OnboardingFailureCodes.IndustryExcluded, second.ErrorCode);
@@ -247,6 +279,7 @@ public sealed class OnboardingEligibilityTests
 
     [Theory]
     [InlineData(OnboardingFailureCodes.CountryNotSupported, 400)]
+    [InlineData(OnboardingFailureCodes.BusinessActivityUnknown, 400)]
     [InlineData(OnboardingFailureCodes.IndustryExcluded, 400)]
     [InlineData(OnboardingFailureCodes.IndustryAddendumNotAvailable, 400)]
     [InlineData(OnboardingFailureCodes.AddendumRequired, 400)]

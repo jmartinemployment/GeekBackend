@@ -25,7 +25,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
     private const int MaxSearchResults = 50;
     private const string TenantColumns = """
-        id AS Id, business_name AS BusinessName, industry_vertical AS IndustryVertical, requires_addendum AS RequiresAddendum,
+        id AS Id, business_name AS BusinessName, industry_vertical AS IndustryVertical, business_activity_code AS BusinessActivityCode,
+        requires_addendum AS RequiresAddendum,
         addendum_signed_at AS AddendumSignedAt, host(addendum_ip_address) AS AddendumIpAddress,
         compliance_attested_at AS ComplianceAttestedAt, country_code AS CountryCode, state_code AS StateCode, county AS County,
         contact_email AS ContactEmail, contact_phone AS ContactPhone, status AS Status, created_at AS CreatedAt
@@ -56,10 +57,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             await using var conn = await OpenForTenantAsync(tenantId, ct);
             var row = await conn.QuerySingleAsync<TenantRow>(new CommandDefinition($"""
                 INSERT INTO geek_voice.tenants (
-                    id, business_name, industry_vertical, requires_addendum, addendum_signed_at, addendum_ip_address,
+                    id, business_name, industry_vertical, business_activity_code, requires_addendum, addendum_signed_at, addendum_ip_address,
                     compliance_attested_at, country_code, state_code, county, contact_email, contact_phone)
                 VALUES (
-                    @TenantId, @BusinessName, @IndustryVertical, @RequiresAddendum, @AddendumSignedAt, @AddendumIpAddress::inet,
+                    @TenantId, @BusinessName, @IndustryVertical, @BusinessActivityCode, @RequiresAddendum, @AddendumSignedAt, @AddendumIpAddress::inet,
                     @ComplianceAttestedAt, @CountryCode, @StateCode, @County, @ContactEmail, @ContactPhone)
                 RETURNING {TenantColumns};
                 """,
@@ -68,6 +69,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     TenantId = tenantId,
                     command.BusinessName,
                     command.IndustryVertical,
+                    command.BusinessActivityCode,
                     command.RequiresAddendum,
                     AddendumSignedAt = command.AddendumSignedAt?.UtcDateTime,
                     command.AddendumIpAddress,
@@ -542,6 +544,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     {
         if (Blank(c.BusinessName)) return "A business name is required.";
         if (Blank(c.IndustryVertical)) return "An industry is required.";
+        if (c.BusinessActivityCode is not { Length: 6 } || !c.BusinessActivityCode.All(char.IsAsciiDigit))
+            return "The business activity code must be six digits.";
         if (!string.Equals(c.CountryCode, "US", StringComparison.Ordinal)) return "Only US businesses can sign up.";
         if (c.StateCode is null || c.StateCode.Length != 2) return "The state must be a two-letter code.";
         if (Blank(c.ContactEmail) || !c.ContactEmail.Contains('@', StringComparison.Ordinal)) return "A contact email is required.";
@@ -646,6 +650,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public Guid Id { get; set; }
         public string BusinessName { get; set; } = "";
         public string IndustryVertical { get; set; } = "";
+        public string? BusinessActivityCode { get; set; }
         public bool RequiresAddendum { get; set; }
         public DateTime? AddendumSignedAt { get; set; }
         public string? AddendumIpAddress { get; set; }
@@ -659,7 +664,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public DateTime CreatedAt { get; set; }
 
         public VoiceTenant ToModel() => new(
-            Id, BusinessName, IndustryVertical, RequiresAddendum, AddendumSignedAt is null ? null : Utc(AddendumSignedAt.Value),
+            Id, BusinessName, IndustryVertical, BusinessActivityCode, RequiresAddendum, AddendumSignedAt is null ? null : Utc(AddendumSignedAt.Value),
             AddendumIpAddress, Utc(ComplianceAttestedAt), CountryCode, StateCode, County, ContactEmail, ContactPhone, Status, Utc(CreatedAt));
     }
 

@@ -16,13 +16,13 @@ public sealed class OnboardingPipelineTests(GeekApiTestFactory factory) : IClass
     // The form says Canada, so the gate refuses before any call to GeekRepository is made: nothing here needs a store.
     private static readonly object RefusedByForm = new
     {
-        businessName = "Maple Heating", industryVertical = "HVAC", countryCode = "CA", stateCode = "ON",
+        businessName = "Maple Heating", businessActivityCode = "238220", countryCode = "CA", stateCode = "ON",
         contactEmail = "owner@maple.example", contactPhone = "+14165550101", complianceAttested = true,
     };
 
     private static readonly object DeclaresUs = new
     {
-        businessName = "Maple Heating", industryVertical = "HVAC", countryCode = "US", stateCode = "FL",
+        businessName = "Maple Heating", businessActivityCode = "238220", countryCode = "US", stateCode = "FL",
         contactEmail = "owner@maple.example", contactPhone = "+15615550101", complianceAttested = true,
     };
 

@@ -55,7 +55,7 @@ Every tenant-scoped database operation in `GeekRepository` **MUST** enforce defe
 2. **Query-Level Tenant Predicate:** Every `SELECT`, `UPDATE`, and `DELETE` against `geek_voice` tenant tables **MUST** include `WHERE tenant_id = @TenantId` (or `WHERE id = @TenantId` on `geek_voice.tenants`).
 
 ### Canonical `geek_voice` Tables
-* `geek_voice.tenants` — Tenant profile, `country_code` (`'US'`), `state_code`, `county`, `industry_vertical`, `requires_addendum`, `addendum_signed_at`, `addendum_ip_address`, `compliance_attested_at`, `status` (`pending_payment`, `active`, `suspended`, `cancelled`).
+* `geek_voice.tenants` — Tenant profile, `country_code` (`'US'`), `state_code`, `county`, `industry_vertical` (the name of the code below), `business_activity_code` (the IRS code, six digits; null only for a tenant written before 2026-11-16), `requires_addendum`, `addendum_signed_at`, `addendum_ip_address`, `compliance_attested_at`, `status` (`pending_payment`, `active`, `suspended`, `cancelled`).
 * `geek_voice.tenant_subscriptions` — `tier_code` (`STARTER`, `STANDARD`, `PRO`, `PREMIUM`), `monthly_price_usd`, `included_minutes`, `overage_rate_usd` (`0.50`), `paypal_subscription_id`, `paypal_vault_token_id`, `current_period_start`, `current_period_end`, `billing_status`.
 * `geek_voice.tenant_telephony` — `twilio_subaccount_sid`, `twilio_auth_token_encrypted`, `assigned_phone_number` (E.164), `twilio_phone_sid`, `retell_agent_id`, `a2p_brand_sid`, `a2p_campaign_sid`, `a2p_status`, `sms_notifications_enabled`.
 * `geek_voice.receptionist_configs` — `greeting_message`, `voice_id`, `system_prompt_template`, `business_hours_json` (`JSONB`), `qualifying_questions_json` (`JSONB`), `transfer_mode` (`warm_transfer`, `cold_transfer`, `voicemail_only`), `transfer_target_number`, `transfer_caller_id_mode` (`original_caller`, `assigned_ai_number`), `emergency_keywords` (`TEXT[]`), `recording_disclosure_enabled` (`BOOLEAN`, default `TRUE`).
@@ -89,8 +89,9 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 
 1. **Self-Service Onboarding Gate (`/api/v1/onboarding/validate-eligibility`):**
    - **Country Gate:** Reject if `countryCode != "US"` (`400 Bad Request`). Governing venue in Terms of Service is Palm Beach County, Florida.
-   - **Healthcare Exclusion (Permanent):** Reject immediately (`400 Bad Request`) if `industryVertical` matches `Healthcare`, `Medical`, `Dental`, `Clinic`, or `Hospital` (HIPAA-covered entities excluded outright).
-   - **Phase 1 Addendum-Pending Block (Temporary until Phase 2 Addendums are built):** Reject (`400 Bad Request` with code `industry_addendum_not_available`) if `industryVertical` matches `Law Firm`, `Legal`, `Financial Services`, `Accounting`, `School`, or `Education` while `FeatureFlags:EnableIndustryAddendums` is `false`. Once Phase 2 addendums are published and `FeatureFlags:EnableIndustryAddendums` is set to `true`, require `addendumSigned == true` and record `addendum_signed_at` (UTC) + `addendum_ip_address`.
+   - **What the business does** is `businessActivityCode`, one of the IRS Principal Business Activity codes of the 2025 Schedule C chart (`GeekAPI/Assets/BusinessActivities/schedule-c-2025.json`, 303 codes, its source inside; `GET /api/v1/onboarding/business-activities` serves it to the site, not counted against the signup cap). A code the chart does not have is refused (`400`, `business_activity_unknown`), `999000` "unclassified" and NAICS-only codes such as `541511` included. The two rules below decide on the code's prefix (`BusinessActivities`), never on words. Decided 2026-11-16, replacing the word match, which refused "AI for accounting firms" as accounting.
+   - **Healthcare Exclusion (Permanent):** Reject immediately (`400 Bad Request`, `industry_excluded`) if the code starts `621` (ambulatory care), `622` (hospitals) or `623` (nursing and residential care), or is `541940` (veterinary services, excluded as it was under the word match). HIPAA-covered entities are excluded outright. Social assistance (`624`, childcare included) is not healthcare.
+   - **Phase 1 Addendum-Pending Block (Temporary until Phase 2 Addendums are built):** Reject (`400 Bad Request` with code `industry_addendum_not_available`) if the code starts `5411` (legal), `5412` (accounting, tax preparation, payroll), `52` (finance and insurance) or `61` (education) while `FeatureFlags:EnableIndustryAddendums` is `false`. Once Phase 2 addendums are published and `FeatureFlags:EnableIndustryAddendums` is set to `true`, require `addendumSigned == true` and record `addendum_signed_at` (UTC) + `addendum_ip_address`.
    - **Attestation Gate:** Reject (`400 Bad Request`) if `complianceAttested != true`.
 
 2. **Upfront PayPal Subscription + Vaulted Overage Billing (`/api/v1/onboarding/activate-subscription`):**
@@ -127,7 +128,8 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 ## 6. Exact API Route Inventory
 
 ### `GeekAPI` Public & Webhook Routes
-* `POST /api/v1/onboarding/validate-eligibility`
+* `GET /api/v1/onboarding/business-activities` (portal's server, `X-API-Key`; the IRS codes signup offers, `{ source, activities: [{ code, name, sector, group }] }`; not rate-limited)
+* `POST /api/v1/onboarding/validate-eligibility` (body carries `businessActivityCode`, not words)
 * `POST /api/v1/onboarding/paypal/subscription` (portal's server, `X-API-Key`; body `{ tenantId, tierCode, returnUrl, cancelUrl }`; only a `pending_payment` tenant; a PayPal subscription to the tier's plan from `PAYPAL_PLAN_{TIER}` with `custom_id` = the tenant; answers `{ subscriptionId, approvalUrl }`)
 * `POST /api/v1/onboarding/paypal/vault` (same key and tenant rule; body `{ tenantId, returnUrl, cancelUrl }`; a merchant setup token that saves the visitor's PayPal account; answers `{ setupTokenId, approvalUrl }`)
 * `POST /api/v1/onboarding/paypal/vault/complete` (same key and tenant rule; body `{ tenantId, setupTokenId }`; turns the approved setup token into the payment token, once, with the setup token as `PayPal-Request-Id`; answers `{ paypalVaultTokenId }`)

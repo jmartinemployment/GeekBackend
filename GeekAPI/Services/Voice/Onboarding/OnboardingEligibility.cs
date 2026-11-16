@@ -8,6 +8,7 @@ namespace GeekAPI.Services.Voice.Onboarding;
 public static class OnboardingFailureCodes
 {
     public const string CountryNotSupported = "country_not_supported";
+    public const string BusinessActivityUnknown = "business_activity_unknown";
     public const string IndustryExcluded = "industry_excluded";
     public const string IndustryAddendumNotAvailable = "industry_addendum_not_available";
     public const string AddendumRequired = "addendum_required";
@@ -42,7 +43,7 @@ public sealed record OnboardingOptions(bool EnableIndustryAddendums)
 /// </summary>
 public sealed record ValidateEligibilityRequest(
     string? BusinessName,
-    string? IndustryVertical,
+    string? BusinessActivityCode,
     string? CountryCode,
     string? StateCode,
     string? County,
@@ -56,7 +57,8 @@ public sealed record EligibilityAccepted(Guid TenantId, string Status);
 
 /// <summary>
 /// The self-service onboarding gate. The four rules run in the order the plan lists them (country, healthcare, addendum-pending,
-/// attestation); the first that fails answers. The country rule has two parts: the country the form declares, and the country of
+/// attestation); the first that fails answers. Healthcare and addendum-pending are decided on the IRS business activity code the
+/// signup chose (<see cref="BusinessActivities"/>), and a code the chart does not have is refused before them. The country rule has two parts: the country the form declares, and the country of
 /// the visitor's own address (<see cref="VisitorOrigin"/>). A visitor whose address or country is missing is refused as unverified,
 /// never let through. A signup that passes all four becomes a tenant in status pending_payment, the only
 /// place the attestation and the addendum record can be stored. Nothing is created for a signup that fails, and a store that
@@ -64,11 +66,6 @@ public sealed record EligibilityAccepted(Guid TenantId, string Status);
 /// </summary>
 public sealed class OnboardingEligibility(IVoiceStore voice, OnboardingOptions options, TimeProvider clock)
 {
-    // A match is a case-insensitive substring, not a whole word: "Dental Lab", "Medical Spa", "Preschool" and "Law Firm LLC"
-    // are all caught. The lists are exclusions, so a loose match closes the door and a strict one would leave it open.
-    private static readonly string[] HealthcareTerms = ["Healthcare", "Medical", "Dental", "Clinic", "Hospital"];
-    private static readonly string[] AddendumTerms = ["Law Firm", "Legal", "Financial Services", "Accounting", "School", "Education"];
-
     public async Task<Result<EligibilityAccepted>> ValidateAsync(ValidateEligibilityRequest request, VisitorOrigin visitor, CancellationToken ct = default)
     {
         if (!string.Equals(request.CountryCode, "US", StringComparison.Ordinal))
@@ -79,11 +76,14 @@ public sealed class OnboardingEligibility(IVoiceStore voice, OnboardingOptions o
         if (!string.Equals(visitor.CountryCode, "US", StringComparison.OrdinalIgnoreCase))
             return Refused(OnboardingFailureCodes.VisitorCountryNotSupported, "Signup is open only from the United States.");
 
-        var industry = request.IndustryVertical ?? string.Empty;
-        if (Matches(industry, HealthcareTerms))
-            return Refused(OnboardingFailureCodes.IndustryExcluded, "Healthcare businesses cannot use the receptionist.");
+        var activity = BusinessActivities.Find(request.BusinessActivityCode);
+        if (activity is null)
+            return Refused(OnboardingFailureCodes.BusinessActivityUnknown, "Choose what the business does from the list of IRS business activity codes.");
 
-        var requiresAddendum = Matches(industry, AddendumTerms);
+        if (BusinessActivities.IsHealthcare(activity))
+            return Refused(OnboardingFailureCodes.IndustryExcluded, "Healthcare and veterinary businesses cannot use the receptionist.");
+
+        var requiresAddendum = BusinessActivities.RequiresAddendum(activity);
         if (requiresAddendum && !options.EnableIndustryAddendums)
             return Refused(OnboardingFailureCodes.IndustryAddendumNotAvailable, "The industry addendum for this business is not available yet.");
 
@@ -103,7 +103,8 @@ public sealed class OnboardingEligibility(IVoiceStore voice, OnboardingOptions o
 
         var created = await voice.CreateTenantAsync(new CreateVoiceTenantCommand(
             request.BusinessName ?? string.Empty,
-            industry,
+            activity.Name,
+            activity.Code,
             requiresAddendum,
             addendumSignedAt,
             addendumAddress,
@@ -118,9 +119,6 @@ public sealed class OnboardingEligibility(IVoiceStore voice, OnboardingOptions o
             ? Result<EligibilityAccepted>.Success(new EligibilityAccepted(created.Value!.Id, created.Value.Status))
             : Result<EligibilityAccepted>.Failure(created.Error ?? "The tenant could not be created.", created.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
     }
-
-    private static bool Matches(string industry, string[] terms) =>
-        terms.Any(term => industry.Contains(term, StringComparison.OrdinalIgnoreCase));
 
     private static Result<EligibilityAccepted> Refused(string code, string message) => Result<EligibilityAccepted>.Failure(message, code);
 }

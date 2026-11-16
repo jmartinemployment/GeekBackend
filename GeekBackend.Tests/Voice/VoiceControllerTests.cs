@@ -33,7 +33,7 @@ public sealed class VoiceControllerTests
         public Task<Result<VoiceAppointmentCreated>> CreateAppointmentAsync(Guid tenantId, CreateVoiceAppointmentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
-    private static VoiceTenant SomeTenant() => new(Tenant, "Boca Cool HVAC", "HVAC", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", null, "a@b.example", "+15615550101", "pending_payment", DateTimeOffset.UnixEpoch);
+    private static VoiceTenant SomeTenant() => new(Tenant, "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", null, "a@b.example", "+15615550101", "pending_payment", DateTimeOffset.UnixEpoch);
 
     [Theory]
     [InlineData(VoiceFailureCodes.NotFound, 404)]

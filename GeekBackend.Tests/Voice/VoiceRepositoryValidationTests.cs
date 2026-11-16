@@ -31,7 +31,7 @@ public sealed class VoiceRepositoryValidationTests
     private static IReadOnlyList<float> Embedding(int length = VoiceEmbedding.Dimensions) => Enumerable.Repeat(0.5f, length).ToList();
 
     private static CreateVoiceTenantCommand GoodTenant() => new(
-        "Boca Cool HVAC", "HVAC", false, null, null, Now, "US", "FL", "Palm Beach", "dispatch@example.test", "+15615550101");
+        "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "Palm Beach", "dispatch@example.test", "+15615550101");
 
     private static ActivateVoiceTenantCommand GoodActivation() => new(
         VoiceSubscriptionTiers.Standard, 48m, 250, 0.50m, "I-TEST", "VAULT-TEST", Now, Now.AddMonths(1), "active",
@@ -58,7 +58,16 @@ public sealed class VoiceRepositoryValidationTests
     [InlineData("Acme", "HVAC", "US", "FL", "no-at-sign", "+15615550101")]
     [InlineData("Acme", "HVAC", "US", "FL", "a@b.example", "561-555-0101")]
     public async Task A_tenant_with_a_bad_field_is_refused(string name, string industry, string country, string state, string email, string phone) =>
-        await AssertInvalid(Store().CreateTenantAsync(new(name, industry, false, null, null, Now, country, state, null, email, phone)));
+        await AssertInvalid(Store().CreateTenantAsync(new(name, industry, "238220", false, null, null, Now, country, state, null, email, phone)));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("54151")]
+    [InlineData("54151X")]
+    [InlineData("5415100")]
+    public async Task A_tenant_without_a_six_digit_business_activity_code_is_refused(string? code) =>
+        await AssertInvalid(Store().CreateTenantAsync(GoodTenant() with { BusinessActivityCode = code! }));
 
     [Fact]
     public async Task An_addendum_time_without_an_address_is_refused() =>

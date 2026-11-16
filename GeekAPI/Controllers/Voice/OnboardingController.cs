@@ -22,6 +22,14 @@ namespace GeekAPI.Controllers.Voice;
 [EnableRateLimiting(OnboardingRateLimit.PolicyName)]
 public sealed class OnboardingController(OnboardingEligibility eligibility, SignupPayments payments, SubscriptionActivation activation) : ControllerBase
 {
+    /// <summary>
+    /// The IRS business activity codes the first step of /signup offers, with the chart they come from. Not counted against the
+    /// signup cap: it writes nothing, and showing the form must not use up the visitor's attempts.
+    /// </summary>
+    [HttpGet("business-activities")]
+    [DisableRateLimiting]
+    public IActionResult BusinessActivityList() => Ok(new { source = BusinessActivities.Source, activities = BusinessActivities.All });
+
     [HttpPost("validate-eligibility")]
     public async Task<IActionResult> ValidateEligibility([FromBody] ValidateEligibilityRequest request, CancellationToken ct)
     {
@@ -83,6 +91,7 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Sign
     internal static int StatusFor(string? code) => code switch
     {
         OnboardingFailureCodes.CountryNotSupported
+            or OnboardingFailureCodes.BusinessActivityUnknown
             or OnboardingFailureCodes.IndustryExcluded
             or OnboardingFailureCodes.IndustryAddendumNotAvailable
             or OnboardingFailureCodes.AddendumRequired
