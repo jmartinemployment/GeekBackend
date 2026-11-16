@@ -42,6 +42,14 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
 5c. **State.** Jeff: "Like you need State or County ?" State's only use is the receptionist's script, "a business in {state}".
    **Waiting for his word** on whether to remove it.
 
+5d. **Country in County's place.** Jeff: "You could replace the stupid County with Country and validate." A Country choice
+   (United States or Another country); GeekAPI refuses anything but US. **Committed locally, not pushed.**
+5e. **Checkbox.** Jeff: it "can be simplified, and is also missing other exclusions". Proposed text, **waiting for his word**:
+   "This business is not a healthcare, veterinary, legal, accounting, tax, payroll, financial, insurance or education business,
+   and calls to it may be answered and recorded by an AI receptionist that tells callers so."
+5f. **Captcha.** Jeff: "Needs captcha". Signup and sign-in have none today (only GeekAPI's 10 an hour per address).
+   **Waiting for his choice of provider.**
+
 ## Not working yet (from before the walkthrough)
 
 5. ~~`GEEK_BACKEND_API_KEY` on Vercel~~: done. Jeff re-added it as Sensitive (Production) at 14:47 on 2026-11-16, redeployed at 14:47:57;
