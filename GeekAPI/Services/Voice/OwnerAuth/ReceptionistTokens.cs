@@ -19,8 +19,13 @@ public sealed class ReceptionistTokenOptions
     public const string SigningKeyVariable = "RECEPTIONIST_JWT_SIGNING_KEY";
     public const string Issuer = "geek-receptionist";
     public const string Audience = "geek-receptionist-portal";
+
+    /// <summary>The audience of a device token, which only says "this browser signed in as this owner"; never accepted as an access token.</summary>
+    public const string DeviceAudience = "geek-receptionist-device";
+
     public static readonly TimeSpan AccessTokenLifetime = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
+    public static readonly TimeSpan DeviceTokenLifetime = TimeSpan.FromDays(90);
 
     private const int MinimumKeyBytes = 32;
 
@@ -104,13 +109,19 @@ public static class ReceptionistAuth
 /// <summary>A signed access token and when it stops being accepted.</summary>
 public sealed record IssuedAccessToken(string Token, DateTimeOffset ExpiresAt);
 
+/// <summary>A signed device token and when it stops being accepted.</summary>
+public sealed record IssuedDeviceToken(string Token, DateTimeOffset ExpiresAt);
+
 /// <summary>A refresh token as the owner holds it, and the SHA-256 hash that is all GeekRepository ever stores.</summary>
 public sealed record IssuedRefreshToken(string Token, string Hash, DateTimeOffset ExpiresAt);
 
 /// <summary>
 /// Makes the tokens an owner signs in with. The access token is an HS256 JWT carrying the owner login (sub), the tenant (tenant_id) and
 /// the email, good for <see cref="ReceptionistTokenOptions.AccessTokenLifetime"/>. The refresh token is 32 random bytes, base64url, with
-/// no meaning of its own; it is stored only as its hash, so a copy of the database cannot be used to sign in.
+/// no meaning of its own; it is stored only as its hash, so a copy of the database cannot be used to sign in. The device token is an
+/// HS256 JWT for <see cref="ReceptionistTokenOptions.DeviceAudience"/> carrying only the owner login (sub), good for
+/// <see cref="ReceptionistTokenOptions.DeviceTokenLifetime"/>: the portal keeps it in the browser after a sign-in, and a later sign-in
+/// that carries it for the same login is not held back by the per-email cap (<see cref="OwnerSignInGuard"/>). It signs nobody in.
 /// </summary>
 public sealed class ReceptionistTokens(ReceptionistTokenOptions options, TimeProvider time)
 {
@@ -142,6 +153,43 @@ public sealed class ReceptionistTokens(ReceptionistTokenOptions options, TimePro
             },
         });
         return new IssuedAccessToken(token, expires);
+    }
+
+    public IssuedDeviceToken IssueDeviceToken(Guid ownerLoginId)
+    {
+        var key = options.SigningKey ?? throw new InvalidOperationException(options.Problem ?? "The owner token key is not configured.");
+        var now = time.GetUtcNow();
+        var expires = now + ReceptionistTokenOptions.DeviceTokenLifetime;
+        var token = Handler.CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = ReceptionistTokenOptions.Issuer,
+            Audience = ReceptionistTokenOptions.DeviceAudience,
+            IssuedAt = now.UtcDateTime,
+            NotBefore = now.UtcDateTime,
+            Expires = expires.UtcDateTime,
+            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256),
+            Claims = new Dictionary<string, object> { [ReceptionistAuth.SubjectClaim] = ownerLoginId.ToString("D") },
+        });
+        return new IssuedDeviceToken(token, expires);
+    }
+
+    /// <summary>
+    /// The owner login a device token was issued to, or null when there is no token or it is not one this service signed for the device
+    /// audience and still within its life. A refused token is not an error: the sign-in simply gets no exemption.
+    /// </summary>
+    public async Task<Guid?> DeviceTokenOwnerAsync(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token) || options.SigningKey is null) return null;
+
+        var now = time.GetUtcNow().UtcDateTime;
+        var parameters = ReceptionistAuth.ValidationParameters(options);
+        parameters.ValidAudience = ReceptionistTokenOptions.DeviceAudience;
+        parameters.LifetimeValidator = (notBefore, expires, _, p) =>
+            expires is { } e && e + p.ClockSkew > now && (notBefore is not { } n || n - p.ClockSkew <= now);
+
+        var result = await Handler.ValidateTokenAsync(token, parameters).ConfigureAwait(false);
+        if (!result.IsValid) return null;
+        return result.Claims.TryGetValue(ReceptionistAuth.SubjectClaim, out var sub) && Guid.TryParse(sub as string, out var id) ? id : null;
     }
 
     public IssuedRefreshToken IssueRefreshToken()

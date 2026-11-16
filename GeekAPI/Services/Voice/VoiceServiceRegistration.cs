@@ -51,6 +51,7 @@ public static class VoiceServiceRegistration
         services.AddSingleton<ReceptionistTokens>();
         // Made here, at startup, so the decoy hash exists before the first sign-in and the first unknown email takes no longer than the rest.
         services.AddSingleton(new OwnerPasswords());
+        services.AddSingleton<OwnerSignInGuard>();
         services.AddScoped<OwnerAuthService>();
         services.AddRateLimiter(options =>
         {

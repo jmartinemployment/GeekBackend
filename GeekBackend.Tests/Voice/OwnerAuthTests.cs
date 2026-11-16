@@ -159,6 +159,7 @@ public sealed class OwnerAuthTests
         public Owners Owners { get; }
         public CapturingLogger<OwnerAuthService> Log { get; } = new();
         public ReceptionistTokenOptions Options { get; }
+        public OwnerSignInGuard Guard { get; } = new();
         public OwnerAuthService Service { get; }
 
         public Rig(string status = VoiceTenantStatuses.Active, string? key = null, bool keySet = true)
@@ -166,7 +167,7 @@ public sealed class OwnerAuthTests
             Owners = new Owners(Time);
             Options = ReceptionistTokenOptions.From(keySet ? key ?? Key : null);
             Service = new OwnerAuthService(
-                new Store(Result<VoiceTenant>.Success(MakeTenant(status))), Owners, new OwnerPasswords(), new ReceptionistTokens(Options, Time), Log);
+                new Store(Result<VoiceTenant>.Success(MakeTenant(status))), Owners, new OwnerPasswords(), new ReceptionistTokens(Options, Time), Guard, Log);
         }
 
         public async Task<OwnerSession> SignedInAsync()
@@ -469,6 +470,95 @@ public sealed class OwnerAuthTests
         Assert.DoesNotContain("GeekRepository", created.Error);
     }
 
+    private static async Task FailTimesAsync(Rig rig, string email, int times)
+    {
+        for (var i = 0; i < times; i++)
+            Assert.Equal(OwnerAuthFailureCodes.InvalidCredentials, (await rig.Service.SignInAsync(new OwnerSignInRequest(email, "wrong-" + i))).ErrorCode);
+    }
+
+    [Fact]
+    public async Task After_ten_failures_an_email_is_refused_even_with_the_right_password()
+    {
+        var rig = new Rig();
+        await rig.SignedInAsync();
+        await FailTimesAsync(rig, "owner@example.com", OwnerSignInGuard.FailuresPerWindow);
+
+        var blocked = await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password));
+
+        Assert.Equal(OwnerAuthFailureCodes.TooManyFailedSignIns, blocked.ErrorCode);
+        Assert.Equal(429, OwnerAuthController.StatusFor(blocked.ErrorCode));
+    }
+
+    [Fact]
+    public async Task The_cap_counts_an_email_however_it_is_typed()
+    {
+        var rig = new Rig();
+        await rig.SignedInAsync();
+        await FailTimesAsync(rig, " OWNER@example.com ", OwnerSignInGuard.FailuresPerWindow);
+
+        Assert.Equal(OwnerAuthFailureCodes.TooManyFailedSignIns, (await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password))).ErrorCode);
+    }
+
+    [Fact]
+    public async Task An_unknown_email_is_counted_and_capped_the_same_way()
+    {
+        var rig = new Rig();
+        await FailTimesAsync(rig, "nobody@example.com", OwnerSignInGuard.FailuresPerWindow);
+
+        Assert.Equal(OwnerAuthFailureCodes.TooManyFailedSignIns, (await rig.Service.SignInAsync(new OwnerSignInRequest("nobody@example.com", "x"))).ErrorCode);
+    }
+
+    [Fact]
+    public async Task The_owners_own_browser_signs_in_while_the_email_is_capped()
+    {
+        var rig = new Rig();
+        var earlier = await rig.SignedInAsync();
+        await FailTimesAsync(rig, "owner@example.com", OwnerSignInGuard.FailuresPerWindow);
+
+        var fromKnownBrowser = await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password, earlier.DeviceToken));
+        var wrongFromKnownBrowser = await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", "wrong", earlier.DeviceToken));
+
+        Assert.True(fromKnownBrowser.IsSuccess, fromKnownBrowser.Error);
+        Assert.Equal(OwnerAuthFailureCodes.InvalidCredentials, wrongFromKnownBrowser.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Another_logins_device_token_a_forged_one_or_an_access_token_gives_no_exemption()
+    {
+        var rig = new Rig();
+        var owner = await rig.SignedInAsync();
+        var other = new VoiceOwnerLogin(Guid.NewGuid(), Guid.NewGuid(), "other@example.com", new OwnerPasswords().Hash(Password), null);
+        rig.Owners.Logins.Add(other);
+        var otherSession = (await rig.Service.SignInAsync(new OwnerSignInRequest("other@example.com", Password))).Value!;
+        var forged = new ReceptionistTokens(ReceptionistTokenOptions.From(Convert.ToBase64String(new byte[32])), rig.Time)
+            .IssueDeviceToken(rig.Owners.Logins[0].Id).Token;
+        await FailTimesAsync(rig, "owner@example.com", OwnerSignInGuard.FailuresPerWindow);
+
+        foreach (var token in new[] { otherSession.DeviceToken, forged, owner.AccessToken, "not-a-token" })
+            Assert.Equal(OwnerAuthFailureCodes.TooManyFailedSignIns,
+                (await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password, token))).ErrorCode);
+    }
+
+    [Fact]
+    public async Task A_device_token_is_never_accepted_as_an_access_token()
+    {
+        var rig = new Rig();
+        var session = await rig.SignedInAsync();
+
+        Assert.Null(await ValidateAsync(session.DeviceToken, rig.Options, rig.Time.GetUtcNow()));
+        Assert.Equal(rig.Owners.Logins[0].Id, await new ReceptionistTokens(rig.Options, rig.Time).DeviceTokenOwnerAsync(session.DeviceToken));
+    }
+
+    [Fact]
+    public async Task An_expired_device_token_gives_no_exemption()
+    {
+        var rig = new Rig();
+        var session = await rig.SignedInAsync();
+        rig.Time.Advance(ReceptionistTokenOptions.DeviceTokenLifetime + TimeSpan.FromMinutes(1));
+
+        Assert.Null(await new ReceptionistTokens(rig.Options, rig.Time).DeviceTokenOwnerAsync(session.DeviceToken));
+    }
+
     [Fact]
     public async Task No_password_or_token_is_ever_logged()
     {
@@ -482,6 +572,7 @@ public sealed class OwnerAuthTests
         Assert.DoesNotContain(Password, all);
         Assert.DoesNotContain(session.RefreshToken, all);
         Assert.DoesNotContain(session.AccessToken, all);
+        Assert.DoesNotContain(session.DeviceToken, all);
         Assert.DoesNotContain("owner@example.com", all);
     }
 
@@ -491,6 +582,7 @@ public sealed class OwnerAuthTests
     [InlineData(OwnerAuthFailureCodes.RefreshTokenInvalid, 401)]
     [InlineData(VoiceOwnerFailureCodes.RefreshTokenReused, 401)]
     [InlineData(VoiceFailureCodes.NotFound, 404)]
+    [InlineData(OwnerAuthFailureCodes.TooManyFailedSignIns, 429)]
     [InlineData(OwnerAuthFailureCodes.OwnerExists, 409)]
     [InlineData(OwnerAuthFailureCodes.TenantNotActive, 409)]
     [InlineData(OwnerAuthFailureCodes.NotConfigured, 503)]
