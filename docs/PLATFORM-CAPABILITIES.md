@@ -122,11 +122,20 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    for you and at your direction") is met by Anthropic's agreement and must be checked before Meta content is
    sent; until then `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stays empty for every platform and each comment is held
    (`blocked_no_clearance`).
-5. **Status checks that Meta, Pinterest and TikTok document as polling.** Instagram container status
-   ("once a minute for up to 5 minutes"), Pinterest video media status and TikTok publish status are polls.
-   Proposal: use a platform webhook where one exists (TikTok has `post.publish.*` events); otherwise check
-   when a person acts or when the screen's hub connection is established, and show "not confirmed yet" until
-   then. No timer.
+5. **Status checks. DECIDED (Jeff, 2026-11-16), the Instagram publishing flow as Jeff specified it:**
+   (1) the user clicks Publish; the API controller creates the Instagram media container (`POST /{ig-id}/media`),
+   enqueues a background job with the container ID and user ID, and returns 202 Accepted at once; (2) a hosted
+   background worker asks Instagram `GET /{containerId}?fields=status_code,status`, every 10 to 30 seconds for up to
+   5 minutes, until `status_code` is `FINISHED`; (3) when finished, the worker calls `POST /{ig-id}/media_publish`,
+   treating error 9007 with subcode 2207027 as transient and retrying if needed; (4) the worker pushes the result,
+   Published or Failed, to that tenant and user through a SignalR hub (`IHubContext`). **Principle (Jeff):** we do not
+   control outside services, so timed checks of an outside platform that offers no alert are allowed; our own
+   screen and our own services do not poll, and a platform that has a webhook (TikTok) uses it. **Notes, mine and
+   not decided:** error 9007 and subcode 2207027 come from the pasted flow and were not found in Meta's documents;
+   the plan's rule of one attempt and no automatic write retry conflicts with step 3's retry; the container
+   status question to Meta (what an early publish returns, whether a ready notification exists, the status values)
+   is still unanswered; and if the worker gives up at 5 minutes the screen must say the post is not confirmed
+   and never mark it failed.
 6. **YouTube: not supported (Jeff, 2026-11-16).** The quota question, and the tenant-owned Cloud project decision recorded
    earlier on this item, are moot. The research stays in section 2g and the appendix in case this changes.
 7. **Pinterest: not supported (Jeff, 2026-11-16).** It can only publish, which is not what the product is for.
