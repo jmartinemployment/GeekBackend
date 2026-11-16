@@ -409,12 +409,13 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             // The update arm names the tenant too: a call id that already belongs to another tenant is a conflict, never an overwrite.
             var callId = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition("""
                 INSERT INTO geek_voice.call_logs (
-                    tenant_id, twilio_call_sid, caller_number, call_status, started_at, ended_at, duration_seconds,
+                    tenant_id, retell_call_id, twilio_call_sid, caller_number, call_status, started_at, ended_at, duration_seconds,
                     billable_minutes, transcript_json, call_summary, disposition, recording_url)
                 VALUES (
-                    @TenantId, @TwilioCallSid, @CallerNumber, @CallStatus, @StartedAt, @EndedAt, @DurationSeconds,
+                    @TenantId, @RetellCallId, @TwilioCallSid, @CallerNumber, @CallStatus, @StartedAt, @EndedAt, @DurationSeconds,
                     @BillableMinutes, @Transcript::jsonb, @CallSummary, @Disposition, @RecordingUrl)
-                ON CONFLICT (twilio_call_sid) DO UPDATE SET
+                ON CONFLICT (retell_call_id) DO UPDATE SET
+                    twilio_call_sid = COALESCE(EXCLUDED.twilio_call_sid, geek_voice.call_logs.twilio_call_sid),
                     call_status = EXCLUDED.call_status,
                     ended_at = COALESCE(EXCLUDED.ended_at, geek_voice.call_logs.ended_at),
                     duration_seconds = GREATEST(EXCLUDED.duration_seconds, geek_voice.call_logs.duration_seconds),
@@ -429,6 +430,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 new
                 {
                     TenantId = tenantId,
+                    command.RetellCallId,
                     command.TwilioCallSid,
                     command.CallerNumber,
                     command.CallStatus,
@@ -506,24 +508,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
     // ----- Connection -----
 
-    private async Task<NpgsqlConnection> OpenForTenantAsync(Guid tenantId, CancellationToken ct)
-    {
-        var conn = (NpgsqlConnection)db.CreateConnection();
-        try
-        {
-            await conn.OpenAsync(ct);
-            await conn.ExecuteAsync(new CommandDefinition(
-                "SELECT set_config('app.current_tenant_id', @TenantId, false);",
-                new { TenantId = tenantId.ToString() },
-                cancellationToken: ct));
-            return conn;
-        }
-        catch
-        {
-            await conn.DisposeAsync();
-            throw;
-        }
-    }
+    private Task<NpgsqlConnection> OpenForTenantAsync(Guid tenantId, CancellationToken ct) =>
+        VoiceConnections.OpenForTenantAsync(db, tenantId, ct);
 
     // ----- Failures -----
 
@@ -623,7 +609,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
     private static string? ValidateCall(UpsertVoiceCallCommand c)
     {
-        if (Blank(c.TwilioCallSid) || Blank(c.CallerNumber) || Blank(c.CallStatus)) return "The call SID, caller number and status are required.";
+        if (Blank(c.RetellCallId) || Blank(c.CallerNumber) || Blank(c.CallStatus)) return "The Retell call id, caller number and status are required.";
+        if (c.TwilioCallSid is not null && Blank(c.TwilioCallSid)) return "A Twilio call SID, when given, cannot be blank.";
         if (c.DurationSeconds < 0 || c.BillableMinutes < 0) return "Duration and billable minutes cannot be negative.";
         if (c.EndedAt is not null && c.EndedAt < c.StartedAt) return "A call cannot end before it starts.";
         if (c.Transcript.ValueKind != JsonValueKind.Array) return "The transcript must be a list.";

@@ -1,5 +1,6 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Voice.Billing;
+using GeekAPI.Services.Voice.Calls;
 using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.OwnerAuth;
@@ -31,6 +32,14 @@ public static class VoiceServiceRegistration
         services.AddSingleton<VoiceCredentialProtector>();
         services.AddSingleton(PayPalOptions.FromEnvironment());
         services.AddHttpClient<PayPalBillingVerifier>(client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddHttpClient<PayPalCycleBilling>(client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddScoped<IVoiceBillingStore>(sp =>
+            new HttpVoiceBillingRepository(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),
+                sp.GetRequiredService<ILogger<HttpVoiceBillingRepository>>()));
+        services.AddScoped<OverageBilling>();
+        services.AddHostedService<OverageBillingHostedService>();
+        services.AddScoped<RetellCallRecorder>();
         services.AddSingleton(TwilioOptions.FromEnvironment());
         services.AddHttpClient<TwilioProvisioner>(client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton(RetellOptions.FromEnvironment());

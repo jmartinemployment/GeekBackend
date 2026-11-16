@@ -172,11 +172,11 @@ public sealed class VoiceIntegrationTests
         await SqlMigrationTestHelper.ApplyAsync();
         var store = NewRepository();
         var tenant = await ActiveTenantAsync(store);
-        var sid = "CA" + Unique();
+        var callId = "call_" + Unique();
 
-        var first = await store.UpsertCallAsync(tenant, new(sid, "+15615550111", "in_progress", Now, null, 0, 0, EmptyList, null, null, null));
-        var second = await store.UpsertCallAsync(tenant, new(sid, "+15615550111", "completed", Now, Now.AddMinutes(3), 180, 3, EmptyList, "Needs a new capacitor.", "booked", null));
-        var third = await store.UpsertCallAsync(tenant, new(sid, "+15615550111", "completed", Now, Now.AddMinutes(3), 120, 2, EmptyList, null, null, null));
+        var first = await store.UpsertCallAsync(tenant, new(callId, null, "+15615550111", "in_progress", Now, null, 0, 0, EmptyList, null, null, null));
+        var second = await store.UpsertCallAsync(tenant, new(callId, null, "+15615550111", "completed", Now, Now.AddMinutes(3), 180, 3, EmptyList, "Needs a new capacitor.", "booked", null));
+        var third = await store.UpsertCallAsync(tenant, new(callId, null, "+15615550111", "completed", Now, Now.AddMinutes(3), 120, 2, EmptyList, null, null, null));
 
         Assert.True(first.IsSuccess, first.Error);
         Assert.Equal(first.Value!.CallId, second.Value!.CallId);
@@ -191,12 +191,12 @@ public sealed class VoiceIntegrationTests
         var store = NewRepository();
         var tenantA = await ActiveTenantAsync(store);
         var tenantB = await ActiveTenantAsync(store);
-        var sid = "CA" + Unique();
+        var callId = "call_" + Unique();
 
-        var call = await store.UpsertCallAsync(tenantA, new(sid, "+15615550111", "completed", Now, Now.AddMinutes(3), 180, 3, EmptyList, null, null, null));
+        var call = await store.UpsertCallAsync(tenantA, new(callId, null, "+15615550111", "completed", Now, Now.AddMinutes(3), 180, 3, EmptyList, null, null, null));
         Assert.True(call.IsSuccess, call.Error);
 
-        var overwrite = await store.UpsertCallAsync(tenantB, new(sid, "+15615550999", "completed", Now, Now.AddMinutes(1), 60, 1, EmptyList, null, null, null));
+        var overwrite = await store.UpsertCallAsync(tenantB, new(callId, null, "+15615550999", "completed", Now, Now.AddMinutes(1), 60, 1, EmptyList, null, null, null));
         Assert.Equal(VoiceFailureCodes.Conflict, overwrite.ErrorCode);
 
         var appointment = new CreateVoiceAppointmentCommand(

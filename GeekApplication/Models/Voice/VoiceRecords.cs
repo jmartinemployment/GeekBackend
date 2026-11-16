@@ -32,6 +32,12 @@ public static class VoiceSubscriptionTiers
     public static readonly IReadOnlyList<string> All = [Starter, Standard, Pro, Premium];
 }
 
+/// <summary>The PayPal subscription status a tenant's subscription row last recorded. Activation stores ACTIVE; end-of-cycle billing copies PayPal's own status when it is anything else.</summary>
+public static class VoiceBillingStatuses
+{
+    public const string Active = "ACTIVE";
+}
+
 public static class VoiceTransferModes
 {
     public const string WarmTransfer = "warm_transfer";
@@ -198,11 +204,13 @@ public sealed record VoiceKnowledgeHit(Guid DocumentId, int ChunkIndex, string C
 // ----- Calls and appointments -----
 
 /// <summary>
-/// A call as the provider reports it. Sent again with the same CallSid it updates the same row: an end time, a longer
-/// duration, a summary or a recording link that was missing arrives later, and one that is already there is kept.
+/// A call as Retell reports it. Sent again with the same Retell call id it updates the same row: an end time, a longer
+/// duration, a summary, a recording link or a Twilio call SID that was missing arrives later, and one that is already there is
+/// kept. The Twilio call SID is Retell's to give "when available", so it is optional; Retell's call id is always present.
 /// </summary>
 public sealed record UpsertVoiceCallCommand(
-    string TwilioCallSid,
+    string RetellCallId,
+    string? TwilioCallSid,
     string CallerNumber,
     string CallStatus,
     DateTimeOffset StartedAt,

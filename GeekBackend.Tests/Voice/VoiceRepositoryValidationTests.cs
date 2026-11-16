@@ -181,7 +181,14 @@ public sealed class VoiceRepositoryValidationTests
 
     // ----- Calls and appointments -----
 
-    private static UpsertVoiceCallCommand GoodCall() => new("CAtest", "+15615550111", "completed", Now, Now.AddMinutes(3), 180, 3, EmptyList, null, null, null);
+    private static UpsertVoiceCallCommand GoodCall() => new("call_test", "CAtest", "+15615550111", "ended", Now, Now.AddMinutes(3), 180, 3, EmptyList, null, null, null);
+
+    [Fact]
+    public async Task A_call_needs_its_retell_id_and_a_twilio_sid_when_given_is_not_blank()
+    {
+        await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { RetellCallId = " " }));
+        await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { TwilioCallSid = "" }));
+    }
 
     [Fact]
     public async Task A_transcript_that_is_not_a_list_is_refused() =>
