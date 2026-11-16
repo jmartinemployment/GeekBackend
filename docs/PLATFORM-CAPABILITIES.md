@@ -129,9 +129,9 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    then. No timer.
 6. **YouTube: not supported (Jeff, 2026-11-16).** The quota question, and the tenant-owned Cloud project decision recorded
    earlier on this item, are moot. The research stays in section 2g and the appendix in case this changes.
-7. **Pinterest is publish-only** (no comments or reactions API, no webhooks). **TikTok comments exist only in
-   the Business API's Accounts API**, behind an access application form that has been required since
-   2026-03-20. (YouTube is not supported; see item 6.)
+7. **Pinterest: not supported (Jeff, 2026-11-16).** It can only publish, which is not what the product is for. **TikTok:
+   comments exist only in the Business API's Accounts API**, behind an access application form that has been required
+   since 2026-03-20; whether to accept that is still open. (YouTube is not supported; see item 6.)
 8. **Selling this needs platform approvals that cannot start in code**: Meta Advanced Access (App Review,
    Business Verification, Live mode), LinkedIn Standard tier, Google's Business Profile access form, X's
    enterprise conversation, YouTube's audit and quota extension, TikTok's registration and access form,
@@ -353,6 +353,10 @@ types can authorize the comment scopes, whether US customers are supported, whet
 serve many customers, and whether Business API posting is exempt from the audit rule.
 
 ### 2i. Pinterest, API v5 (read 2026-11-16; `platform-research-2026-11-16/pinterest.md`)
+
+**NOT SUPPORTED (Jeff, 2026-11-16).** Pinterest is publish-only (confirmed twice: the OpenAPI spec lists no comments or
+reactions operation, and the only webhook is for Lead Ads). This section is kept as research only and no Pinterest
+connector will be built.
 
 **Publish-only.** None of the 305 operations in Pinterest's OpenAPI spec (v5.28.0) is a comments or reactions
 endpoint, and the only webhook is for Lead Ads.
