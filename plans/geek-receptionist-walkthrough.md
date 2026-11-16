@@ -47,8 +47,11 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
 5e. **Checkbox.** Jeff: it "can be simplified, and is also missing other exclusions". Proposed text, **waiting for his word**:
    "This business is not a healthcare, veterinary, legal, accounting, tax, payroll, financial, insurance or education business,
    and calls to it may be answered and recorded by an AI receptionist that tells callers so."
-5f. **Captcha.** Jeff: "Needs captcha". Signup and sign-in have none today (only GeekAPI's 10 an hour per address).
-   **Waiting for his choice of provider.**
+5f. **Captcha.** Jeff: "Needs captcha", then Google reCAPTCHA. **Built, committed locally, not pushed:** the "I'm not a robot"
+   checkbox on signup step 1 and on sign-in, checked by Google's siteverify on the site's server before GeekAPI is called. Seen
+   working locally with Google's test keys. **Needs from Jeff:** a reCAPTCHA key in Google Cloud (Website, checkbox challenge,
+   domains `geek-receptionist.geekatyourspot.com` and `localhost`); its Key ID as `RECAPTCHA_SITE_KEY` and its legacy secret as
+   `RECAPTCHA_SECRET_KEY` (Sensitive) on Vercel, Production, before the site is pushed: without them sign-in and signup refuse.
 
 ## Not working yet (from before the walkthrough)
 
