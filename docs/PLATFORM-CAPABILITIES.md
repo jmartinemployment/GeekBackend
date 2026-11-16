@@ -146,10 +146,14 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    each tenant's app secret must be stored encrypted and per tenant, and the tenant's app must be pointed at our
    callback; whether a tenant-owned app is allowed for a product run by another developer was not read.
    (YouTube is not supported; see item 6.)
-8. **Selling this needs platform approvals that cannot start in code**: Meta Advanced Access (App Review,
-   Business Verification, Live mode), LinkedIn Standard tier, Google's Business Profile access form, X's
-   enterprise conversation, YouTube's audit and quota extension, TikTok's registration and access form,
-   Pinterest Standard access. See section 7.
+8. **Approvals. DECIDED (Jeff, 2026-11-16): the tenant registers their own app or project and obtains every platform's
+   approvals themselves, on every platform. GeekSocial does not register apps or create accounts for tenants.**
+   This applies to Meta (Facebook and Instagram), LinkedIn, Google Business Profile, X and TikTok. The tenant gives
+   GeekSocial the app's keys through the onboarding wizard. **Notes, mine and not decided:** the wizard has to explain
+   each platform's setup; each tenant's app secrets must be stored encrypted and per tenant; an app the tenant owns for
+   their own accounts is the case Meta calls Standard Access (no App Review); LinkedIn's Community Management
+   application and Google's Business Profile form have their own requirements (section 4b); and whether each
+   platform lets a customer-owned app run inside a product built by another developer was not read.
 
 ## 2. Matrix
 
