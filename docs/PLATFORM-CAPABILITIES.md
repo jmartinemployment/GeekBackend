@@ -5,6 +5,16 @@ Written 2026-11-08 from the official Meta and LinkedIn documentation; Instagram 
 live app: no Meta app, LinkedIn app or Community Management API access exists yet, so every row is
 "documented", not "proven". Proof is Phase 6.
 
+**Gate 7a (2026-11-16)** extends this document to Google Business Profile, X, YouTube, TikTok and
+Pinterest (sections 2e to 2i), settles the Instagram open items and adds media rules for every platform
+(2j), and compares them side by side (2k). The full findings, with verbatim quotes and every URL opened,
+are in `docs/platform-research-2026-11-16/` (one file per platform area); the tables here are condensed
+from those files and name the file to read for the quote. GeekSocial is now a multi-tenant product, so the
+earlier "own accounts only" assumptions are corrected where they appear (2j, 4b). Two things limit the
+evidence: nothing was run against a live app, and some Google, TikTok and Pinterest pages are rendered by
+JavaScript, so a few rows were read through a summarizer. Those are marked "re-read" and must be read by
+eye before anything depends on them.
+
 Legend: **CONFIRMED** = stated in the official page cited. **UNVERIFIED** = the docs are silent or
 conflict; it must be settled in the developer portal or by a live call. **BLOCKED** = unsupported,
 closed, or unusable without an approval or a ruling we do not have. Nothing BLOCKED is implemented
@@ -34,6 +44,46 @@ around: no scraping, no session cookies, no unofficial APIs.
    article needs an image, and a link in a caption is not clickable. It can read, reply to and hide
    comments. No reaction to a comment is documented, so the agent does not react on Instagram. Section
    2d.
+
+## 1b. Gate 7a findings that need Jeff's decision
+
+1. **Auto-send needs recorded, per-tenant consent on three platforms, and X needs approval.** Google
+   Business Profile: "you must not automate or trigger review replies ... without the user's prior specific
+   and express consent." YouTube: "you must not automate or trigger views, uploads, comments, likes,
+   dislikes, or other actions without the user's prior specific and express consent." Pinterest's guidelines
+   forbid features that "automatically initiate actions without specifically considering each action"
+   (Pinterest has no comments API, so this bears on scheduled publishing only). X: an AI-powered app that
+   posts replies "Requires prior approval from X". None of them says whether a category-level setting is
+   "specific" consent. Proposal: capture the consent per tenant, per platform and per category with a
+   timestamp, make it revocable, and ask each platform's reviewer in the access application.
+2. **Google Business Profile limits storing review content to 30 days and bars aggregating it.** The
+   terms say Content "must be stored temporarily for no more than 30 calendar days" and "cannot be
+   manipulated or aggregated". That conflicts with keeping a review history, with drafts that quote the
+   review, and with Triage. It needs a legal reading before Google Business Profile is built.
+3. **X needs a sales conversation before any X code.** Three self-serve limits are stated and unresolved:
+   an API reply is allowed only if the post's author "summoned" the replier (whether a commenter's reply to
+   a customer's post counts is unknown); AI-generated replies need X's prior approval (per app or per
+   customer is unknown); and self-serve plans suit "a limited number of end-users" with no number given.
+4. **Sending comment text to Claude is still unruled on every platform except Meta's wording.** Meta
+   requires the provider to agree in writing to use the data "solely for you and at your direction". LinkedIn,
+   YouTube, Google, TikTok, Pinterest and X say nothing about inference (X and Pinterest forbid training).
+   `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stays empty per platform until each is recorded, and the tenant's
+   `ai_consent_accepted_at` is a second gate on top of it.
+5. **Status checks that Meta, Pinterest and TikTok document as polling.** Instagram container status
+   ("once a minute for up to 5 minutes"), Pinterest video media status and TikTok publish status are polls.
+   Proposal: use a platform webhook where one exists (TikTok has `post.publish.*` events); otherwise check
+   when a person acts or when the screen's hub connection is established, and show "not confirmed yet" until
+   then. No timer.
+6. **YouTube's quota is shared by all customers.** 10,000 units a day per Google Cloud project, a reply costs
+   50, so about 200 replies a day across every tenant, and sharding across projects is prohibited. The quota
+   extension audit is a launch dependency.
+7. **Pinterest is publish-only** (no comments or reactions API, no webhooks). **TikTok comments exist only in
+   the Business API's Accounts API**, behind an access application form that has been required since
+   2026-03-20. **YouTube cannot publish Community posts** and has no push for comments.
+8. **Selling this needs platform approvals that cannot start in code**: Meta Advanced Access (App Review,
+   Business Verification, Live mode), LinkedIn Standard tier, Google's Business Profile access form, X's
+   enterprise conversation, YouTube's audit and quota extension, TikTok's registration and access form,
+   Pinterest Standard access. See section 7.
 
 ## 2. Matrix
 
@@ -121,6 +171,203 @@ Geek At Your Spot LLC business portfolio, has Facebook Login for Business, and I
 connected. Which of the three setups the dashboard used is not known and is settled when the connect flow
 is built (I1).
 
+### 2e. Google Business Profile (read 2026-11-16; findings in `platform-research-2026-11-16/gbp.md`)
+
+APIs: Account Management, Business Information and Notifications are v1. **Reviews, Local Posts and Media
+exist only on the v4 `mybusiness.googleapis.com`**; they are not on Google's deprecation schedule and gained
+fields as late as 2026-07. The Q&A API and its notification types were discontinued 2025-11-03.
+
+| Action | Endpoint | Scope | Status |
+|---|---|---|---|
+| List the accounts and locations a user manages | Account Management v1 (accounts), Business Information v1 (locations) | `business.manage` | CONFIRMED |
+| Read reviews | `GET v4 accounts/{a}/locations/{l}/reviews`, 50 per page; reviewer name, `starRating` (an enum), `comment`, `createTime`, `updateTime` | `business.manage` | CONFIRMED; "list needs a verified location" re-read |
+| Reply to a review | `PUT .../reviews/{id}/reply` with `{"comment": ...}`, at most 4096 bytes | `business.manage` | CONFIRMED. Google moderates a reply for up to 30 days, so a 200 does not mean it is published |
+| Create a local post | `POST .../localPosts`: STANDARD, EVENT and OFFER work; ALERT is effectively closed; call to action BOOK, ORDER, SHOP, LEARN_MORE, SIGN_UP or CALL, and the only link slot is `callToAction.url` | `business.manage` | CONFIRMED; a link-preview card is not documented; summary length UNVERIFIED |
+| React to a review | none documented | n/a | BLOCKED |
+| New reviews without polling | Cloud Pub/Sub, see below | n/a | CONFIRMED |
+
+**Push.** One Pub/Sub topic; the service account `mybusiness-api-pubsub@system.gserviceaccount.com` needs
+Publish on it; then `PATCH mybusinessnotifications.googleapis.com/v1/accounts/{id}/notificationSetting` once per
+customer account. Types: NEW_REVIEW, UPDATED_REVIEW, GOOGLE_UPDATE, NEW_CUSTOMER_MEDIA. The documented payload
+names the review and location (`review_name`, `location_name`) and carries no text, so a `reviews.get` follows.
+A push subscription to an HTTPS endpoint is supported and authenticated by a Google-signed OIDC JWT. Delivery
+is at least once, so dedupe. No sample message or latency is documented. On demand: a person-triggered
+`reviews.list`.
+
+**Media.** A post's image is attached by a public URL only. A location photo takes a public URL or a binary
+upload (`media:startUpload`, then POST to `/upload/v1/media/{resourceName}`, then `media.create`). JPG or PNG,
+10 KB to 5 MB, 250 px minimum on the short edge, 720 px recommended. Maximum pixels, aspect ratio and video by
+API are UNVERIFIED.
+
+**Access.** Approval is per Cloud project through the "Application for Basic API Access" form, which asks for a
+verified profile active for 60 or more days with a website. Default quota is 300 QPM (0 means not approved). No
+review time is stated. One project may serve every customer; customers cannot be required to apply themselves.
+
+### 2f. X, API v2 (read 2026-11-16; `platform-research-2026-11-16/x.md`)
+
+Pricing is pay-per-use credits (launched 2026-02-06 per the changelog). Reading a post is $0.005 (up to 3M
+post reads per billing cycle); writing is $0.015, $0.20 if the post carries a URL, $0.01 for a "summoned" reply.
+**Basic and Pro prices are UNVERIFIED**: the pricing page returned HTTP 402. Enterprise is custom.
+
+| Action | Endpoint | Scope | Status |
+|---|---|---|---|
+| Post, reply, thread | `POST /2/tweets`; a reply sets `reply.in_reply_to_tweet_id` | `tweet.read tweet.write users.read` | CONFIRMED; threads inferred |
+| **Reply by a self-serve app** | same | same | **BLOCKED unless the original author summoned the replier** (an @mention or a quote). Whether a commenter's direct reply counts is UNVERIFIED and needs a live test |
+| **AI-written replies** | same | same | **BLOCKED until X approves**: "AI-powered app generates and posts replies: Requires prior approval from X" |
+| Read mentions | `GET /2/users/:id/mentions` with `since_id`, at most 800 recent, 300 per 15 minutes per user | `tweet.read users.read` | CONFIRMED. A customer's mentions cost $0.005 each; $0.001 "owned read" needs the user to own the developer app |
+| Mentions and replies without polling | X Activity API: `POST /2/activity/subscriptions` with `post.mention.create` or `post.reply.create` to a webhook; 1,500 subscriptions on self-serve | user OAuth 2.0 token | CONFIRMED to exist on self-serve; inclusion in pay-per-use is inferred (no sentence says it). Filtered-stream webhooks are Enterprise-only; the Account Activity API is deprecating |
+| React to a post | not read | n/a | UNVERIFIED |
+
+**Media.** Binary or base64 only: no URL or signed-URL source. JPG, PNG, GIF or WEBP; images up to 5 MB, GIFs up
+to 15 MB; video by chunked upload (default 20 minutes and 8 GB, Premium 125 minutes and 16 GB). A post takes 4
+photos, or 1 GIF, or 1 video. Alt text is `POST /2/media/metadata`, up to 1000 characters. Scope `media.write`.
+
+**OAuth 2.0 with PKCE.** Scopes `tweet.read tweet.write users.read media.write offline.access`. Access token 2
+hours; refresh tokens are single use and last about 6 months (stated on the OAuth 1.0a migration page).
+
+**Terms.** The Developer Agreement, Restricted Uses and Guidelines forbid using X content to train or fine-tune
+a model. None mentions inference, so sending a reply's text to Claude to draft a response is UNVERIFIED. The
+Automation Rules page returned 403, so only docs.x.com's summaries of it were read. Self-serve plans suit "a
+limited number of end-users"; the number is not stated.
+
+### 2g. YouTube (Data API v3; read 2026-11-16; `platform-research-2026-11-16/youtube.md`)
+
+| Action | Endpoint | Scope | Quota | Status |
+|---|---|---|---|---|
+| Publish a video or a Short | `videos.insert`, resumable binary upload | `youtube.upload` or `youtube.force-ssl` | own bucket of 100 calls a day | CONFIRMED. No URL upload (BLOCKED) |
+| Publish a Community post | none | n/a | n/a | BLOCKED (checked against the full resource list) |
+| Set a thumbnail | `thumbnails.set` | `youtube.force-ssl` | 50 | CONFIRMED; JPEG or PNG up to 50 MB |
+| Read comments | `commentThreads.list` (up to 100 threads; `allThreadsRelatedToChannelId` covers the whole channel), `comments.list` | `youtube.force-ssl` | 1 | CONFIRMED; the two reference pages name no scope (UNVERIFIED) |
+| Reply to a comment | `comments.insert`, to a top-level comment only | `youtube.force-ssl` | 50 | CONFIRMED |
+| Hold, publish or reject a comment | `comments.setModerationStatus`, `banAuthor` | `youtube.force-ssl`, channel owner | 50 | CONFIRMED |
+| Like or heart a comment | none | n/a | n/a | BLOCKED |
+| New comments without polling | none: the only push (PubSubHubbub) is for uploads and title or description edits | n/a | n/a | BLOCKED; sync is on demand, 1 unit for one channel-wide call |
+
+Use `textDisplay` for other people's comments: `textOriginal` is returned only to the author. **Quota changed on
+2026-06-01:** 10,000 units a day per Google Cloud project, shared by all customers, sharding across projects
+prohibited. The "uploads from unverified projects are locked private" rule was reversed on 2026-11-02; an audit
+is still needed for more quota. Policy: automating comments needs "prior specific and express consent" (section
+1b); stored authorized data must be deleted or refreshed within 30 days, a deletion request has a 7-day
+deadline, derived data is prohibited, and the policies say nothing about AI (UNVERIFIED). OAuth: a consent
+screen in "Testing" expires refresh tokens in 7 days; sensitive-scope verification can take up to 10 days;
+whether the scopes are "restricted" (a security assessment) is UNVERIFIED. Re-read by eye: the 15-minute
+default for unverified channels, 256 GB or 12 hours, the video format list, and Shorts length (one page says up
+to 3 minutes, another 1 to 3).
+
+### 2h. TikTok (read 2026-11-16; `platform-research-2026-11-16/tiktok.md`)
+
+Two products. **The Business API (Organic, "Accounts API")** has comments and publishing for business accounts.
+**developers.tiktok.com** (Login Kit, Content Posting API) has no comment scope among its 23 scopes.
+
+| Action | Endpoint | Permission | Status |
+|---|---|---|---|
+| Read comments and replies | `GET /business/comment/list/`, `/business/comment/reply/list/` | 18030100 (`comment.list`) | CONFIRMED |
+| Reply, like, hide, delete | `POST /business/comment/reply/create/` and the matching create, like, hide and delete endpoints; reply text up to 1,200 characters | 18030200 | CONFIRMED; the write scope name `comment.list.manage` appears only in an example (UNVERIFIED) |
+| New comments without polling | webhook `comment.update`, subscribed with `POST /business/webhook/update/` (`event_type` COMMENT); "within five minutes"; covers manually posted videos; carries `comment_id`, `video_id`, `comment_action`, `text`, `unique_identifier` | needs `comment.list` | CONFIRMED. Stops if the authorization expires or is revoked |
+| Publish a video or photos (Business API) | `/business/video/publish/`, `/business/photo/publish/`: a verified-domain URL only, drafts with `upload_to_draft` | publish permission | CONFIRMED. 6 a minute and 15 a day per account; video 1 GB and 3 to 600 seconds; photos JPG, JPEG or WEBP, up to 35 at 20 MB each |
+| Publish (Content Posting API) | Direct Post: `FILE_UPLOAD` or `PULL_FROM_URL` (verified domain) | `video.publish`, `video.upload` | CONFIRMED. **Private-only until the client is audited**; unaudited clients are capped at 5 users per 24 hours. The audit form and review time were not found |
+| Publish status without polling | `post.publish.*` webhook events on both products | n/a | CONFIRMED; the events page and the Content Posting status page disagree on the event list |
+
+**Webhook signature.** `TikTok-Signature: t=,s=`, HMAC-SHA256 over `timestamp + "." + raw JSON body`, keyed with
+the app secret. **Tokens.** Business API access token 1 day, refresh token 1 year, auth code 10 minutes, no PKCE
+described; whether the refresh token rotates is UNVERIFIED. developers.tiktok.com web flow has no PKCE (desktop
+and mobile require it): access 2 hours, refresh 180 days with rotation, though the App Review FAQ says "maximum
+of one year". **Access.** Registration is company-only with a 3-business-day review; app review is 2 to 3 business
+days on the Business side and "several days to two weeks" on developers.tiktok.com. **Since 2026-03-20 an
+"Accounts API Access Application Form" is required** before any new app or scope increase that includes "TikTok
+Accounts"; its criteria were not opened. **Limits:** 40 queries a minute per account per endpoint and 600 a
+minute per app. **Terms:** the Developer Terms say nothing about AI (UNVERIFIED); they limit data use to
+"developing, maintaining, and supporting your Applications" and bar spam. Not settled by the docs: which account
+types can authorize the comment scopes, whether US customers are supported, whether one verified domain can
+serve many customers, and whether Business API posting is exempt from the audit rule.
+
+### 2i. Pinterest, API v5 (read 2026-11-16; `platform-research-2026-11-16/pinterest.md`)
+
+**Publish-only.** None of the 305 operations in Pinterest's OpenAPI spec (v5.28.0) is a comments or reactions
+endpoint, and the only webhook is for Lead Ads.
+
+| Action | Endpoint | Scope | Status |
+|---|---|---|---|
+| Create a Pin | `POST /v5/pins`; media source `image_url`, `image_base64`, `video_id` (cover required), `multiple_image_urls` or base64 (2 to 5 images); title up to 100, description up to 800, alt text up to 500, link up to 2048, `board_id`, `board_section_id` | `boards:read/write`, `pins:read/write` | CONFIRMED |
+| Create a board | `POST /boards` (a board must exist first) | `boards:write` | CONFIRMED |
+| Video | `POST /media`, upload to the returned S3 `upload_url`, check `GET /media/{id}` until it succeeds, then create the Pin | same | CONFIRMED; the status check is a poll (section 1b, item 5) |
+| Read or reply to Pin comments, reactions | none | n/a | BLOCKED |
+| New items without polling | none | n/a | BLOCKED; only person-triggered `GET /pins`, `/boards`, `/boards/{id}/pins` |
+
+Whether Pinterest fetches `image_url` as a public address, the API size limit and the base64 size limit are
+UNVERIFIED. The 20 MB and 32 MB images, 2 GB video and 2:3 ratio figures come from Pinterest's ads specification
+help page, not the API reference. **Tokens:** access 30 days, refresh 60 days and renewable indefinitely; whether
+the old refresh token is invalidated and whether PKCE is supported are UNVERIFIED. **Access:** Trial pins and
+boards are visible only to their creator; Standard needs a video demo of the OAuth flow, and the Terms require
+Pinterest approval before distribution to end users; no review time is published. **Personal accounts:** apps
+registered on or after 2026-09-14 get `403 PINNER_DATA_ACCESS_DENIED` reading personal boards and Pins (the
+clarification is a Pinterest staff post, not the docs); whether publishing is blocked too needs a live test.
+**Limits:** `org_write` 300 a day per app on Trial, 100 a minute per user per app on Standard. **Terms:** do not
+store API-accessed information without written consent, delete within 30 days, do not train or fine-tune AI/ML
+on Pinterest Data; sending it to an LLM for drafting is UNVERIFIED.
+
+### 2j. Corrections and additions to 2a to 2d for a multi-tenant product (`meta.md`, `linkedin.md`)
+
+**Settled Meta items.**
+
+| Item | Result | Status |
+|---|---|---|
+| I1 connect setup | **Unified Login**, which Meta recommends for new integrations and where new features ship first. No Facebook Page is needed for Unified Login or Instagram Login, but the customer must choose a business portfolio and our app must belong to a different one | CONFIRMED |
+| I5 Page and Instagram together | one Login for Business token can hold Pages and Instagram accounts; the Instagram dashboard's configuration screen documents only Instagram and ad-account assets, so adding a Page there is UNVERIFIED | CONFIRMED / UNVERIFIED |
+| System-user token (SUAT) | expiry is set per login configuration (default never, optional 60 days); created by exchanging the login code on the server, one per customer portfolio; it dies when the customer removes our app, signalled by a `business_integration_uninstall` webhook | CONFIRMED |
+| I3 Instagram webhooks | fields `comments`, `live_comments`, `mentions`, all under `instagram_manage_comments`; subscribe each customer account with `POST /{IG_ID}/subscribed_apps`; `comments` payloads carry the text, `from`, `parent_id` and `media`, `mentions` payloads do not; delivery to customers needs Live mode and Advanced Access for `comments` and `live_comments`. Delivery in Development mode to a role-holding tester is UNVERIFIED | CONFIRMED / UNVERIFIED |
+| I4 Instagram comments | read `GET /{media}/comments` (top level only, 50 a page); reply `POST /{comment}/replies?message=`; hide `POST /{comment}?hide=true`; delete `DELETE /{comment}`. The author shown on a reply is not stated | CONFIRMED / UNVERIFIED |
+| I2 publishing limit | not settled: the guide says 100 in one section and 50 in its carousel section; the endpoint reference says `quota_total` is "currently 50". Plan with 50 and read `content_publishing_limit` per account | UNVERIFIED |
+
+**Media rules, Meta and LinkedIn.**
+
+| Platform | Binary or URL | Formats and limits | Status |
+|---|---|---|---|
+| Facebook Page photo | `POST /{page}/photos` with `url` or a multipart upload | jpeg, bmp, png, gif, tiff, up to 10 MB; several photos by unpublished uploads plus `attached_media`; video through the Video API and the Resumable Upload API | CONFIRMED |
+| Instagram image | a public `image_url`; a signed or expiring URL is UNVERIFIED | JPEG only, up to 8 MB, aspect ratio 4:5 to 1.91:1; carousel up to 20 items | CONFIRMED |
+| Instagram video | `video_url`, or resumable upload at `rupload.facebook.com` for Login for Business apps only | status check documented as once a minute for up to 5 minutes; no webhook alternative documented (section 1b, item 5) | CONFIRMED |
+| LinkedIn image, video, document | binary only: `initializeUpload`, then a PUT of the bytes to `uploadUrl`; no page accepts a media URL | images JPG, GIF or PNG under 36,152,320 pixels (max size and aspect ratio UNVERIFIED); video MP4, 3 seconds to 30 minutes, 4 MB parts (docs conflict: 500 MB or 5 GB); documents 100 MB and 300 pages; multi-image post 2 to 20 images, organic only | CONFIRMED / conflicting |
+| LinkedIn article thumbnail | uploaded through the Images API; the API does not scrape a URL | the Posts page says thumbnail, title and description are required; the article schema says only `source` and `title` are. How a post looks without a thumbnail is not documented | conflicting |
+
+**Corrections.** (1) Section 2d's "Standard Access only" does not hold for a SaaS: customers without a role on
+our app need Advanced Access through App Review, Business Verification and Live mode, plus Data Use Checkup
+before going Live; Meta says App Review decisions come "within a week". The Data Protection Assessment is annual
+with 60 days to complete once enrolled; whether we are enrolled is UNVERIFIED. Tech Provider Access
+Verification was retired 2026-10-09. (2) LinkedIn webhooks need the Standard tier (L2). A Development-tier app has
+no push and no BATCH_GET, so nothing arrives unless a person's action triggers a read. (3) The LinkedIn webhook
+payload is not "URNs only": the sample carries decorated comment text. (4) LinkedIn version 202511 sunsets
+2026-11-16; 202601 to 202610 sunset 2027-01-15 to 2027-10-15. Every call must send 202610 or later. (5) LinkedIn
+comments and reactions need `*_organization_social_feed` scopes and posts need `*_organization_social`: request
+both pairs (L1). (6) `w_member_social` is listed under Community Management, so a personal profile does not need
+the Share on LinkedIn product, which the partner guide names as a blocker for the Community Management request
+(L3); whether Development tier issues the scope is UNVERIFIED. (7) Refresh tokens last 365 days and refreshing
+does not extend them; whether our app is given them is UNVERIFIED because the docs conflict (L4). (8) The
+Standard tier needs a screen recording of the OAuth flow, posting and comment display, test credentials, a
+privacy policy and data-storage compliance; a rejected app cannot reapply; no review time is stated for
+Community Management; whether Development tier may connect other customers' Pages is UNVERIFIED; Standard
+rate limits are published only in the Developer Portal. (9) LinkedIn also bars using individual profiles "to
+manage multiple customers' accounts" (restricted-use-cases page), which a multi-tenant design must respect.
+Meta requires each client's data to be kept separate, and an AI provider is a Service Provider that must first
+agree in writing to use the data "solely for you and at your direction".
+
+### 2k. Side by side
+
+| Platform | Read incoming comments or reviews | New items without polling | Media in | Image formats | Reply | React | Auto-send policy |
+|---|---|---|---|---|---|---|---|
+| Facebook | yes | `feed` webhook (Live mode for customers) | URL or multipart | jpeg, bmp, png, gif, tiff, 10 MB | yes | LIKE only | no rule found |
+| Instagram | yes | `comments`, `live_comments`, `mentions` webhooks | public URL; rupload for some apps | JPEG only, 8 MB | yes | none | no rule found |
+| LinkedIn | organization only (member is closed) | Standard tier webhooks only | binary only | JPG, GIF, PNG | yes | yes | no rule found |
+| Google Business Profile | reviews | Pub/Sub (IDs only, then a read) | public URL (posts); URL or binary (location photos) | JPG, PNG, 10 KB to 5 MB | yes (moderated up to 30 days) | none | **express consent required** |
+| X | mentions and replies | X Activity API webhook | binary or base64 | JPG, PNG, GIF, WEBP, 5 MB | **only if summoned; AI replies need approval** | UNVERIFIED | **approval required** |
+| YouTube | yes | **none** | binary only (video) | thumbnail JPEG or PNG | yes | none | **express consent required** |
+| TikTok | Business API only | `comment.update` webhook | verified-domain URL (Business), or file or URL (Content Posting) | JPG, JPEG, WEBP | yes | like (Business API) | no rule found |
+| Pinterest | **none** | **none** | URL or base64 | not in the API reference | none | none | **each action must be considered** |
+
+Platforms with no push (YouTube, Pinterest, and LinkedIn below Standard) get one on-demand read when the
+customer's hub connection is established, as approved. That read costs 1 quota unit on YouTube (shared by all
+customers) and 1 call against a 100-a-day member limit on LinkedIn's Development tier. X and TikTok have a
+push, so they need no on-demand read for new items; an X read would cost $0.005 per post returned.
+
 ## 3. Webhook security (all must be implemented as written)
 
 | | Meta | LinkedIn |
@@ -132,6 +379,15 @@ is built (I1).
 | Retries | immediately, then over 36 hours; up to 1000 updates per batch | every 5 minutes for 8 hours |
 | Dedupe | required (the docs say so) | `notificationId` |
 
+### 3b. Webhook security for the platforms added at Gate 7a
+
+| Platform | Verification |
+|---|---|
+| Google Business Profile | Pub/Sub push to an HTTPS endpoint, authenticated by a Google-signed OIDC JWT; at-least-once delivery, so dedupe |
+| X | CRC reply and per-event signature are HMAC-SHA256, base64 with a `sha256=` prefix, keyed with the app's OAuth 2.0 client secret; header `X-Twitter-Webhooks-Signature-OAuth2`. The CRC cadence conflicts (30 minutes or hourly) and retry behaviour is undocumented beyond a 24-hour replay endpoint |
+| TikTok | `TikTok-Signature: t=,s=`, HMAC-SHA256 over `timestamp + "." + raw JSON body`, keyed with the app secret. Business webhook retry rules are not documented |
+| YouTube, Pinterest | no comment webhook exists |
+
 ## 4. Tokens and access tiers
 
 | | Meta | LinkedIn |
@@ -141,6 +397,16 @@ is built (I1).
 | Invalidation | Error 190: subcode 460 (logout or password change), 458 (authorization revoked), 463 (session expired), security events. Page role removal is not documented. Meta does not notify; check `GET /debug_token` (`is_valid`, `expires_at`) and handle 190 on any call | 401 means the grant is gone (re-consent); 403 means the member is no longer an administrator |
 | Access tier | **Standard Access** covers users with a role on the app, which includes Jeff on his own Page; no App Review. **Advanced Access** (any user) needs App Review and Business Verification, not needed for one owned Page | **Development tier** first: 500 calls per app, 100 per member, no BATCH_GET; **Standard tier** needs a screen recording, test credentials and technical sign-off. A rejected app cannot reapply; a new app is required |
 | Approval prerequisites | none for own Page | Registered legal organization, commercial use only; verified business email; legal name, registered address, website, privacy policy; a Page super admin must verify the app; no LinkedIn or Microsoft names or logos in the app; the app must be new and hold no other API product (the request button is otherwise grayed out) |
+
+### 4b. Tokens and approvals for the platforms added at Gate 7a
+
+| Platform | Access token | Refresh | Approval before other people's accounts |
+|---|---|---|---|
+| Google Business Profile | short-lived | until revoked, unused 6 months, or past 100 per client; 7 days if the consent screen is in Testing | "Application for Basic API Access" per Cloud project (verified profile active 60 or more days); sensitive-scope verification status of `business.manage` UNVERIFIED |
+| X | 2 hours | single use, about 6 months | pay-per-use self-serve suits "a limited number of end-users"; AI replies need X's approval; a sales conversation |
+| YouTube | per `expires_in` | 7 days in Testing; 100 per account per client; unused 6 months | sensitive-scope verification up to 10 days; compliance audit for more quota |
+| TikTok | Business 1 day; web 2 hours | Business 1 year; web 180 days with rotation | company-only registration, 3 business days; app review 2 to 3 business days (Business) or up to 2 weeks (developers); Accounts API Access Application Form; Content Posting audit |
+| Pinterest | 30 days | 60 days, renewable | Trial to Standard needs a video demo of the OAuth flow and Pinterest's approval to distribute |
 
 ## 5. Data retention and use obligations
 
@@ -162,7 +428,21 @@ Meta (Platform Terms, developer policies; check the current versions):
 - Delete user data on request or when the user no longer has an account; the Data Protection Assessment
   asks about deletion practices.
 
+### 5b. Retention rules found at Gate 7a
+
+| Platform | Rule | Effect |
+|---|---|---|
+| Google Business Profile | store Content "temporarily for no more than 30 calendar days"; it "cannot be manipulated or aggregated" | severe: conflicts with a review history and with drafts built on review text (section 1b, item 2) |
+| YouTube | refresh or delete stored authorized data within 30 days; delete within 7 days of a request or revoked consent; no derived data; no cross-owner aggregation | per-tenant stores and a deletion path |
+| Pinterest | no storing API-accessed information without written consent; delete within 30 days | applies to published-post records |
+| Meta | each client's data kept separate; a deletion-callback URL receives a `signed_request` and returns `{url, confirmation_code}` | per-tenant isolation; build the callback |
+| LinkedIn | 48 hours for member comments, 24 hours for commenter profile data (section 5) | unchanged |
+
 ## 6. Open items (settle in the developer portal or with a live call)
+
+Gate 7a (2026-11-16) settled or narrowed several rows below: I1, I3, I4, I5 and L1 to L3, L6 (section 2j);
+L2 is settled (webhooks need the Standard tier); I2, L4 and L5 stay open. The open items for the five new
+platforms are listed at the end of each file in `platform-research-2026-11-16/`.
 
 | ID | Question | Where it gets settled |
 |---|---|---|
@@ -194,10 +474,23 @@ Meta (Platform Terms, developer policies; check the current versions):
    Facebook Login for Business, and Instagram is reported connected. Still to do: the Pages use case and
    the Facebook test Page. Keep the app in development mode; no App Review submission, Data Protection
    Assessment or Marketing API item is needed for the owner's own accounts.
-3. Both: have the privacy policy and business email ready; LinkedIn requires a valid privacy policy at
+3. Approvals that selling GeekSocial needs, none of which code can start (Gate 7a, longest first): LinkedIn
+   Community Management Standard tier; Meta Advanced Access (App Review, Business Verification, Live mode,
+   Data Use Checkup); Google's "Application for Basic API Access" for the Business Profile APIs, plus OAuth
+   verification; TikTok company registration and the Accounts API Access Application Form; YouTube sensitive-scope
+   verification and the compliance audit with a quota extension; Pinterest Standard access with a video demo;
+   and a conversation with X sales about the AI-reply approval, the "summoned" reply rule and the end-user limit.
+   Ask each reviewer how "prior specific and express consent" may be captured for category auto-send.
+4. Both: have the privacy policy and business email ready; LinkedIn requires a valid privacy policy at
    Standard tier.
 
-## Sources (all read 2026-11-08)
+## Sources
+
+Gate 7a (read 2026-11-16): every URL opened for Google Business Profile, X, YouTube, TikTok, Pinterest, Meta
+and LinkedIn is listed at the end of its file in `docs/platform-research-2026-11-16/`, with what was read from it.
+Pages marked "(fetch summary)" or "re-read" there were not read as raw text.
+
+Read 2026-11-08 and 2026-11-09:
 
 - LinkedIn Posts API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api
 - LinkedIn Comments API: https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/comments-api
