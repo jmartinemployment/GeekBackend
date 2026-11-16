@@ -36,6 +36,12 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
    from the signup form, GeekAPI's request, the tenant record and the store; migration 0066 drops the column. **Committed locally,
    not pushed.**
 
+5b. **Phone.** Jeff: "Phone is lame. With the country code, as +1 and ten digits. Country must be U.S.A. or it is not valid"
+   (2026-11-16). The box now takes a US number as people write it, placeholder `(561) 555-0101`; GeekAPI stores it as `+1` and
+   ten digits and refuses anything that is not a US number (`contact_phone_not_us`). **Committed locally, not pushed.**
+5c. **State.** Jeff: "Like you need State or County ?" State's only use is the receptionist's script, "a business in {state}".
+   **Waiting for his word** on whether to remove it.
+
 ## Not working yet (from before the walkthrough)
 
 5. ~~`GEEK_BACKEND_API_KEY` on Vercel~~: done. Jeff re-added it as Sensitive (Production) at 14:47 on 2026-11-16, redeployed at 14:47:57;

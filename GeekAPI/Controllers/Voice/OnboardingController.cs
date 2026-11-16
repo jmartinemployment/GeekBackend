@@ -92,6 +92,7 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Sign
     {
         OnboardingFailureCodes.CountryNotSupported
             or OnboardingFailureCodes.BusinessActivityUnknown
+            or OnboardingFailureCodes.ContactPhoneNotUs
             or OnboardingFailureCodes.IndustryExcluded
             or OnboardingFailureCodes.IndustryAddendumNotAvailable
             or OnboardingFailureCodes.AddendumRequired

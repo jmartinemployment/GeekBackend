@@ -9,6 +9,7 @@ public static class OnboardingFailureCodes
 {
     public const string CountryNotSupported = "country_not_supported";
     public const string BusinessActivityUnknown = "business_activity_unknown";
+    public const string ContactPhoneNotUs = "contact_phone_not_us";
     public const string IndustryExcluded = "industry_excluded";
     public const string IndustryAddendumNotAvailable = "industry_addendum_not_available";
     public const string AddendumRequired = "addendum_required";
@@ -89,6 +90,10 @@ public sealed class OnboardingEligibility(IVoiceStore voice, OnboardingOptions o
         if (request.ComplianceAttested != true)
             return Refused(OnboardingFailureCodes.AttestationRequired, "The compliance attestation must be accepted.");
 
+        var phone = UsPhone.ToE164(request.ContactPhone);
+        if (phone is null)
+            return Refused(OnboardingFailureCodes.ContactPhoneNotUs, "Enter the business's US phone number, ten digits, such as (561) 555-0101.");
+
         DateTimeOffset? addendumSignedAt = null;
         string? addendumAddress = null;
         var now = clock.GetUtcNow();
@@ -111,7 +116,7 @@ public sealed class OnboardingEligibility(IVoiceStore voice, OnboardingOptions o
             request.CountryCode!,
             request.StateCode ?? string.Empty,
             request.ContactEmail ?? string.Empty,
-            request.ContactPhone ?? string.Empty), ct).ConfigureAwait(false);
+            phone), ct).ConfigureAwait(false);
 
         return created.IsSuccess
             ? Result<EligibilityAccepted>.Success(new EligibilityAccepted(created.Value!.Id, created.Value.Status))

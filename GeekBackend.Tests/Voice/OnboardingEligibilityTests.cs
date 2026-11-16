@@ -70,6 +70,7 @@ public sealed class OnboardingEligibilityTests
         Assert.Null(created.AddendumSignedAt);
         Assert.Null(created.AddendumIpAddress);
         Assert.Equal("US", created.CountryCode);
+        Assert.Equal("+15615550101", created.ContactPhone);
         Assert.Equal("238220", created.BusinessActivityCode);
         Assert.Equal("Plumbing, heating, & air-conditioning contractors", created.IndustryVertical);
     }
@@ -86,6 +87,32 @@ public sealed class OnboardingEligibilityTests
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.False(Assert.Single(store.Created).RequiresAddendum);
+    }
+
+    [Fact]
+    public async Task The_phone_is_stored_as_plus_one_and_ten_digits_however_it_was_typed()
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { ContactPhone = "(561) 555-0101" }, FromUs);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal("+15615550101", Assert.Single(store.Created).ContactPhone);
+    }
+
+    [Theory]
+    [InlineData("+44 20 7946 0958")]
+    [InlineData("555-0101")]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task A_phone_that_is_not_a_us_number_is_refused_and_creates_nothing(string? phone)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { ContactPhone = phone }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.ContactPhoneNotUs, result.ErrorCode);
+        Assert.Empty(store.Created);
     }
 
     [Theory]
@@ -279,6 +306,7 @@ public sealed class OnboardingEligibilityTests
     [Theory]
     [InlineData(OnboardingFailureCodes.CountryNotSupported, 400)]
     [InlineData(OnboardingFailureCodes.BusinessActivityUnknown, 400)]
+    [InlineData(OnboardingFailureCodes.ContactPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.IndustryExcluded, 400)]
     [InlineData(OnboardingFailureCodes.IndustryAddendumNotAvailable, 400)]
     [InlineData(OnboardingFailureCodes.AddendumRequired, 400)]
