@@ -17,6 +17,9 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
    sends them to the dashboard); signed out, it shows again.
    - Gap found: a signed-in owner who opens `/signup` directly gets step 1. Offered to send them to the dashboard. **Waiting for his yes.**
 
+3a. **Favicon.** (2026-11-16) The site had none (`/favicon.ico` answered 404). **Built, committed locally, not pushed:**
+   geekatyourspot.com's orange @ (`favicon.gif`, `favicon.ico`, apple `icon.png`), linked the same way as that site's layout.
+
 ## Signup
 
 4. **"What the business does" is an IRS code, not free text.** Jeff: "Change What the business does to the Class C" (2026-11-16).
