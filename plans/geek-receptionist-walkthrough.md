@@ -17,13 +17,13 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
    sends them to the dashboard); signed out, it shows again.
    - Gap found: a signed-in owner who opens `/signup` directly gets step 1. Offered to send them to the dashboard. **Waiting for his yes.**
 
-3a. **Favicon.** (2026-11-16) The site had none (`/favicon.ico` answered 404). **Built, committed locally, not pushed:**
+3a. **Favicon.** (2026-11-16) The site had none (`/favicon.ico` answered 404). **Pushed 2026-11-16 21:13 UTC:**
    geekatyourspot.com's orange @ (`favicon.gif`, `favicon.ico`, apple `icon.png`), linked the same way as that site's layout.
 
 ## Signup
 
 4. **"What the business does" is an IRS code, not free text.** Jeff: "Change What the business does to the Class C" (2026-11-16).
-   **Built, committed locally, not pushed.** Signup step 1 offers the 303 codes of the 2025 Schedule C chart (IRS Principal
+   **Pushed 2026-11-16 21:13 UTC.** Signup step 1 offers the 303 codes of the 2025 Schedule C chart (IRS Principal
    Business Activity codes), grouped by sector; GeekAPI serves the list, refuses a code not on it, and decides healthcare
    (`621`, `622`, `623`, `541940` veterinary) and addendum (`5411`, `5412`, `52`, `61`) by prefix. The tenant stores the code
    (`business_activity_code`, migration 0065) and its name in `industry_vertical`.
@@ -33,21 +33,20 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
      heating, & air-conditioning contractors".
 
 5a. **County is gone.** Jeff: "Why do you ask County?" then "eliminate" (2026-11-16). It was optional and nothing read it. Removed
-   from the signup form, GeekAPI's request, the tenant record and the store; migration 0066 drops the column. **Committed locally,
-   not pushed.**
+   from the signup form, GeekAPI's request, the tenant record and the store; migration 0066 drops the column. **Pushed 2026-11-16 21:13 UTC.**
 
 5b. **Phone.** Jeff: "Phone is lame. With the country code, as +1 and ten digits. Country must be U.S.A. or it is not valid"
    (2026-11-16). The box now takes a US number as people write it, placeholder `(561) 555-0101`; GeekAPI stores it as `+1` and
-   ten digits and refuses anything that is not a US number (`contact_phone_not_us`). **Committed locally, not pushed.**
+   ten digits and refuses anything that is not a US number (`contact_phone_not_us`). **Pushed 2026-11-16 21:13 UTC.**
 5c. **State.** Jeff: "Like you need State or County ?" State's only use is the receptionist's script, "a business in {state}".
    **Waiting for his word** on whether to remove it.
 
 5d. **Country in County's place.** Jeff: "You could replace the stupid County with Country and validate." A Country choice
-   (United States or Another country); GeekAPI refuses anything but US. **Committed locally, not pushed.**
+   (United States or Another country); GeekAPI refuses anything but US. **Pushed 2026-11-16 21:13 UTC.**
 5e. **Checkbox.** Jeff: it "can be simplified, and is also missing other exclusions". Proposed text, **waiting for his word**:
    "This business is not a healthcare, veterinary, legal, accounting, tax, payroll, financial, insurance or education business,
    and calls to it may be answered and recorded by an AI receptionist that tells callers so."
-5f. **Captcha.** Jeff: "Needs captcha", then Google reCAPTCHA. **Built, committed locally, not pushed:** the "I'm not a robot"
+5f. **Captcha.** Jeff: "Needs captcha", then Google reCAPTCHA. **Pushed 2026-11-16 21:13 UTC:** the "I'm not a robot"
    checkbox on signup step 1 and on sign-in, checked by Google's siteverify on the site's server before GeekAPI is called. Seen
    working locally with Google's test keys. Key: "Geek-Receptionist checkbox" (Website · Checkbox challenge) in Google Cloud project
    `geek-oauth-04-11-2026`, Security → Fraud Defense (Google's new name for reCAPTCHA); domains `geek-receptionist.geekatyourspot.com`
@@ -59,7 +58,6 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
 
 5. ~~`GEEK_BACKEND_API_KEY` on Vercel~~: done. Jeff re-added it as Sensitive (Production) at 14:47 on 2026-11-16, redeployed at 14:47:57;
    "Needs Attention" is gone.
-6. Signup's PayPal steps are not on GeekAPI: needs his "push" (743b3ed and the plan-file commits) and the four `PAYPAL_PLAN_*`
-   variables.
+6. ~~Signup's PayPal steps~~: pushed 2026-11-16 21:13 UTC; the four `PAYPAL_PLAN_*` (sandbox plans) set on GeekAPI the same minute.
 7. Connect Google Calendar: GeekAPI's `PORTAL_BASE_URL` and the Google OAuth client's redirect URI still name the earlier
    `receptionist.` address; both must become `geek-receptionist.`.
