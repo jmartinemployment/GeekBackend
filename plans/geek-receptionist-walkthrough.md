@@ -31,8 +31,8 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
 
 ## Not working yet (from before the walkthrough)
 
-5. ~~`GEEK_BACKEND_API_KEY` on Vercel~~: set by Jeff, Production; the 14:06 redeploy came 10 seconds after it. "Needs Attention" is
-   most likely Vercel asking for a key-named variable to be marked Sensitive (not confirmed in Vercel's docs).
+5. ~~`GEEK_BACKEND_API_KEY` on Vercel~~: done. Jeff re-added it as Sensitive (Production) at 14:47 on 2026-11-16, redeployed at 14:47:57;
+   "Needs Attention" is gone.
 6. Signup's PayPal steps are not on GeekAPI: needs his "push" (743b3ed and the plan-file commits) and the four `PAYPAL_PLAN_*`
    variables.
 7. Connect Google Calendar: GeekAPI's `PORTAL_BASE_URL` and the Google OAuth client's redirect URI still name the earlier
