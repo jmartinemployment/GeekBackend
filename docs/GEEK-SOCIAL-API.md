@@ -171,8 +171,7 @@ the routes above.
 - Webhooks, object Page: callback `https://api.geekatyourspot.com/api/social/webhooks/meta`, the verify
   token above, field `feed`. Connecting a Page subscribes it; the callback itself is set here once.
 - Facebook Login for Business, "Valid OAuth Redirect URIs": `https://geek-social.geekatyourspot.com/connect/meta/callback`
-  (and `https://geek-social.vercel.app/connect/meta/callback`, `http://localhost:3006/connect/meta/callback`
-  for testing).
+  (and `http://localhost:3006/connect/meta/callback` for testing).
 
 ## Limits
 

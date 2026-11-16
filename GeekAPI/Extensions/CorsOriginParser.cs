@@ -20,7 +20,6 @@ public static class CorsOriginParser
         // GeekSocial's screen.
         "http://localhost:3006",
         "https://geek-social.geekatyourspot.com",
-        "https://geek-social.vercel.app",
     ];
 
     /// <summary>

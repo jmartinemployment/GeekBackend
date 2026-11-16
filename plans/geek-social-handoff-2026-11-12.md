@@ -76,8 +76,8 @@ writes). Jeff sets them in the dashboard, or adds a permission rule for
    the verify token above. Set the Railway variables first; Meta checks the callback when it is saved.
 2. Facebook Login for Business, Valid OAuth Redirect URIs:
    `http://localhost:3006/connect/meta/callback`, later
-   `https://geek-social.geekatyourspot.com/connect/meta/callback` and
-   `https://geek-social.vercel.app/connect/meta/callback`.
+   `https://geek-social.geekatyourspot.com/connect/meta/callback`. Not `geek-social.vercel.app`:
+   that host is not this project's (removed 2026-11-15).
 3. GeekOAuth client `geek-social`: register `http://localhost:3006/auth/callback` and
    `http://localhost:3006/signed-out`.
 
