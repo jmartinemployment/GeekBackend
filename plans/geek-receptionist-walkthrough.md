@@ -49,9 +49,11 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
    and calls to it may be answered and recorded by an AI receptionist that tells callers so."
 5f. **Captcha.** Jeff: "Needs captcha", then Google reCAPTCHA. **Built, committed locally, not pushed:** the "I'm not a robot"
    checkbox on signup step 1 and on sign-in, checked by Google's siteverify on the site's server before GeekAPI is called. Seen
-   working locally with Google's test keys. **Needs from Jeff:** a reCAPTCHA key in Google Cloud (Website, checkbox challenge,
-   domains `geek-receptionist.geekatyourspot.com` and `localhost`); its Key ID as `RECAPTCHA_SITE_KEY` and its legacy secret as
-   `RECAPTCHA_SECRET_KEY` (Sensitive) on Vercel, Production, before the site is pushed: without them sign-in and signup refuse.
+   working locally with Google's test keys. Key: "Geek-Receptionist checkbox" (Website · Checkbox challenge) in Google Cloud project
+   `geek-oauth-04-11-2026`, Security → Fraud Defense (Google's new name for reCAPTCHA); domains `geek-receptionist.geekatyourspot.com`
+   and `localhost`. Both values set on Vercel by Jeff, Sensitive, Production, 16:01 and 16:03 on 2026-11-16. Two earlier keys of the
+   score type (named RECAPTCHA_SECRET_KEY and RECAPTCHA_SITE_KEY in Google Cloud) are unused and can be deleted. The live site has
+   no captcha code until the site push.
 
 ## Not working yet (from before the walkthrough)
 
