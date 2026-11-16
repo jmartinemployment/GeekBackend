@@ -101,7 +101,17 @@ public sealed class TwilioProvisioner
     /// by activation when a later step (the Retell agent, the stored record) fails. Returns whether it closed; a failure is logged at
     /// Error with the SID, so it can be closed by hand.
     /// </summary>
-    public async Task<bool> AbandonAsync(string subaccountSid, Guid tenantId, CancellationToken ct = default)
+    public Task<bool> AbandonAsync(string subaccountSid, Guid tenantId, CancellationToken ct = default) =>
+        CloseAsync(subaccountSid, tenantId, "after a failed activation", ct);
+
+    /// <summary>
+    /// One attempt to close a cancelled tenant's subaccount, which releases its number so it bills nothing more. Returns whether it
+    /// closed; a failure is logged at Error with the SID, so it can be closed by hand.
+    /// </summary>
+    public Task<bool> ReleaseAsync(string subaccountSid, Guid tenantId, CancellationToken ct = default) =>
+        CloseAsync(subaccountSid, tenantId, "because the tenant was cancelled", ct);
+
+    private async Task<bool> CloseAsync(string subaccountSid, Guid tenantId, string occasion, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_options.MasterAccountSid) || string.IsNullOrWhiteSpace(_options.MasterAuthToken))
         {
@@ -118,7 +128,7 @@ public sealed class TwilioProvisioner
         }
 
         closed.Value!.Dispose();
-        _logger.LogInformation("Twilio subaccount {SubaccountSid} for tenant {TenantId} was closed after a failed activation.", subaccountSid, tenantId);
+        _logger.LogInformation("Twilio subaccount {SubaccountSid} for tenant {TenantId} was closed {Occasion}.", subaccountSid, tenantId, occasion);
         return true;
     }
 

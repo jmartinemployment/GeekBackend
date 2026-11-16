@@ -142,13 +142,63 @@ public sealed class RetellProvisioner
         return false;
     }
 
-    /// <summary>One JSON POST. A success is the parsed body, which the caller disposes; every failure is a failed result naming the step.</summary>
-    private async Task<Result<JsonDocument>> PostAsync(string step, Guid tenantId, string route, object body, CancellationToken ct)
+    /// <summary>
+    /// Stops the tenant's number answering (<paramref name="agentId"/> null: the number keeps no inbound agent) or turns it back on with
+    /// the tenant's agent. Used when a suspended tenant's seven days end, and when it is restored. Sent once; a failure is logged and
+    /// answered, and the tenant's record is changed only after it succeeds.
+    /// </summary>
+    public async Task<Result<bool>> SetAnsweringAsync(Guid tenantId, string phoneNumber, string? agentId, CancellationToken ct = default)
+    {
+        var missing = _options.Missing();
+        if (missing.Count > 0)
+        {
+            _logger.LogError("Retell answering cannot be changed for tenant {TenantId}: {Variables} not set.", tenantId, string.Join(", ", missing));
+            return Result<bool>.Failure("Retell is not configured.", RetellFailureCodes.NotConfigured);
+        }
+
+        var agents = agentId is null ? Array.Empty<object>() : new object[] { new { agent_id = agentId, weight = 1 } };
+        var step = agentId is null ? "stop the number answering" : "turn the number's answering back on";
+        var updated = await SendAsync(HttpMethod.Patch, step, tenantId, $"update-phone-number/{Uri.EscapeDataString(phoneNumber)}", new { inbound_agents = agents }, ct).ConfigureAwait(false);
+        if (!updated.IsSuccess) return Result<bool>.Failure(updated.Error!, updated.ErrorCode!);
+        updated.Value!.Dispose();
+        return Result<bool>.Success(true);
+    }
+
+    /// <summary>
+    /// Removes a cancelled tenant's Retell side: reads the agent for its language model, then deletes the imported number, the agent and
+    /// the model, one attempt each. True only when all three are gone; anything left is logged at Error by its id to be removed by hand.
+    /// </summary>
+    public async Task<bool> ReleaseAsync(Guid tenantId, string agentId, string phoneNumber, CancellationToken ct = default)
+    {
+        var llmId = "";
+        var agent = await SendAsync(HttpMethod.Get, "read the agent", tenantId, $"get-agent/{Uri.EscapeDataString(agentId)}", null, ct).ConfigureAwait(false);
+        if (agent.IsSuccess)
+        {
+            using var doc = agent.Value!;
+            if (doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("response_engine", out var engine) && engine.ValueKind == JsonValueKind.Object
+                && engine.TryGetProperty("llm_id", out var id) && id.ValueKind == JsonValueKind.String)
+                llmId = id.GetString() ?? "";
+        }
+
+        if (llmId.Length == 0)
+            _logger.LogError("The language model of Retell agent {AgentId} for tenant {TenantId} could not be read; it must be removed by hand.", agentId, tenantId);
+
+        var removed = await AbandonAsync(new ProvisionedRetell(llmId, agentId, phoneNumber), tenantId, ct).ConfigureAwait(false);
+        return removed && llmId.Length > 0;
+    }
+
+    private Task<Result<JsonDocument>> PostAsync(string step, Guid tenantId, string route, object body, CancellationToken ct) =>
+        SendAsync(HttpMethod.Post, step, tenantId, route, body, ct);
+
+    /// <summary>One request with a JSON body or none. A success is the parsed body, which the caller disposes; every failure is a failed result naming the step.</summary>
+    private async Task<Result<JsonDocument>> SendAsync(HttpMethod method, string step, Guid tenantId, string route, object? body, CancellationToken ct)
     {
         try
         {
-            using var request = Request(HttpMethod.Post, route);
-            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+            using var request = Request(method, route);
+            if (body is not null)
+                request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
 
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)

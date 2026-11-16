@@ -28,7 +28,8 @@ public sealed class VoiceBillingRepository(IDbConnectionFactory db) : IVoiceBill
             c.period_start AS PeriodStart, c.period_end AS PeriodEnd, c.included_minutes AS IncludedMinutes,
             c.used_minutes AS UsedMinutes, c.overage_minutes AS OverageMinutes, c.overage_rate_usd AS OverageRateUsd,
             c.amount_usd AS AmountUsd, c.status AS Status, c.paypal_order_id AS PaypalOrderId,
-            c.paypal_capture_id AS PaypalCaptureId, c.failure AS Failure, c.created_at AS CreatedAt, c.settled_at AS SettledAt
+            c.paypal_capture_id AS PaypalCaptureId, c.failure AS Failure, c.created_at AS CreatedAt, c.settled_at AS SettledAt,
+            c.collected_order_id AS CollectedOrderId, c.collected_capture_id AS CollectedCaptureId, c.collected_at AS CollectedAt
         FROM geek_voice.overage_charges c
         JOIN geek_voice.tenant_subscriptions s ON s.id = c.subscription_id AND s.tenant_id = c.tenant_id
         """;
@@ -227,6 +228,207 @@ public sealed class VoiceBillingRepository(IDbConnectionFactory db) : IVoiceBill
         return updated == 0 ? NotFound<bool>("The subscription was not found.") : Result<bool>.Success(true);
     }
 
+    // ----- Standing -----
+
+    public async Task<Result<IReadOnlyList<VoiceSuspendedTenant>>> ListSuspendedAsync(CancellationToken ct = default)
+    {
+        await using var conn = (NpgsqlConnection)db.CreateConnection();
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        await conn.ExecuteAsync(new CommandDefinition(
+            "SELECT set_config('app.billing_sweep', 'on', true);", transaction: tx, cancellationToken: ct));
+        var tenants = (await conn.QueryAsync<Guid>(new CommandDefinition(
+            "SELECT id FROM geek_voice.tenants WHERE status = 'suspended' ORDER BY suspended_at LIMIT @Limit;",
+            new { Limit = DueBatch },
+            transaction: tx,
+            cancellationToken: ct))).Select(id => new VoiceSuspendedTenant(id)).ToList();
+        await tx.CommitAsync(ct);
+
+        return Result<IReadOnlyList<VoiceSuspendedTenant>>.Success(tenants);
+    }
+
+    public async Task<Result<VoiceBillingStanding>> GetStandingAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        await using var conn = await VoiceConnections.OpenForTenantAsync(db, tenantId, ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var standing = await ReadStandingAsync(conn, tx, tenantId, ct);
+        await tx.CommitAsync(ct);
+        return standing;
+    }
+
+    public Task<Result<VoiceBillingStanding>> SuspendTenantAsync(Guid tenantId, CancellationToken ct = default) =>
+        ChangeTenantAsync(tenantId, (status, _) => status switch
+        {
+            VoiceTenantStatuses.Active => ("UPDATE geek_voice.tenants SET status = 'suspended', suspended_at = NOW(), updated_at = NOW() WHERE id = @TenantId;", null),
+            VoiceTenantStatuses.Suspended => (null, null),
+            _ => (null, $"A {status} tenant cannot be suspended."),
+        }, ct);
+
+    public Task<Result<VoiceBillingStanding>> RestoreTenantAsync(Guid tenantId, CancellationToken ct = default) =>
+        ChangeTenantAsync(tenantId, (status, standing) =>
+        {
+            if (status != VoiceTenantStatuses.Suspended) return (null, $"A {status} tenant is not suspended, so it cannot be restored.");
+            if (standing.UnpaidCharges.Count > 0) return (null, "An overage charge is still unpaid.");
+            if (standing.BillingStatus != VoiceBillingStatuses.Active) return (null, $"PayPal holds the subscription {standing.BillingStatus}, not ACTIVE.");
+            return ("UPDATE geek_voice.tenants SET status = 'active', suspended_at = NULL, answering_stopped_at = NULL, updated_at = NOW() WHERE id = @TenantId;", null);
+        }, ct);
+
+    public Task<Result<VoiceBillingStanding>> MarkAnsweringStoppedAsync(Guid tenantId, CancellationToken ct = default) =>
+        ChangeTenantAsync(tenantId, (status, _) => status == VoiceTenantStatuses.Suspended
+            ? ("UPDATE geek_voice.tenants SET answering_stopped_at = COALESCE(answering_stopped_at, NOW()), updated_at = NOW() WHERE id = @TenantId;", null)
+            : (null, $"A {status} tenant's number is not stopped for billing."), ct);
+
+    public Task<Result<VoiceBillingStanding>> CancelTenantAsync(Guid tenantId, CancellationToken ct = default) =>
+        ChangeTenantAsync(tenantId, (status, _) => status switch
+        {
+            VoiceTenantStatuses.Active or VoiceTenantStatuses.Suspended =>
+                ("UPDATE geek_voice.tenants SET status = 'cancelled', suspended_at = NULL, updated_at = NOW() WHERE id = @TenantId;", null),
+            VoiceTenantStatuses.Cancelled => (null, null),
+            _ => (null, $"A {status} tenant has no subscription to cancel."),
+        }, ct);
+
+    public async Task<Result<bool>> MarkTelephonyReleasedAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        await using var conn = await VoiceConnections.OpenForTenantAsync(db, tenantId, ct);
+        var status = await conn.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            "SELECT status FROM geek_voice.tenants WHERE id = @TenantId;", new { TenantId = tenantId }, cancellationToken: ct));
+        if (status is null) return NotFound<bool>("The tenant was not found.");
+        if (status != VoiceTenantStatuses.Cancelled)
+            return Result<bool>.Failure("Only a cancelled tenant's number and agent are released.", VoiceFailureCodes.Conflict);
+
+        var updated = await conn.ExecuteAsync(new CommandDefinition(
+            "UPDATE geek_voice.tenant_telephony SET released_at = COALESCE(released_at, NOW()) WHERE tenant_id = @TenantId;",
+            new { TenantId = tenantId },
+            cancellationToken: ct));
+        return updated == 0 ? NotFound<bool>("The tenant has no telephony.") : Result<bool>.Success(true);
+    }
+
+    public async Task<Result<VoiceOverageCharge>> CollectOverageChargeAsync(Guid tenantId, Guid chargeId, CollectVoiceOverageChargeCommand command, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(command.PaypalOrderId) || string.IsNullOrWhiteSpace(command.PaypalCaptureId))
+            return Invalid<VoiceOverageCharge>("A payment carries PayPal's order and capture ids.");
+
+        await using var conn = await VoiceConnections.OpenForTenantAsync(db, tenantId, ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        var held = await conn.QuerySingleOrDefaultAsync<CollectRow>(new CommandDefinition(
+            "SELECT status AS Status, collected_order_id AS CollectedOrderId FROM geek_voice.overage_charges WHERE id = @ChargeId AND tenant_id = @TenantId FOR UPDATE;",
+            new { ChargeId = chargeId, TenantId = tenantId },
+            transaction: tx,
+            cancellationToken: ct));
+        if (held is null)
+        {
+            await tx.RollbackAsync(ct);
+            return NotFound<VoiceOverageCharge>("The charge was not found.");
+        }
+
+        if (held.Status != VoiceOverageStatuses.Failed)
+        {
+            await tx.RollbackAsync(ct);
+            return Result<VoiceOverageCharge>.Failure("Only a charge the automatic charge could not take is paid by the owner.", VoiceFailureCodes.Conflict);
+        }
+
+        if (held.CollectedOrderId is not null && held.CollectedOrderId != command.PaypalOrderId)
+        {
+            await tx.RollbackAsync(ct);
+            return Result<VoiceOverageCharge>.Failure("The charge has already been paid with another PayPal order.", VoiceFailureCodes.Conflict);
+        }
+
+        if (held.CollectedOrderId is null)
+        {
+            await conn.ExecuteAsync(new CommandDefinition("""
+                UPDATE geek_voice.overage_charges
+                SET collected_order_id = @PaypalOrderId, collected_capture_id = @PaypalCaptureId, collected_at = NOW()
+                WHERE id = @ChargeId AND tenant_id = @TenantId;
+                """,
+                new { ChargeId = chargeId, TenantId = tenantId, command.PaypalOrderId, command.PaypalCaptureId },
+                transaction: tx,
+                cancellationToken: ct));
+        }
+
+        var charge = await ReadChargeAsync(conn, tx, tenantId, chargeId, ct);
+        await tx.CommitAsync(ct);
+        return Result<VoiceOverageCharge>.Success(charge!);
+    }
+
+    /// <summary>
+    /// Locks the tenant row, reads its standing and asks <paramref name="decide"/> what to do given its status: an UPDATE to run, nothing
+    /// (the tenant is already where it should be), or the reason it is refused (a conflict). Answers the standing after the change.
+    /// </summary>
+    private async Task<Result<VoiceBillingStanding>> ChangeTenantAsync(
+        Guid tenantId, Func<string, VoiceBillingStanding, (string? Update, string? Refusal)> decide, CancellationToken ct)
+    {
+        await using var conn = await VoiceConnections.OpenForTenantAsync(db, tenantId, ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        var status = await conn.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            "SELECT status FROM geek_voice.tenants WHERE id = @TenantId FOR UPDATE;",
+            new { TenantId = tenantId },
+            transaction: tx,
+            cancellationToken: ct));
+        if (status is null)
+        {
+            await tx.RollbackAsync(ct);
+            return NotFound<VoiceBillingStanding>("The tenant was not found.");
+        }
+
+        var before = await ReadStandingAsync(conn, tx, tenantId, ct);
+        if (!before.IsSuccess)
+        {
+            await tx.RollbackAsync(ct);
+            return before;
+        }
+
+        var (update, refusal) = decide(status, before.Value!);
+        if (refusal is not null)
+        {
+            await tx.RollbackAsync(ct);
+            return Result<VoiceBillingStanding>.Failure(refusal, VoiceFailureCodes.Conflict);
+        }
+
+        if (update is null)
+        {
+            await tx.CommitAsync(ct);
+            return before;
+        }
+
+        await conn.ExecuteAsync(new CommandDefinition(update, new { TenantId = tenantId }, transaction: tx, cancellationToken: ct));
+        var after = await ReadStandingAsync(conn, tx, tenantId, ct);
+        await tx.CommitAsync(ct);
+        return after;
+    }
+
+    private static async Task<Result<VoiceBillingStanding>> ReadStandingAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid tenantId, CancellationToken ct)
+    {
+        // One subscription per tenant: activation writes it once. A second would make this read throw rather than pick one.
+        var row = await conn.QuerySingleOrDefaultAsync<StandingRow>(new CommandDefinition("""
+            SELECT
+                t.id AS TenantId, t.status AS TenantStatus, t.suspended_at AS SuspendedAt, t.answering_stopped_at AS AnsweringStoppedAt,
+                s.id AS SubscriptionId, s.tier_code AS TierCode, s.billing_status AS BillingStatus,
+                s.paypal_subscription_id AS PaypalSubscriptionId, s.current_period_start AS CurrentPeriodStart,
+                s.current_period_end AS CurrentPeriodEnd
+            FROM geek_voice.tenants t
+            JOIN geek_voice.tenant_subscriptions s ON s.tenant_id = t.id
+            WHERE t.id = @TenantId;
+            """,
+            new { TenantId = tenantId },
+            transaction: tx,
+            cancellationToken: ct));
+        if (row is null) return NotFound<VoiceBillingStanding>("The tenant has no subscription.");
+
+        var unpaid = (await conn.QueryAsync<ChargeRow>(new CommandDefinition(
+            ChargeSelect + " WHERE c.tenant_id = @TenantId AND c.status = 'failed' AND c.collected_at IS NULL ORDER BY c.period_start;",
+            new { TenantId = tenantId },
+            transaction: tx,
+            cancellationToken: ct))).Select(c => c.ToModel()).ToList();
+
+        return Result<VoiceBillingStanding>.Success(new VoiceBillingStanding(
+            row.TenantId, row.TenantStatus, row.SuspendedAt is null ? null : Utc(row.SuspendedAt.Value),
+            row.AnsweringStoppedAt is null ? null : Utc(row.AnsweringStoppedAt.Value), row.SubscriptionId, row.TierCode, row.BillingStatus,
+            row.PaypalSubscriptionId, Utc(row.CurrentPeriodStart), Utc(row.CurrentPeriodEnd), unpaid));
+    }
+
     private static string? ValidateSettlement(SettleVoiceOverageChargeCommand c)
     {
         if (c.Status == VoiceOverageStatuses.Charged)
@@ -290,6 +492,26 @@ public sealed class VoiceBillingRepository(IDbConnectionFactory db) : IVoiceBill
         public DateTime PeriodEnd { get; set; }
     }
 
+    private sealed class CollectRow
+    {
+        public string Status { get; set; } = "";
+        public string? CollectedOrderId { get; set; }
+    }
+
+    private sealed class StandingRow
+    {
+        public Guid TenantId { get; set; }
+        public string TenantStatus { get; set; } = "";
+        public DateTime? SuspendedAt { get; set; }
+        public DateTime? AnsweringStoppedAt { get; set; }
+        public Guid SubscriptionId { get; set; }
+        public string TierCode { get; set; } = "";
+        public string BillingStatus { get; set; } = "";
+        public string PaypalSubscriptionId { get; set; } = "";
+        public DateTime CurrentPeriodStart { get; set; }
+        public DateTime CurrentPeriodEnd { get; set; }
+    }
+
     private sealed class ChargeRow
     {
         public Guid Id { get; set; }
@@ -310,10 +532,13 @@ public sealed class VoiceBillingRepository(IDbConnectionFactory db) : IVoiceBill
         public string? Failure { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? SettledAt { get; set; }
+        public string? CollectedOrderId { get; set; }
+        public string? CollectedCaptureId { get; set; }
+        public DateTime? CollectedAt { get; set; }
 
         public VoiceOverageCharge ToModel() => new(
             Id, TenantId, SubscriptionId, PaypalSubscriptionId, PaypalVaultTokenId, Utc(PeriodStart), Utc(PeriodEnd), IncludedMinutes,
             UsedMinutes, OverageMinutes, OverageRateUsd, AmountUsd, Status, PaypalOrderId, PaypalCaptureId, Failure, Utc(CreatedAt),
-            SettledAt is null ? null : Utc(SettledAt.Value));
+            SettledAt is null ? null : Utc(SettledAt.Value), CollectedOrderId, CollectedCaptureId, CollectedAt is null ? null : Utc(CollectedAt.Value));
     }
 }

@@ -37,7 +37,9 @@ public static class VoiceServiceRegistration
             new HttpVoiceBillingRepository(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),
                 sp.GetRequiredService<ILogger<HttpVoiceBillingRepository>>()));
+        services.AddScoped<TenantStanding>();
         services.AddScoped<OverageBilling>();
+        services.AddScoped<OverageCollection>();
         services.AddHostedService<OverageBillingHostedService>();
         services.AddScoped<RetellCallRecorder>();
         services.AddSingleton(TwilioOptions.FromEnvironment());

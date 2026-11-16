@@ -8,8 +8,9 @@ namespace GeekRepository.Controllers.Voice;
 
 /// <summary>
 /// /internal/v1/billing/* (docs/Geek-Receptionist.md section 5, item 2): GeekAPI's end-of-cycle billing finds the periods that ended,
-/// closes each once, records its charge's outcome and moves the period on. Behind X-Internal-Api-Key. The list of due subscriptions
-/// is the one read across tenants and answers only ids and period ends; every other route names its tenant.
+/// closes each once, records its charge's outcome and moves the period on, and keeps each tenant's standing: suspended, answering
+/// stopped, restored, cancelled, released, an overage the owner paid. Behind X-Internal-Api-Key. The lists of due subscriptions and of
+/// suspended tenants are the reads across tenants and answer only ids and period ends; every other route names its tenant.
 /// </summary>
 [ApiController]
 [Route("internal/v1/billing")]
@@ -35,4 +36,29 @@ public sealed class VoiceBillingController(IVoiceBillingStore billing) : VoiceSt
     [HttpPut("tenants/{tenantId:guid}/billing-status")]
     public async Task<IActionResult> SetBillingStatus(Guid tenantId, [FromBody] SetVoiceBillingStatusCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A billing status is required.") : ToAction(await billing.SetBillingStatusAsync(tenantId, command, ct));
+
+    [HttpPost("tenants/suspended")]
+    public async Task<IActionResult> ListSuspended(CancellationToken ct) => ToAction(await billing.ListSuspendedAsync(ct));
+
+    [HttpGet("tenants/{tenantId:guid}/standing")]
+    public async Task<IActionResult> GetStanding(Guid tenantId, CancellationToken ct) => ToAction(await billing.GetStandingAsync(tenantId, ct));
+
+    [HttpPost("tenants/{tenantId:guid}/suspend")]
+    public async Task<IActionResult> Suspend(Guid tenantId, CancellationToken ct) => ToAction(await billing.SuspendTenantAsync(tenantId, ct));
+
+    [HttpPost("tenants/{tenantId:guid}/restore")]
+    public async Task<IActionResult> Restore(Guid tenantId, CancellationToken ct) => ToAction(await billing.RestoreTenantAsync(tenantId, ct));
+
+    [HttpPost("tenants/{tenantId:guid}/answering-stopped")]
+    public async Task<IActionResult> AnsweringStopped(Guid tenantId, CancellationToken ct) => ToAction(await billing.MarkAnsweringStoppedAsync(tenantId, ct));
+
+    [HttpPost("tenants/{tenantId:guid}/cancel")]
+    public async Task<IActionResult> Cancel(Guid tenantId, CancellationToken ct) => ToAction(await billing.CancelTenantAsync(tenantId, ct));
+
+    [HttpPost("tenants/{tenantId:guid}/telephony-released")]
+    public async Task<IActionResult> TelephonyReleased(Guid tenantId, CancellationToken ct) => ToAction(await billing.MarkTelephonyReleasedAsync(tenantId, ct));
+
+    [HttpPost("tenants/{tenantId:guid}/overage-charges/{chargeId:guid}/collect")]
+    public async Task<IActionResult> Collect(Guid tenantId, Guid chargeId, [FromBody] CollectVoiceOverageChargeCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A payment is required.") : ToAction(await billing.CollectOverageChargeAsync(tenantId, chargeId, command, ct));
 }

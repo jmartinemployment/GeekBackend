@@ -14,14 +14,25 @@ public enum OverageBillingStep
     RenewalUnknown,
     /// <summary>PayPal has not renewed the subscription yet; the next sweep looks again.</summary>
     AwaitingRenewal,
-    /// <summary>PayPal says the subscription is no longer ACTIVE; its status is recorded and billing stops.</summary>
-    Stopped,
+    /// <summary>PayPal holds the subscription but not ACTIVE (a failed monthly payment): its status is recorded and the tenant suspended.</summary>
+    Suspended,
+    /// <summary>PayPal cancelled or expired the subscription: the period was billed, and the tenant is cancelled and its number released.</summary>
+    Cancelled,
     /// <summary>The period is closed, its charge settled and the next period begun.</summary>
     Advanced,
 }
 
 /// <summary>One subscription's result in a sweep, and the charge the period carries when it was closed.</summary>
 public sealed record OverageBillingResult(Guid SubscriptionId, OverageBillingStep Step, VoiceOverageCharge? Charge);
+
+/// <summary>One suspended tenant's result in a sweep.</summary>
+public sealed record SuspendedTenantResult(Guid TenantId, TenantStandingStep Step);
+
+/// <summary>What one sweep did: the periods it billed, then the suspended tenants it looked at.</summary>
+public sealed record OverageSweep(IReadOnlyList<OverageBillingResult> Periods, IReadOnlyList<SuspendedTenantResult> Suspended)
+{
+    public static readonly OverageSweep Nothing = new([], []);
+}
 
 /// <summary>
 /// End-of-cycle billing (docs/Geek-Receptionist.md section 5, item 2). For each subscription whose period ended at least
@@ -30,7 +41,9 @@ public sealed record OverageBillingResult(Guid SubscriptionId, OverageBillingSte
 /// payment method; record the outcome; and, once PayPal has taken the next month's payment, start the next period where this one
 /// ended. Only the sweep that recorded a charge sends it, and it is sent once: a charge left without an outcome for
 /// <see cref="StaleCharge"/> (an instance that stopped mid-charge) is recorded as failed with an instruction to check PayPal, never
-/// sent again. A failed charge is logged at Error and stays in the store with its reason; the period still moves on.
+/// sent again. A failed charge is logged at Error, stays in the store with its reason, and suspends the tenant (<see cref="TenantStanding"/>);
+/// the period still moves on. Each sweep then looks at every suspended tenant: it follows PayPal's status for a subscription PayPal had
+/// stopped holding ACTIVE, restores a tenant that is clear, and stops the number of one whose seven days have ended.
 /// </summary>
 public sealed class OverageBilling
 {
@@ -48,39 +61,101 @@ public sealed class OverageBilling
 
     private readonly IVoiceBillingStore _store;
     private readonly PayPalCycleBilling _paypal;
+    private readonly TenantStanding _standing;
     private readonly TimeProvider _clock;
     private readonly ILogger<OverageBilling> _logger;
 
-    public OverageBilling(IVoiceBillingStore store, PayPalCycleBilling paypal, TimeProvider clock, ILogger<OverageBilling> logger)
+    public OverageBilling(IVoiceBillingStore store, PayPalCycleBilling paypal, TenantStanding standing, TimeProvider clock, ILogger<OverageBilling> logger)
     {
         _store = store;
         _paypal = paypal;
+        _standing = standing;
         _clock = clock;
         _logger = logger;
     }
 
-    /// <summary>One sweep. Nothing is closed when PayPal is not configured or the due list cannot be read; both are logged at Error.</summary>
-    public async Task<IReadOnlyList<OverageBillingResult>> RunAsync(CancellationToken ct = default)
+    /// <summary>
+    /// One sweep. Nothing is closed or changed when PayPal is not configured; a list that cannot be read skips its part. Each is logged
+    /// at Error.
+    /// </summary>
+    public async Task<OverageSweep> RunAsync(CancellationToken ct = default)
     {
         var missing = _paypal.Missing();
         if (missing.Count > 0)
         {
             _logger.LogError("End-of-cycle billing cannot run: {Variables} not set. No period was closed.", string.Join(", ", missing));
-            return [];
+            return OverageSweep.Nothing;
         }
 
         var now = _clock.GetUtcNow();
+        var periods = new List<OverageBillingResult>();
         var due = await _store.ListDueAsync(new ListVoiceSubscriptionsDueCommand(now - CloseAfter), ct).ConfigureAwait(false);
-        if (!due.IsSuccess)
+        if (due.IsSuccess)
+        {
+            foreach (var subscription in due.Value!)
+                periods.Add(await BillAsync(subscription, now, ct).ConfigureAwait(false));
+        }
+        else
         {
             _logger.LogError("End-of-cycle billing could not read the subscriptions due: {Code}. {Error}", due.ErrorCode, due.Error);
-            return [];
         }
 
-        var results = new List<OverageBillingResult>(due.Value!.Count);
-        foreach (var subscription in due.Value!)
-            results.Add(await BillAsync(subscription, now, ct).ConfigureAwait(false));
-        return results;
+        var suspended = new List<SuspendedTenantResult>();
+        var held = await _store.ListSuspendedAsync(ct).ConfigureAwait(false);
+        if (held.IsSuccess)
+        {
+            foreach (var tenant in held.Value!)
+                suspended.Add(new(tenant.TenantId, await ReviewSuspendedAsync(tenant.TenantId, now, ct).ConfigureAwait(false)));
+        }
+        else
+        {
+            _logger.LogError("End-of-cycle billing could not read the suspended tenants: {Code}. {Error}", held.ErrorCode, held.Error);
+        }
+
+        return new OverageSweep(periods, suspended);
+    }
+
+    /// <summary>
+    /// A suspended tenant: while PayPal holds its subscription other than ACTIVE, follow PayPal (ACTIVE again, or cancelled for good);
+    /// then restore it if it is clear, or stop its number once its seven days have ended.
+    /// </summary>
+    private async Task<TenantStandingStep> ReviewSuspendedAsync(Guid tenantId, DateTimeOffset now, CancellationToken ct)
+    {
+        var standing = await _store.GetStandingAsync(tenantId, ct).ConfigureAwait(false);
+        if (!standing.IsSuccess)
+        {
+            _logger.LogError("Suspended tenant {TenantId}'s standing could not be read: {Code}. {Error}", tenantId, standing.ErrorCode, standing.Error);
+            return TenantStandingStep.Failed;
+        }
+
+        var current = standing.Value!;
+        if (current.BillingStatus != VoiceBillingStatuses.Active)
+        {
+            var paypal = await _paypal.GetSubscriptionAsync(current.PaypalSubscriptionId, ct).ConfigureAwait(false);
+            if (!paypal.IsSuccess)
+            {
+                _logger.LogError("Suspended tenant {TenantId}: PayPal's subscription could not be read: {Code}. {Error}", tenantId, paypal.ErrorCode, paypal.Error);
+                return TenantStandingStep.Failed;
+            }
+
+            var status = paypal.Value!.Status;
+            if (status != current.BillingStatus)
+            {
+                var recorded = await _store.SetBillingStatusAsync(tenantId, new SetVoiceBillingStatusCommand(current.SubscriptionId, status), ct).ConfigureAwait(false);
+                if (!recorded.IsSuccess)
+                {
+                    _logger.LogError("Suspended tenant {TenantId}: PayPal now says {Status} and that could not be recorded: {Code}. {Error}", tenantId, status, recorded.ErrorCode, recorded.Error);
+                    return TenantStandingStep.Failed;
+                }
+
+                current = current with { BillingStatus = status };
+            }
+
+            if (TenantStanding.FinalPayPalStatuses.Contains(status))
+                return await _standing.CancelAsync(tenantId, status, ct).ConfigureAwait(false);
+        }
+
+        return await _standing.ReviewAsync(current, now, ct).ConfigureAwait(false);
     }
 
     private async Task<OverageBillingResult> BillAsync(VoiceSubscriptionDue due, DateTimeOffset now, CancellationToken ct)
@@ -124,11 +199,16 @@ public sealed class OverageBilling
 
             charge = settled.Value!;
             if (charge.Status == VoiceOverageStatuses.Charged)
+            {
                 _logger.LogInformation("Overage charge {ChargeId} of tenant {TenantId}: {Minutes} minutes, {Amount} USD, charged (PayPal order {OrderId}).",
                     charge.Id, due.TenantId, charge.OverageMinutes, charge.AmountUsd, charge.PaypalOrderId);
+            }
             else
+            {
                 _logger.LogError("Overage charge {ChargeId} of tenant {TenantId}: {Minutes} minutes, {Amount} USD, failed: {Failure}",
                     charge.Id, due.TenantId, charge.OverageMinutes, charge.AmountUsd, charge.Failure);
+                await _standing.SuspendAsync(due.TenantId, "an overage charge failed", ct).ConfigureAwait(false);
+            }
         }
 
         return await MoveOnAsync(due, charge, now, ct).ConfigureAwait(false);
@@ -157,7 +237,14 @@ public sealed class OverageBilling
 
             _logger.LogWarning("Subscription {SubscriptionId} of tenant {TenantId}: PayPal says {Status}, so it is no longer billed.",
                 due.SubscriptionId, due.TenantId, paypal.Status);
-            return new(due.SubscriptionId, OverageBillingStep.Stopped, charge);
+            if (TenantStanding.FinalPayPalStatuses.Contains(paypal.Status))
+            {
+                var ended = await _standing.CancelAsync(due.TenantId, paypal.Status, ct).ConfigureAwait(false);
+                return new(due.SubscriptionId, ended == TenantStandingStep.Cancelled ? OverageBillingStep.Cancelled : OverageBillingStep.StoreFailed, charge);
+            }
+
+            var suspended = await _standing.SuspendAsync(due.TenantId, $"PayPal holds the subscription {paypal.Status}", ct).ConfigureAwait(false);
+            return new(due.SubscriptionId, suspended.IsSuccess ? OverageBillingStep.Suspended : OverageBillingStep.StoreFailed, charge);
         }
 
         // Renewed means PayPal took a payment after this period began and now bills a later date than this period's end.

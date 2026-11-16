@@ -60,6 +60,12 @@ public sealed class VoiceBillingStoreTests
         await AssertInvalid(Store().AdvanceBillingPeriodAsync(Tenant, new AdvanceVoiceBillingPeriodCommand(Guid.Empty, End, End.AddMonths(1))));
     }
 
+    [Theory]
+    [InlineData(" ", "CAP")]
+    [InlineData("ORD", "")]
+    public async Task An_owners_payment_carries_PayPals_order_and_capture(string order, string capture) =>
+        await AssertInvalid(Store().CollectOverageChargeAsync(Tenant, Guid.NewGuid(), new CollectVoiceOverageChargeCommand(order, capture)));
+
     [Fact]
     public async Task A_billing_status_cannot_be_blank() =>
         await AssertInvalid(Store().SetBillingStatusAsync(Tenant, new SetVoiceBillingStatusCommand(Subscription, " ")));

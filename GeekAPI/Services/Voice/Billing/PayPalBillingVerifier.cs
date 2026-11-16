@@ -18,6 +18,10 @@ public static class BillingFailureCodes
     public const string VaultTokenInvalid = "vault_token_invalid";
     public const string BillingNotConfigured = "billing_not_configured";
     public const string BillingUnavailable = "billing_unavailable";
+    /// <summary>PayPal did not take an owner's payment, or took one that is not this charge's.</summary>
+    public const string PaymentNotCompleted = "payment_not_completed";
+    /// <summary>The owner asked to pay an overage that is not owed: already paid, or not theirs.</summary>
+    public const string ChargeNotOwed = "charge_not_owed";
 }
 
 /// <summary>What PayPal confirmed, in the form the tenant's subscription is stored: the tier's own price and minutes, never the request's.</summary>
