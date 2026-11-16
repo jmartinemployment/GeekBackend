@@ -100,7 +100,7 @@ public sealed class SubscriptionActivation
             return Fail(keyCheck.Error!, keyCheck.ErrorCode!);
         }
 
-        var billing = await _billing.VerifyAsync(request.TierCode, request.PaypalSubscriptionId, request.PaypalVaultTokenId, ct).ConfigureAwait(false);
+        var billing = await _billing.VerifyAsync(tenantId, request.TierCode, request.PaypalSubscriptionId, request.PaypalVaultTokenId, ct).ConfigureAwait(false);
         if (!billing.IsSuccess) return Fail(billing.Error!, billing.ErrorCode!);
 
         var telephony = await _twilio.ProvisionAsync(tenantId, request.PreferredAreaCode, smsEnabled: false, ct).ConfigureAwait(false);

@@ -20,7 +20,7 @@ namespace GeekAPI.Controllers.Voice;
 [RequireApiKey]
 [Route("api/v1/onboarding")]
 [EnableRateLimiting(OnboardingRateLimit.PolicyName)]
-public sealed class OnboardingController(OnboardingEligibility eligibility, SubscriptionActivation activation) : ControllerBase
+public sealed class OnboardingController(OnboardingEligibility eligibility, SignupPayments payments, SubscriptionActivation activation) : ControllerBase
 {
     [HttpPost("validate-eligibility")]
     public async Task<IActionResult> ValidateEligibility([FromBody] ValidateEligibilityRequest request, CancellationToken ct)
@@ -35,6 +35,34 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Subs
         return StatusCode(StatusFor(result.ErrorCode), new { error, code = result.ErrorCode });
     }
 
+    /// <summary>A PayPal subscription to the tier's plan for this signup; the visitor approves it on the page this answers.</summary>
+    [HttpPost("paypal/subscription")]
+    public async Task<IActionResult> StartSubscription([FromBody] StartSignupPaymentRequest? request, CancellationToken ct)
+    {
+        var result = await payments.StartSubscriptionAsync(request, ct);
+        return result.IsSuccess
+            ? Ok(new { subscriptionId = result.Value!.Id, approvalUrl = result.Value.ApprovalUrl })
+            : Refuse(result.Error, result.ErrorCode, "The subscription could not be started.");
+    }
+
+    /// <summary>Saving the visitor's PayPal account for overage charges; the visitor approves it on the page this answers.</summary>
+    [HttpPost("paypal/vault")]
+    public async Task<IActionResult> StartVault([FromBody] StartSignupPaymentRequest? request, CancellationToken ct)
+    {
+        var result = await payments.StartVaultAsync(request, ct);
+        return result.IsSuccess
+            ? Ok(new { setupTokenId = result.Value!.Id, approvalUrl = result.Value.ApprovalUrl })
+            : Refuse(result.Error, result.ErrorCode, "The payment method could not be saved.");
+    }
+
+    /// <summary>The setup token the visitor approved, turned into the payment token activate-subscription takes.</summary>
+    [HttpPost("paypal/vault/complete")]
+    public async Task<IActionResult> CompleteVault([FromBody] CompleteSignupVaultRequest? request, CancellationToken ct)
+    {
+        var result = await payments.CompleteVaultAsync(request, ct);
+        return result.IsSuccess ? Ok(result.Value) : Refuse(result.Error, result.ErrorCode, "The payment method could not be saved.");
+    }
+
     [HttpPost("activate-subscription")]
     public async Task<IActionResult> ActivateSubscription([FromBody] ActivateSubscriptionRequest request, CancellationToken ct)
     {
@@ -47,6 +75,9 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Subs
         var error = string.IsNullOrWhiteSpace(result.Error) ? "The activation failed." : result.Error;
         return StatusCode(StatusFor(result.ErrorCode), new { error, code = result.ErrorCode });
     }
+
+    private ObjectResult Refuse(string? error, string? code, string fallback) =>
+        StatusCode(StatusFor(code), new { error = string.IsNullOrWhiteSpace(error) ? fallback : error, code });
 
     /// <summary>The HTTP status a failure code is answered with. Anything unlisted is the store being unavailable.</summary>
     internal static int StatusFor(string? code) => code switch

@@ -38,8 +38,8 @@ public sealed class BillingController(OverageCollection collection) : Controller
         var refused = OwnerTenantClaim.Refuse(User, tenantId);
         if (refused is not null) return refused;
 
-        var returnUrl = PortalAddress(request?.ReturnUrl);
-        var cancelUrl = PortalAddress(request?.CancelUrl);
+        var returnUrl = ReturnAddress.Parse(request?.ReturnUrl);
+        var cancelUrl = ReturnAddress.Parse(request?.CancelUrl);
         if (returnUrl is null || cancelUrl is null)
             return Failure("Both return addresses must be https addresses (http only for localhost).", VoiceFailureCodes.InvalidRequest);
 
@@ -59,14 +59,6 @@ public sealed class BillingController(OverageCollection collection) : Controller
 
         var standing = await collection.CompleteAsync(tenantId, chargeId, orderId, ct);
         return standing.IsSuccess ? Ok(View(standing.Value!)) : Failure(standing.Error, standing.ErrorCode);
-    }
-
-    /// <summary>An address PayPal may send the owner back to: absolute https, or http on localhost for the portal run on this machine.</summary>
-    internal static Uri? PortalAddress(string? value)
-    {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return null;
-        if (uri.Scheme == Uri.UriSchemeHttps) return uri;
-        return uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback ? uri : null;
     }
 
     internal static object View(VoiceBillingStanding s) => new

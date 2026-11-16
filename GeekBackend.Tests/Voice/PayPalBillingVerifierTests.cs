@@ -14,6 +14,7 @@ namespace GeekBackend.Tests.Voice;
 /// </summary>
 public sealed class PayPalBillingVerifierTests
 {
+    private static readonly Guid Tenant = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private const string Subscription = "I-SUBSCRIPTION123";
     private const string Vault = "VAULT-TOKEN-456";
     private const string Secret = "client-secret-value";
@@ -46,9 +47,10 @@ public sealed class PayPalBillingVerifierTests
     private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
-    private static string SubscriptionJson(string status = "ACTIVE", bool paid = true) => JsonSerializer.Serialize(new Dictionary<string, object?>
+    private static string SubscriptionJson(string status = "ACTIVE", bool paid = true, string? customId = "22222222-2222-2222-2222-222222222222") => JsonSerializer.Serialize(new Dictionary<string, object?>
     {
         ["id"] = Subscription,
+        ["custom_id"] = customId,
         ["status"] = status,
         ["plan_id"] = "P-PLAN",
         ["billing_info"] = paid
@@ -119,7 +121,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, handler, _) = Build();
 
-        var result = await verifier.VerifyAsync(tier, Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, tier, Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.TierUnknown, result.ErrorCode);
         Assert.Empty(handler.Requests);
@@ -130,7 +132,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, handler, _) = Build();
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.True(result.IsSuccess, result.Error);
         var billing = result.Value!;
@@ -164,7 +166,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { Plan = PlanJson(price) });
 
-        var result = await verifier.VerifyAsync(tier, Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, tier, Subscription, Vault);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal(VoiceTierSchedule.Find(tier)!.IncludedMinutes, result.Value!.Tier.IncludedMinutes);
@@ -178,7 +180,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { Plan = PlanJson(price) });
 
-        var result = await verifier.VerifyAsync(tier, Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, tier, Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.PlanMismatch, result.ErrorCode);
     }
@@ -192,9 +194,22 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { Plan = PlanJson(currency: currency, unit: unit, count: count, trial: trial) });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.PlanMismatch, result.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData("33333333-3333-3333-3333-333333333333")]
+    [InlineData(null)]
+    public async Task A_subscription_started_for_another_tenant_or_by_hand_is_refused_before_the_plan_is_asked_for(string? customId)
+    {
+        var (verifier, handler, _) = Build(new Scenario { Subscription = SubscriptionJson(customId: customId) });
+
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
+
+        Assert.Equal(BillingFailureCodes.SubscriptionNotFound, result.ErrorCode);
+        Assert.DoesNotContain(handler.Requests, r => r.Path.StartsWith("/v1/billing/plans/", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -208,7 +223,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, handler, _) = Build(new Scenario { Subscription = SubscriptionJson(status) });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.SubscriptionNotActive, result.ErrorCode);
         Assert.DoesNotContain(handler.Requests, r => r.Path.StartsWith("/v1/billing/plans/", StringComparison.Ordinal));
@@ -219,7 +234,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { Subscription = SubscriptionJson(paid: false) });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.SubscriptionUnpaid, result.ErrorCode);
     }
@@ -229,7 +244,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { SubscriptionStatus = HttpStatusCode.NotFound });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.SubscriptionNotFound, result.ErrorCode);
     }
@@ -239,7 +254,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { VaultStatus = HttpStatusCode.NotFound });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.VaultTokenInvalid, result.ErrorCode);
     }
@@ -251,7 +266,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { Vault = vault });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.VaultTokenInvalid, result.ErrorCode);
     }
@@ -263,7 +278,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, handler, log) = Build(new Scenario { TokenStatus = status });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.BillingUnavailable, result.ErrorCode);
         Assert.Single(handler.Requests);
@@ -277,7 +292,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { SubscriptionStatus = status });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.BillingUnavailable, result.ErrorCode);
     }
@@ -289,7 +304,7 @@ public sealed class PayPalBillingVerifierTests
         var handler = new StubHandler(_ => throw new HttpRequestException("connection refused"));
         var verifier = new PayPalBillingVerifier(new HttpClient(handler), new PayPalOptions("https://paypal.test", "id", Secret), log);
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.BillingUnavailable, result.ErrorCode);
         Assert.NotEmpty(log.Lines);
@@ -300,7 +315,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, _) = Build(new Scenario { Subscription = "<html>" });
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.BillingUnavailable, result.ErrorCode);
     }
@@ -313,7 +328,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, handler, log) = Build(options: new PayPalOptions(baseUrl, id, secret));
 
-        var result = await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        var result = await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.Equal(BillingFailureCodes.BillingNotConfigured, result.ErrorCode);
         Assert.Empty(handler.Requests);
@@ -325,7 +340,7 @@ public sealed class PayPalBillingVerifierTests
     {
         var (verifier, _, log) = Build(new Scenario { SubscriptionStatus = HttpStatusCode.ServiceUnavailable });
 
-        await verifier.VerifyAsync("STARTER", Subscription, Vault);
+        await verifier.VerifyAsync(Tenant, "STARTER", Subscription, Vault);
 
         Assert.NotEmpty(log.Lines);
         Assert.All(log.Lines, line =>

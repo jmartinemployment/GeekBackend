@@ -632,7 +632,7 @@ public sealed class OverageBillingTests
     [InlineData("/billing/paid", false)]
     [InlineData(null, false)]
     public void PayPal_sends_the_owner_back_only_to_https_or_localhost(string? address, bool accepted) =>
-        Assert.Equal(accepted, BillingController.PortalAddress(address) is not null);
+        Assert.Equal(accepted, ReturnAddress.Parse(address) is not null);
 
     [Fact]
     public async Task The_owner_sees_their_standing_and_never_PayPals_ids()

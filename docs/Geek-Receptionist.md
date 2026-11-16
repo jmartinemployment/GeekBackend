@@ -128,7 +128,10 @@ The existing code in `GeekAPI/Services/Receptionist/` was merged from `Geek-Rece
 
 ### `GeekAPI` Public & Webhook Routes
 * `POST /api/v1/onboarding/validate-eligibility`
-* `POST /api/v1/onboarding/activate-subscription`
+* `POST /api/v1/onboarding/paypal/subscription` (portal's server, `X-API-Key`; body `{ tenantId, tierCode, returnUrl, cancelUrl }`; only a `pending_payment` tenant; a PayPal subscription to the tier's plan from `PAYPAL_PLAN_{TIER}` with `custom_id` = the tenant; answers `{ subscriptionId, approvalUrl }`)
+* `POST /api/v1/onboarding/paypal/vault` (same key and tenant rule; body `{ tenantId, returnUrl, cancelUrl }`; a merchant setup token that saves the visitor's PayPal account; answers `{ setupTokenId, approvalUrl }`)
+* `POST /api/v1/onboarding/paypal/vault/complete` (same key and tenant rule; body `{ tenantId, setupTokenId }`; turns the approved setup token into the payment token, once, with the setup token as `PayPal-Request-Id`; answers `{ paypalVaultTokenId }`)
+* `POST /api/v1/onboarding/activate-subscription` (activation now also refuses a subscription whose `custom_id` is not this tenant, `400 subscription_not_found`)
 * `POST /api/v1/onboarding/create-owner-login` (portal's server, `X-API-Key`; body `{ tenantId, email, password, displayName }`; only an `active` tenant; answers `201 { tenantId, ownerLoginId }`)
 * `POST /api/v1/owner-auth/sign-in` (portal's server, `X-API-Key`; body `{ email, password }`; section 7)
 * `POST /api/v1/owner-auth/refresh` (portal's server, `X-API-Key`; body `{ refreshToken }`; section 7)
@@ -216,6 +219,7 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | `PAYPAL_BASE_URL` | ✓ | Sandbox: `https://api-m.sandbox.paypal.com`<br>Live: `https://api-m.paypal.com` | PayPal REST API host for Subscription verification, Vault tokens, and `$0.50/min` overage capture |
 | `PAYPAL_CLIENT_ID` | ✓ | Client ID | PayPal REST app client ID |
 | `PAYPAL_CLIENT_SECRET` | ✓ | Secret | PayPal REST app secret |
+| `PAYPAL_PLAN_STARTER`, `PAYPAL_PLAN_STANDARD`, `PAYPAL_PLAN_PRO`, `PAYPAL_PLAN_PREMIUM` | ✓ | PayPal plan id (`P-...`) | The plan /signup subscribes a visitor to for each tier. Sandbox: `P-93Y59179GB9223215NL3BFNI`, `P-8LX7403571151502NNL5QMQA`, `P-8CS30918MX536813NNL5QMQI`, `P-7S735698AD441763PNL5QMQI`; the live account needs its own. Unset: that tier's signup is refused `503 billing_not_configured`; activation checks the plan's price, so a wrong plan is refused, never charged |
 | `REPO_URL` | ✓ | `http://geek-repository.railway.internal:5050` | Railway private network URL for `GeekRepository` (service `geek-repository`, port `5050`); used by every route, voice and non-voice |
 | `GEEK_REPOSITORY_API_KEY` | ✓ | Secret | Shared internal API key sent via `X-Internal-Api-Key` to `GeekRepository` |
 | `MCP_GATEWAY_URL` | ✓ | `http://geek-mcp-gateway.railway.internal:3000` | Railway private network URL for `GeekMcpGateway` (service `geek-mcp-gateway`, port `3000`, no public domain) |

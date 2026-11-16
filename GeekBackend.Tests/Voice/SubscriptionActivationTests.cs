@@ -87,6 +87,7 @@ public sealed class SubscriptionActivationTests
     private static string PayPalSubscription() => JsonSerializer.Serialize(new Dictionary<string, object?>
     {
         ["id"] = "I-SUBSCRIPTION123",
+        ["custom_id"] = TenantId.ToString(),
         ["status"] = "ACTIVE",
         ["plan_id"] = "P-PLAN",
         ["billing_info"] = new Dictionary<string, object?>

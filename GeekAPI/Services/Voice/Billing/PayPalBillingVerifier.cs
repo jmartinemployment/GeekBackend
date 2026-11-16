@@ -36,7 +36,7 @@ public sealed record VerifiedBilling(
 /// <summary>
 /// Confirms, before anything is provisioned, that the tenant has paid (docs/Geek-Receptionist.md section 5, item 2: no free trials).
 /// It asks PayPal four things, each once: an access token, the subscription, the subscription's plan and the vaulted payment token.
-/// The subscription must be ACTIVE and already paid, its plan must charge the tier's exact monthly price in USD every month, and the
+/// The subscription must be this tenant's (its custom_id, set when /signup started it), ACTIVE and already paid, its plan must charge the tier's exact monthly price in USD every month, and the
 /// vault token must exist and be a PayPal wallet. A PayPal 404 for an id the visitor sent is the visitor's mistake (400); a key PayPal
 /// refuses, a 5xx, a timeout and an answer that is not what PayPal documents are all billing unavailable (503), logged with the status
 /// and the route and never with a body. Nothing is retried and nothing is guessed: a field PayPal did not send is a refusal.
@@ -54,7 +54,7 @@ public sealed class PayPalBillingVerifier
         _logger = logger;
     }
 
-    public async Task<Result<VerifiedBilling>> VerifyAsync(string? tierCode, string? subscriptionId, string? vaultTokenId, CancellationToken ct = default)
+    public async Task<Result<VerifiedBilling>> VerifyAsync(Guid tenantId, string? tierCode, string? subscriptionId, string? vaultTokenId, CancellationToken ct = default)
     {
         var tier = VoiceTierSchedule.Find(tierCode);
         if (tier is null)
@@ -78,6 +78,10 @@ public sealed class PayPalBillingVerifier
         if (!subscription.IsSuccess) return Result<VerifiedBilling>.Failure(subscription.Error!, subscription.ErrorCode!);
         using var subscriptionDoc = subscription.Value!;
         var sub = subscriptionDoc.RootElement;
+
+        // A subscription started for another tenant, or by hand with no tenant, cannot pay for this one.
+        if (Text(sub, "custom_id") != tenantId.ToString())
+            return Result<VerifiedBilling>.Failure("That PayPal subscription was not started for this signup.", BillingFailureCodes.SubscriptionNotFound);
 
         if (Text(sub, "status") != VoiceBillingStatuses.Active)
             return Result<VerifiedBilling>.Failure("The PayPal subscription is not active.", BillingFailureCodes.SubscriptionNotActive);
