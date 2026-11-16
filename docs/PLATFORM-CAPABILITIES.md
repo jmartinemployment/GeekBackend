@@ -114,11 +114,14 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    "summoned" for the API reply rule; this is treated as satisfied and is proven only by a live test (Phase 6).
    **Still not known, and no one can be asked:** how many customers a self-serve app may have before Enterprise
    ("a limited number of end-users"). It will show up in X's billing and access limits when X is built.
-4. **Sending comment text to Claude is still unruled on every platform except Meta's wording.** Meta
-   requires the provider to agree in writing to use the data "solely for you and at your direction". LinkedIn,
-   YouTube, Google, TikTok, Pinterest and X say nothing about inference (X and Pinterest forbid training).
-   `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stays empty per platform until each is recorded, and the tenant's
-   `ai_consent_accepted_at` is a second gate on top of it.
+4. **Sending platform content to Claude. DECIDED (Jeff, 2026-11-16): none. Someone else's content is never sent to
+   an AI, on any platform.** No comment, review or mention text reaches Triage, the Drafter or any model, so
+   `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stays empty and no platform needs a ruling. **Consequence:** the AI
+   cannot read what a commenter wrote, so it cannot draft a reply to it. Every comment and review is held
+   (`blocked_no_clearance`) and a person reads it and writes the reply; the Reviewer still checks that reply before
+   it is sent. What the AI can still do is work on the tenant's own text only: the Post Writer's post copy from the
+   tenant's article, and image prompts. The earlier plan's Triage and Drafter, which read comment text, are
+   switched off by this decision; whether they are removed or kept dormant is for a later gate.
 5. **Status checks that Meta, Pinterest and TikTok document as polling.** Instagram container status
    ("once a minute for up to 5 minutes"), Pinterest video media status and TikTok publish status are polls.
    Proposal: use a platform webhook where one exists (TikTok has `post.publish.*` events); otherwise check
