@@ -127,9 +127,16 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    Proposal: use a platform webhook where one exists (TikTok has `post.publish.*` events); otherwise check
    when a person acts or when the screen's hub connection is established, and show "not confirmed yet" until
    then. No timer.
-6. **YouTube's quota is shared by all customers.** 10,000 units a day per Google Cloud project, a reply costs
-   50, so about 200 replies a day across every tenant, and sharding across projects is prohibited. The quota
-   extension audit is a launch dependency.
+6. **YouTube's quota. DECIDED (Jeff, 2026-11-16): each tenant supplies their own Google Cloud project, and the
+   onboarding wizard asks for its Cloud ID.** The 10,000-unit daily quota belongs to a Cloud project, so each
+   tenant has their own and the shared-quota problem (about 200 replies a day across all tenants) does not arise;
+   no quota-extension audit is needed for it. **Notes, mine and not yet decided:** (a) a project whose consent screen
+   is in "Testing" expires refresh tokens after 7 days, and sensitive scopes can take up to 10 days to verify, so the
+   wizard must walk the tenant through publishing their consent screen; (b) each tenant's client secret must be
+   stored encrypted and per tenant; (c) not read: whether YouTube's terms permit a tenant-owned project for an app
+   run by another developer; (d) for Google Business Profile, approval is per Cloud project through a form that asks
+   for a verified profile active 60 or more days, so a tenant-owned project would need its own approval; the same
+   wizard step has not been decided for Google Business Profile.
 7. **Pinterest is publish-only** (no comments or reactions API, no webhooks). **TikTok comments exist only in
    the Business API's Accounts API**, behind an access application form that has been required since
    2026-03-20. **YouTube cannot publish Community posts** and has no push for comments.
