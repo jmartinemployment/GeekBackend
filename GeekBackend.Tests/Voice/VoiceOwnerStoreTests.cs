@@ -77,22 +77,24 @@ public sealed class VoiceOwnerStoreTests
     }
 
     [Fact]
-    public async Task Spending_or_revoking_needs_a_hash()
+    public async Task Renewing_needs_both_hashes_and_two_different_ones_and_revoking_needs_a_hash()
     {
-        await AssertInvalid(Store().ConsumeRefreshTokenAsync(""));
-        await AssertInvalid(Store().ConsumeRefreshTokenAsync("  "));
+        var future = DateTimeOffset.UtcNow.AddDays(30);
+        await AssertInvalid(Store().RotateRefreshTokenAsync(new RotateVoiceRefreshTokenCommand("", "new", future)));
+        await AssertInvalid(Store().RotateRefreshTokenAsync(new RotateVoiceRefreshTokenCommand("old", "  ", future)));
+        await AssertInvalid(Store().RotateRefreshTokenAsync(new RotateVoiceRefreshTokenCommand("same", "same", future)));
         await AssertInvalid(Store().RevokeRefreshTokenFamilyAsync(""));
     }
 
     private sealed class FakeOwners : IVoiceOwnerStore
     {
         public Result<VoiceOwnerLogin> Create { get; set; } = Result<VoiceOwnerLogin>.Success(new VoiceOwnerLogin(Guid.NewGuid(), Tenant, "a@b.co", "hash", null));
-        public Result<ConsumedVoiceRefreshToken> Consume { get; set; } = Result<ConsumedVoiceRefreshToken>.Failure("x", VoiceFailureCodes.NotFound);
+        public Result<RotatedVoiceRefreshToken> Rotate { get; set; } = Result<RotatedVoiceRefreshToken>.Failure("x", VoiceFailureCodes.NotFound);
 
         public Task<Result<VoiceOwnerLogin>> CreateOwnerLoginAsync(CreateVoiceOwnerLoginCommand command, CancellationToken ct = default) => Task.FromResult(Create);
         public Task<Result<VoiceOwnerLogin>> FindOwnerLoginByEmailAsync(string email, CancellationToken ct = default) => Task.FromResult(Create);
         public Task<Result<bool>> StoreRefreshTokenAsync(StoreVoiceRefreshTokenCommand command, CancellationToken ct = default) => Task.FromResult(Result<bool>.Success(true));
-        public Task<Result<ConsumedVoiceRefreshToken>> ConsumeRefreshTokenAsync(string tokenHash, CancellationToken ct = default) => Task.FromResult(Consume);
+        public Task<Result<RotatedVoiceRefreshToken>> RotateRefreshTokenAsync(RotateVoiceRefreshTokenCommand command, CancellationToken ct = default) => Task.FromResult(Rotate);
         public Task<Result<bool>> RevokeRefreshTokenFamilyAsync(string tokenHash, CancellationToken ct = default) => Task.FromResult(Result<bool>.Success(true));
     }
 
@@ -126,13 +128,14 @@ public sealed class VoiceOwnerStoreTests
         var owners = new FakeOwners();
         var controller = new VoiceOwnerController(owners);
 
-        owners.Consume = Result<ConsumedVoiceRefreshToken>.Failure("used", VoiceOwnerFailureCodes.RefreshTokenReused);
-        var reused = Assert.IsAssignableFrom<ObjectResult>(await controller.Consume(new RefreshTokenHashRequest("h"), default));
+        var renewal = new RotateVoiceRefreshTokenCommand("old", "new", DateTimeOffset.UtcNow.AddDays(30));
+        owners.Rotate = Result<RotatedVoiceRefreshToken>.Failure("used", VoiceOwnerFailureCodes.RefreshTokenReused);
+        var reused = Assert.IsAssignableFrom<ObjectResult>(await controller.Rotate(renewal, default));
         Assert.Equal(409, reused.StatusCode);
         Assert.Contains(VoiceOwnerFailureCodes.RefreshTokenReused, System.Text.Json.JsonSerializer.Serialize(reused.Value));
 
-        owners.Consume = Result<ConsumedVoiceRefreshToken>.Failure("none", VoiceFailureCodes.NotFound);
-        Assert.Equal(404, StatusOf(await controller.Consume(new RefreshTokenHashRequest("h"), default)));
+        owners.Rotate = Result<RotatedVoiceRefreshToken>.Failure("none", VoiceFailureCodes.NotFound);
+        Assert.Equal(404, StatusOf(await controller.Rotate(renewal, default)));
     }
 
     [Fact]
@@ -142,7 +145,7 @@ public sealed class VoiceOwnerStoreTests
         Assert.Equal(400, StatusOf(await controller.Create(null!, default)));
         Assert.Equal(400, StatusOf(await controller.Find(null!, default)));
         Assert.Equal(400, StatusOf(await controller.Store(null!, default)));
-        Assert.Equal(400, StatusOf(await controller.Consume(null!, default)));
+        Assert.Equal(400, StatusOf(await controller.Rotate(null!, default)));
         Assert.Equal(400, StatusOf(await controller.Revoke(null!, default)));
     }
 }

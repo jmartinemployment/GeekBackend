@@ -33,9 +33,9 @@ public sealed class VoiceOwnerController(IVoiceOwnerStore owners) : ControllerBa
     public async Task<IActionResult> Store([FromBody] StoreVoiceRefreshTokenCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A refresh token is required.") : ToAction(await owners.StoreRefreshTokenAsync(command, ct), StatusCodes.Status201Created);
 
-    [HttpPost("internal/v1/owner-refresh-tokens/consume")]
-    public async Task<IActionResult> Consume([FromBody] RefreshTokenHashRequest request, CancellationToken ct) =>
-        request is null ? BadRequest("A token hash is required.") : ToAction(await owners.ConsumeRefreshTokenAsync(request.TokenHash ?? string.Empty, ct));
+    [HttpPost("internal/v1/owner-refresh-tokens/rotate")]
+    public async Task<IActionResult> Rotate([FromBody] RotateVoiceRefreshTokenCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A renewal is required.") : ToAction(await owners.RotateRefreshTokenAsync(command, ct));
 
     [HttpPost("internal/v1/owner-refresh-tokens/revoke")]
     public async Task<IActionResult> Revoke([FromBody] RefreshTokenHashRequest request, CancellationToken ct) =>

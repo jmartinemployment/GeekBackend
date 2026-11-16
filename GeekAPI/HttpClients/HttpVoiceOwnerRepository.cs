@@ -33,8 +33,8 @@ public sealed class HttpVoiceOwnerRepository(HttpClient http, ILogger<HttpVoiceO
     public Task<Result<bool>> StoreRefreshTokenAsync(StoreVoiceRefreshTokenCommand command, CancellationToken ct = default) =>
         SendAsync<bool>("internal/v1/owner-refresh-tokens", command, ct);
 
-    public Task<Result<ConsumedVoiceRefreshToken>> ConsumeRefreshTokenAsync(string tokenHash, CancellationToken ct = default) =>
-        SendAsync<ConsumedVoiceRefreshToken>("internal/v1/owner-refresh-tokens/consume", new { tokenHash }, ct);
+    public Task<Result<RotatedVoiceRefreshToken>> RotateRefreshTokenAsync(RotateVoiceRefreshTokenCommand command, CancellationToken ct = default) =>
+        SendAsync<RotatedVoiceRefreshToken>("internal/v1/owner-refresh-tokens/rotate", command, ct);
 
     public Task<Result<bool>> RevokeRefreshTokenFamilyAsync(string tokenHash, CancellationToken ct = default) =>
         SendAsync<bool>("internal/v1/owner-refresh-tokens/revoke", new { tokenHash }, ct);

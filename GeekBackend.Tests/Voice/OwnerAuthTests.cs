@@ -2,6 +2,7 @@ using System.Net;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text;
+using GeekAPI.Auth;
 using GeekAPI.Controllers.Voice;
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Voice.OwnerAuth;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -24,8 +26,9 @@ namespace GeekBackend.Tests.Voice;
 /// <summary>
 /// Geek-Receptionist's own owner login: only an active tenant gets one, the password is stored only as a hash, signing in refuses an
 /// unknown email and a wrong password alike, the tokens are signed with Geek-Receptionist's own key and refused when signed with any other,
-/// a refresh token is spent once and replaced, one presented again ends the sign-in, an unset key refuses sign-in before anything is
-/// read, every owner route names Geek-Receptionist's scheme and not GeekOAuth's, and no password or token is ever logged.
+/// a refresh token is spent and replaced in one store call, one presented again within the reuse grace is renewed again and after it ends
+/// the sign-in, an unset key refuses sign-in before anything is read, every owner route names Geek-Receptionist's scheme and not
+/// GeekOAuth's, the owner and onboarding routes refuse a call without the verified X-API-Key, and no password or token is ever logged.
 /// </summary>
 public sealed class OwnerAuthTests
 {
@@ -58,12 +61,18 @@ public sealed class OwnerAuthTests
         public Task<Result<VoiceAppointmentCreated>> CreateAppointmentAsync(Guid tenantId, CreateVoiceAppointmentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
-    /// <summary>The owner store as GeekRepository behaves: one login per tenant and per email, a refresh token spent once, a replay ending the family.</summary>
-    private sealed class Owners : IVoiceOwnerStore
+    /// <summary>
+    /// The owner store as GeekRepository behaves: one login per tenant and per email; a renewal spends the presented token and stores its
+    /// replacement together; a token spent within the reuse grace is renewed again; one spent before it, or revoked, ends the family.
+    /// </summary>
+    private sealed class Owners(TimeProvider time) : IVoiceOwnerStore
     {
         public List<VoiceOwnerLogin> Logins { get; } = new();
-        public List<(StoreVoiceRefreshTokenCommand Token, bool Used, bool Revoked)> Tokens { get; } = new();
+        public List<(StoreVoiceRefreshTokenCommand Token, DateTimeOffset? UsedAt, bool Revoked)> Tokens { get; } = new();
         public int Calls { get; private set; }
+
+        /// <summary>When set, a renewal answers this and changes nothing, as GeekRepository does when its transaction does not commit.</summary>
+        public Result<RotatedVoiceRefreshToken>? RotateFails { get; set; }
 
         public Task<Result<VoiceOwnerLogin>> CreateOwnerLoginAsync(CreateVoiceOwnerLoginCommand command, CancellationToken ct = default)
         {
@@ -86,25 +95,31 @@ public sealed class OwnerAuthTests
         public Task<Result<bool>> StoreRefreshTokenAsync(StoreVoiceRefreshTokenCommand command, CancellationToken ct = default)
         {
             Calls++;
-            Tokens.Add((command, false, false));
+            Tokens.Add((command, null, false));
             return Task.FromResult(Result<bool>.Success(true));
         }
 
-        public Task<Result<ConsumedVoiceRefreshToken>> ConsumeRefreshTokenAsync(string tokenHash, CancellationToken ct = default)
+        public Task<Result<RotatedVoiceRefreshToken>> RotateRefreshTokenAsync(RotateVoiceRefreshTokenCommand command, CancellationToken ct = default)
         {
             Calls++;
-            var i = Tokens.FindIndex(t => t.Token.TokenHash == tokenHash);
-            if (i < 0) return Task.FromResult(Result<ConsumedVoiceRefreshToken>.Failure("Unknown.", VoiceFailureCodes.NotFound));
-            var (token, used, revoked) = Tokens[i];
-            if (used || revoked)
+            if (RotateFails is { } failure) return Task.FromResult(failure);
+
+            var now = time.GetUtcNow();
+            var i = Tokens.FindIndex(t => t.Token.TokenHash == command.OldTokenHash);
+            if (i < 0) return Task.FromResult(Result<RotatedVoiceRefreshToken>.Failure("Unknown.", VoiceFailureCodes.NotFound));
+            var (token, usedAt, revoked) = Tokens[i];
+            if (revoked || (usedAt is { } used && used <= now - VoiceOwnerRefreshTokens.ReuseGrace))
             {
                 for (var j = 0; j < Tokens.Count; j++)
-                    if (Tokens[j].Token.FamilyId == token.FamilyId) Tokens[j] = (Tokens[j].Token, Tokens[j].Used, true);
-                return Task.FromResult(Result<ConsumedVoiceRefreshToken>.Failure("Reused.", VoiceOwnerFailureCodes.RefreshTokenReused));
+                    if (Tokens[j].Token.FamilyId == token.FamilyId) Tokens[j] = (Tokens[j].Token, Tokens[j].UsedAt, true);
+                return Task.FromResult(Result<RotatedVoiceRefreshToken>.Failure("Reused.", VoiceOwnerFailureCodes.RefreshTokenReused));
             }
-            Tokens[i] = (token, true, false);
+            if (token.ExpiresAt <= now) return Task.FromResult(Result<RotatedVoiceRefreshToken>.Failure("Expired.", VoiceFailureCodes.NotFound));
+
+            Tokens[i] = (token, usedAt ?? now, false);
+            Tokens.Add((new StoreVoiceRefreshTokenCommand(token.OwnerLoginId, token.FamilyId, command.NewTokenHash, command.NewExpiresAt), null, false));
             var login = Logins.Single(l => l.Id == token.OwnerLoginId);
-            return Task.FromResult(Result<ConsumedVoiceRefreshToken>.Success(new ConsumedVoiceRefreshToken(login.Id, login.TenantId, token.FamilyId, login.Email)));
+            return Task.FromResult(Result<RotatedVoiceRefreshToken>.Success(new RotatedVoiceRefreshToken(login.Id, login.TenantId, token.FamilyId, login.Email)));
         }
 
         public Task<Result<bool>> RevokeRefreshTokenFamilyAsync(string tokenHash, CancellationToken ct = default)
@@ -113,7 +128,7 @@ public sealed class OwnerAuthTests
             var token = Tokens.FirstOrDefault(t => t.Token.TokenHash == tokenHash);
             if (token.Token is not null)
                 for (var j = 0; j < Tokens.Count; j++)
-                    if (Tokens[j].Token.FamilyId == token.Token.FamilyId) Tokens[j] = (Tokens[j].Token, Tokens[j].Used, true);
+                    if (Tokens[j].Token.FamilyId == token.Token.FamilyId) Tokens[j] = (Tokens[j].Token, Tokens[j].UsedAt, true);
             return Task.FromResult(Result<bool>.Success(true));
         }
     }
@@ -123,14 +138,15 @@ public sealed class OwnerAuthTests
 
     private sealed class Rig
     {
-        public Owners Owners { get; } = new();
         public FakeTimeProvider Time { get; } = new(DateTimeOffset.UtcNow);
+        public Owners Owners { get; }
         public CapturingLogger<OwnerAuthService> Log { get; } = new();
         public ReceptionistTokenOptions Options { get; }
         public OwnerAuthService Service { get; }
 
         public Rig(string status = VoiceTenantStatuses.Active, string? key = null, bool keySet = true)
         {
+            Owners = new Owners(Time);
             Options = ReceptionistTokenOptions.From(keySet ? key ?? Key : null);
             Service = new OwnerAuthService(
                 new Store(Result<VoiceTenant>.Success(MakeTenant(status))), Owners, new OwnerPasswords(), new ReceptionistTokens(Options, Time), Log);
@@ -325,17 +341,52 @@ public sealed class OwnerAuthTests
     }
 
     [Fact]
-    public async Task A_refresh_token_presented_again_ends_the_whole_sign_in()
+    public async Task A_refresh_token_presented_again_after_the_grace_ends_the_whole_sign_in()
     {
         var rig = new Rig();
         var first = await rig.SignedInAsync();
         var second = (await rig.Service.RefreshAsync(new OwnerRefreshRequest(first.RefreshToken))).Value!;
+        rig.Time.Advance(VoiceOwnerRefreshTokens.ReuseGrace);
 
         var replay = await rig.Service.RefreshAsync(new OwnerRefreshRequest(first.RefreshToken));
         var afterReplay = await rig.Service.RefreshAsync(new OwnerRefreshRequest(second.RefreshToken));
 
         Assert.Equal(OwnerAuthFailureCodes.RefreshTokenReused, replay.ErrorCode);
         Assert.Equal(OwnerAuthFailureCodes.RefreshTokenReused, afterReplay.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Two_requests_renewing_with_one_token_within_the_grace_both_stay_signed_in()
+    {
+        var rig = new Rig();
+        var first = await rig.SignedInAsync();
+
+        var a = await rig.Service.RefreshAsync(new OwnerRefreshRequest(first.RefreshToken));
+        rig.Time.Advance(VoiceOwnerRefreshTokens.ReuseGrace - TimeSpan.FromSeconds(1));
+        var b = await rig.Service.RefreshAsync(new OwnerRefreshRequest(first.RefreshToken));
+
+        Assert.True(a.IsSuccess, a.Error);
+        Assert.True(b.IsSuccess, b.Error);
+        Assert.NotEqual(a.Value!.RefreshToken, b.Value!.RefreshToken);
+        Assert.True((await rig.Service.RefreshAsync(new OwnerRefreshRequest(a.Value.RefreshToken))).IsSuccess);
+        Assert.True((await rig.Service.RefreshAsync(new OwnerRefreshRequest(b.Value.RefreshToken))).IsSuccess);
+        Assert.Single(rig.Owners.Tokens.Select(t => t.Token.FamilyId).Distinct());
+    }
+
+    [Fact]
+    public async Task A_renewal_the_store_could_not_finish_leaves_the_token_usable_and_is_not_an_ended_sign_in()
+    {
+        var rig = new Rig();
+        var first = await rig.SignedInAsync();
+        rig.Owners.RotateFails = Result<RotatedVoiceRefreshToken>.Failure("GeekRepository timed out.", VoiceFailureCodes.StoreUnavailable);
+
+        var failed = await rig.Service.RefreshAsync(new OwnerRefreshRequest(first.RefreshToken));
+        rig.Owners.RotateFails = null;
+        var retried = await rig.Service.RefreshAsync(new OwnerRefreshRequest(first.RefreshToken));
+
+        Assert.Equal(VoiceFailureCodes.StoreUnavailable, failed.ErrorCode);
+        Assert.Equal(503, OwnerAuthController.StatusFor(failed.ErrorCode));
+        Assert.True(retried.IsSuccess, retried.Error);
     }
 
     [Fact]
@@ -441,7 +492,7 @@ public sealed class OwnerAuthTests
         static HttpVoiceOwnerRepository Client(HttpStatusCode status, string body) =>
             new(new HttpClient(new Answer(status, body)) { BaseAddress = new Uri("https://repo.example.test/") }, NullLogger<HttpVoiceOwnerRepository>.Instance);
 
-        var reused = await Client(HttpStatusCode.Conflict, "{\"error\":\"used\",\"code\":\"refresh_token_reused\"}").ConsumeRefreshTokenAsync("h");
+        var reused = await Client(HttpStatusCode.Conflict, "{\"error\":\"used\",\"code\":\"refresh_token_reused\"}").RotateRefreshTokenAsync(new RotateVoiceRefreshTokenCommand("old", "new", DateTimeOffset.UtcNow.AddDays(30)));
         var conflict = await Client(HttpStatusCode.Conflict, "That email already has a login.").CreateOwnerLoginAsync(new CreateVoiceOwnerLoginCommand(Tenant, "a@b.co", "h", null));
         var missing = await Client(HttpStatusCode.NotFound, "No login has that email.").FindOwnerLoginByEmailAsync("a@b.co");
         var down = await Client(HttpStatusCode.Unauthorized, "").FindOwnerLoginByEmailAsync("a@b.co");
@@ -450,6 +501,34 @@ public sealed class OwnerAuthTests
         Assert.Equal(VoiceFailureCodes.Conflict, conflict.ErrorCode);
         Assert.Equal(VoiceFailureCodes.NotFound, missing.ErrorCode);
         Assert.Equal(VoiceFailureCodes.StoreUnavailable, down.ErrorCode);
+    }
+
+    [Fact]
+    public void The_owner_and_onboarding_routes_require_the_verified_api_key()
+    {
+        Assert.NotNull(typeof(OwnerAuthController).GetCustomAttribute<RequireApiKeyAttribute>());
+        Assert.NotNull(typeof(OnboardingController).GetCustomAttribute<RequireApiKeyAttribute>());
+    }
+
+    [Fact]
+    public void A_geekoauth_token_without_the_api_key_is_refused_and_a_verified_key_passes()
+    {
+        static AuthorizationFilterContext Context(HttpContext http) =>
+            new(new ActionContext(http, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()), []);
+
+        var signedIn = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", Guid.NewGuid().ToString())], "Bearer")) };
+        var refused = Context(signedIn);
+        new RequireApiKeyAttribute().OnAuthorization(refused);
+
+        var keyed = new DefaultHttpContext();
+        keyed.Items[CrmAuthConstants.VerifiedApiKeyItem] = true;
+        var passed = Context(keyed);
+        new RequireApiKeyAttribute().OnAuthorization(passed);
+
+        var refusal = Assert.IsType<ObjectResult>(refused.Result);
+        Assert.Equal(401, refusal.StatusCode);
+        Assert.Contains(RequireApiKeyAttribute.FailureCode, System.Text.Json.JsonSerializer.Serialize(refusal.Value));
+        Assert.Null(passed.Result);
     }
 
     private sealed class Answer(HttpStatusCode status, string body) : HttpMessageHandler

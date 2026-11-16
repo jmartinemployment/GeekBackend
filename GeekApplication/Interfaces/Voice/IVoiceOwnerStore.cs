@@ -15,14 +15,22 @@ public interface IVoiceOwnerStore
     /// <summary>NotFound when no login has that email. The email is compared lower-cased.</summary>
     Task<Result<VoiceOwnerLogin>> FindOwnerLoginByEmailAsync(string email, CancellationToken ct = default);
 
+    /// <summary>Stores the first refresh token of a new sign-in.</summary>
     Task<Result<bool>> StoreRefreshTokenAsync(StoreVoiceRefreshTokenCommand command, CancellationToken ct = default);
 
     /// <summary>
-    /// Spends a refresh token once, atomically. NotFound when the hash is unknown or the token has expired. When the token was already
-    /// spent or was revoked, its whole family is revoked and the code is <see cref="VoiceOwnerFailureCodes.RefreshTokenReused"/>.
+    /// Renews a sign-in: spends the presented token and stores its replacement in the same family, in one transaction that holds the
+    /// owner's row, so a sign-out or a replay that ends the family cannot slip between the two and miss the replacement. NotFound when
+    /// the hash is unknown or the token has expired. A token spent within <see cref="VoiceOwnerRefreshTokens.ReuseGrace"/> is renewed
+    /// again. A token spent before that, or revoked, revokes its whole family and the code is
+    /// <see cref="VoiceOwnerFailureCodes.RefreshTokenReused"/>.
     /// </summary>
-    Task<Result<ConsumedVoiceRefreshToken>> ConsumeRefreshTokenAsync(string tokenHash, CancellationToken ct = default);
+    Task<Result<RotatedVoiceRefreshToken>> RotateRefreshTokenAsync(RotateVoiceRefreshTokenCommand command, CancellationToken ct = default);
 
-    /// <summary>Ends the sign-in a refresh token belongs to by revoking its family. An unknown hash is not an error: there is nothing to end.</summary>
+    /// <summary>
+    /// Ends the sign-in a refresh token belongs to by revoking its family, holding the owner's row as a renewal does, so a renewal in
+    /// flight either finishes first and its replacement is revoked too, or finds the family revoked. An unknown hash is not an error:
+    /// there is nothing to end.
+    /// </summary>
     Task<Result<bool>> RevokeRefreshTokenFamilyAsync(string tokenHash, CancellationToken ct = default);
 }

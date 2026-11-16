@@ -1,3 +1,4 @@
+using GeekAPI.Auth;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.Telephony;
@@ -9,12 +10,14 @@ namespace GeekAPI.Controllers.Voice;
 
 /// <summary>
 /// The onboarding routes of Geek-Receptionist (docs/Geek-Receptionist.md section 6). The visitor is not signed in, so the call is
-/// made by the Geek-Receptionist-Portal's server with the X-API-Key ApiKeyMiddleware checks, and it forwards the visitor's address and
+/// made by the Geek-Receptionist-Portal's server with the X-API-Key ApiKeyMiddleware checks (and <see cref="RequireApiKeyAttribute"/>
+/// requires, so a GeekOAuth token is refused here), and it forwards the visitor's address and
 /// country (<see cref="OnboardingVisitor"/>). OnboardingRateLimit caps each visitor address. A refusal answers with
 /// its message and its code, and the status comes from the code, never from the wording. An unlisted code is the service being
 /// unavailable (503), which covers an unset variable, a PayPal outage and an unusable encryption key.
 /// </summary>
 [ApiController]
+[RequireApiKey]
 [Route("api/v1/onboarding")]
 [EnableRateLimiting(OnboardingRateLimit.PolicyName)]
 public sealed class OnboardingController(OnboardingEligibility eligibility, SubscriptionActivation activation) : ControllerBase

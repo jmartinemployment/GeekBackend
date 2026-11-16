@@ -9,8 +9,9 @@ namespace GeekBackend.IntegrationTests;
 
 /// <summary>
 /// geek_voice.owner_logins and owner_refresh_tokens against a real Postgres: one login per tenant and per email (compared lower-cased),
-/// a refresh token spent exactly once even when two requests race for it, a spent or revoked token ending its whole family, and an
-/// expired token refused. Runs only with TEST_DATABASE_URL set.
+/// a renewal that spends a token and stores its replacement in one step, renewals racing within the reuse grace all staying signed in,
+/// a spent token presented after the grace or a revoked one ending its whole family, a sign-out racing a renewal never leaving a live
+/// token behind, and an expired token refused. Runs only with TEST_DATABASE_URL set.
 /// </summary>
 public sealed class VoiceOwnerIntegrationTests
 {
@@ -67,8 +68,33 @@ public sealed class VoiceOwnerIntegrationTests
         Assert.Equal(VoiceFailureCodes.NotFound, (await owners.FindOwnerLoginByEmailAsync($"nobody-{Unique()}@example.test")).ErrorCode);
     }
 
+    private static RotateVoiceRefreshTokenCommand Renewal(string old, string replacement) =>
+        new(old, replacement, DateTimeOffset.UtcNow.AddDays(30));
+
+    /// <summary>Moves a token's spend back past the reuse grace, as if it had been spent that long ago.</summary>
+    private static async Task SpentLongAgoAsync(string tokenHash)
+    {
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        await using var cmd = new Npgsql.NpgsqlCommand(
+            "UPDATE geek_voice.owner_refresh_tokens SET used_at = NOW() - @Age WHERE token_hash = @Hash;", conn);
+        cmd.Parameters.AddWithValue("Age", VoiceOwnerRefreshTokens.ReuseGrace + TimeSpan.FromMinutes(1));
+        cmd.Parameters.AddWithValue("Hash", tokenHash);
+        Assert.Equal(1, await cmd.ExecuteNonQueryAsync());
+    }
+
+    private static async Task<long> LiveTokensInFamilyAsync(Guid familyId)
+    {
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        await using var cmd = new Npgsql.NpgsqlCommand(
+            "SELECT COUNT(*) FROM geek_voice.owner_refresh_tokens WHERE family_id = @Family AND revoked_at IS NULL;", conn);
+        cmd.Parameters.AddWithValue("Family", familyId);
+        return (long)(await cmd.ExecuteScalarAsync())!;
+    }
+
     [Fact]
-    public async Task A_refresh_token_is_spent_once_and_a_replay_ends_the_whole_family()
+    public async Task A_renewal_stores_the_replacement_in_the_family_and_a_replay_after_the_grace_ends_it()
     {
         if (!IntegrationTestConfig.IsDatabaseConfigured) return;
         await SqlMigrationTestHelper.ApplyAsync();
@@ -79,51 +105,76 @@ public sealed class VoiceOwnerIntegrationTests
         var second = "hash-" + Unique();
         Assert.True((await owners.StoreRefreshTokenAsync(new(login.Id, family, first, DateTimeOffset.UtcNow.AddDays(30)))).IsSuccess);
 
-        var spent = await owners.ConsumeRefreshTokenAsync(first);
-        Assert.True(spent.IsSuccess, spent.Error);
-        Assert.Equal(tenant, spent.Value!.TenantId);
-        Assert.Equal(login.Id, spent.Value.OwnerLoginId);
-        Assert.Equal(family, spent.Value.FamilyId);
+        var renewed = await owners.RotateRefreshTokenAsync(Renewal(first, second));
+        Assert.True(renewed.IsSuccess, renewed.Error);
+        Assert.Equal(tenant, renewed.Value!.TenantId);
+        Assert.Equal(login.Id, renewed.Value.OwnerLoginId);
+        Assert.Equal(family, renewed.Value.FamilyId);
+        Assert.Equal(login.Email, renewed.Value.Email);
 
-        // the replacement the rotation hands out, in the same family
-        Assert.True((await owners.StoreRefreshTokenAsync(new(login.Id, family, second, DateTimeOffset.UtcNow.AddDays(30)))).IsSuccess);
-
-        var replay = await owners.ConsumeRefreshTokenAsync(first);
-        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, replay.ErrorCode);
+        await SpentLongAgoAsync(first);
+        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, (await owners.RotateRefreshTokenAsync(Renewal(first, "hash-" + Unique()))).ErrorCode);
 
         // the replay revoked the family, so the replacement no longer works either
-        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, (await owners.ConsumeRefreshTokenAsync(second)).ErrorCode);
+        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, (await owners.RotateRefreshTokenAsync(Renewal(second, "hash-" + Unique()))).ErrorCode);
+        Assert.Equal(0, await LiveTokensInFamilyAsync(family));
     }
 
     [Fact]
-    public async Task Two_requests_racing_for_one_refresh_token_cannot_both_win()
+    public async Task Renewals_racing_with_one_token_within_the_grace_all_stay_in_the_sign_in()
     {
         if (!IntegrationTestConfig.IsDatabaseConfigured) return;
         await SqlMigrationTestHelper.ApplyAsync();
         var owners = Owners();
         var (_, login) = await NewLoginAsync(owners);
+        var family = Guid.NewGuid();
         var hash = "hash-" + Unique();
-        Assert.True((await owners.StoreRefreshTokenAsync(new(login.Id, Guid.NewGuid(), hash, DateTimeOffset.UtcNow.AddDays(30)))).IsSuccess);
+        Assert.True((await owners.StoreRefreshTokenAsync(new(login.Id, family, hash, DateTimeOffset.UtcNow.AddDays(30)))).IsSuccess);
 
-        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Owners().ConsumeRefreshTokenAsync(hash)));
+        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Owners().RotateRefreshTokenAsync(Renewal(hash, "hash-" + Unique()))));
 
-        Assert.Equal(1, results.Count(r => r.IsSuccess));
+        Assert.All(results, r => Assert.True(r.IsSuccess, r.Error));
+        Assert.All(results, r => Assert.Equal(family, r.Value!.FamilyId));
+        Assert.Equal(9, await LiveTokensInFamilyAsync(family));
     }
 
     [Fact]
-    public async Task An_unknown_hash_is_not_found_and_an_expired_token_is_not_spendable()
+    public async Task A_sign_out_racing_a_renewal_never_leaves_a_live_token_in_the_family()
     {
         if (!IntegrationTestConfig.IsDatabaseConfigured) return;
         await SqlMigrationTestHelper.ApplyAsync();
         var owners = Owners();
         var (_, login) = await NewLoginAsync(owners);
 
-        Assert.Equal(VoiceFailureCodes.NotFound, (await owners.ConsumeRefreshTokenAsync("hash-" + Unique())).ErrorCode);
+        for (var round = 0; round < 20; round++)
+        {
+            var family = Guid.NewGuid();
+            var hash = "hash-" + Unique();
+            Assert.True((await owners.StoreRefreshTokenAsync(new(login.Id, family, hash, DateTimeOffset.UtcNow.AddDays(30)))).IsSuccess);
+
+            var renewal = Owners().RotateRefreshTokenAsync(Renewal(hash, "hash-" + Unique()));
+            var signOut = Owners().RevokeRefreshTokenFamilyAsync(hash);
+            await Task.WhenAll(renewal, signOut);
+
+            Assert.True(signOut.Result.IsSuccess, signOut.Result.Error);
+            Assert.Equal(0, await LiveTokensInFamilyAsync(family));
+        }
+    }
+
+    [Fact]
+    public async Task An_unknown_hash_is_not_found_and_an_expired_token_is_not_renewed()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var owners = Owners();
+        var (_, login) = await NewLoginAsync(owners);
+
+        Assert.Equal(VoiceFailureCodes.NotFound, (await owners.RotateRefreshTokenAsync(Renewal("hash-" + Unique(), "hash-" + Unique()))).ErrorCode);
 
         var shortLived = "hash-" + Unique();
         Assert.True((await owners.StoreRefreshTokenAsync(new(login.Id, Guid.NewGuid(), shortLived, DateTimeOffset.UtcNow.AddSeconds(2)))).IsSuccess);
         await Task.Delay(TimeSpan.FromSeconds(3));
-        Assert.Equal(VoiceFailureCodes.NotFound, (await owners.ConsumeRefreshTokenAsync(shortLived)).ErrorCode);
+        Assert.Equal(VoiceFailureCodes.NotFound, (await owners.RotateRefreshTokenAsync(Renewal(shortLived, "hash-" + Unique()))).ErrorCode);
     }
 
     [Fact]
@@ -140,7 +191,7 @@ public sealed class VoiceOwnerIntegrationTests
         Assert.True((await owners.StoreRefreshTokenAsync(new(login.Id, family, b, DateTimeOffset.UtcNow.AddDays(30)))).IsSuccess);
 
         Assert.True((await owners.RevokeRefreshTokenFamilyAsync(a)).IsSuccess);
-        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, (await owners.ConsumeRefreshTokenAsync(b)).ErrorCode);
+        Assert.Equal(VoiceOwnerFailureCodes.RefreshTokenReused, (await owners.RotateRefreshTokenAsync(Renewal(b, "hash-" + Unique()))).ErrorCode);
 
         Assert.True((await owners.RevokeRefreshTokenFamilyAsync("hash-" + Unique())).IsSuccess);
     }

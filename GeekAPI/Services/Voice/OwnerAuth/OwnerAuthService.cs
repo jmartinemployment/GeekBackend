@@ -43,8 +43,10 @@ public sealed record OwnerSession(
 /// <list type="bullet">
 /// <item>Creating a login needs an active tenant, which only a verified PayPal subscription makes one, and a tenant has one login.</item>
 /// <item>Signing in gives the same answer for an unknown email and a wrong password, and takes as long for either.</item>
-/// <item>A refresh token is spent once and replaced (same sign-in, new token). One presented again ends that whole sign-in, because
-/// a refresh token used twice means a copy of it exists somewhere.</item>
+/// <item>A refresh token is spent and replaced (same sign-in, new token) in one GeekRepository call, so a renewal is never half done.
+/// One presented again within <see cref="VoiceOwnerRefreshTokens.ReuseGrace"/> is renewed again, because two requests from one browser
+/// can present it together and an answer can be lost after the renewal was saved. After that it ends the whole sign-in, because a
+/// refresh token used twice means a copy of it exists somewhere.</item>
 /// </list>
 /// Nothing is retried. No password, token or hash is ever logged; an email is not logged either.
 /// </summary>
@@ -124,7 +126,7 @@ public sealed class OwnerAuthService(
             return WrongCredentials();
         }
 
-        var session = await StartAsync(owner.Id, owner.TenantId, owner.Email, Guid.NewGuid(), ct).ConfigureAwait(false);
+        var session = await StartAsync(owner.Id, owner.TenantId, owner.Email, ct).ConfigureAwait(false);
         if (session.IsSuccess) logger.LogInformation("Owner login {OwnerLoginId} signed in.", owner.Id);
         return session;
     }
@@ -137,18 +139,21 @@ public sealed class OwnerAuthService(
         var configured = CheckConfigured<OwnerSession>();
         if (configured is not null) return configured;
 
-        var spent = await owners.ConsumeRefreshTokenAsync(ReceptionistTokens.HashRefreshToken(request.RefreshToken), ct).ConfigureAwait(false);
-        if (!spent.IsSuccess)
+        var replacement = tokens.IssueRefreshToken();
+        var rotated = await owners.RotateRefreshTokenAsync(
+            new RotateVoiceRefreshTokenCommand(ReceptionistTokens.HashRefreshToken(request.RefreshToken), replacement.Hash, replacement.ExpiresAt),
+            ct).ConfigureAwait(false);
+        if (!rotated.IsSuccess)
         {
-            if (spent.ErrorCode == VoiceOwnerFailureCodes.RefreshTokenReused)
+            if (rotated.ErrorCode == VoiceOwnerFailureCodes.RefreshTokenReused)
                 return Refuse<OwnerSession>("That sign-in has ended. Sign in again.", OwnerAuthFailureCodes.RefreshTokenReused);
-            if (spent.ErrorCode is VoiceFailureCodes.NotFound or VoiceFailureCodes.InvalidRequest || spent.Status == ResultStatus.NotFound)
+            if (rotated.ErrorCode is VoiceFailureCodes.NotFound or VoiceFailureCodes.InvalidRequest)
                 return Refuse<OwnerSession>("That sign-in has expired. Sign in again.", OwnerAuthFailureCodes.RefreshTokenInvalid);
-            return Result<OwnerSession>.Failure(spent.Error ?? "The sign-in could not be renewed.", spent.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+            return Result<OwnerSession>.Failure(rotated.Error ?? "The sign-in could not be renewed.", rotated.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
         }
 
-        var token = spent.Value!;
-        return await StartAsync(token.OwnerLoginId, token.TenantId, token.Email, token.FamilyId, ct).ConfigureAwait(false);
+        var owner = rotated.Value!;
+        return Result<OwnerSession>.Success(SessionFor(owner.OwnerLoginId, owner.TenantId, owner.Email, replacement));
     }
 
     /// <summary>Ends the sign-in the refresh token belongs to. A token that is unknown is already no sign-in, so that is not an error.</summary>
@@ -162,18 +167,23 @@ public sealed class OwnerAuthService(
         return Result<bool>.Failure(revoked.Error ?? "The sign-in could not be ended.", revoked.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
     }
 
-    /// <summary>Stores a new refresh token in <paramref name="familyId"/> and signs a new access token. The refresh token is stored first,
-    /// so no session is handed out whose refresh token was never saved.</summary>
-    private async Task<Result<OwnerSession>> StartAsync(Guid ownerLoginId, Guid tenantId, string email, Guid familyId, CancellationToken ct)
+    /// <summary>Starts a new sign-in: stores its first refresh token in a new family, then signs an access token. The refresh token is
+    /// stored first, so no session is handed out whose refresh token was never saved.</summary>
+    private async Task<Result<OwnerSession>> StartAsync(Guid ownerLoginId, Guid tenantId, string email, CancellationToken ct)
     {
         var refresh = tokens.IssueRefreshToken();
         var stored = await owners.StoreRefreshTokenAsync(
-            new StoreVoiceRefreshTokenCommand(ownerLoginId, familyId, refresh.Hash, refresh.ExpiresAt), ct).ConfigureAwait(false);
+            new StoreVoiceRefreshTokenCommand(ownerLoginId, Guid.NewGuid(), refresh.Hash, refresh.ExpiresAt), ct).ConfigureAwait(false);
         if (!stored.IsSuccess)
             return Result<OwnerSession>.Failure(stored.Error ?? "The sign-in could not be saved.", stored.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
 
+        return Result<OwnerSession>.Success(SessionFor(ownerLoginId, tenantId, email, refresh));
+    }
+
+    private OwnerSession SessionFor(Guid ownerLoginId, Guid tenantId, string email, IssuedRefreshToken refresh)
+    {
         var access = tokens.IssueAccessToken(ownerLoginId, tenantId, email);
-        return Result<OwnerSession>.Success(new OwnerSession(access.Token, access.ExpiresAt, refresh.Token, refresh.ExpiresAt, tenantId, email));
+        return new OwnerSession(access.Token, access.ExpiresAt, refresh.Token, refresh.ExpiresAt, tenantId, email);
     }
 
     private Result<T>? CheckConfigured<T>()
