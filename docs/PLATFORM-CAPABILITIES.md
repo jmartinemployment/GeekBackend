@@ -49,21 +49,18 @@ around: no scraping, no session cookies, no unofficial APIs.
 
 ## 1b. Gate 7a findings that need Jeff's decision
 
-1. **Auto-send consent. DECIDED (Jeff, 2026-11-16): no question is put to any platform; the tenant's standing
-   opt-in is the mechanism.** The tenant owns the account and may automate replies on it; the opt-in proves the
-   tenant chose the automation and that the app did not act on its own. The platforms' rules it answers:
-   Google ("must not automate or trigger review replies ... without the user's prior specific and express
-   consent"), YouTube (the same wording for comments), X (OAuth authorization "does not by itself constitute
-   sufficient consent"; the user must be told which automated actions will occur, give express consent, and be
-   able to opt out at once, and must consent again if the app's purpose changes) and Pinterest (no comments, so
-   it bears on scheduled publishing only, which GeekSocial does not do). **The record must therefore hold:** the
-   tenant, the platform, the account or location, the categories, what the tenant was shown, a timestamp, and the
-   revocation time; revoking takes effect on the next send; changing the product's automated actions asks again.
-   **Not settled by this decision, and not asked:** whether each platform reads a standing opt-in as "specific".
-   Google's access form and YouTube's audit may ask, and X's access process will; the answer then is this
-   record. If one of them says no, auto-send is off for that platform. X's separate technical gates (approval of
-   AI-powered replies, the "summoned" rule for API replies) are about the app, not the tenant's consent, so the
-   opt-in does not satisfy them; they stay under item 3.
+1. **No autonomous sending. DECIDED (Jeff, 2026-11-16, replacing the earlier opt-in decision):** care must be
+   given to prevent AI hallucinations, spam and similar content from being posted, so nothing is sent to any
+   platform without a person approving that individual reply or post. There is no auto-send. Consequences: the
+   platform consent rules for automation (Google and YouTube "prior specific and express consent", X's express
+   consent for automated actions, Pinterest's "each action considered") are not triggered by a person-approved
+   send, so no consent question is put to any platform and no per-category consent record is needed. The
+   tenant's one-time `ai_consent_accepted_at` stays, because it covers sending comment text to the AI (item 4).
+   **Still open, because it is about the app and not about consent:** X's rule that an app which "generates and
+   posts replies" needs X's prior approval, which may apply even when a person approves each reply (item 3).
+   **What this changes in what is already built (no code is changed at Gate 7a):** `AutoSendCategories` on
+   `SocialAccount`, the auto-send step in the Orchestrator, and the auto-send settings on the Accounts page are
+   to be removed in a later gate, and the Sender must refuse any send whose draft was not approved by a person.
 2. **Google Business Profile limits storing review content to 30 days and bars aggregating it.** The
    terms say Content "must be stored temporarily for no more than 30 calendar days" and "cannot be
    manipulated or aggregated". That conflicts with keeping a review history, with drafts that quote the
@@ -385,12 +382,13 @@ agree in writing to use the data "solely for you and at your direction".
 | Facebook | yes | `feed` webhook (Live mode for customers) | URL or multipart | jpeg, bmp, png, gif, tiff, 10 MB | yes | LIKE only | no rule found |
 | Instagram | yes | `comments`, `live_comments`, `mentions` webhooks | public URL; rupload for some apps | JPEG only, 8 MB | yes | none | no rule found |
 | LinkedIn | organization only (member is closed) | Standard tier webhooks only | binary only | JPG, GIF, PNG | yes | yes | no rule found |
-| Google Business Profile | reviews | Pub/Sub (IDs only, then a read) | public URL (posts); URL or binary (location photos) | JPG, PNG, 10 KB to 5 MB | yes (moderated up to 30 days) | none | **express consent required** |
-| X | mentions and replies | X Activity API webhook | binary or base64 | JPG, PNG, GIF, WEBP, 5 MB | **only if summoned; AI replies need approval** | UNVERIFIED | **approval required** |
-| YouTube | yes | **none** | binary only (video) | thumbnail JPEG or PNG | yes | none | **express consent required** |
+| Google Business Profile | reviews | Pub/Sub (IDs only, then a read) | public URL (posts); URL or binary (location photos) | JPG, PNG, 10 KB to 5 MB | yes (moderated up to 30 days) | none | n/a: no auto-send (1b, item 1) |
+| X | mentions and replies | X Activity API webhook | binary or base64 | JPG, PNG, GIF, WEBP, 5 MB | **only if summoned; AI replies need approval** | UNVERIFIED | n/a: no auto-send; X approval of AI replies still open (1b, item 3) |
+| YouTube | yes | **none** | binary only (video) | thumbnail JPEG or PNG | yes | none | n/a: no auto-send (1b, item 1) |
 | TikTok | Business API only | `comment.update` webhook | verified-domain URL (Business), or file or URL (Content Posting) | JPG, JPEG, WEBP | yes | like (Business API) | no rule found |
-| Pinterest | **none** | **none** | URL or base64 | not in the API reference | none | none | **each action must be considered** |
+| Pinterest | **none** | **none** | URL or base64 | not in the API reference | none | none | n/a: no auto-send |
 
+No platform's auto-send rule applies: nothing is sent without a person's approval (section 1b, item 1).
 Platforms with no push (YouTube, Pinterest, and LinkedIn below Standard) get one on-demand read when the
 customer's hub connection is established, as approved. That read costs 1 quota unit on YouTube (shared by all
 customers) and 1 call against a 100-a-day member limit on LinkedIn's Development tier. X and TikTok have a
