@@ -62,6 +62,7 @@ public sealed class OwnerAuthController(OwnerAuthService owners) : ControllerBas
             or VoiceOwnerFailureCodes.RefreshTokenReused => StatusCodes.Status401Unauthorized,
         VoiceFailureCodes.NotFound => StatusCodes.Status404NotFound,
         OwnerAuthFailureCodes.TooManyFailedSignIns => StatusCodes.Status429TooManyRequests,
+        OwnerAuthFailureCodes.AccountCancelled => StatusCodes.Status403Forbidden,
         OwnerAuthFailureCodes.OwnerExists
             or OwnerAuthFailureCodes.TenantNotActive
             or VoiceFailureCodes.Conflict => StatusCodes.Status409Conflict,

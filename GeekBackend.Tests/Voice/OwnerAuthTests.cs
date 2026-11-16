@@ -47,7 +47,8 @@ public sealed class OwnerAuthTests
 
     private sealed class Store(Result<VoiceTenant> tenant) : IVoiceStore
     {
-        public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) => Task.FromResult(tenant);
+        public Result<VoiceTenant> Tenant { get; set; } = tenant;
+        public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) => Task.FromResult(Tenant);
         public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceTenant>> ActivateTenantAsync(Guid tenantId, ActivateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceTelephony>> GetTelephonyAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
@@ -160,6 +161,7 @@ public sealed class OwnerAuthTests
         public CapturingLogger<OwnerAuthService> Log { get; } = new();
         public ReceptionistTokenOptions Options { get; }
         public OwnerSignInGuard Guard { get; } = new();
+        public Store Tenants { get; }
         public OwnerAuthService Service { get; }
 
         public Rig(string status = VoiceTenantStatuses.Active, string? key = null, bool keySet = true)
@@ -167,7 +169,7 @@ public sealed class OwnerAuthTests
             Owners = new Owners(Time);
             Options = ReceptionistTokenOptions.From(keySet ? key ?? Key : null);
             Service = new OwnerAuthService(
-                new Store(Result<VoiceTenant>.Success(MakeTenant(status))), Owners, new OwnerPasswords(), new ReceptionistTokens(Options, Time), Guard, Log);
+                Tenants = new Store(Result<VoiceTenant>.Success(MakeTenant(status))), Owners, new OwnerPasswords(), new ReceptionistTokens(Options, Time), Guard, Log);
         }
 
         public async Task<OwnerSession> SignedInAsync()
@@ -560,6 +562,57 @@ public sealed class OwnerAuthTests
     }
 
     [Fact]
+    public async Task A_cancelled_owner_cannot_sign_in_and_a_wrong_password_there_gets_the_ordinary_refusal()
+    {
+        var rig = new Rig();
+        await rig.SignedInAsync();
+        rig.Tenants.Tenant = Result<VoiceTenant>.Success(MakeTenant(VoiceTenantStatuses.Cancelled));
+
+        var right = await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password));
+        var wrong = await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", "wrong"));
+
+        Assert.Equal(OwnerAuthFailureCodes.AccountCancelled, right.ErrorCode);
+        Assert.Equal(OwnerAuthFailureCodes.InvalidCredentials, wrong.ErrorCode);
+    }
+
+    [Fact]
+    public async Task A_cancelled_owners_renewal_is_refused_and_ends_the_sign_in()
+    {
+        var rig = new Rig();
+        var session = await rig.SignedInAsync();
+        rig.Tenants.Tenant = Result<VoiceTenant>.Success(MakeTenant(VoiceTenantStatuses.Cancelled));
+
+        var renewed = await rig.Service.RefreshAsync(new OwnerRefreshRequest(session.RefreshToken));
+
+        Assert.Equal(OwnerAuthFailureCodes.AccountCancelled, renewed.ErrorCode);
+        Assert.All(rig.Owners.Tokens, t => Assert.True(t.Revoked));
+    }
+
+    [Fact]
+    public async Task A_suspended_owner_signs_in_and_renews()
+    {
+        var rig = new Rig();
+        var session = await rig.SignedInAsync();
+        rig.Tenants.Tenant = Result<VoiceTenant>.Success(MakeTenant(VoiceTenantStatuses.Suspended));
+
+        Assert.True((await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password))).IsSuccess);
+        Assert.True((await rig.Service.RefreshAsync(new OwnerRefreshRequest(session.RefreshToken))).IsSuccess);
+    }
+
+    [Fact]
+    public async Task A_tenant_that_cannot_be_read_at_sign_in_is_the_store_failing_not_a_refusal_of_the_owner()
+    {
+        var rig = new Rig();
+        await rig.SignedInAsync();
+        rig.Tenants.Tenant = Result<VoiceTenant>.Failure("GeekRepository timed out.", VoiceFailureCodes.StoreUnavailable);
+
+        var signIn = await rig.Service.SignInAsync(new OwnerSignInRequest("owner@example.com", Password));
+
+        Assert.Equal(VoiceFailureCodes.StoreUnavailable, signIn.ErrorCode);
+        Assert.DoesNotContain("GeekRepository", signIn.Error);
+    }
+
+    [Fact]
     public async Task No_password_or_token_is_ever_logged()
     {
         var rig = new Rig();
@@ -583,6 +636,7 @@ public sealed class OwnerAuthTests
     [InlineData(VoiceOwnerFailureCodes.RefreshTokenReused, 401)]
     [InlineData(VoiceFailureCodes.NotFound, 404)]
     [InlineData(OwnerAuthFailureCodes.TooManyFailedSignIns, 429)]
+    [InlineData(OwnerAuthFailureCodes.AccountCancelled, 403)]
     [InlineData(OwnerAuthFailureCodes.OwnerExists, 409)]
     [InlineData(OwnerAuthFailureCodes.TenantNotActive, 409)]
     [InlineData(OwnerAuthFailureCodes.NotConfigured, 503)]

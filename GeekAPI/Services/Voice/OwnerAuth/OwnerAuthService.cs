@@ -13,6 +13,9 @@ public static class OwnerAuthFailureCodes
     public const string RefreshTokenInvalid = "refresh_token_invalid";
     public const string NotConfigured = "owner_auth_not_configured";
 
+    /// <summary>The owner's subscription is cancelled; sign-in and renewal are refused (403). A suspended one is still let in.</summary>
+    public const string AccountCancelled = "account_cancelled";
+
     /// <summary>The email has failed too many sign-ins this hour (<see cref="OwnerSignInGuard"/>); answered 429.</summary>
     public const string TooManyFailedSignIns = "too_many_failed_sign_ins";
 }
@@ -53,6 +56,8 @@ public sealed record OwnerSession(
 /// <item>Signing in gives the same answer for an unknown email and a wrong password, and takes as long for either. An email that has
 /// failed too often this hour is refused without its password being checked, unless the sign-in comes from a browser that signed in to
 /// that same login before (<see cref="OwnerSignInGuard"/>).</item>
+/// <item>An owner whose subscription is cancelled is refused at sign-in, after the password checks out so a guesser learns nothing, and
+/// at the next renewal, which also ends the sign-in. A suspended owner is let in, to see why and to fix the payment.</item>
 /// <item>A refresh token is spent and replaced (same sign-in, new token) in one GeekRepository call, so a renewal is never half done.
 /// One presented again within <see cref="VoiceOwnerRefreshTokens.ReuseGrace"/> is renewed again, because two requests from one browser
 /// can present it together and an answer can be lost after the renewal was saved. After that it ends the whole sign-in, because a
@@ -159,6 +164,9 @@ public sealed class OwnerAuthService(
         if (check == PasswordCheck.RightButOutdated)
             await ReplaceOutdatedHashAsync(owner.Id, request.Password, ct).ConfigureAwait(false);
 
+        var cancelled = await CancelledAsync(owner.TenantId, ct).ConfigureAwait(false);
+        if (cancelled is not null) return cancelled;
+
         var session = await StartAsync(owner.Id, owner.TenantId, owner.Email, ct).ConfigureAwait(false);
         if (session.IsSuccess) logger.LogInformation("Owner login {OwnerLoginId} signed in.", owner.Id);
         return session;
@@ -186,6 +194,16 @@ public sealed class OwnerAuthService(
         }
 
         var owner = rotated.Value!;
+        var cancelled = await CancelledAsync(owner.TenantId, ct).ConfigureAwait(false);
+        if (cancelled is not null)
+        {
+            // The replacement was stored by the renewal; revoking its family ends this sign-in for good.
+            var ended = await owners.RevokeRefreshTokenFamilyAsync(replacement.Hash, ct).ConfigureAwait(false);
+            if (!ended.IsSuccess)
+                logger.LogError("The sign-in of cancelled owner login {OwnerLoginId} could not be ended: {Code}.", owner.OwnerLoginId, ended.ErrorCode);
+            return cancelled;
+        }
+
         return Result<OwnerSession>.Success(SessionFor(owner.OwnerLoginId, owner.TenantId, owner.Email, replacement));
     }
 
@@ -220,6 +238,22 @@ public sealed class OwnerAuthService(
         var access = tokens.IssueAccessToken(ownerLoginId, tenantId, email);
         var device = tokens.IssueDeviceToken(ownerLoginId);
         return new OwnerSession(access.Token, access.ExpiresAt, refresh.Token, refresh.ExpiresAt, tenantId, email, device.Token, device.ExpiresAt);
+    }
+
+    /// <summary>
+    /// Null when the tenant may sign in; the refusal when its subscription is cancelled, or the store failure when it could not be read.
+    /// A suspended tenant is let in.
+    /// </summary>
+    private async Task<Result<OwnerSession>?> CancelledAsync(Guid tenantId, CancellationToken ct)
+    {
+        var tenant = await store.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
+        if (!tenant.IsSuccess)
+            return StoreFailed<OwnerSession>(tenant.ErrorCode == VoiceFailureCodes.NotFound ? VoiceFailureCodes.StoreUnavailable : tenant.ErrorCode, SignInUnavailable);
+        if (tenant.Value!.Status != VoiceTenantStatuses.Cancelled) return null;
+
+        logger.LogWarning("A sign-in for tenant {TenantId} was refused: the subscription is cancelled.", tenantId);
+        return Result<OwnerSession>.Failure(
+            "This account's subscription is cancelled, so it can no longer sign in. Contact us to start it again.", OwnerAuthFailureCodes.AccountCancelled);
     }
 
     private const string SignInUnavailable = "Sign-in is not available right now because the account store did not answer. Try again in a moment.";
