@@ -49,18 +49,21 @@ around: no scraping, no session cookies, no unofficial APIs.
 
 ## 1b. Gate 7a findings that need Jeff's decision
 
-1. **Auto-send needs recorded, per-tenant consent on three platforms, and X needs approval.** Google
-   Business Profile: "you must not automate or trigger review replies ... without the user's prior specific
-   and express consent." YouTube: "you must not automate or trigger views, uploads, comments, likes,
-   dislikes, or other actions without the user's prior specific and express consent." Pinterest's guidelines
-   forbid features that "automatically initiate actions without specifically considering each action"
-   (Pinterest has no comments API, so this bears on scheduled publishing only). X: an AI-powered app that
-   posts replies "Requires prior approval from X", and X's Automation Rules add that OAuth authorization "does not by
-   itself constitute sufficient consent to take automated actions through that user's account": the customer must
-   be told which automated actions will occur, give express consent, and be able to opt out at once, and must
-   consent again if the app's purpose changes. None of them says whether a category-level setting is
-   "specific" consent. Proposal: capture the consent per tenant, per platform and per category with a
-   timestamp, make it revocable, and ask each platform's reviewer in the access application.
+1. **Auto-send consent. DECIDED (Jeff, 2026-11-16): no question is put to any platform; the tenant's standing
+   opt-in is the mechanism.** The tenant owns the account and may automate replies on it; the opt-in proves the
+   tenant chose the automation and that the app did not act on its own. The platforms' rules it answers:
+   Google ("must not automate or trigger review replies ... without the user's prior specific and express
+   consent"), YouTube (the same wording for comments), X (OAuth authorization "does not by itself constitute
+   sufficient consent"; the user must be told which automated actions will occur, give express consent, and be
+   able to opt out at once, and must consent again if the app's purpose changes) and Pinterest (no comments, so
+   it bears on scheduled publishing only, which GeekSocial does not do). **The record must therefore hold:** the
+   tenant, the platform, the account or location, the categories, what the tenant was shown, a timestamp, and the
+   revocation time; revoking takes effect on the next send; changing the product's automated actions asks again.
+   **Not settled by this decision, and not asked:** whether each platform reads a standing opt-in as "specific".
+   Google's access form and YouTube's audit may ask, and X's access process will; the answer then is this
+   record. If one of them says no, auto-send is off for that platform. X's separate technical gates (approval of
+   AI-powered replies, the "summoned" rule for API replies) are about the app, not the tenant's consent, so the
+   opt-in does not satisfy them; they stay under item 3.
 2. **Google Business Profile limits storing review content to 30 days and bars aggregating it.** The
    terms say Content "must be stored temporarily for no more than 30 calendar days" and "cannot be
    manipulated or aggregated". That conflicts with keeping a review history, with drafts that quote the
@@ -505,7 +508,6 @@ platforms are listed at the end of each file in `platform-research-2026-11-16/`.
    verification; TikTok company registration and the Accounts API Access Application Form; YouTube sensitive-scope
    verification and the compliance audit with a quota extension; Pinterest Standard access with a video demo;
    and a conversation with X sales about the AI-reply approval, the "summoned" reply rule and the end-user limit.
-   Ask each reviewer how "prior specific and express consent" may be captured for category auto-send.
 4. Both: have the privacy policy and business email ready; LinkedIn requires a valid privacy policy at
    Standard tier.
 
