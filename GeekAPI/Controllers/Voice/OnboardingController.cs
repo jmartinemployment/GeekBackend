@@ -94,7 +94,6 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Sign
             or OnboardingFailureCodes.BusinessActivityUnknown
             or OnboardingFailureCodes.ContactPhoneNotUs
             or OnboardingFailureCodes.IndustryExcluded
-            or OnboardingFailureCodes.IndustryAddendumNotAvailable
             or OnboardingFailureCodes.AddendumRequired
             or OnboardingFailureCodes.AttestationRequired
             or OnboardingFailureCodes.VisitorUnverified

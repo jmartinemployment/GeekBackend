@@ -15,13 +15,11 @@ public static class VoiceServiceRegistration
 {
     /// <summary>
     /// Geek-Receptionist's persistence and its onboarding gate: the store over /internal/v1/*, which uses the
-    /// "GeekRepositoryInternal" client Program.cs builds with X-Internal-Api-Key, and the eligibility gate. The addendum flag is read
-    /// here, once: a value that is not true or false stops the service from starting.
+    /// "GeekRepositoryInternal" client Program.cs builds with X-Internal-Api-Key, and the eligibility gate.
     /// </summary>
-    public static IServiceCollection AddVoiceOnboarding(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddVoiceOnboarding(this IServiceCollection services)
     {
         services.TryAddSingleton(TimeProvider.System);
-        services.AddSingleton(OnboardingOptions.From(configuration));
         services.AddScoped<IVoiceStore>(sp =>
         {
             var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal");

@@ -112,7 +112,7 @@ builder.Services.AddHttpClient("GeekRepositoryInternal", client =>
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
 });
-builder.Services.AddVoiceOnboarding(builder.Configuration);
+builder.Services.AddVoiceOnboarding();
 
 builder.Services.AddScoped<ICaseStudyRepository, HttpCaseStudyRepository>();
 builder.Services.AddScoped<IDepartmentRepository, HttpDepartmentRepository>();

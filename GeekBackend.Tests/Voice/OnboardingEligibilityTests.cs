@@ -4,7 +4,6 @@ using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
 using GeekApplication.Results;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Time.Testing;
 
 namespace GeekBackend.Tests.Voice;
@@ -52,8 +51,8 @@ public sealed class OnboardingEligibilityTests
 
     private static readonly VisitorOrigin FromUs = new("203.0.113.9", "US");
 
-    private static OnboardingEligibility Gate(RecordingStore store, bool addendums = false) =>
-        new(store, new OnboardingOptions(addendums), new FakeTimeProvider(Now));
+    private static OnboardingEligibility Gate(RecordingStore store) =>
+        new(store, new FakeTimeProvider(Now));
 
     [Fact]
     public async Task A_passing_signup_becomes_one_pending_tenant_with_its_attestation()
@@ -152,17 +151,14 @@ public sealed class OnboardingEligibilityTests
     [InlineData("622000")] // hospitals
     [InlineData("623000")] // nursing and residential care
     [InlineData("541940")] // veterinary services
-    public async Task A_healthcare_industry_is_refused_whatever_the_flag_says(string industry)
+    public async Task A_healthcare_industry_is_refused_even_with_a_signed_addendum(string industry)
     {
-        foreach (var flag in new[] { false, true })
-        {
-            var store = new RecordingStore();
+        var store = new RecordingStore();
 
-            var result = await Gate(store, flag).ValidateAsync(Signup(industry, addendumSigned: true), FromUs);
+        var result = await Gate(store).ValidateAsync(Signup(industry, addendumSigned: true), FromUs);
 
-            Assert.Equal(OnboardingFailureCodes.IndustryExcluded, result.ErrorCode);
-            Assert.Empty(store.Created);
-        }
+        Assert.Equal(OnboardingFailureCodes.IndustryExcluded, result.ErrorCode);
+        Assert.Empty(store.Created);
     }
 
     [Theory]
@@ -173,22 +169,27 @@ public sealed class OnboardingEligibilityTests
     [InlineData("522100")] // banking
     [InlineData("524210")] // insurance agencies
     [InlineData("611000")] // educational services
-    public async Task An_addendum_industry_is_blocked_while_addendums_are_not_published(string industry)
+    public async Task An_addendum_industry_is_refused_without_a_signed_addendum_and_accepted_with_one(string industry)
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store, addendums: false).ValidateAsync(Signup(industry, addendumSigned: true), FromUs);
+        var unsigned = await Gate(store).ValidateAsync(Signup(industry), FromUs);
 
-        Assert.Equal(OnboardingFailureCodes.IndustryAddendumNotAvailable, result.ErrorCode);
+        Assert.Equal(OnboardingFailureCodes.AddendumRequired, unsigned.ErrorCode);
         Assert.Empty(store.Created);
+
+        var signed = await Gate(store).ValidateAsync(Signup(industry, addendumSigned: true), FromUs);
+
+        Assert.True(signed.IsSuccess, signed.Error);
+        Assert.True(Assert.Single(store.Created).RequiresAddendum);
     }
 
     [Fact]
-    public async Task With_addendums_published_a_signed_addendum_is_recorded_with_its_time_and_address()
+    public async Task A_signed_addendum_is_recorded_with_its_time_and_address()
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store, addendums: true).ValidateAsync(Signup("541100", addendumSigned: true), FromUs);
+        var result = await Gate(store).ValidateAsync(Signup("541100", addendumSigned: true), FromUs);
 
         Assert.True(result.IsSuccess, result.Error);
         var created = Assert.Single(store.Created);
@@ -200,11 +201,11 @@ public sealed class OnboardingEligibilityTests
     [Theory]
     [InlineData(false)]
     [InlineData(null)]
-    public async Task With_addendums_published_an_unsigned_addendum_is_refused(bool? signed)
+    public async Task An_unsigned_addendum_is_refused(bool? signed)
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store, addendums: true).ValidateAsync(Signup("541211", addendumSigned: signed), FromUs);
+        var result = await Gate(store).ValidateAsync(Signup("541211", addendumSigned: signed), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.AddendumRequired, result.ErrorCode);
         Assert.Empty(store.Created);
@@ -281,12 +282,12 @@ public sealed class OnboardingEligibilityTests
         var first = await Gate(store).ValidateAsync(Signup("621111", country: "CA", attested: false), FromUs);
         // Healthcare and no attestation: the industry rule speaks before the attestation rule.
         var second = await Gate(store).ValidateAsync(Signup("621111", attested: false), FromUs);
-        // An addendum industry and no attestation: the block speaks before the attestation rule.
-        var third = await Gate(store, addendums: false).ValidateAsync(Signup("541100", attested: false), FromUs);
+        // An addendum industry with no addendum and no attestation: the addendum rule speaks before the attestation rule.
+        var third = await Gate(store).ValidateAsync(Signup("541100", attested: false), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.CountryNotSupported, first.ErrorCode);
         Assert.Equal(OnboardingFailureCodes.IndustryExcluded, second.ErrorCode);
-        Assert.Equal(OnboardingFailureCodes.IndustryAddendumNotAvailable, third.ErrorCode);
+        Assert.Equal(OnboardingFailureCodes.AddendumRequired, third.ErrorCode);
         Assert.Empty(store.Created);
     }
 
@@ -308,7 +309,6 @@ public sealed class OnboardingEligibilityTests
     [InlineData(OnboardingFailureCodes.BusinessActivityUnknown, 400)]
     [InlineData(OnboardingFailureCodes.ContactPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.IndustryExcluded, 400)]
-    [InlineData(OnboardingFailureCodes.IndustryAddendumNotAvailable, 400)]
     [InlineData(OnboardingFailureCodes.AddendumRequired, 400)]
     [InlineData(OnboardingFailureCodes.AttestationRequired, 400)]
     [InlineData(OnboardingFailureCodes.VisitorUnverified, 400)]
@@ -321,31 +321,6 @@ public sealed class OnboardingEligibilityTests
     [InlineData(null, 503)]
     public void The_status_comes_from_the_failure_code(string? code, int status) =>
         Assert.Equal(status, OnboardingController.StatusFor(code));
-
-    [Theory]
-    [InlineData(null, false)]
-    [InlineData("", false)]
-    [InlineData("false", false)]
-    [InlineData("true", true)]
-    [InlineData(" True ", true)]
-    public void The_addendum_flag_defaults_to_false_and_reads_true_or_false(string? raw, bool expected)
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { [OnboardingOptions.FlagKey] = raw })
-            .Build();
-
-        Assert.Equal(expected, OnboardingOptions.From(configuration).EnableIndustryAddendums);
-    }
-
-    [Fact]
-    public void An_addendum_flag_that_is_not_true_or_false_stops_the_service_from_starting()
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { [OnboardingOptions.FlagKey] = "yes" })
-            .Build();
-
-        Assert.Throws<InvalidOperationException>(() => OnboardingOptions.From(configuration));
-    }
 }
 
 /// <summary>
