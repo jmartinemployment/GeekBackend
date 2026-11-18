@@ -5,10 +5,13 @@ was setting up the Meta app. Nothing in this file was committed or pushed.
 
 ## What it is
 
+**Superseded for scope and the plan of work, 2026-11-18,** by `geek-social/plans/geek-social-roadmap-2026-11-18.md` (revision 3) and `docs/GEEKSOCIAL-SCOPE.md`. This file stays as the record of 2026-11-12.
+
 GeekSocial is a multi-tenant, multi-platform product. It watches comments on each tenant's connected
-social accounts, has Claude classify each comment and draft a reply, and holds every draft for a person
-to approve, edit or reject before it is sent. It also publishes link posts. In scope: Facebook,
-Instagram, LinkedIn, Google Business Profile, X and TikTok; only the Facebook Pages connector is built
+social accounts, has the AI (Claude, as built; the provider becomes replaceable in roadmap Phase 0) classify
+each comment and draft a reply, and holds every draft for a person to approve, edit or reject before it is
+sent. It also publishes link posts. In scope: Facebook, Instagram, LinkedIn, Google Business Profile, X,
+TikTok, YouTube and Pinterest, plus Nextdoor as plan-and-approve; only the Facebook Pages connector is built
 (`geek-social/plans/geek-social-multi-tenant-connectors-2026-11-16.md`, "Platforms"). It runs inside GeekAPI (`GeekAPI/Services/Social`, routes `api/social/*`, hub
 `/hubs/social-realtime`) with storage in GeekRepository. The operator screen is its own repository,
 `/Users/jeffmartin/development/geek-social` (Next.js, port 3006, pushed to
@@ -20,7 +23,8 @@ Plan: `geekatyourspot/plans/geek-social-engagement-agent-2026-11-08.md`.
 ## What works today
 
 - Facebook Pages only. Connect, comment intake by webhook and resync, Triage, drafter, Reviewer,
-  approval, send, auto-send by category, send limits, audit, post copy and publish.
+  approval, send, auto-send by category (switched off since GeekBackend `02de4a82`; removed in roadmap Phase 0),
+  send limits, audit, post copy and publish.
 - None of it has run against a real Page. Phase 6 (proof on the real Page) is the next gate.
 - Nothing reaches Claude until `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` is set. Nothing connects until
   the `GEEK_SOCIAL_META_*` settings are on GeekAPI.

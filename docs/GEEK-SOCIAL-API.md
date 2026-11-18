@@ -14,10 +14,17 @@ then it is held as `blocked_no_clearance` and is never sent to the model.
 **Billing.** GeekSocial is a paid SaaS, and tenants pay through PayPal. Nothing checks payment yet:
 `POST /api/social/tenant` creates a tenant for any person whose token carries the scope.
 
-**Platforms.** GeekSocial is multi-platform: Facebook, Instagram, LinkedIn, Google Business Profile, X and
-TikTok are in scope. Only Facebook is built, so `platform` is `facebook` in every example below and the
-connect routes are Meta's. Accounts, drafts, comments, posts and audit rows already carry `platform`; each
-other platform still needs its own connector and connect routes.
+**Platforms.** GeekSocial is multi-platform. In scope:
+- Facebook, Instagram, LinkedIn (page and profile), Google Business Profile, X, TikTok, YouTube and Pinterest.
+- Nextdoor, planned and approved in GeekSocial, publishing through Nextdoor's API once access exists.
+
+Only Facebook is built, so `platform` is `facebook` in every example below and the connect routes are Meta's. GeekSocial owns the app on each network, and a tenant connects by signing in. Accounts, drafts, comments, posts and audit rows already carry `platform`; each other platform still needs its own connector and connect routes. The scope is in `docs/GEEKSOCIAL-SCOPE.md`; the plan of work is `geek-social/plans/geek-social-roadmap-2026-11-18.md`.
+
+**What this page describes.** This page documents the API as built. Roadmap Phase 0 changes four things here, and this page changes with the code:
+- the AI provider becomes replaceable;
+- auto-send is removed;
+- status becomes per tenant;
+- `connect/meta/start` and `posts/copy` get the tenant check.
 
 | Route | What it does |
 |---|---|
@@ -73,7 +80,9 @@ and are null once their retention has run out.
 ```
 
 `PUT api/social/accounts/{id}/settings` with `{ "autoSendCategories": ["praise", "question"], "sendsDisabled": false }`
-returns the account. `complaint` and `sensitive` can never auto-send (400).
+returns the account. `complaint` and `sensitive` are refused in `autoSendCategories` (400). Auto-send is switched
+off: the orchestrator no longer sends any draft a person has not approved (GeekBackend `02de4a82`), so
+`autoSendCategories` is stored and has no effect. Phase 0 removes it, and the route then takes only `sendsDisabled`.
 
 `POST api/social/accounts/{id}/resync` reads the comments under the account's stored posts and stores
 any the webhooks missed. Returns `{ "postsRead": 3, "commentsRead": 40, "stored": 2 }`.
@@ -192,6 +201,14 @@ before connecting.").
 | `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` | Comma list of platforms whose comment text may go to Claude, e.g. `facebook`. | Every comment is held `blocked_no_clearance`. A name that is not a platform stops GeekAPI. |
 | `ANTHROPIC_API_KEY`, `LlmProviders__Anthropic__Model` | Claude, for Triage, the drafter and the post writer. | Each call fails `not_configured`, naming the setting. |
 
+These two AI rows describe the code as built: GeekSocial calls only Claude and ignores `LlmProviders__DefaultProvider`.
+
+Phase 0, item 1 of the roadmap changes this:
+- GeekSocial reads `LlmProviders__DefaultProvider`, the setting Content Creator already uses, and the provider's own `LlmProviders__{Provider}__ApiKey` and `__Model`.
+- The clearance becomes `GEEK_SOCIAL_AI_CLEARED_PLATFORMS`, as `provider:platform` pairs.
+
+This table is updated when that ships.
+
 ## In the Meta app
 
 - Webhooks, object Page: callback `https://api.geekatyourspot.com/api/social/webhooks/meta`, the verify
@@ -204,5 +221,5 @@ before connecting.").
 A send is one attempt and is never retried. An account sends at most 30 replies in any hour, and
 sends nothing for 15 minutes after a send of its was throttled, failed on Meta's side or may not
 have landed. A draft a limit holds stays approved and goes at the next event taken in, or with Send.
-Auto-send applies only to the categories an account chose, never complaint or sensitive, and only to
-text the Reviewer passed. A comment the Page itself wrote is never triaged.
+Nothing is sent without a person's approval; auto-send is switched off (see Accounts). A comment the Page
+itself wrote is never triaged.

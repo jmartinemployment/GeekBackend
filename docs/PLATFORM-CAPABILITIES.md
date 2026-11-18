@@ -17,6 +17,13 @@ the page text is kept in `docs/platform-research-2026-11-16/rendered/` and the r
 "re-read in a browser". Still unread: TikTok's Content Posting audit form (it needs a login) and the
 YouTube "supported file formats" page.
 
+**Superseded on 2026-11-18** by the GeekSocial roadmap (`geek-social/plans/geek-social-roadmap-2026-11-18.md`, revision 3, frozen) and `docs/GEEKSOCIAL-SCOPE.md`:
+- YouTube and Pinterest are in scope (section 1b, items 6 and 7).
+- GeekSocial owns the app on every network, TikTok included, and a tenant connects by signing in (section 1b, items 7 and 8).
+- The AI provider is replaceable, so a "Claude" below means the provider as built today (section 1b, item 4).
+
+Each superseded passage is marked where it stands. The platform facts in sections 2 to 6 are unchanged.
+
 Legend: **CONFIRMED** = stated in the official page cited. **UNVERIFIED** = the docs are silent or
 conflict; it must be settled in the developer portal or by a live call. **BLOCKED** = unsupported,
 closed, or unusable without an approval or a ruling we do not have. Nothing BLOCKED is implemented
@@ -24,7 +31,7 @@ around: no scraping, no session cookies, no unofficial APIs.
 
 ## 1. What needs Jeff's decision at this gate
 
-1. **LinkedIn member comment text sent to the Claude API (compliance, BLOCKED until ruled).**
+1. **LinkedIn member comment text sent to the AI provider's API (Claude's, as built today; compliance, BLOCKED until ruled).**
    LinkedIn's restricted-uses page says member data "can only be displayed via your application" and
    "can't be exported, distributed, or otherwise transferred from your application", and that it may be
    used only to manage Pages or Profiles. It says nothing about AI. Sending a commenter's text to a
@@ -122,6 +129,11 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    for you and at your direction") is met by Anthropic's agreement and must be checked before Meta content is
    sent; until then `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stays empty for every platform and each comment is held
    (`blocked_no_clearance`).
+
+   **Since 2026-11-18 the AI provider is replaceable** (roadmap Phase 0, item 1):
+   - The condition is checked against the agreement of whichever provider is in use, not only Anthropic's.
+   - The clearance becomes `GEEK_SOCIAL_AI_CLEARED_PLATFORMS`, a list of `provider:platform` pairs. After a provider switch, comments are held until the new provider is cleared.
+   - Comment text is never sent to a provider that runs a web search with it.
 5. **Status checks. DECIDED (Jeff, 2026-11-16), the Instagram publishing flow as Jeff specified it:**
    (1) the user clicks Publish; the API controller creates the Instagram media container (`POST /{ig-id}/media`),
    enqueues a background job with the container ID and user ID, and returns 202 Accepted at once; (2) a hosted
@@ -136,24 +148,21 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    status question to Meta (what an early publish returns, whether a ready notification exists, the status values)
    is still unanswered; and if the worker gives up at 5 minutes the screen must say the post is not confirmed
    and never mark it failed.
-6. **YouTube: not supported (Jeff, 2026-11-16).** The quota question, and the tenant-owned Cloud project decision recorded
-   earlier on this item, are moot. The research stays in section 2g and the appendix in case this changes.
-7. **Pinterest: not supported (Jeff, 2026-11-16).** It can only publish, which is not what the product is for.
-   **TikTok: DECIDED (Jeff, 2026-11-16): obtaining TikTok access is the tenant's responsibility.** Comments exist
-   only in the Business API's Accounts API, behind an access application form required since 2026-03-20; the
-   tenant, not GeekSocial, registers a TikTok developer app and obtains that access. **Notes, mine and not
-   decided:** TikTok developer registration is company-only; a webhook's signature is keyed with the app secret, so
-   each tenant's app secret must be stored encrypted and per tenant, and the tenant's app must be pointed at our
-   callback; whether a tenant-owned app is allowed for a product run by another developer was not read.
-   (YouTube is not supported; see item 6.)
-8. **Approvals. DECIDED (Jeff, 2026-11-16): the tenant registers their own app or project and obtains every platform's
-   approvals themselves, on every platform. GeekSocial does not register apps or create accounts for tenants.**
-   This applies to Meta (Facebook and Instagram), LinkedIn, Google Business Profile, X and TikTok. The tenant gives
-   GeekSocial the app's keys through the onboarding wizard. **Notes, mine and not decided:** the wizard has to explain
-   each platform's setup; each tenant's app secrets must be stored encrypted and per tenant; an app the tenant owns for
-   their own accounts is the case Meta calls Standard Access (no App Review); LinkedIn's Community Management
-   application and Google's Business Profile form have their own requirements (section 4b); and whether each
-   platform lets a customer-owned app run inside a product built by another developer was not read.
+6. **YouTube. SUPERSEDED 2026-11-18: YouTube is in scope** (roadmap Phase 4; which operations is its decision Q12).
+   This item used to record YouTube as not supported. The research is in section 2g and the appendix, and the
+   quota question is live again.
+7. **Pinterest. SUPERSEDED 2026-11-18: Pinterest is in scope** (roadmap Phase 4). This item used to record it as not
+   supported because it can only publish. The research is in section 2i.
+   **TikTok. SUPERSEDED 2026-11-18: GeekSocial owns the TikTok app, as it owns every network's app.** This item used
+   to make TikTok access the tenant's responsibility. Facts kept from the research:
+   - Comments exist only in the Business API's Accounts API, behind an access application form required since 2026-03-20.
+   - TikTok developer registration is company-only.
+   - A webhook's signature is keyed with the app secret.
+8. **Approvals. SUPERSEDED 2026-11-18: GeekSocial owns the app on each network and obtains each platform's
+   approvals; a tenant connects by signing in**, as the researched tools do (`docs/market-research-2026-11-18/`).
+   - This item used to have each tenant register its own app and give GeekSocial the keys through the onboarding wizard.
+   - `geek-social/plans/geek-social-tenant-setup-form-2026-11-18.md`, built on that rule, is superseded too.
+   - The requirements in section 4b now apply to GeekSocial's own applications. The roadmap starts them in Phase 0 (items 8 and 9): Meta App Review and Business Verification, LinkedIn Community Management, and Google Business Profile access.
 
 ## 2. Matrix
 
@@ -298,7 +307,7 @@ photos, or 1 GIF, or 1 video. Alt text is `POST /2/media/metadata`, up to 1000 c
 hours; refresh tokens are single use and last about 6 months (stated on the OAuth 1.0a migration page).
 
 **Terms.** The Developer Agreement, Restricted Uses and Guidelines forbid using X content to train or fine-tune
-a model. None mentions inference, so sending a reply's text to Claude to draft a response is UNVERIFIED. X's
+a model. None mentions inference, so sending a reply's text to the AI provider (Claude, as built today) to draft a response is UNVERIFIED. X's
 Automation Rules (help.x.com, re-read in a browser) allow an automated reply to a user only if the user has
 asked or clearly indicated they want to be contacted ("for example by replying to a post from your account"),
 the account offers an easy opt-out and honours it, sends one automated reply per interaction, and replies to the
@@ -308,8 +317,8 @@ limited number of end-users"; the number is not stated.
 
 ### 2g. YouTube (Data API v3; read 2026-11-16; `platform-research-2026-11-16/youtube.md`)
 
-**NOT SUPPORTED (Jeff, 2026-11-16: "We do not support YouTube").** This section is kept as research only and no YouTube
-connector will be built. It overrides the earlier Gate 7a list that included YouTube.
+**IN SCOPE since 2026-11-18** (roadmap Phase 4; section 1b, item 6). This section used to be marked "not supported"
+and kept as research only. It is now the starting point for the YouTube connector.
 
 | Action | Endpoint | Scope | Quota | Status |
 |---|---|---|---|---|
@@ -372,9 +381,9 @@ serve many customers, and whether Business API posting is exempt from the audit 
 
 ### 2i. Pinterest, API v5 (read 2026-11-16; `platform-research-2026-11-16/pinterest.md`)
 
-**NOT SUPPORTED (Jeff, 2026-11-16).** Pinterest is publish-only (confirmed twice: the OpenAPI spec lists no comments or
-reactions operation, and the only webhook is for Lead Ads). This section is kept as research only and no Pinterest
-connector will be built.
+**IN SCOPE since 2026-11-18** (roadmap Phase 4; section 1b, item 7). Pinterest is publish-only (confirmed twice: the
+OpenAPI spec lists no comments or reactions operation, and the only webhook is for Lead Ads). So its connector
+publishes and has no inbox. This section used to be marked "not supported".
 
 **Publish-only.** None of the 305 operations in Pinterest's OpenAPI spec (v5.28.0) is a comments or reactions
 endpoint, and the only webhook is for Lead Ads.
@@ -517,8 +526,8 @@ LinkedIn (data storage requirements, doc version 2026-10; "the shortest duration
 
 Meta (Platform Terms, developer policies; check the current versions):
 - Platform Data may go to a service provider only after that provider agrees in writing to process it
-  solely for us and at our direction. Anthropic's commercial terms must be checked against that before
-  Facebook comment text is sent to Claude (M4). Until a platform is named in `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS`
+  solely for us and at our direction. The AI provider's commercial terms (Anthropic's, as built today) must be
+  checked against that before Facebook comment text is sent to it (M4), and again for any provider switched to. Until a platform is named in `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS`
   (a comma list of platform names on GeekAPI), no comment text from it is sent and each comment is held
   as `blocked_no_clearance`; a name that is not a platform stops GeekAPI from starting.
 - Delete user data on request or when the user no longer has an account; the Data Protection Assessment
@@ -545,20 +554,20 @@ platforms are listed at the end of each file in `platform-research-2026-11-16/`.
 | M1 | Does `POST /{comment-id}/comments` create a reply as the Page? The Pages API guide says yes, the Graph reference says create is unsupported | one live reply on the test Page, before Phase 4 |
 | M2 | Which permissions does reading comments actually need (`pages_read_engagement` vs `pages_read_user_content`)? | request both; test with each removed |
 | M3 | Does the `feed` webhook deliver comment and reaction events while the app is in development mode with a role-holding admin? | subscribe the test Page and post a comment |
-| M4 | Is sending Facebook comment text to the Claude API permitted under Meta's service-provider terms and Anthropic's agreement? | read both agreements; Jeff to confirm, then add `facebook` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
+| M4 | Is sending Facebook comment text to the AI provider's API (Anthropic's as built; asked again for any provider switched to) permitted under Meta's service-provider terms and that provider's agreement? | read both agreements; Jeff to confirm, then add `facebook` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
 | M5 | Does removing a person from a Page role invalidate the Page token? | not documented; handle error 190 either way |
 | L1 | Scope names: `r_organization_social` / `w_organization_social` vs `*_feed` | shown in the developer portal once the product is approved |
 | L2 | Is the webhooks use case approved with Development tier, or only at Standard? | the access request form |
 | L3 | Is `w_member_social` granted by Community Management (Profile Management) or only by Share on LinkedIn, which cannot share an app with Community Management? | the portal after the app is created |
 | L4 | Does our app get programmatic refresh tokens? | the portal and the token response |
-| L5 | May member comment text go to the Claude API? (section 1, item 1) | LinkedIn Developer Support Portal, in writing, then add `linkedin_organization` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
+| L5 | May member comment text go to the AI provider's API? (section 1, item 1) | LinkedIn Developer Support Portal, in writing, then add `linkedin_organization` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
 | L6 | Is the 100-calls-per-member limit per day, and does the planned traffic fit? | the portal rate-limit view |
 | I1 | Which Instagram setup does the connect flow use, and does a Facebook Page have to be linked? The overview says Instagram Login and Unified Login need no Page; the publishing guide says the account must be connected to one | the Instagram product page in the app dashboard; one live publish |
 | I2 | The daily API publishing limit: 100 or 50 posts in 24 hours? | `GET /<IG_ID>/content_publishing_limit` on the connected account |
 | I3 | Which comment and mention webhook fields exist for the chosen setup, and do they fire in development mode? | the webhooks fields page; subscribe the account and comment on a post |
 | I4 | The exact endpoints for reading, replying to and hiding a comment, and for a reply's author | the Instagram comments reference pages; one live reply |
 | I5 | Can one Unified Login connection cover the Facebook Page and the Instagram account together, and how long does the SUAT last? | the login configuration page in the dashboard |
-| I6 | Is sending Instagram comment text to the Claude API permitted under Meta's service-provider terms? Same question as M4 | read both agreements; Jeff to confirm, then add `instagram` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
+| I6 | Is sending Instagram comment text to the AI provider's API permitted under Meta's service-provider terms? Same question as M4 | read both agreements; Jeff to confirm, then add `instagram` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
 
 ## 7. Setup path Jeff must start (longest first)
 

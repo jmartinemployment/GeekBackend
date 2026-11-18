@@ -197,7 +197,7 @@ The reversal is 14 days old. If any internal doc says uploads are locked private
 4. Whether `youtube.force-ssl` / `youtube.upload` are tagged sensitive or restricted in our Cloud Console, and whether a third-party security assessment is demanded (restricted scopes only).
 5. Exact numeric cap of unverified-app users and test users while in Testing.
 6. Approval criteria and time for a quota extension (audit), and whether a SaaS serving many channels is judged as "selling access" under the Developer Policies.
-7. Whether a category-level "auto-send" setting counts as "prior specific and express consent" for comments, and whether AI drafting or AI categorization of comments is acceptable under the derived-data rule and the third-party-disclosure rules. YouTube docs do not mention AI.
+7. (The auto-send half of this question is moot since 2026-11-18: GeekSocial has no auto-send, and a person approves every reply.) Whether a category-level "auto-send" setting counts as "prior specific and express consent" for comments, and whether AI drafting or AI categorization of comments is acceptable under the derived-data rule and the third-party-disclosure rules. YouTube docs do not mention AI.
 8. Whether the post-2026-11-02 removal of the private lock is enforced for a brand-new project (do one real upload test with `privacyStatus=public`).
 9. Access-token lifetime (read `expires_in`; docs give no fixed value).
 10. Support-page figures (15-minute default, 256 GB or 12 hours, format list, 50 MB thumbnail minimums for Help) read through a summarizer: re-read by eye.
