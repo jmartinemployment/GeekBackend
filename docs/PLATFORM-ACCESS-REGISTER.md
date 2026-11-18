@@ -68,7 +68,7 @@ those connectors are built.
 | Pinterest | Trial (sandbox only), then Standard with a demo video | None published; "a few days" before following up | Not in the research | None for organic content |
 | LinkedIn organization | Community Management: Development tier, then Standard | None stated (one unofficial report of about 40 business days) | Not in the research | Webhook, Standard tier only |
 | LinkedIn member | Same app and review as the organization row | As above | Not in the research | None |
-| Nextdoor | Publish API by application, and the form excludes promoting a business; the Share Plugin needs no approval | Not found | Not found | None documented |
+| Nextdoor | Publish API by application, and the form excludes promoting a business | Not found | Not found | None documented |
 
 ## Facebook Page (Graph API v27.0)
 
@@ -297,10 +297,9 @@ No research existed for Nextdoor. This row was read from Nextdoor's own pages on
 Publishing goes through Nextdoor's API once access exists." (`geek-social/plans/geek-social-roadmap-2026-11-18.md:43`). Nextdoor's own Publish API
 application form says: "The Publish API is approved only for the following use cases: public agency
 communications, emergency alerts, local news, local events, and marketplace listings." and "It is not available for
-promoting your own business or your clients' businesses." [F]. And Nextdoor's access page says the Share Plugin
-"is an open offering and you are free to integrate it without Nextdoor approval" [AV], which the roadmap's "there is
-no Share Plugin" does not reflect. What the Share Plugin does, and whether it can post as a business page, is not
-found in Nextdoor's pages. Both checked again at the source on 2026-11-18.
+promoting your own business or your clients' businesses." [F]. Checked again at the source on 2026-11-18. So
+the API the roadmap waits for may never be granted for GeekSocial's use. (The Share Plugin is not used, by
+decision; Nextdoor's access page lists it as an open offering needing no approval [AV].)
 
 | Field | Fact | Source |
 |---|---|---|
