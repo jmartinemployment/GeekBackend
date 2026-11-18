@@ -12,7 +12,7 @@ public sealed record ReceptionistStatus(bool Enabled, string Reason);
 
 /// <summary>
 /// Geek-Receptionist inside GeekAPI: rings the owner from the Twilio number; a call nobody answers
-/// hears a closing message and ends, with nothing recorded and nobody texted. Twilio calls
+/// hears a closing message and ends, with nothing recorded, nobody texted and nothing written anywhere. Twilio calls
 /// these webhooks directly, so they sit outside ApiKeyMiddleware (see its public prefixes) and
 /// are authenticated by X-Twilio-Signature instead (<see cref="TwilioSignatureFilter"/>).
 /// </summary>
@@ -51,7 +51,6 @@ public static class ReceptionistEndpoints
         services.AddSingleton<IMediaDeleter, TwilioMediaDeleter>();
         services.AddSingleton<InboundSmsService>();
         services.AddSingleton<TwilioSignatureFilter>();
-        services.AddSingleton<IReceptionistCrm, CrmReceptionistRecorder>();
         services.TryAddSingleton(TimeProvider.System);
         return services;
     }
@@ -89,11 +88,8 @@ public static class ReceptionistEndpoints
             var callSid = form["CallSid"].ToString();
 
             if (o.Mode == CallMode.Forwarded)
-            {
                 // The client's own line already rang and went unanswered before forwarding here.
-                await missed.RecordMissedCallAsync(callSid, form["From"], ct);
                 return Twiml(Unanswered(o));
-            }
 
             var response = new VoiceResponse();
             var dial = new Dial(
@@ -151,7 +147,6 @@ public static class ReceptionistEndpoints
                 return Twiml(done);
             }
 
-            await missed.RecordMissedCallAsync(callSid, form["From"], ct);
             return Twiml(Unanswered(o));
         });
 

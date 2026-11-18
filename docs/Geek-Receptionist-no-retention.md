@@ -116,19 +116,14 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
 
 - **Today:** the gateway is stateless by rule and passes calendar calls to the business's own account. The Retell agent is created with
   one tool, `end_call`, so no call books anything yet.
-- **Requirement:** an event or record written to the business's own calendar or CRM is the delivery. The gateway and GeekAPI keep no copy
+- **Requirement:** an event or record written to the business's own calendar is the delivery. The gateway and GeekAPI keep no copy
   of what was written. The gateway logs no request or response body.
 - **Not verified:** what the gateway logs today.
 - **Attorney:** the business, not us, is the keeper of what lands in its calendar. The customer agreement should say so.
 
-### 3.7 CRM (the older v0 path)
+### 3.7 CRM
 
-**There is no CRM in production (Jeff, 2026-11-18).** What follows is code that exists, not a CRM in use.
-
-- **Today:** `CrmController` accepts a call's summary, transcript and recording link (`GeekAPI/Controllers/Crm/CrmController.cs`), used by
-  the older single-tenant receptionist.
-- **Requirement:** no receptionist call for a tenant writes conversation content to the CRM.
-- **Not verified:** whether anything still calls that route for receptionist calls.
+**CRM is in development and is not part of Geek-Receptionist's plans (Jeff, 2026-11-18).** There is no CRM in production. No receptionist code writes to one: the company line's code stopped writing missed calls and texts to Geek-CRM on 2026-11-18.
 
 ### 3.8 Email delivery
 

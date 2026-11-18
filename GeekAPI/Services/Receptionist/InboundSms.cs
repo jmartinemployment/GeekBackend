@@ -43,7 +43,6 @@ public sealed class InboundSmsService(
     ISmsSender sms,
     IMediaDeleter media,
     ReceptionistOptions options,
-    IReceptionistCrm crm,
     ILogger<InboundSmsService> log)
 {
     public const int MaxForwardedChars = 600;
@@ -66,8 +65,6 @@ public sealed class InboundSmsService(
             log.LogInformation("Ignoring text from the owner's own number ({MessageSid})", messageSid);
             return;
         }
-
-        await crm.RecordInboundTextAsync(messageSid, from, body, mediaCount, form["OptOutType"].ToString() is { Length: > 0 } t ? t : null, ct);
 
         if (body.Length > MaxForwardedChars) body = body[..MaxForwardedChars] + "…";
 

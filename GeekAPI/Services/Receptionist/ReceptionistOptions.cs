@@ -47,8 +47,6 @@ public sealed record ReceptionistOptions
     public required bool ScreenCalls { get; init; }
     /// <summary>Reject requests without a valid X-Twilio-Signature. Only disable for local testing.</summary>
     public required bool ValidateTwilioSignature { get; init; }
-    /// <summary>Geek-CRM tenant the receptionist writes to (RECEPTIONIST_CRM_TENANT_ID); Geek @ Your Spot when unset.</summary>
-    public Guid CrmTenantId { get; init; } = GeekApplication.Models.Crm.CrmSeed.GeekAtYourSpotTenantId;
 
     public static ReceptionistOptions FromConfiguration(IConfiguration config)
     {
@@ -95,7 +93,6 @@ public sealed record ReceptionistOptions
             RingSeconds = ParseInt(config["RING_SECONDS"] ?? "18", "RING_SECONDS", 5, 60, errors),
             ScreenCalls = ParseBool(config["SCREEN_CALLS"] ?? "true", "SCREEN_CALLS", errors),
             ValidateTwilioSignature = ParseBool(config["VALIDATE_TWILIO_SIGNATURE"] ?? "true", "VALIDATE_TWILIO_SIGNATURE", errors),
-            CrmTenantId = ParseGuid(config["RECEPTIONIST_CRM_TENANT_ID"], "RECEPTIONIST_CRM_TENANT_ID", errors),
         };
 
         if (errors.Count > 0)
@@ -131,14 +128,6 @@ public sealed record ReceptionistOptions
         if (int.TryParse(value, out var n) && n >= min && n <= max) return n;
         errors.Add($"{key} must be an integer between {min} and {max} (got '{value}')");
         return min;
-    }
-
-    private static Guid ParseGuid(string? value, string key, List<string> errors)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return GeekApplication.Models.Crm.CrmSeed.GeekAtYourSpotTenantId;
-        if (Guid.TryParse(value, out var g)) return g;
-        errors.Add($"{key} must be a GUID (got '{value}')");
-        return Guid.Empty;
     }
 
     private static bool ParseBool(string value, string key, List<string> errors)

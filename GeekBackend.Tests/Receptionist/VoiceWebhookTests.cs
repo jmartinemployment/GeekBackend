@@ -39,23 +39,6 @@ public sealed class FakeMediaDeleter : IMediaDeleter
     }
 }
 
-public sealed class FakeCrm : IReceptionistCrm
-{
-    public ConcurrentQueue<string> Calls { get; } = new();
-
-    public Task RecordMissedCallAsync(string callSid, string? caller, CancellationToken ct)
-    {
-        Calls.Enqueue($"missed:{callSid}:{caller}");
-        return Task.CompletedTask;
-    }
-
-    public Task RecordInboundTextAsync(string messageSid, string? from, string body, int mediaCount, string? optOutType, CancellationToken ct)
-    {
-        Calls.Enqueue($"text:{messageSid}:{from}:{body}:{mediaCount}:{optOutType}");
-        return Task.CompletedTask;
-    }
-}
-
 public static class Settings
 {
     public const string Token = "test-auth-token";
@@ -74,7 +57,6 @@ public sealed class App : IDisposable
     private readonly WebApplication _app;
     public FakeSms Sms { get; } = new();
     public FakeMediaDeleter Media { get; } = new();
-    public FakeCrm Crm { get; } = new();
 
     public App(Dictionary<string, string?>? overrides = null, bool configured = true)
     {
@@ -102,7 +84,6 @@ public sealed class App : IDisposable
         builder.Services.AddReceptionist(builder.Configuration);
         builder.Services.Replace(ServiceDescriptor.Singleton<ISmsSender>(Sms));
         builder.Services.Replace(ServiceDescriptor.Singleton<IMediaDeleter>(Media));
-        if (configured) builder.Services.Replace(ServiceDescriptor.Singleton<IReceptionistCrm>(Crm));
 
         _app = builder.Build();
         _app.MapReceptionist();
@@ -178,11 +159,11 @@ public class VoiceWebhookTests
         var (_, xml) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "completed"));
 
         Assert.Contains("We can", xml);
-        Assert.Equal([$"missed:CA1:{Settings.Caller}"], app.Crm.Calls.ToArray());
+        Assert.Empty(app.Sms.Sent);
     }
 
     [Fact]
-    public async Task Owner_accepting_the_call_records_no_missed_call()
+    public async Task Owner_accepting_the_call_hears_no_closing_message()
     {
         using var app = new App();
         var (screenStatus, screenXml) = await app.PostTwilio("/voice/screen?parent=CA1", Call("CAchild"));
@@ -193,7 +174,6 @@ public class VoiceWebhookTests
         await app.PostTwilio("/voice/screen-accepted?parent=CA1", new() { ["CallSid"] = "CAchild", ["Digits"] = "1" });
         var (_, xml) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "completed"));
 
-        Assert.Empty(app.Crm.Calls);
         Assert.DoesNotContain("We can", xml);
         Assert.Contains("<Hangup", xml);
     }
@@ -205,11 +185,11 @@ public class VoiceWebhookTests
         var (_, incoming) = await app.PostTwilio("/voice/incoming", Call());
         Assert.DoesNotContain("/screen", incoming);
 
-        await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "completed"));
-        Assert.Empty(app.Crm.Calls);
+        var (_, answered) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "completed"));
+        Assert.DoesNotContain("We can", answered);
 
-        await app.PostTwilio("/voice/dial-complete", Call("CA2", dialStatus: "busy"));
-        Assert.Equal([$"missed:CA2:{Settings.Caller}"], app.Crm.Calls.ToArray());
+        var (_, busy) = await app.PostTwilio("/voice/dial-complete", Call("CA2", dialStatus: "busy"));
+        Assert.Contains("We can", busy);
     }
 
     [Fact]
@@ -222,7 +202,6 @@ public class VoiceWebhookTests
         Assert.DoesNotContain("<Record", xml);
         Assert.Contains("<Hangup", xml);
         Assert.Empty(app.Sms.Sent);
-        Assert.Equal([$"missed:CA9:{Settings.Caller}"], app.Crm.Calls.ToArray());
     }
 
     [Fact]
