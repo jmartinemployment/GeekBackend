@@ -278,16 +278,13 @@ This is about the company's own phone line, not a tenant's.
    - **The signup form must collect each client's calendar connection, for clients who want one (Jeff, 2026-11-18).** A calendar is the client's choice, not a requirement. For a client who wants booking, it has to reach the client's own calendar, not Geek @ Your Spot's, so the multi-step form at `/signup` needs a step where the owner connects their calendar (today the connect button is only on `/dashboard`, after signup). What the step collects: the owner's Google sign-in and approval of the three scopes, and which of their calendars consultations are booked into. Not built, and not yet given its place among the steps; Jeff gives form changes one at a time.
      - **Why it is not reusable as it stands (Jeff):** the connection runs under Geek @ Your Spot's own Google Cloud project `geek-oauth-04-11-2026`. The gateway's code takes any owner's token (`GeekMcpGateway/src/validate.ts` requires one per request; `config.ts` holds no account), but until Google verifies the app the consent screen is limited to 100 test users with an unverified warning, and Google's Calendar MCP server is a Developer Preview. Whether that Preview accepts accounts outside the project's own users was not checked.
      - **Only Google Calendar is offered today. Other calendars are to be added (Jeff, 2026-11-18)**; Outlook and Cal.com have no connector yet.
-     - **Calendar connectors to add (Jeff, 2026-11-18).** None is built and their order is not decided. How each connects is from general knowledge of the vendors, not checked against their current documentation:
+     - **Calendar connectors to add (Jeff, 2026-11-18): these four only.** None is built and their order is not decided. How each connects is from general knowledge of the vendors, not checked against their current documentation:
        | Calendar | Who uses it | How it would connect |
        |---|---|---|
        | Microsoft Outlook / Microsoft 365 | Businesses on Microsoft email | Microsoft sign-in (OAuth), Microsoft Graph calendar API |
        | Apple iCloud Calendar | Owners on iPhone and Mac | CalDAV; Apple has no sign-in for other apps, so the owner gives an app-specific password, which must be stored encrypted like every other credential |
        | Calendly | Service businesses that already book by link | Calendly sign-in (OAuth), its scheduling API |
        | Cal.com | Same, open source | Cal.com sign-in or API key |
-       | Acuity Scheduling (Squarespace) | Salons, studios, consultants | Acuity sign-in (OAuth) or API key |
-       | Zoho Calendar | Businesses on Zoho | Zoho sign-in (OAuth) |
-       | Square Appointments | Shops and salons on Square | Square sign-in (OAuth), Bookings API |
        Each is a connector beside Google Calendar's (`tenant_mcp_connections.provider`), so an agent books the same way whichever calendar the client uses.
    - **Gateway transport:** `GeekMcpGateway` is an MCP client of Google's hosted Calendar MCP server (`https://calendarmcp.googleapis.com/mcp/v1`, Developer Preview, Streamable HTTP, the tenant's access token as a bearer header), using the official MCP SDK. Verified without a token on 2026-11-15: the server lists its tools, and a call with a bad token is `401`. **Not yet verified with a real tenant token:** that `create_event` is permitted by the scopes the consent screen holds (Google's documentation lists only read-only scopes), and the exact shape of each tool's result.
 
