@@ -669,6 +669,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     {
         if (Blank(c.GreetingMessage) || Blank(c.SystemPromptTemplate)) return "The greeting and prompt are required.";
         if (!IsJson(c.BusinessHours) || !IsJson(c.QualifyingQuestions)) return "Business hours and qualifying questions are required.";
+        if (!IsQualifyingQuestions(c.QualifyingQuestions)) return "Qualifying questions must be a list, or an opening question with areas that each have a name and non-blank questions.";
         if (!VoiceTransferModes.All.Contains(c.TransferMode, StringComparer.Ordinal)) return $"The transfer mode must be one of: {string.Join(", ", VoiceTransferModes.All)}.";
         if (!VoiceTransferCallerIdModes.All.Contains(c.TransferCallerIdMode, StringComparer.Ordinal)) return $"The caller ID mode must be one of: {string.Join(", ", VoiceTransferCallerIdModes.All)}.";
         if (c.TransferTargetNumber is not null && !E164().IsMatch(c.TransferTargetNumber)) return "The transfer number must be in E.164 form.";
@@ -724,6 +725,25 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     }
 
     private static bool IsJson(JsonElement value) => value.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null);
+
+    /// <summary>
+    /// A list (a paying tenant's starts empty and is its own to fill), or the area set Geek @ Your Spot LLC's own receptionist uses:
+    /// {"openingQuestion": "...", "areas": [{"name": "...", "questions": ["..."]}]}, every text non-blank.
+    /// </summary>
+    private static bool IsQualifyingQuestions(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Array) return true;
+        if (value.ValueKind != JsonValueKind.Object) return false;
+        if (!value.TryGetProperty("openingQuestion", out var opening) || !IsText(opening)) return false;
+        if (!value.TryGetProperty("areas", out var areas) || areas.ValueKind != JsonValueKind.Array || areas.GetArrayLength() == 0) return false;
+        return areas.EnumerateArray().All(area =>
+            area.ValueKind == JsonValueKind.Object
+            && area.TryGetProperty("name", out var name) && IsText(name)
+            && area.TryGetProperty("questions", out var questions) && questions.ValueKind == JsonValueKind.Array
+            && questions.GetArrayLength() > 0 && questions.EnumerateArray().All(IsText));
+    }
+
+    private static bool IsText(JsonElement value) => value.ValueKind == JsonValueKind.String && !Blank(value.GetString());
 
     private static string VectorLiteral(IReadOnlyList<float> embedding) =>
         "[" + string.Join(",", embedding.Select(v => v.ToString("R", CultureInfo.InvariantCulture))) + "]";

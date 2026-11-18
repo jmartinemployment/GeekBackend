@@ -25,7 +25,9 @@ public sealed class VoiceControllerTests
         public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) { Calls++; return Task.FromResult(tenant!()); }
         public Task<Result<VoiceTenant>> ActivateTenantAsync(Guid tenantId, ActivateVoiceTenantCommand command, CancellationToken ct = default) { Calls++; return Task.FromResult(tenant!()); }
         public Task<Result<VoiceTelephony>> GetTelephonyAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig c, CancellationToken ct = default) { Calls++; return Task.FromResult(config!()); }
+        public List<VoiceReceptionistConfig> Saved { get; } = new();
+
+        public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig c, CancellationToken ct = default) { Calls++; Saved.Add(c); return Task.FromResult(config is not null ? config() : Result<VoiceReceptionistConfig>.Success(c)); }
         public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default) { Calls++; return Task.FromResult(mcp!()); }
         public Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
@@ -50,6 +52,39 @@ public sealed class VoiceControllerTests
     }
 
     [Fact]
+    public async Task The_exempt_tenant_is_saved_with_the_company_caller_questions()
+    {
+        var store = new FakeVoiceStore(tenant: () => Result<VoiceTenant>.Success(TenantWithEmail("owner@geekatyourspot.example", VoiceTenantStatuses.PendingPayment)));
+        var exemption = new RecordingBillingExemption(id => Result<VoiceTenant>.Success(TenantWithEmail("owner@geekatyourspot.example", VoiceTenantStatuses.Active)));
+
+        var result = await new BillingExemption(store, exemption, new BillingExemptionOptions("owner@geekatyourspot.example")).ApplyAsync(new BillingExemptionRequest(Tenant));
+
+        Assert.True(result.IsSuccess);
+        var saved = Assert.Single(store.Saved);
+        var script = ReceptionistDefaults.ScriptFor(SomeTenant()).Value!;
+        Assert.Equal(script.Greeting, saved.GreetingMessage);
+        Assert.Equal(script.Prompt, saved.SystemPromptTemplate);
+        Assert.Equal(CompanyCallerQuestions.ToJson().GetRawText(), saved.QualifyingQuestions.GetRawText());
+        Assert.Equal(CompanyCallerQuestions.OpeningQuestion, saved.QualifyingQuestions.GetProperty("openingQuestion").GetString());
+        Assert.Equal(14, saved.QualifyingQuestions.GetProperty("areas").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task A_failed_save_of_the_exempt_settings_is_reported_and_nothing_is_activated()
+    {
+        var store = new FakeVoiceStore(
+            tenant: () => Result<VoiceTenant>.Success(TenantWithEmail("owner@geekatyourspot.example", VoiceTenantStatuses.PendingPayment)),
+            config: () => Result<VoiceReceptionistConfig>.Failure("The store is unavailable.", VoiceFailureCodes.StoreUnavailable));
+        var exemption = new RecordingBillingExemption(id => Result<VoiceTenant>.Success(TenantWithEmail("owner@geekatyourspot.example", VoiceTenantStatuses.Active)));
+
+        var result = await new BillingExemption(store, exemption, new BillingExemptionOptions("owner@geekatyourspot.example")).ApplyAsync(new BillingExemptionRequest(Tenant));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(VoiceFailureCodes.StoreUnavailable, result.ErrorCode);
+        Assert.Empty(exemption.Activated);
+    }
+
+    [Fact]
     public async Task Any_other_email_is_not_exempt_and_nothing_is_activated()
     {
         var store = new FakeVoiceStore(tenant: () => Result<VoiceTenant>.Success(TenantWithEmail("client@example.com", VoiceTenantStatuses.PendingPayment)));
@@ -59,6 +94,7 @@ public sealed class VoiceControllerTests
 
         Assert.Equal(new BillingExemptionOutcome(false, VoiceTenantStatuses.PendingPayment), result.Value);
         Assert.Empty(exemption.Activated);
+        Assert.Empty(store.Saved);
     }
 
     [Fact]

@@ -20,9 +20,12 @@ public sealed record BillingExemptionRequest(Guid? TenantId);
 public sealed record BillingExemptionOutcome(bool Exempt, string Status);
 
 /// <summary>
-/// Asked by the portal right after a business is accepted. A tenant whose contact email is the exempt one is activated with no
-/// subscription and no telephony (<see cref="IVoiceBillingExemption"/>), and the portal goes straight to the owner's login. Every
-/// other tenant is answered not exempt and goes on to PayPal; this never changes it.
+/// Asked by the portal right after a business is accepted. A tenant whose contact email is the exempt one gets its receptionist
+/// settings (the starting greeting and prompt a paying tenant gets, with <see cref="CompanyCallerQuestions"/> as its qualifying
+/// questions) and is then activated with no subscription and no telephony (<see cref="IVoiceBillingExemption"/>), and the portal goes
+/// straight to the owner's login. The settings are saved first, as <see cref="SubscriptionActivation"/> does, so an active exempt
+/// tenant always has them, and a retry after a failed activation saves them again (the save replaces the tenant's row). Every other
+/// tenant is answered not exempt and goes on to PayPal; this never changes it.
 /// </summary>
 public sealed class BillingExemption(IVoiceStore voice, IVoiceBillingExemption exemption, BillingExemptionOptions options)
 {
@@ -37,6 +40,15 @@ public sealed class BillingExemption(IVoiceStore voice, IVoiceBillingExemption e
 
         if (options.ExemptEmail is null || !string.Equals(tenant.Value!.ContactEmail.Trim(), options.ExemptEmail, StringComparison.OrdinalIgnoreCase))
             return Result<BillingExemptionOutcome>.Success(new BillingExemptionOutcome(false, tenant.Value!.Status));
+
+        var script = ReceptionistDefaults.ScriptFor(tenant.Value);
+        if (!script.IsSuccess)
+            return Result<BillingExemptionOutcome>.Failure(script.Error ?? "The receptionist script could not be filled.", script.ErrorCode);
+
+        var config = ReceptionistDefaults.ConfigFor(script.Value!) with { QualifyingQuestions = CompanyCallerQuestions.ToJson() };
+        var saved = await voice.SaveConfigAsync(tenantId, config, ct).ConfigureAwait(false);
+        if (!saved.IsSuccess)
+            return Result<BillingExemptionOutcome>.Failure(saved.Error ?? "The receptionist settings could not be saved.", saved.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
 
         var activated = await exemption.ActivateWithoutBillingAsync(tenantId, ct).ConfigureAwait(false);
         return activated.IsSuccess
