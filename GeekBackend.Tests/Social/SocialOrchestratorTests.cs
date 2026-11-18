@@ -991,7 +991,7 @@ public class SocialOrchestratorTests
     }
 
     [Fact]
-    public async Task A_pending_draft_in_an_opted_in_category_is_auto_sent_after_its_outcome_is_stored()
+    public async Task A_pending_draft_in_an_opted_in_category_is_not_auto_sent_and_waits_for_a_person()
     {
         var rig = Build(
             script: store =>
@@ -1012,7 +1012,8 @@ public class SocialOrchestratorTests
 
         await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
 
-        Assert.Single(rig.SendStep.AutoSent);
+        // Auto-send is switched off: a person approves every reply, even in a category the account opted into.
+        Assert.Empty(rig.SendStep.AutoSent);
         Assert.Equal(new[] { "draft", "outcome" }, rig.Store.Writes);
     }
 

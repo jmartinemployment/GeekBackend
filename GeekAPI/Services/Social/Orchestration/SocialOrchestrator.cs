@@ -414,14 +414,13 @@ public sealed class SocialOrchestrator : BackgroundService
         // 6. Only now is the comment marked answered, so a crash before this leaves it for recovery.
         var outcome = await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.ReplyNeeded, null, ct).ConfigureAwait(false);
 
-        // 7. Auto-send, for a draft the account sends without a person. It runs after the outcome is
-        // stored, so whatever happens to the send, the comment is not drafted again.
-        if (outcome == Handled.Decided && created.IsSuccess && SocialSendStep.IsAutoSendable(created.Value!, account.Value!))
-        {
-            var autoSent = await services.GetRequiredService<ISocialSendStep>().AutoSendAsync(created.Value!, account.Value!, ct).ConfigureAwait(false);
-            if (autoSent is { IsSuccess: false })
-                Fail("auto-send a draft", autoSent.ErrorCode, autoSent.Error, ev.Id);
-        }
+        // 7. Auto-send is switched off: a person approves every reply (docs/PLATFORM-CAPABILITIES.md section 1a).
+        // if (outcome == Handled.Decided && created.IsSuccess && SocialSendStep.IsAutoSendable(created.Value!, account.Value!))
+        // {
+        //     var autoSent = await services.GetRequiredService<ISocialSendStep>().AutoSendAsync(created.Value!, account.Value!, ct).ConfigureAwait(false);
+        //     if (autoSent is { IsSuccess: false })
+        //         Fail("auto-send a draft", autoSent.ErrorCode, autoSent.Error, ev.Id);
+        // }
 
         return outcome;
     }
