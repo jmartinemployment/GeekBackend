@@ -4,6 +4,11 @@ Saved 2026-11-18 at Jeff's instruction. Two answers from outside AI tools, paste
 said. **Nothing here was checked by us and nothing here is a decision.** The questions for the attorney that came out of them are in
 `docs/Geek-Receptionist-attorney-questions.md`.
 
+**Retell AI was dropped on 2026-11-18** (Jeff: "Retell is dropped"), after these answers were saved, and all Retell code was
+removed. The answers that name Retell are kept as given. Nothing in them describes the system now: today no AI hears a tenant's
+call, and the planned voice AI, Twilio ConversationRelay with our own model and voice, is not built
+(`docs/Geek-Receptionist.md` section 5, item 4).
+
 What was changed in copying: the tools' source badges, a sponsored advertisement and page buttons were left out; tables that arrived
 flattened are written as lists; long dashes are replaced by colons or commas. The wording is otherwise as pasted.
 
@@ -693,6 +698,9 @@ information.
 ---
 
 # Answer 2: Retell storage settings and per-client opt-in
+
+(Annotation, 2026-11-18: Retell was dropped the same day and its code removed. None of the settings, webhooks or agents below
+exist in our code. Kept as given.)
 
 A second tool, in three turns. Jeff's own messages are marked.
 

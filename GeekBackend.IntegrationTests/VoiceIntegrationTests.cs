@@ -41,7 +41,7 @@ public sealed class VoiceIntegrationTests
 
         var activated = await store.ActivateTenantAsync(id, new(
             VoiceSubscriptionTiers.Standard, 48m, 250, 0.50m, "I-" + Unique(), "VAULT-" + Unique(), Now, Now.AddMonths(1), "active",
-            "AC" + Unique(), "ciphertext", "+1561555" + Random.Shared.Next(1000, 9999), "PN" + Unique(), "agent-1", null, null, "not_started", false));
+            "AC" + Unique(), "ciphertext", "+1561555" + Random.Shared.Next(1000, 9999), "PN" + Unique(), null, null, "not_started", false));
         Assert.True(activated.IsSuccess, activated.Error);
         return id;
     }
@@ -63,7 +63,7 @@ public sealed class VoiceIntegrationTests
 
         var command = new ActivateVoiceTenantCommand(
             VoiceSubscriptionTiers.Starter, 30m, 90, 0.50m, "I-" + Unique(), "VAULT-" + Unique(), Now, Now.AddMonths(1), "active",
-            "AC" + Unique(), "ciphertext", "+1561555" + Random.Shared.Next(1000, 9999), "PN" + Unique(), "agent-1", null, null, "not_started", false);
+            "AC" + Unique(), "ciphertext", "+1561555" + Random.Shared.Next(1000, 9999), "PN" + Unique(), null, null, "not_started", false);
         var activated = await store.ActivateTenantAsync(id, command);
         Assert.True(activated.IsSuccess, activated.Error);
         Assert.Equal(VoiceTenantStatuses.Active, activated.Value!.Status);
@@ -89,7 +89,7 @@ public sealed class VoiceIntegrationTests
             "Other HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "other@example.test", "+15615550102") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
         var clash = await store.ActivateTenantAsync(second.Value!.Id, new(
             VoiceSubscriptionTiers.Pro, 148m, 1000, 0.50m, "I-" + Unique(), "VAULT-" + Unique(), Now, Now.AddMonths(1), "active",
-            "AC" + Unique(), "ciphertext", number, "PN" + Unique(), null, null, null, "not_started", false));
+            "AC" + Unique(), "ciphertext", number, "PN" + Unique(), null, null, "not_started", false));
 
         Assert.Equal(VoiceFailureCodes.Conflict, clash.ErrorCode);
         Assert.Equal(VoiceTenantStatuses.PendingPayment, (await store.GetTenantAsync(second.Value.Id)).Value!.Status);
@@ -105,7 +105,7 @@ public sealed class VoiceIntegrationTests
         var tenantB = await ActiveTenantAsync(store);
 
         var config = new VoiceReceptionistConfig(
-            "Thanks for calling Boca Cool.", "voice-1", "You answer for {business}.", EmptyObject, EmptyList,
+            "Thanks for calling Boca Cool.", "You answer for {business}.", EmptyObject, EmptyList,
             VoiceTransferModes.WarmTransfer, "+15615550102", VoiceTransferCallerIdModes.OriginalCaller, ["flood", "no ac"], true);
         var saved = await store.SaveConfigAsync(tenantA, config);
         Assert.True(saved.IsSuccess, saved.Error);
@@ -172,11 +172,11 @@ public sealed class VoiceIntegrationTests
         await SqlMigrationTestHelper.ApplyAsync();
         var store = NewRepository();
         var tenant = await ActiveTenantAsync(store);
-        var callId = "call_" + Unique();
+        var callId = "CA" + Unique();
 
-        var first = await store.UpsertCallAsync(tenant, new(callId, null, "in_progress", Now, null, 0, 0, null));
-        var second = await store.UpsertCallAsync(tenant, new(callId, null, "completed", Now, Now.AddMinutes(3), 180, 3, "booked"));
-        var third = await store.UpsertCallAsync(tenant, new(callId, null, "completed", Now, Now.AddMinutes(3), 120, 2, null));
+        var first = await store.UpsertCallAsync(tenant, new(callId, "in_progress", Now, null, 0, 0, null));
+        var second = await store.UpsertCallAsync(tenant, new(callId, "completed", Now, Now.AddMinutes(3), 180, 3, "booked"));
+        var third = await store.UpsertCallAsync(tenant, new(callId, "completed", Now, Now.AddMinutes(3), 120, 2, null));
 
         Assert.True(first.IsSuccess, first.Error);
         Assert.Equal(first.Value!.CallId, second.Value!.CallId);
@@ -191,12 +191,12 @@ public sealed class VoiceIntegrationTests
         var store = NewRepository();
         var tenantA = await ActiveTenantAsync(store);
         var tenantB = await ActiveTenantAsync(store);
-        var callId = "call_" + Unique();
+        var callId = "CA" + Unique();
 
-        var call = await store.UpsertCallAsync(tenantA, new(callId, null, "completed", Now, Now.AddMinutes(3), 180, 3, null));
+        var call = await store.UpsertCallAsync(tenantA, new(callId, "completed", Now, Now.AddMinutes(3), 180, 3, null));
         Assert.True(call.IsSuccess, call.Error);
 
-        var overwrite = await store.UpsertCallAsync(tenantB, new(callId, null, "completed", Now, Now.AddMinutes(1), 60, 1, null));
+        var overwrite = await store.UpsertCallAsync(tenantB, new(callId, "completed", Now, Now.AddMinutes(1), 60, 1, null));
         Assert.Equal(VoiceFailureCodes.Conflict, overwrite.ErrorCode);
 
         var appointment = new CreateVoiceAppointmentCommand(

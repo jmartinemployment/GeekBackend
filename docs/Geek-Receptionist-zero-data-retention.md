@@ -40,26 +40,30 @@ And, later again, verbatim:
 
 Nothing on the site, in the greeting or in these documents is to say that call data is saved automatically (Jeff, same day).
 
-**What recording means (2026-11-18).** Every call is recorded, by Retell. Jeff: "Retell records, it is only save for 10 minutes,
-but it is recorded." Zero Data Retention decides where a recording is kept, not whether there is one: never with us, and in the
-client's own storage when the client has connected one. Jeff confirmed this reading on 2026-11-18 and said to add "this call may
-be recorded" back in to the greeting. It had been taken out the day before on the wrong reading that ZDR means no call is ever
-recorded. His preference, stated the same day, is not to save any client call data.
+**What recording means (2026-11-18).** Zero Data Retention decides where a recording is kept, not whether there is one: never with
+us, and in the client's own storage when the client has connected one. Jeff confirmed this reading on 2026-11-18 and said to add
+"this call may be recorded" back in to the greeting. It had been taken out the day before on the wrong reading that ZDR means no
+call is ever recorded. His preference, stated the same day, is not to save any client call data.
 
-**What the 10 minutes is (Retell's Data Storage Settings page, read 2026-11-18).** With `basic_attributes_only`, "Retell deletes
-the raw recording, transcript, and log files about 10 minutes after post-call processing ends, so download them from the webhook
-right away". The window is the time to collect the files. Retell does not say it meets a consent or record-keeping requirement,
-so a call recording is never our proof of anything. Twilio records nothing on a tenant's trunk: the provisioner sets no recording
-mode (not checked on a real trunk).
+**What a tenant's call does today (code changed 2026-11-18).** No AI hears it. Twilio posts the call to
+`POST /api/receptionist/tenant/{tenantId}/voice`, which checks `X-Twilio-Signature` with the tenant's subaccount auth token and
+that `AccountSid` is that subaccount, and reads the tenant's billing standing. Every call, whatever the standing, hears "Thank you
+for calling {business}. We can't take your call right now. Please call again later. Goodbye." and is hung up: no `<Record>`, no
+voicemail, no texts. No recording is turned on at Twilio (not checked on a real tenant number). So nothing of the call is recorded
+by us or by Twilio.
 
-**What this means for the claim (found 2026-11-18).** Retell has no setting that shortens or removes the 10 minutes, and no
-setting that turns recording off. So while Retell answers the calls this policy is met on our side only: we retain nothing, and the
-vendor holds the content for about 10 minutes. "Zero Data Retention", unqualified, cannot be claimed at launch (Jeff: "at launch
-I can't claim ZDR"). Retell is to be replaced for this reason. The detail, and what can be said meanwhile, is in
+**The voice AI to come: Twilio ConversationRelay, with our own model and voice. Not built.** It does not by itself give ZDR. Twilio
+says transcripts are not stored unless its intelligence service is turned on; OpenAI keeps API data up to 30 days unless it has
+approved zero retention for the account, which is not in hand; the speech-to-text and voice vendors behind Twilio were not checked.
+"Zero Data Retention", unqualified, is not claimed (Jeff: "at launch I can't claim ZDR"). The detail is in
 `docs/Geek-Receptionist.md` section 5, item 6.
 
-Read together: by default a call's recording, transcript and logs are gone from Retell about 10 minutes after the call is
-processed, are kept by no one after that, and are sent nowhere. A client that wants them
+**History (2026-11-18).** Retell AI was the voice layer until Jeff dropped it on 2026-11-18 ("Retell is dropped"). It recorded
+every call and held the recording, transcript and logs about 10 minutes, with no setting to shorten or remove that window (Jeff:
+"Retell records, it is only save for 10 minutes, but it is recorded."). Its code, variables and columns were removed (migration
+`0070`). Sections of this document written before then were rewritten for the code as it is now.
+
+Read together: with ZDR on, a call's content is kept by no one and sent nowhere. A client that wants them
 turns the feature on by connecting its own Google Cloud Storage or Amazon S3 bucket, and from then on they are written there.
 We run no storage for call content in either case. "Organization" is this product's tenant, so the setting covers every call a
 tenant receives.
@@ -68,13 +72,13 @@ tenant receives.
 
 | Data | Kept by us with ZDR on | Built today |
 |---|---|---|
-| Recording | No | No recording link is written to the call row, and new Retell agents are set to keep none past about 10 minutes, which Retell cannot shorten (both changed 2026-11-17, not deployed). Agents that already exist still keep theirs (section 7). |
-| Transcript and messages | No | Same two changes, same gap for agents that already exist. |
-| Summary | No | Not written to the call row (same change). |
-| Detailed call logs | No | We write none. Retell: same change and same gap. |
-| Structured outputs | No by default | The agent has one tool, `end_call`, so a call produces none. `geek_voice.appointments` has columns for a caller's name, phone, email, address and issue and would be one. |
-| Call history | Yes | One row per call in `geek_voice.call_logs`: the call's ids, status, start, end, length, disposition. |
-| Billing and usage | Yes | Billable minutes per call in the same row; overage billing reads it. |
+| Recording | No | None is made: the tenant route's TwiML has no `<Record>` and no recording is turned on at Twilio. No recording column is written (migration `0067`). |
+| Transcript and messages | No | None exists: no AI hears the call. No transcript column is written (migration `0067`). |
+| Summary | No | None exists, and none is written to the call row. |
+| Detailed call logs | No | We write none. |
+| Structured outputs | No by default | No voice AI is built, so a call produces none. `geek_voice.appointments` has columns for a caller's name, phone, email, address and issue and would be one. |
+| Call history | Yes | One row per ended call in `geek_voice.call_logs`, written by `TwilioCallStatusRecorder` from Twilio's status callback and keyed by `CallSid`: status, start, end, length from `CallDuration` in seconds. The caller's number (`From`) is never read. |
+| Billing and usage | Yes | Billable minutes per call in the same row, rounded up per started minute; overage billing reads it. |
 | Cost | Yes | Not recorded. |
 | Latency | Yes | Not recorded. |
 
@@ -85,8 +89,7 @@ has no such flag, and whether it ever gets one is not decided.
 
 This is off by default. A client turns it on by connecting storage it owns. From then on a call's content is written there and is
 never kept by us, and the client reads it there. Two kinds of storage are supported: Amazon S3 and Google Cloud Storage. A client
-that connects neither gets no recording, transcript or log of any call, from anyone. Retell still holds them for about 10 minutes
-(section 1).
+that connects neither gets no recording, transcript or log of any call, from anyone.
 
 **Built today:** none of this section. No connection, no upload, no screen.
 
@@ -204,51 +207,20 @@ How Vapi does it (its HIPAA page, read 2026-11-17):
 - The customer carries duties of its own: no patient information in prompts or labels, and none in an organization without the
   add-on, even for a test.
 
-What it would take here, none of it built or checked: a business associate agreement from us to the client, and from Retell,
+What it would take here, none of it built or checked: a business associate agreement from us to the client, and from
 Twilio and every other vendor in `docs/Geek-Receptionist-no-retention.md` section 3 to us; a billing add-on; the healthcare
 question at signup leading to the add-on instead of a refusal; and the attorney's answer on whether keeping nothing by default
 changes any of it.
 
 ## 7. What this means in our code (facts, not decisions)
 
-- **The voice vendor is Retell, not Vapi.** One search of Retell's documentation (2026-11-17) found no setting that sends
-  recordings or transcripts to a customer's bucket. If that holds, the write to the client's bucket is ours to do: GeekAPI takes
-  the content from Retell's call-ended webhook, writes it to the client's bucket, and keeps nothing.
-- **Retell keeps everything today.** The deployed `RetellProvisioner` sets no `data_storage_setting`, so Retell's default
-  `everything` applies. **Changed in the code 2026-11-17, not yet deployed:** new agents are created with
-  `basic_attributes_only`, which Retell documents as storing no transcripts, recordings or logs, and a test holds the request to
-  it. Agents that already exist are not changed by this; each needs one update call to Retell, which has not been made.
-- **The webhook carries the content under every storage setting** (Retell's webhook page, read 2026-11-17): "Webhooks always carry
-  the full, unscrubbed call data, whatever the agent's data storage setting is." Under `basic_attributes_only` Retell keeps only
-  ids, timestamps, status and cost, and deletes the raw recording, transcript and log files about 10 minutes after its processing
-  of the call ends. Its advice: download the recording and the other file links as soon as the webhook arrives. So "recordings in
-  the client's storage" and "nothing kept at Retell" hold together, and the copy to the client's bucket has about 10 minutes.
-- **What each event carries** (same page, and Retell's Get Call reference for the call object, read 2026-11-17):
-
-  | Event | Carries |
-  |---|---|
-  | `call_ended` | "All fields from the call object except call_analysis." |
-  | `call_analyzed` | "Full call data including call_analysis object" |
-
-  The call object's content fields: `transcript`, `transcript_object` (turns with timestamps), `transcript_with_tool_calls`,
-  `recording_url`, `recording_multi_channel_url` (each party on its own channel), `public_log_url`,
-  `knowledge_base_retrieved_contents_url`, and `call_analysis` (sentiment, summary, extracted data). It also has `latency` and
-  `call_cost`, which is where the ZDR table's cost and latency come from.
-- **So `call_ended` alone has everything ZDR hands to the client**, and no summary or analysis. `call_analyzed` adds only the
-  analysis, which "Transcribe forward delete" does not want.
-- **The recording and the log arrive as links, not as files.** GeekAPI has to download each one and write it to the client's
-  bucket. Retell deletes the files "about 10 minutes after post-call processing ends, shortly after call_analyzed is sent".
-- **The links are public unless the agent opts in to signed URLs** (`opt_in_signed_url`), which then "automatically expire after
-  24 hours" by default. Under `basic_attributes_only` the files are gone in about 10 minutes either way.
-- **Delivery rules that shape the copy:** Retell waits 10 seconds for a `2xx`, then retries, up to 3 times, so the same event can
-  arrive more than once. A recording download and a bucket upload may not fit in 10 seconds. Retell's advice is to answer as soon
-  as the payload is safely accepted and do the work after. Under ZDR "safely accepted" cannot mean written to our database, so
-  the copy either finishes inside the request or runs after the answer with the content held in memory only. Not decided.
-- **The spoken notice:** Retell's page says the recording notice is the agent's first sentence, and that under
-  `basic_attributes_only` "no recording is retained, but the agent still speaks the announcement live."
-- **Not verified:** all of the above is Retell's documentation. No real delivery under `basic_attributes_only` has been looked at.
-- **The call row already matches the "yes" line of the table**, apart from cost and latency (section 2). That change is in the
-  working tree, not deployed.
+- **No voice AI answers a tenant's call** (section 1). The earlier voice vendor and its code are gone (history in
+  section 1).
+- **Twilio ConversationRelay is the planned voice AI. Not built.** Whether any of its layers can send recordings or transcripts to
+  a customer's bucket was not checked. If not, the write to the client's bucket is ours to do. How is not decided.
+- **Twilio's status callback** (`POST /api/receptionist/tenant/{tenantId}/call-status`) is what writes the call row today. It
+  carries no call content and its handler reads none.
+- **The call row already matches the "yes" line of the table**, apart from cost and latency (section 2). Not yet deployed.
 - **Not built:** the ZDR setting on a tenant, the storage connection and its encrypted credentials, the S3 and Google Cloud Storage
   writers, the dashboard switch, and the onboarding steps that ask for all of it.
 
@@ -261,8 +233,8 @@ changes any of it.
   section 5, item 6.
 - Keeping nothing is the default, set in the dashboard, and covers the whole tenant.
 - Call content is off by default, so we retain nothing for a client that has not connected storage. A client may finish
-  onboarding without storage, and then a call's content is written nowhere. Retell still records each call and holds the files
-  about 10 minutes (section 1), so whether the words "We do not record" can be published is the attorney's question
+  onboarding without storage, and then a call's content is written nowhere. Whether the words "We do not record" can be published
+  is the attorney's question
   (`docs/Geek-Receptionist-attorney-questions.md`, section D).
 - We run no storage for call content. The only places it can go are the client's Google Cloud Storage or Amazon S3 bucket.
 
@@ -274,10 +246,9 @@ changes any of it.
 3. Which of Vapi's connection methods are offered (S3 by key, S3 by role, Google by service account).
 4. Whether the client chooses what is written (recording, transcript, logs, each its own switch as in Vapi) or gets all three.
 5. Whether connecting storage is offered as an onboarding step, or only in the dashboard afterward.
-6. Cost and latency per call: Retell's call object carries `call_cost` and `latency` (section 7). Storing them is not built.
+6. Cost and latency per call: where they would come from once the voice AI exists is not decided. Storing them is not built.
 7. Settled 2026-11-18: the wording callers and clients are given stays. The greeting says "this call may be recorded", and the
-   signup checkbox and the first paragraph of the addendum say calls are recorded. Retell records every call and, with
-   `basic_attributes_only`, deletes the files about 10 minutes later; we keep no recording either way (section 1).
+   signup checkbox and the first paragraph of the addendum say calls are recorded. Today no tenant call is recorded, and we keep no recording either way (section 1).
 
 ## 9. Questions the multi-step form puts to the client (kept 2026-11-17, not built)
 

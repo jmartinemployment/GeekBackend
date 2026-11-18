@@ -77,14 +77,15 @@ public class ApiKeyMiddlewareAuthBoundaryTests
     // authenticates these instead (GeekBackend.Tests/Receptionist covers the signature check).
     [InlineData("/api/receptionist/twilio/voice/incoming", true)]
     [InlineData("/api/receptionist/twilio/sms/incoming", true)]
-    // Retell's call webhooks: Retell cannot send our API key either; RetellWebhookController checks X-Retell-Signature.
-    [InlineData("/api/receptionist/retell/webhook/22222222-2222-2222-2222-222222222222", true)]
+    // Twilio's webhooks for a tenant's number: TenantCallController checks X-Twilio-Signature with the tenant's subaccount token.
+    [InlineData("/api/receptionist/tenant/22222222-2222-2222-2222-222222222222/voice", true)]
+    [InlineData("/api/receptionist/tenant/22222222-2222-2222-2222-222222222222/call-status", true)]
     // Only those prefixes are exempt: a sibling route under /api/receptionist still needs credentials.
     [InlineData("/api/receptionist/settings", false)]
     [InlineData("/api/receptionist/twilio", false)]
-    [InlineData("/api/receptionist/retell/webhook", false)]
-    [InlineData("/api/receptionist/retell/agents", false)]
-    public async Task Only_receptionist_twilio_and_retell_webhooks_pass_without_an_api_key(string path, bool passes)
+    [InlineData("/api/receptionist/tenant", false)]
+    [InlineData("/api/receptionist/tenants/22222222-2222-2222-2222-222222222222/voice", false)]
+    public async Task Only_receptionist_twilio_and_tenant_call_webhooks_pass_without_an_api_key(string path, bool passes)
     {
         var reached = false;
         var middleware = new ApiKeyMiddleware(

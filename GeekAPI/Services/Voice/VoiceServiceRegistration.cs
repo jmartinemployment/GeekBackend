@@ -53,11 +53,10 @@ public static class VoiceServiceRegistration
         services.AddScoped<OverageBilling>();
         services.AddScoped<OverageCollection>();
         services.AddHostedService<OverageBillingHostedService>();
-        services.AddScoped<RetellCallRecorder>();
+        services.AddScoped<TwilioCallStatusRecorder>();
+        services.AddScoped<TenantTwilioWebhook>();
         services.AddSingleton(TwilioOptions.FromEnvironment());
         services.AddHttpClient<TwilioProvisioner>(client => client.Timeout = TimeSpan.FromSeconds(30));
-        services.AddSingleton(RetellOptions.FromEnvironment());
-        services.AddHttpClient<RetellProvisioner>(client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddScoped<SubscriptionActivation>();
         services.AddSingleton(GoogleCalendarOptions.FromEnvironment());
         services.AddSingleton<McpOAuthState>();

@@ -19,8 +19,8 @@ Two questions sit under it, and they have different answers:
 
 The direction, in Jeff's words later the same day: "The direction forward is Zero Data Retention no persistence of transcripts,
 audio, etc. Only billing metadata is retained." The written policy is `docs/Geek-Receptionist-zero-data-retention.md`. Nothing of
-what was said in a call is saved automatically, by us or by a vendor. Retell cannot meet the vendor half of that: it holds each
-call's content about 10 minutes and has no setting to close that window (section 3.1). A client that wants its call content turns Zero Data
+what was said in a call is saved automatically, by us or by a vendor. Today no AI answers a tenant's call: every call hears one
+closing message and is hung up, and nothing is recorded (section 3.1). A client that wants its call content turns Zero Data
 Retention off and connects its own Amazon S3 or Google Cloud storage, which needs settings of its own and is not built.
 
 So this document removes retention. It does not remove the contracts that processing may require. Those are for the attorney (section 5).
@@ -37,40 +37,31 @@ So this document removes retention. It does not remove the contracts that proces
 
 Each row: what the vendor touches today, what the requirement is, how it is enforced, and whether anyone has checked.
 
-### 3.1 Retell AI (the voice agent)
+### 3.1 The voice AI (Twilio ConversationRelay, not built)
 
-- **Today:** the deployed `RetellProvisioner` creates each agent with no `data_storage_setting`, so Retell's default `everything` applies:
-  Retell keeps transcripts, recordings and logs, indefinitely unless `data_storage_retention_days` is set.
-- **Changed 2026-11-17, not yet deployed:** new agents are created with `basic_attributes_only`, and a test holds the request to it.
-  Agents that already exist are not changed.
-- **Requirement:** every agent is created with `data_storage_setting: "basic_attributes_only"`, which Retell documents as storing "no
-  transcripts/recordings/logs". Agents that already exist are updated to it.
-- **Enforced by:** the provisioner sending the field, and a test that the create-agent request carries it. A provisioning call that does
-  not carry it is a defect.
-- **Read on Retell's Data Storage Settings page, 2026-11-18:** Retell still records the call under this setting. "Retell deletes
-  the raw recording, transcript, and log files about 10 minutes after post-call processing ends, so download them from the webhook
-  right away", and the webhook still carries them in that time. The page does not say the window meets any consent or
-  record-keeping requirement. We download nothing.
-- **Found 2026-11-18: the window cannot be closed by a setting.** Retell's page gives no option to shorten or remove it, and its
-  create-agent API has no field that turns recording off. So the policy sentence in section 1 ("We do not record") is not true of a
-  call answered through Retell, and "Zero Data Retention" cannot be claimed unqualified at launch. What can be said, and Jeff's
-  decision to replace Retell, are in `docs/Geek-Receptionist.md` section 5, item 6. Whether Retell will close the window by
-  contract was not found out.
-- **Not verified:** what Retell's "basic attributes" are; a real delivery under this setting; whether call analysis (the
-  summary) still runs; what Retell's own model provider keeps (the model is the one named in `RETELL_LLM_MODEL`); whether Retell's
-  zero-retention terms need a contract or a plan. Ask Retell in writing.
-- **Attorney:** Retell's data processing terms, and a business associate agreement if healthcare is ever served.
+- **Today:** no AI hears a tenant's call. Twilio posts each call to the tenant's number to
+  `POST /api/receptionist/tenant/{tenantId}/voice`, which checks `X-Twilio-Signature` with the tenant's subaccount auth token and that
+  `AccountSid` is that subaccount, and reads the tenant's billing standing on every call. Every call, whatever the standing, hears
+  "Thank you for calling {business}. We can't take your call right now. Please call again later. Goodbye." and is hung up: no
+  `<Record>`, no voicemail, no texts. Nothing of the call is recorded by us or by Twilio.
+- **History:** Retell AI was the voice agent until Jeff dropped it on 2026-11-18 ("Retell is dropped"), because it held each call's
+  recording, transcript and logs for about 10 minutes with no setting to close that window. Its code, variables and columns were
+  removed (migration `0070`).
+- **Planned:** Twilio ConversationRelay with our own model and voice. **Not built.** It does not by itself give Zero Data Retention:
+  Twilio says transcripts are not stored unless its intelligence service is turned on; OpenAI keeps API data up to 30 days unless it
+  has approved zero retention for the account, which is not in hand; the speech-to-text and voice vendors behind Twilio were not checked.
+- **Attorney:** the voice vendors' data processing terms, and a business associate agreement if healthcare is ever served.
 
 ### 3.2 GeekAPI and GeekRepository (our own code and database)
 
-- **Changed 2026-11-17, not yet deployed:** the call row no longer takes the caller's number, transcript, summary or recording
-  link. The "Today" line below describes the deployed code.
-
-- **Today:** Retell's webhook delivers the call to GeekAPI, and `RetellCallRecorder` stores it in `geek_voice.call_logs`: `caller_number`,
-  `transcript_json`, `call_summary`, `recording_url`, with the start time, length and billable minutes. Nothing deletes a row. Overage
-  billing reads the minutes from the same table. `geek_voice.appointments` has columns for the customer's name, phone, email, address and
+- **Today (in the code):** `TwilioCallStatusRecorder` writes `geek_voice.call_logs` from Twilio's status callback
+  (`POST /api/receptionist/tenant/{tenantId}/call-status`, same signature and account check), keyed by Twilio's `CallSid`: the call's
+  status, its length from `CallDuration` in seconds, and billable minutes rounded up per started minute. The caller's number (`From`)
+  is never read. No transcript, summary or recording column is written (since migration `0067`). What earlier calls stored in
+  `caller_number`, `transcript_json`, `call_summary` and `recording_url` is still there. Nothing deletes a row. Overage billing reads
+  the minutes from the same table. `geek_voice.appointments` has columns for the customer's name, phone, email, address and
   issue, and a store route that writes them. No route gives an owner call content.
-- **Requirement:** the webhook handler records the call's metadata and nothing of what was said. The transcript, the summary, the
+- **Requirement:** the status callback records the call's metadata and nothing of what was said. The transcript, the summary, the
   recording link and the caller's number are never kept, and their columns are dropped, as are the appointment columns that copy
   what the caller said. No route, hub or dashboard screen returns conversation content.
 - **Enforced by:** the columns not existing (a write of content then fails loudly), a test that a recorded call's command has no
@@ -85,15 +76,15 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
 - **Not verified:** the project's backup schedule and how long backups are kept. Read it in the Supabase dashboard and record the date
   after which no backup contains conversation content.
 
-### 3.4 Twilio (the phone number and the trunk)
+### 3.4 Twilio (the phone number)
 
-- **Today:** the call goes from Twilio's trunk straight to Retell; GeekAPI never receives the voice call. `TwilioProvisioner` turns on no
-  recording and no transcription: it sets no recording mode on the trunk, and Twilio's docs say a trunk records only in the modes
-  `record-from-ringing` and `record-from-answer` (read 2026-11-18; not checked on a real trunk). Twilio keeps its own call records
+- **Today:** the tenant's number is bought in its own Twilio subaccount, with no SIP trunk, and its voice webhook and status callback
+  point at GeekAPI (section 3.1). `TwilioProvisioner` turns on no recording and no transcription, and the tenant route's TwiML has no
+  `<Record>` (not checked on a real tenant number). Cancelling a tenant closes its subaccount, which releases the number. Twilio keeps its own call records
   (numbers, times, lengths). The older path on the company's own line, (561) 865-6990 (`GeekAPI/Services/Receptionist/`,
   `docs/Geek-Receptionist.md` section 4a), stopped taking voicemail and sending missed-call texts on 2026-11-18: a call nobody
   answers hears a closing message and ends. Voicemails it recorded before then are still held by Twilio.
-- **Requirement:** no recording or transcription is ever enabled on a tenant's subaccount, trunk or number. Text messages sent for a
+- **Requirement:** no recording or transcription is ever enabled on a tenant's subaccount or number. Text messages sent for a
   tenant carry no conversation content.
 - **Enforced by:** a test that no provisioning request sets a recording or transcription option.
 - **Not verified:** how long Twilio keeps call records and message bodies, and whether either can be shortened or redacted on the
@@ -106,7 +97,7 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
 - **Today:** GeekAPI, GeekRepository and the gateway write logs that Railway keeps. The voice code logs tenant ids and failure codes, not
   conversation content. The older missed-call path logs callers' phone numbers (`MissedCallService`). A failed webhook logs its error
   text.
-- **Requirement:** no log line carries a transcript, a summary, a recording link, a caller's number or a request body from Retell or
+- **Requirement:** no log line carries a transcript, a summary, a recording link, a caller's number or a request body from
   Twilio.
 - **Enforced by:** a review of every log call in `Services/Voice`, `Controllers/Voice` and `Services/Receptionist`, fixing the
   missed-call lines, and no request-body logging on the webhook routes.
@@ -114,8 +105,8 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
 
 ### 3.6 Integrations: Google Calendar, Outlook, Cal.com, HubSpot (through GeekMcpGateway)
 
-- **Today:** the gateway is stateless by rule and passes calendar calls to the business's own account. The Retell agent is created with
-  one tool, `end_call`, so no call books anything yet.
+- **Today:** the gateway is stateless by rule and passes calendar calls to the business's own account. No voice AI is
+  built, so no call books anything yet.
 - **Requirement:** an event or record written to the business's own calendar is the delivery. The gateway and GeekAPI keep no copy
   of what was written. The gateway logs no request or response body.
 - **Not verified:** what the gateway logs today.
@@ -141,8 +132,7 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
 
 - The default greeting says the receptionist is an AI and that the call may be recorded, and a new receptionist's
   `recording_disclosure_enabled` starts `TRUE`. Both were taken out of the working tree on 2026-11-17 and put back on 2026-11-18 at
-  Jeff's instruction, before anything was deployed. Every call is recorded, by Retell (Jeff: "Retell records, it is only save for
-  10 minutes, but it is recorded."). Zero Data Retention decides where a recording is kept (never with us; in the client's own
+  Jeff's instruction, before anything was deployed. Today no tenant call is recorded (section 3.1). Zero Data Retention decides where a recording is kept (never with us; in the client's own
   storage when it has connected one), not whether there is one.
 - The signup site's compliance checkbox and the first paragraph of its draft professional services addendum say calls are recorded.
 - Geek @ Your Spot LLC's own callers are asked on the call whether they want a text confirming their appointment, and consent is
@@ -155,11 +145,11 @@ merged with nine more, so there is one list.
 
 ## 6. Order of work
 
-1. Set `basic_attributes_only` on new Retell agents (changed in the code 2026-11-17) and on the agents that already exist.
+1. Build the voice AI on Twilio ConversationRelay (not built), and get each layer's retention in writing first (section 3.1).
 2. Stop storing content in GeekAPI (changed in the code 2026-11-17); drop the columns; delete what is stored.
 3. The greeting, the checkbox and the addendum stay as they are (2026-11-18, section 4).
 4. Clean the logs, then get the vendors' answers in section 3 in writing.
-5. Publish the policy sentence only after 1 to 4 are done and checked, and not while Retell answers the calls: with Retell the
-   sentence that can be published is the narrower one in `docs/Geek-Receptionist.md` section 5, item 6.
+5. Publish the policy sentence only after 1 to 4 are done and checked. The public wording is the attorney's
+   (`docs/Geek-Receptionist-attorney-questions.md`, section D).
 6. Separately: the settings that let a client turn Zero Data Retention off and send call content to its own storage
    (`docs/Geek-Receptionist-zero-data-retention.md`).

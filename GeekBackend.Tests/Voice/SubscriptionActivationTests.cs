@@ -16,8 +16,8 @@ namespace GeekBackend.Tests.Voice;
 
 /// <summary>
 /// Activation of a tenant that is waiting for payment: everything that can be refused without creating anything is refused first, PayPal
-/// is asked before anything is created, Twilio and Retell are set up in that order, the starting settings are saved before the tenant is
-/// activated, and a failure after something exists undoes it once (Retell, then Twilio), leaves the tenant waiting and names the step.
+/// is asked before anything is created, then Twilio, the starting settings are saved before the tenant is activated, and a failure after
+/// something exists closes the Twilio subaccount once, leaves the tenant waiting and names the step.
 /// </summary>
 public sealed class SubscriptionActivationTests
 {
@@ -117,22 +117,8 @@ public sealed class SubscriptionActivationTests
     {
         if (path.EndsWith("/Accounts.json", StringComparison.Ordinal)) return Json("""{"sid":"ACsub1","auth_token":"sub-token-secret"}""", HttpStatusCode.Created);
         if (path.EndsWith("/Accounts/ACsub1.json", StringComparison.Ordinal)) return Json("""{"status":"closed"}""");
-        if (path.EndsWith("/CredentialLists.json", StringComparison.Ordinal)) return Json("""{"sid":"CLlist1"}""", HttpStatusCode.Created);
-        if (path.EndsWith("/Credentials.json", StringComparison.Ordinal)) return Json("""{"sid":"CRcred1"}""", HttpStatusCode.Created);
-        if (path.EndsWith("/v1/Trunks", StringComparison.Ordinal)) return Json($$"""{"sid":"TKtrunk1","domain_name":"gr-{{TenantId:N}}.pstn.twilio.com"}""", HttpStatusCode.Created);
-        if (path.EndsWith("/OriginationUrls", StringComparison.Ordinal)) return Json("""{"sid":"OUorig1"}""", HttpStatusCode.Created);
-        if (path.EndsWith("/Trunks/TKtrunk1/CredentialLists", StringComparison.Ordinal)) return Json("""{"sid":"CLassoc1"}""", HttpStatusCode.Created);
         if (path.EndsWith("/IncomingPhoneNumbers.json", StringComparison.Ordinal)) return Json("""{"sid":"PNphone1","phone_number":"+15615550123"}""", HttpStatusCode.Created);
         throw new InvalidOperationException("unexpected twilio request " + path);
-    }
-
-    private static HttpResponseMessage RetellHappy(string path, HttpMethod method)
-    {
-        if (method == HttpMethod.Delete) return new HttpResponseMessage(HttpStatusCode.NoContent);
-        if (path.EndsWith("/create-retell-llm", StringComparison.Ordinal)) return Json("""{"llm_id":"llm_1"}""", HttpStatusCode.Created);
-        if (path.EndsWith("/create-agent", StringComparison.Ordinal)) return Json("""{"agent_id":"agent_1"}""", HttpStatusCode.Created);
-        if (path.EndsWith("/import-phone-number", StringComparison.Ordinal)) return Json("""{"phone_number":"+15615550123"}""", HttpStatusCode.Created);
-        throw new InvalidOperationException("unexpected retell request " + path);
     }
 
     private sealed class World
@@ -145,8 +131,6 @@ public sealed class SubscriptionActivationTests
         public World(
             Func<string, HttpMethod, HttpResponseMessage>? paypal = null,
             Func<string, HttpMethod, HttpResponseMessage>? twilio = null,
-            Func<string, HttpMethod, HttpResponseMessage>? retell = null,
-            RetellOptions? retellOptions = null,
             TwilioOptions? twilioOptions = null,
             Func<string?>? key = null)
         {
@@ -155,8 +139,7 @@ public sealed class SubscriptionActivationTests
             Activation = new SubscriptionActivation(
                 Store,
                 new PayPalBillingVerifier(new HttpClient(new Router("paypal", Calls, paypal ?? PayPalHappy)), new PayPalOptions("https://paypal.test", "client-id", "client-secret"), NullLogger<PayPalBillingVerifier>.Instance),
-                new TwilioProvisioner(new HttpClient(new Router("twilio", Calls, twilio ?? TwilioHappy)), twilioOptions ?? new TwilioOptions("ACmaster", "master-token", null), NullLogger<TwilioProvisioner>.Instance),
-                new RetellProvisioner(new HttpClient(new Router("retell", Calls, retell ?? RetellHappy)), retellOptions ?? new RetellOptions("key_retell", "gpt-4.1-mini", "https://api.example.test", "key_webhook"), NullLogger<RetellProvisioner>.Instance),
+                new TwilioProvisioner(new HttpClient(new Router("twilio", Calls, twilio ?? TwilioHappy)), twilioOptions ?? new TwilioOptions("ACmaster", "master-token", "https://api.example.test"), NullLogger<TwilioProvisioner>.Instance),
                 protector,
                 NullLogger<SubscriptionActivation>.Instance);
         }
@@ -177,18 +160,17 @@ public sealed class SubscriptionActivationTests
         Assert.Equal(new SubscriptionActivated(TenantId, VoiceTenantStatuses.Active, "STARTER", 90, "+15615550123"), result.Value);
 
         var order = world.Calls.Select(c => c.Split(' ')[0]).Distinct().ToList();
-        Assert.Equal(["store", "paypal", "twilio", "retell"], order.Take(4));
+        Assert.Equal(["store", "paypal", "twilio"], order.Take(3));
         Assert.Equal(["store GetTenant", "store SaveConfig", "store Activate"], world.Calls.Where(c => c.StartsWith("store", StringComparison.Ordinal)));
         Assert.True(world.Calls.IndexOf("store SaveConfig") < world.Calls.IndexOf("store Activate"));
-        Assert.True(world.Calls.FindLastIndex(c => c.StartsWith("retell", StringComparison.Ordinal)) < world.Calls.IndexOf("store SaveConfig"));
-        Assert.Equal(3, world.Service("retell").Count());
-        Assert.Equal(7, world.Service("twilio").Count());
+        Assert.True(world.Calls.FindLastIndex(c => c.StartsWith("twilio", StringComparison.Ordinal)) < world.Calls.IndexOf("store SaveConfig"));
+        Assert.Equal(2, world.Service("twilio").Count());
         Assert.DoesNotContain(world.Calls, Closed);
 
         var command = Assert.Single(world.Store.Activations);
         Assert.Equal(("STARTER", 30.00m, 90, 0.50m), (command.TierCode, command.MonthlyPriceUsd, command.IncludedMinutes, command.OverageRateUsd));
         Assert.Equal(("I-SUBSCRIPTION123", "VAULT-TOKEN-456"), (command.PaypalSubscriptionId, command.PaypalVaultTokenId));
-        Assert.Equal(("ACsub1", "+15615550123", "PNphone1", "agent_1"), (command.TwilioSubaccountSid, command.AssignedPhoneNumber, command.TwilioPhoneSid, command.RetellAgentId));
+        Assert.Equal(("ACsub1", "+15615550123", "PNphone1"), (command.TwilioSubaccountSid, command.AssignedPhoneNumber, command.TwilioPhoneSid));
         Assert.Equal((null, null, "not_requested", false), (command.A2pBrandSid, command.A2pCampaignSid, command.A2pStatus, command.SmsNotificationsEnabled));
         Assert.NotEqual("sub-token-secret", command.TwilioAuthTokenEncrypted);
         Assert.Equal("sub-token-secret", world.Protector.Unprotect(command.TwilioAuthTokenEncrypted, VoiceSecretPurposes.TwilioAuthToken).Value);
@@ -203,7 +185,6 @@ public sealed class SubscriptionActivationTests
 
         var config = Assert.Single(world.Store.SavedConfigs);
         Assert.True(config.RecordingDisclosureEnabled);
-        Assert.Equal("retell-Lily", config.VoiceId);
         Assert.Contains("Boca Cool HVAC", config.GreetingMessage);
         Assert.Contains("a business in Florida that works in Plumbing, heating, & air-conditioning contractors", config.SystemPromptTemplate);
     }
@@ -279,17 +260,17 @@ public sealed class SubscriptionActivationTests
     }
 
     [Theory]
-    [InlineData("retell")]
-    [InlineData("twilio")]
-    public async Task An_unset_variable_refuses_before_PayPal_Twilio_or_Retell_is_called(string which)
+    [InlineData("TWILIO_MASTER_ACCOUNT_SID")]
+    [InlineData("PUBLIC_BASE_URL")]
+    public async Task An_unset_variable_refuses_before_PayPal_or_Twilio_is_called(string which)
     {
-        var world = which == "retell"
-            ? new World(retellOptions: new RetellOptions("key", null, "https://api.example.test", "key_webhook"))
-            : new World(twilioOptions: new TwilioOptions(null, "master-token", null));
+        var world = new World(twilioOptions: which == "PUBLIC_BASE_URL"
+            ? new TwilioOptions("ACmaster", "master-token", null)
+            : new TwilioOptions(null, "master-token", "https://api.example.test"));
 
         var result = await world.Activation.ActivateAsync(Request());
 
-        Assert.Equal(which == "retell" ? RetellFailureCodes.NotConfigured : TelephonyFailureCodes.TelephonyNotConfigured, result.ErrorCode);
+        Assert.Equal(TelephonyFailureCodes.TelephonyNotConfigured, result.ErrorCode);
         Assert.Equal(["store GetTenant"], world.Calls);
     }
 
@@ -313,12 +294,11 @@ public sealed class SubscriptionActivationTests
 
         Assert.Equal(BillingFailureCodes.SubscriptionNotFound, result.ErrorCode);
         Assert.Empty(world.Service("twilio"));
-        Assert.Empty(world.Service("retell"));
         Assert.Empty(world.Store.SavedConfigs);
     }
 
     [Fact]
-    public async Task A_refused_Twilio_step_stops_before_Retell_and_leaves_the_tenant_waiting()
+    public async Task A_refused_Twilio_step_closes_the_subaccount_and_leaves_the_tenant_waiting()
     {
         var world = new World(twilio: (path, method) => path.EndsWith("/IncomingPhoneNumbers.json", StringComparison.Ordinal) ? new HttpResponseMessage(HttpStatusCode.BadRequest) : TwilioHappy(path, method));
 
@@ -326,28 +306,13 @@ public sealed class SubscriptionActivationTests
 
         Assert.Equal(TelephonyFailureCodes.ProvisioningFailed, result.ErrorCode);
         Assert.Contains("buy the phone number", result.Error);
-        Assert.Empty(world.Service("retell"));
         Assert.Contains(world.Calls, Closed);
         Assert.Empty(world.Store.SavedConfigs);
         Assert.Empty(world.Store.Activations);
     }
 
     [Fact]
-    public async Task A_refused_Retell_step_closes_the_subaccount_and_saves_and_activates_nothing()
-    {
-        var world = new World(retell: (path, method) => path.EndsWith("/import-phone-number", StringComparison.Ordinal) ? new HttpResponseMessage(HttpStatusCode.BadRequest) : RetellHappy(path, method));
-
-        var result = await world.Activation.ActivateAsync(Request());
-
-        Assert.Equal(RetellFailureCodes.ProvisioningFailed, result.ErrorCode);
-        Assert.Contains("import the phone number", result.Error);
-        Assert.Equal(1, world.Calls.Count(Closed));
-        Assert.Empty(world.Store.SavedConfigs);
-        Assert.Empty(world.Store.Activations);
-    }
-
-    [Fact]
-    public async Task A_settings_save_that_fails_undoes_Retell_then_Twilio_and_does_not_activate()
+    public async Task A_settings_save_that_fails_closes_the_subaccount_and_does_not_activate()
     {
         var world = new World();
         world.Store.Save = () => Result<VoiceReceptionistConfig>.Failure("down", VoiceFailureCodes.StoreUnavailable);
@@ -356,11 +321,11 @@ public sealed class SubscriptionActivationTests
 
         Assert.Equal(VoiceFailureCodes.StoreUnavailable, result.ErrorCode);
         Assert.Empty(world.Store.Activations);
-        AssertUndoneInOrder(world);
+        AssertUndone(world);
     }
 
     [Fact]
-    public async Task An_activation_the_store_refuses_undoes_Retell_then_Twilio_and_answers_with_the_stores_code()
+    public async Task An_activation_the_store_refuses_closes_the_subaccount_and_answers_with_the_stores_code()
     {
         var world = new World();
         world.Store.Activate = () => Result<VoiceTenant>.Failure("changed", VoiceFailureCodes.Conflict);
@@ -370,7 +335,7 @@ public sealed class SubscriptionActivationTests
         Assert.Equal(VoiceFailureCodes.Conflict, result.ErrorCode);
         Assert.Contains("undone", result.Error);
         Assert.Single(world.Store.Activations);
-        AssertUndoneInOrder(world);
+        AssertUndone(world);
     }
 
     [Fact]
@@ -384,19 +349,10 @@ public sealed class SubscriptionActivationTests
         Assert.Equal(VoiceCredentialProtector.EncryptionUnavailable, result.ErrorCode);
         Assert.Empty(world.Store.SavedConfigs);
         Assert.Empty(world.Store.Activations);
-        AssertUndoneInOrder(world);
+        AssertUndone(world);
     }
 
-    private static void AssertUndoneInOrder(World world)
-    {
-        var deletes = world.Service("retell").Where(c => c.Contains(" DELETE ", StringComparison.Ordinal)).ToList();
-        Assert.Equal(
-            ["retell DELETE /delete-phone-number/%2B15615550123", "retell DELETE /delete-agent/agent_1", "retell DELETE /delete-retell-llm/llm_1"],
-            deletes);
-        var lastDelete = world.Calls.FindLastIndex(c => c.Contains(" DELETE ", StringComparison.Ordinal));
-        Assert.True(world.Calls.FindIndex(Closed) > lastDelete);
-        Assert.Equal(1, world.Calls.Count(Closed));
-    }
+    private static void AssertUndone(World world) => Assert.Equal(1, world.Calls.Count(Closed));
 
     [Fact]
     public void Every_failure_code_activation_can_answer_has_a_status_from_its_code()
@@ -410,9 +366,8 @@ public sealed class SubscriptionActivationTests
         Assert.Equal(409, OnboardingController.StatusFor(ActivationFailureCodes.TenantNotPending));
         Assert.Equal(409, OnboardingController.StatusFor(VoiceFailureCodes.Conflict));
         Assert.Equal(502, OnboardingController.StatusFor(TelephonyFailureCodes.ProvisioningFailed));
-        Assert.Equal(502, OnboardingController.StatusFor(RetellFailureCodes.ProvisioningFailed));
         Assert.All(
-            new[] { BillingFailureCodes.BillingNotConfigured, BillingFailureCodes.BillingUnavailable, TelephonyFailureCodes.TelephonyNotConfigured, RetellFailureCodes.NotConfigured, VoiceCredentialProtector.EncryptionUnavailable, VoiceFailureCodes.StoreUnavailable },
+            new[] { BillingFailureCodes.BillingNotConfigured, BillingFailureCodes.BillingUnavailable, TelephonyFailureCodes.TelephonyNotConfigured, VoiceCredentialProtector.EncryptionUnavailable, VoiceFailureCodes.StoreUnavailable },
             code => Assert.Equal(503, OnboardingController.StatusFor(code)));
     }
 }

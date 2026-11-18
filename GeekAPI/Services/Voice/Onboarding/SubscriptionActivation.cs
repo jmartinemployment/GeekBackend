@@ -6,7 +6,7 @@ using GeekApplication.Results;
 
 namespace GeekAPI.Services.Voice.Onboarding;
 
-/// <summary>Why an activation was refused beyond the codes PayPal, Twilio, Retell and the store already carry.</summary>
+/// <summary>Why an activation was refused beyond the codes PayPal, Twilio and the store already carry.</summary>
 public static class ActivationFailureCodes
 {
     /// <summary>The signup asked for SMS notifications, and A2P 10DLC brand registration is not built, so nothing is activated.</summary>
@@ -35,9 +35,9 @@ public sealed record SubscriptionActivated(Guid TenantId, string Status, string 
 /// Activates a tenant that is waiting for payment (docs/Geek-Receptionist.md section 5, items 2 to 4). Everything that can be refused
 /// without creating anything is refused first: the request, the tenant's state, every variable the later steps read, and the
 /// encryption key. PayPal is then asked whether the subscription is paid, and only after that is anything created: the Twilio
-/// subaccount, number and trunk, then the Retell model, agent and imported number, then the tenant's starting settings and, last, the
-/// tenant's activation (one transaction in GeekRepository). A failure after something exists undoes it once, Retell before Twilio,
-/// leaves the tenant waiting for payment and answers with the step that failed. The settings are saved before the activation so a failed
+/// subaccount and the number on it, whose calls and call statuses Twilio posts to GeekAPI, then the tenant's starting settings and,
+/// last, the tenant's activation (one transaction in GeekRepository). A failure after something exists closes the Twilio subaccount
+/// once, leaves the tenant waiting for payment and answers with the step that failed. The settings are saved before the activation so a failed
 /// activation leaves nothing that blocks a second try. Nothing is retried here, and nothing is activated with a value the signup did
 /// not supply.
 /// </summary>
@@ -49,7 +49,6 @@ public sealed class SubscriptionActivation
     private readonly IVoiceStore _store;
     private readonly PayPalBillingVerifier _billing;
     private readonly TwilioProvisioner _twilio;
-    private readonly RetellProvisioner _retell;
     private readonly VoiceCredentialProtector _protector;
     private readonly ILogger<SubscriptionActivation> _logger;
 
@@ -57,14 +56,12 @@ public sealed class SubscriptionActivation
         IVoiceStore store,
         PayPalBillingVerifier billing,
         TwilioProvisioner twilio,
-        RetellProvisioner retell,
         VoiceCredentialProtector protector,
         ILogger<SubscriptionActivation> logger)
     {
         _store = store;
         _billing = billing;
         _twilio = twilio;
-        _retell = retell;
         _protector = protector;
         _logger = logger;
     }
@@ -86,11 +83,11 @@ public sealed class SubscriptionActivation
         var script = ReceptionistDefaults.ScriptFor(tenant.Value);
         if (!script.IsSuccess) return Fail(script.Error!, script.ErrorCode!);
 
-        var missing = _twilio.Missing(smsEnabled: false).Concat(_retell.Missing()).Distinct(StringComparer.Ordinal).ToList();
+        var missing = _twilio.Missing();
         if (missing.Count > 0)
         {
             _logger.LogError("Tenant {TenantId} cannot be activated: {Variables} not set.", tenantId, string.Join(", ", missing));
-            return Fail("Activation is not configured.", missing.Any(v => v.StartsWith("RETELL", StringComparison.Ordinal)) ? RetellFailureCodes.NotConfigured : TelephonyFailureCodes.TelephonyNotConfigured);
+            return Fail("Activation is not configured.", TelephonyFailureCodes.TelephonyNotConfigured);
         }
 
         var keyCheck = _protector.Protect("key check", VoiceSecretPurposes.KeyCheck);
@@ -106,19 +103,12 @@ public sealed class SubscriptionActivation
         var telephony = await _twilio.ProvisionAsync(tenantId, request.PreferredAreaCode, smsEnabled: false, ct).ConfigureAwait(false);
         if (!telephony.IsSuccess) return Fail(telephony.Error!, telephony.ErrorCode!);
 
-        var retell = await _retell.ProvisionAsync(tenantId, script.Value!, telephony.Value!, ct).ConfigureAwait(false);
-        if (!retell.IsSuccess)
-        {
-            await _twilio.AbandonAsync(telephony.Value!.SubaccountSid, tenantId, ct).ConfigureAwait(false);
-            return Fail(retell.Error!, retell.ErrorCode!);
-        }
-
         var token = _protector.Protect(telephony.Value!.AuthToken, VoiceSecretPurposes.TwilioAuthToken);
-        if (!token.IsSuccess) return await UndoAsync(tenantId, telephony.Value, retell.Value!, token.Error!, token.ErrorCode!, ct).ConfigureAwait(false);
+        if (!token.IsSuccess) return await UndoAsync(tenantId, telephony.Value, token.Error!, token.ErrorCode!, ct).ConfigureAwait(false);
 
         var saved = await _store.SaveConfigAsync(tenantId, ReceptionistDefaults.ConfigFor(script.Value!), ct).ConfigureAwait(false);
         if (!saved.IsSuccess)
-            return await UndoAsync(tenantId, telephony.Value, retell.Value!, "The receptionist settings could not be saved, and the phone setup was undone.", saved.ErrorCode ?? VoiceFailureCodes.StoreUnavailable, ct).ConfigureAwait(false);
+            return await UndoAsync(tenantId, telephony.Value, "The receptionist settings could not be saved, and the phone setup was undone.", saved.ErrorCode ?? VoiceFailureCodes.StoreUnavailable, ct).ConfigureAwait(false);
 
         var verified = billing.Value!;
         var command = new ActivateVoiceTenantCommand(
@@ -135,7 +125,6 @@ public sealed class SubscriptionActivation
             TwilioAuthTokenEncrypted: token.Value!,
             AssignedPhoneNumber: telephony.Value.PhoneNumber,
             TwilioPhoneSid: telephony.Value.PhoneSid,
-            RetellAgentId: retell.Value!.AgentId,
             A2pBrandSid: null,
             A2pCampaignSid: null,
             A2pStatus: A2pNotRequested,
@@ -143,17 +132,16 @@ public sealed class SubscriptionActivation
 
         var activated = await _store.ActivateTenantAsync(tenantId, command, ct).ConfigureAwait(false);
         if (!activated.IsSuccess)
-            return await UndoAsync(tenantId, telephony.Value, retell.Value, "The tenant could not be activated, and the phone setup was undone.", activated.ErrorCode ?? VoiceFailureCodes.StoreUnavailable, ct).ConfigureAwait(false);
+            return await UndoAsync(tenantId, telephony.Value, "The tenant could not be activated, and the phone setup was undone.", activated.ErrorCode ?? VoiceFailureCodes.StoreUnavailable, ct).ConfigureAwait(false);
 
-        _logger.LogInformation("Tenant {TenantId} was activated on tier {Tier} with agent {AgentId}.", tenantId, verified.Tier.Code, retell.Value.AgentId);
+        _logger.LogInformation("Tenant {TenantId} was activated on tier {Tier} with number {PhoneSid}.", tenantId, verified.Tier.Code, telephony.Value.PhoneSid);
         return Result<SubscriptionActivated>.Success(new SubscriptionActivated(tenantId, activated.Value!.Status, verified.Tier.Code, verified.Tier.IncludedMinutes, telephony.Value.PhoneNumber));
     }
 
-    /// <summary>One attempt to undo Retell, then Twilio, after a step that came later failed. The failure that caused it is what is answered.</summary>
-    private async Task<Result<SubscriptionActivated>> UndoAsync(Guid tenantId, ProvisionedTelephony telephony, ProvisionedRetell retell, string error, string errorCode, CancellationToken ct)
+    /// <summary>One attempt to close the Twilio subaccount after a step that came later failed. The failure that caused it is what is answered.</summary>
+    private async Task<Result<SubscriptionActivated>> UndoAsync(Guid tenantId, ProvisionedTelephony telephony, string error, string errorCode, CancellationToken ct)
     {
         _logger.LogError("Activation of tenant {TenantId} failed with {Code}; undoing the phone setup.", tenantId, errorCode);
-        await _retell.AbandonAsync(retell, tenantId, ct).ConfigureAwait(false);
         await _twilio.AbandonAsync(telephony.SubaccountSid, tenantId, ct).ConfigureAwait(false);
         return Result<SubscriptionActivated>.Failure(error, errorCode);
     }

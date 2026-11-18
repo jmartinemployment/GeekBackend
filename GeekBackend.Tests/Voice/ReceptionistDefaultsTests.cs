@@ -5,7 +5,7 @@ namespace GeekBackend.Tests.Voice;
 
 /// <summary>
 /// What a new tenant's receptionist starts with: Jeff's script word for word with the Role paragraph naming the tenant's own business,
-/// state and industry, a greeting with the recording notice, Retell's "retell-Lily" voice, and settings that start empty and safe.
+/// state and industry, a greeting with the recording notice, no voice chosen, and settings that start empty and safe.
 /// </summary>
 public sealed class ReceptionistDefaultsTests
 {
@@ -55,7 +55,6 @@ public sealed class ReceptionistDefaultsTests
         var script = ReceptionistDefaults.ScriptFor(Tenant()).Value!;
 
         Assert.Equal("Thank you for calling Boca Cool HVAC. I'm the AI receptionist, and this call may be recorded. How can I help you today?", script.Greeting);
-        Assert.Equal("retell-Lily", script.VoiceId);
     }
 
     [Fact]
@@ -120,7 +119,6 @@ public sealed class ReceptionistDefaultsTests
 
         Assert.Equal(script.Greeting, config.GreetingMessage);
         Assert.Equal(script.Prompt, config.SystemPromptTemplate);
-        Assert.Equal("retell-Lily", config.VoiceId);
         Assert.True(config.RecordingDisclosureEnabled);
         Assert.Equal(VoiceTransferModes.VoicemailOnly, config.TransferMode);
         Assert.Null(config.TransferTargetNumber);

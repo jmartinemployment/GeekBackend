@@ -48,9 +48,9 @@ public class ApiKeyMiddleware
             return;
         }
 
-        // Geek-Receptionist's Retell call webhooks. Retell cannot send our API key; RetellWebhookController checks the
-        // X-Retell-Signature over the raw body and refuses (401) anything it does not match, or answers 503 without RETELL_API_KEY.
-        if (normalizedPath.StartsWith("/" + GeekAPI.Controllers.Voice.RetellWebhookController.RoutePrefix + "/", StringComparison.OrdinalIgnoreCase))
+        // Twilio's webhooks for a tenant's number. Twilio cannot send our API key; TenantCallController checks X-Twilio-Signature
+        // against the tenant's subaccount auth token and refuses (403) anything it does not match, or answers 503 when it cannot check.
+        if (normalizedPath.StartsWith("/" + GeekAPI.Controllers.Voice.TenantCallController.RoutePrefix + "/", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;

@@ -6,9 +6,9 @@ using Microsoft.Extensions.Logging;
 namespace GeekBackend.Tests.Voice;
 
 /// <summary>
-/// A tenant's Twilio side: subaccount, a credential-guarded SIP trunk that originates to Retell, and a number in the tenant's area
-/// code on that trunk. Every call is made once, the parent credentials are used only for the subaccount itself, a failure at any
-/// step closes the subaccount once and names the step, and no log line carries a token, a password or a body.
+/// A tenant's Twilio side: a subaccount and a number in the tenant's area code whose calls and call statuses Twilio posts to GeekAPI's
+/// tenant routes, with no SIP trunk. Every call is made once, the parent credentials are used only for the subaccount itself, a failure at any
+/// step closes the subaccount once and names the step, and no log line carries a token or a body.
 /// </summary>
 public sealed class TwilioProvisionerTests
 {
@@ -57,11 +57,6 @@ public sealed class TwilioProvisionerTests
     {
         if (seen.Ends("/Accounts.json")) return Json($$"""{"sid":"{{SubSid}}","auth_token":"{{SubToken}}","status":"active"}""");
         if (seen.Ends("/Accounts/" + SubSid + ".json")) return Json("""{"status":"closed"}""", HttpStatusCode.OK);
-        if (seen.Ends("/CredentialLists.json")) return Json("""{"sid":"CLlist1"}""");
-        if (seen.Ends("/Credentials.json")) return Json("""{"sid":"CRcred1","username":"u"}""");
-        if (seen.Ends("/v1/Trunks")) return Json($$"""{"sid":"TKtrunk1","domain_name":"gr-{{Tenant:N}}.pstn.twilio.com"}""");
-        if (seen.Ends("/OriginationUrls")) return Json("""{"sid":"OUorig1"}""");
-        if (seen.Ends("/Trunks/TKtrunk1/CredentialLists")) return Json("""{"sid":"CLassoc1"}""");
         if (seen.Ends("/IncomingPhoneNumbers.json")) return Json("""{"sid":"PNphone1","phone_number":"+15615550123"}""");
         throw new InvalidOperationException("unexpected request " + seen.Url);
     }
@@ -75,27 +70,42 @@ public sealed class TwilioProvisionerTests
     }
 
     [Fact]
-    public async Task A_signup_gets_a_subaccount_a_guarded_trunk_that_originates_to_retell_and_a_number_on_it()
+    public async Task A_signup_gets_a_subaccount_and_a_number_whose_calls_and_statuses_go_to_the_tenants_routes()
     {
         var (provisioner, handler, _) = Make();
 
         var result = await provisioner.ProvisionAsync(Tenant, "561", smsEnabled: false);
 
         Assert.True(result.IsSuccess, result.Error);
-        var t = result.Value!;
-        Assert.Equal(SubSid, t.SubaccountSid);
-        Assert.Equal(SubToken, t.AuthToken);
-        Assert.Equal("TKtrunk1", t.TrunkSid);
-        Assert.Equal($"gr-{Tenant:N}.pstn.twilio.com", t.TerminationUri);
-        Assert.Equal("+15615550123", t.PhoneNumber);
-        Assert.Equal("PNphone1", t.PhoneSid);
-        Assert.Equal(7, handler.Requests.Count);
+        Assert.Equal(new ProvisionedTelephony(SubSid, SubToken, "+15615550123", "PNphone1"), result.Value);
+        Assert.Equal(2, handler.Requests.Count);
         Assert.All(handler.Requests, r => Assert.Equal(HttpMethod.Post, r.Method));
-        Assert.Contains("Trunks/TKtrunk1/OriginationUrls", handler.Requests[4].Url);
-        Assert.Contains("SipUrl=sip%3Asip.retellai.com", handler.Requests[4].Body);
-        Assert.Contains("CredentialListSid=CLlist1", handler.Requests[5].Body);
-        Assert.Contains("AreaCode=561", handler.Requests[6].Body);
-        Assert.Contains("TrunkSid=TKtrunk1", handler.Requests[6].Body);
+        Assert.EndsWith($"/Accounts/{SubSid}/IncomingPhoneNumbers.json", handler.Requests[1].Url);
+
+        var body = handler.Requests[1].Body;
+        Assert.Contains("AreaCode=561", body);
+        Assert.Contains($"VoiceUrl={Uri.EscapeDataString($"https://api.example.test/api/receptionist/tenant/{Tenant}/voice")}", body);
+        Assert.Contains("VoiceMethod=POST", body);
+        Assert.Contains($"StatusCallback={Uri.EscapeDataString($"https://api.example.test/api/receptionist/tenant/{Tenant}/call-status")}", body);
+        Assert.Contains("StatusCallbackMethod=POST", body);
+    }
+
+    [Fact]
+    public async Task No_sip_trunk_or_credential_is_made()
+    {
+        var (provisioner, handler, _) = Make();
+
+        await provisioner.ProvisionAsync(Tenant, "561", false);
+
+        Assert.DoesNotContain(handler.Requests, r => r.Url.Contains("trunking.twilio.com", StringComparison.Ordinal) || r.Url.Contains("/SIP/", StringComparison.Ordinal));
+        Assert.DoesNotContain("TrunkSid", handler.Requests[1].Body);
+    }
+
+    [Fact]
+    public void The_routes_set_on_the_number_are_the_tenant_call_routes()
+    {
+        Assert.Equal($"/api/receptionist/tenant/{Tenant}/voice", TwilioProvisioner.TenantVoicePath(Tenant));
+        Assert.Equal($"/api/receptionist/tenant/{Tenant}/call-status", TwilioProvisioner.TenantCallStatusPath(Tenant));
     }
 
     [Fact]
@@ -110,24 +120,6 @@ public sealed class TwilioProvisionerTests
     }
 
     [Fact]
-    public async Task The_sip_password_meets_twilios_rules_and_reaches_twilio_and_the_caller_unchanged()
-    {
-        var (provisioner, handler, _) = Make();
-
-        var t = (await provisioner.ProvisionAsync(Tenant, "561", false)).Value!;
-
-        Assert.StartsWith("gr", t.SipUsername);
-        Assert.True(t.SipUsername.Length <= 32);
-        Assert.True(t.SipPassword.Length >= 12);
-        Assert.Contains(t.SipPassword, c => char.IsAsciiDigit(c));
-        Assert.Contains(t.SipPassword, c => char.IsAsciiLetterUpper(c));
-        Assert.Contains(t.SipPassword, c => char.IsAsciiLetterLower(c));
-        var body = handler.Requests[2].Body;
-        Assert.Contains("Username=" + t.SipUsername, body);
-        Assert.Contains("Password=" + t.SipPassword, body);
-    }
-
-    [Fact]
     public async Task A_tenant_with_texts_on_gets_the_sms_address_and_one_without_gets_none()
     {
         var (on, onHandler, _) = Make();
@@ -136,10 +128,9 @@ public sealed class TwilioProvisionerTests
         await on.ProvisionAsync(Tenant, "561", true);
         await off.ProvisionAsync(Tenant, "561", false);
 
-        Assert.Contains($"SmsUrl={Uri.EscapeDataString($"https://api.example.test/api/receptionist/twilio/sms/incoming/{Tenant}")}", onHandler.Requests[6].Body);
-        Assert.Contains("SmsMethod=POST", onHandler.Requests[6].Body);
-        Assert.DoesNotContain("SmsUrl", offHandler.Requests[6].Body);
-        Assert.DoesNotContain("VoiceUrl", onHandler.Requests[6].Body);
+        Assert.Contains($"SmsUrl={Uri.EscapeDataString($"https://api.example.test/api/receptionist/twilio/sms/incoming/{Tenant}")}", onHandler.Requests[1].Body);
+        Assert.Contains("SmsMethod=POST", onHandler.Requests[1].Body);
+        Assert.DoesNotContain("SmsUrl", offHandler.Requests[1].Body);
     }
 
     [Theory]
@@ -176,21 +167,18 @@ public sealed class TwilioProvisionerTests
     }
 
     [Fact]
-    public async Task The_public_address_is_needed_only_when_texts_are_on()
+    public async Task The_public_address_is_needed_for_every_tenant()
     {
-        var (provisioner, _, _) = Make(options: new TwilioOptions(MasterSid, MasterToken, null));
+        var (provisioner, handler, _) = Make(options: new TwilioOptions(MasterSid, MasterToken, null));
 
-        Assert.Empty(provisioner.Missing(false));
-        Assert.Equal(["PUBLIC_BASE_URL"], provisioner.Missing(true));
+        Assert.Equal(["PUBLIC_BASE_URL"], provisioner.Missing());
+        var result = await provisioner.ProvisionAsync(Tenant, "561", false);
+        Assert.Equal(TelephonyFailureCodes.TelephonyNotConfigured, result.ErrorCode);
+        Assert.Empty(handler.Requests);
     }
 
     [Theory]
     [InlineData("/Accounts.json", false)]
-    [InlineData("/SIP/CredentialLists.json", true)]
-    [InlineData("/Credentials.json", true)]
-    [InlineData("/v1/Trunks", true)]
-    [InlineData("/OriginationUrls", true)]
-    [InlineData("/Trunks/TKtrunk1/CredentialLists", true)]
     [InlineData("/IncomingPhoneNumbers.json", true)]
     public async Task A_refusal_at_any_step_closes_the_subaccount_once_and_names_the_step(string failingUrl, bool subaccountExists)
     {
@@ -268,7 +256,7 @@ public sealed class TwilioProvisionerTests
     }
 
     [Fact]
-    public async Task No_log_line_or_error_carries_a_token_a_password_or_a_body()
+    public async Task No_log_line_or_error_carries_a_token_or_a_body()
     {
         var (provisioner, _, log) = Make(seen =>
             seen.Ends("/IncomingPhoneNumbers.json")
@@ -293,7 +281,7 @@ public sealed class TwilioProvisionerTests
             if (seen.Ends("/Accounts.json")) return Happy(seen);
             throw new HttpRequestException("connection refused");
         });
-        var provisioner = new TwilioProvisioner(new HttpClient(handler), new TwilioOptions(MasterSid, MasterToken, null), new CapturingLogger());
+        var provisioner = new TwilioProvisioner(new HttpClient(handler), new TwilioOptions(MasterSid, MasterToken, "https://api.example.test"), new CapturingLogger());
 
         var result = await provisioner.ProvisionAsync(Tenant, "561", false);
 

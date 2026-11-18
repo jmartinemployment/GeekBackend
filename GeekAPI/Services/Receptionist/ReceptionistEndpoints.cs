@@ -89,7 +89,7 @@ public static class ReceptionistEndpoints
 
             if (o.Mode == CallMode.Forwarded)
                 // The client's own line already rang and went unanswered before forwarding here.
-                return Twiml(Unanswered(o));
+                return Twiml(Unanswered(o.CompanyName));
 
             var response = new VoiceResponse();
             var dial = new Dial(
@@ -147,7 +147,7 @@ public static class ReceptionistEndpoints
                 return Twiml(done);
             }
 
-            return Twiml(Unanswered(o));
+            return Twiml(Unanswered(o.CompanyName));
         });
 
         // 5. A text arrives at the business number.
@@ -162,11 +162,11 @@ public static class ReceptionistEndpoints
     }
 
     // No <Record>: the company keeps no call content (Zero Data Retention), so a missed caller is told
-    // to call again rather than offered voicemail.
-    private static VoiceResponse Unanswered(ReceptionistOptions o)
+    // to call again rather than offered voicemail. A tenant's call route plays the same message with the tenant's business name.
+    internal static VoiceResponse Unanswered(string company)
     {
         var response = new VoiceResponse();
-        response.Say(UnansweredText(o.CompanyName));
+        response.Say(UnansweredText(company));
         response.Hangup();
         return response;
     }

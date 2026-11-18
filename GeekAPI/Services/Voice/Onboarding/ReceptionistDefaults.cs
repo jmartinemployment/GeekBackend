@@ -1,22 +1,22 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using GeekAPI.Services.Voice.Telephony;
 using GeekApplication.Models.Voice;
 using GeekApplication.Results;
 
 namespace GeekAPI.Services.Voice.Onboarding;
 
+/// <summary>The greeting and prompt a new tenant's receptionist starts with, filled in from its signup.</summary>
+public sealed record ReceptionistScript(string Greeting, string Prompt);
+
 /// <summary>
 /// What a new tenant's receptionist starts with, until the tenant saves its own settings. The script is the one Jeff supplied, word for
 /// word, except that the Role paragraph names the tenant's business, state and industry, all taken from the signup record. The
 /// greeting carries the recording notice because recording_disclosure_enabled starts TRUE (Fla. Stat. 934.03, plan section 5, item 3).
-/// The voice is Retell's own "retell-Lily". The settings the signup cannot supply start empty: no hours, no qualifying questions, no
+/// No voice is chosen: the voice AI is not built. The settings the signup cannot supply start empty: no hours, no qualifying questions, no
 /// emergency keywords, and voicemail only, because a transfer needs a number the tenant has not given.
 /// </summary>
 public static partial class ReceptionistDefaults
 {
-    public const string VoiceId = "retell-Lily";
-
     private const string GreetingTemplate =
         "Thank you for calling {business name}. I'm the AI receptionist, and this call may be recorded. How can I help you today?";
 
@@ -85,14 +85,14 @@ public static partial class ReceptionistDefaults
     };
 
     /// <summary>The greeting and prompt for this tenant, or a failure when the signup record cannot fill them. Nothing is guessed.</summary>
-    public static Result<RetellAgentScript> ScriptFor(VoiceTenant tenant)
+    public static Result<ReceptionistScript> ScriptFor(VoiceTenant tenant)
     {
         var name = OneLine(tenant.BusinessName);
         var industry = OneLine(tenant.IndustryVertical);
         if (name.Length == 0 || industry.Length == 0)
-            return Result<RetellAgentScript>.Failure("The business name and industry are required.", VoiceFailureCodes.InvalidRequest);
+            return Result<ReceptionistScript>.Failure("The business name and industry are required.", VoiceFailureCodes.InvalidRequest);
         if (!StateNames.TryGetValue(tenant.StateCode?.Trim().ToUpperInvariant() ?? "", out var state))
-            return Result<RetellAgentScript>.Failure("The state code is not a US state.", VoiceFailureCodes.InvalidRequest);
+            return Result<ReceptionistScript>.Failure("The state code is not a US state.", VoiceFailureCodes.InvalidRequest);
 
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -100,13 +100,12 @@ public static partial class ReceptionistDefaults
             ["state"] = state,
             ["industry"] = industry,
         };
-        return Result<RetellAgentScript>.Success(new RetellAgentScript(Fill(GreetingTemplate, values), Fill(ScriptTemplate, values), VoiceId));
+        return Result<ReceptionistScript>.Success(new ReceptionistScript(Fill(GreetingTemplate, values), Fill(ScriptTemplate, values)));
     }
 
-    /// <summary>The receptionist settings a tenant starts with, holding the script the agent was created with.</summary>
-    public static VoiceReceptionistConfig ConfigFor(RetellAgentScript script) => new(
+    /// <summary>The receptionist settings a tenant starts with, holding its starting script.</summary>
+    public static VoiceReceptionistConfig ConfigFor(ReceptionistScript script) => new(
         GreetingMessage: script.Greeting,
-        VoiceId: script.VoiceId,
         SystemPromptTemplate: script.Prompt,
         BusinessHours: Json("{}"),
         QualifyingQuestions: Json("[]"),
@@ -127,7 +126,7 @@ public static partial class ReceptionistDefaults
     private static string Fill(string template, Dictionary<string, string> values) =>
         Token().Replace(template, m => values[m.Groups[1].Value]);
 
-    /// <summary>A name on one line with single spaces, so a signup cannot add a line to the agent's prompt.</summary>
+    /// <summary>A name on one line with single spaces, so a signup cannot add a line to the receptionist's prompt.</summary>
     private static string OneLine(string? text) => Spaces().Replace(text ?? "", " ").Trim();
 
     private static JsonElement Json(string raw)

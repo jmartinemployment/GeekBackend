@@ -23,11 +23,11 @@ public interface IVoiceBillingStore
     Task<Result<VoiceBillingStanding>> SuspendTenantAsync(Guid tenantId, CancellationToken ct = default);
     /// <summary>A suspended tenant becomes active again, refused (conflict) while an overage is unpaid or the subscription is not ACTIVE.</summary>
     Task<Result<VoiceBillingStanding>> RestoreTenantAsync(Guid tenantId, CancellationToken ct = default);
-    /// <summary>Records that a suspended tenant's number stopped answering. Refused (conflict) unless the tenant is suspended.</summary>
+    /// <summary>Records that a suspended tenant's number stops answering; GeekAPI's call route reads this. Refused (conflict) unless the tenant is suspended.</summary>
     Task<Result<VoiceBillingStanding>> MarkAnsweringStoppedAsync(Guid tenantId, CancellationToken ct = default);
     /// <summary>The tenant is cancelled. Final: nothing moves a tenant out of cancelled.</summary>
     Task<Result<VoiceBillingStanding>> CancelTenantAsync(Guid tenantId, CancellationToken ct = default);
-    /// <summary>Records that a cancelled tenant's Twilio subaccount and Retell number, agent and model were all removed.</summary>
+    /// <summary>Records that a cancelled tenant's Twilio subaccount, and with it the number, was closed.</summary>
     Task<Result<bool>> MarkTelephonyReleasedAsync(Guid tenantId, CancellationToken ct = default);
     /// <summary>A failed charge the owner has now paid. Paying the same charge again with the same order answers it unchanged; with another order it is a conflict.</summary>
     Task<Result<VoiceOverageCharge>> CollectOverageChargeAsync(Guid tenantId, Guid chargeId, CollectVoiceOverageChargeCommand command, CancellationToken ct = default);

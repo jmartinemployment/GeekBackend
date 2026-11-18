@@ -48,8 +48,10 @@ public sealed record OverageSweep(IReadOnlyList<OverageBillingResult> Periods, I
 public sealed class OverageBilling
 {
     /// <summary>
-    /// How long after a period ends it is closed: a call that started just before the end must have ended and been posted by Retell
-    /// first. Retell ends a call at one hour unless told otherwise, so two hours leaves room for its last delivery.
+    /// How long after a period ends it is closed: a call that started just before the end must have ended and its status been posted
+    /// by Twilio first, and Twilio posts a call's status callback only once the call has ended. A tenant's call today plays one message
+    /// and hangs up, so two hours leaves ample room for the last callback; a voice AI that holds calls longer must keep this above its
+    /// longest call.
     /// </summary>
     public static readonly TimeSpan CloseAfter = TimeSpan.FromHours(2);
 

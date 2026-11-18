@@ -11,6 +11,10 @@ One list, merged 2026-11-18 at Jeff's instruction. It joins four sources:
 The AI questions are kept in that AI's wording. The full answers are saved in `docs/Geek-Receptionist-retention-ai-responses.md`
 under the same numbers. Nothing in them was checked by us, so this document holds their questions and none of their conclusions.
 
+**Retell AI was dropped on 2026-11-18** (Jeff: "Retell is dropped") and its code removed. The planned voice AI is Twilio
+ConversationRelay with our own model and voice, not built; today no AI hears a tenant's call. The AI questions that name Retell
+(1, 2, 13, 14, 24) are kept as they were asked; read Retell there as the voice vendor. Our own questions now name the voice vendor.
+
 No question was dropped. Where two overlap they sit next to each other. The policy is
 `docs/Geek-Receptionist-zero-data-retention.md`.
 
@@ -30,7 +34,7 @@ recording disputes can involve choice-of-law questions, so a state-by-state list
    content is deleted within approximately ten minutes?
 2. (AI 3) Does Retell's temporary audio processing constitute interception even when no recording is retained by Geek @ Your Spot?
 3. (ours) Whether keeping no recording changes the call-recording notice duties (Fla. Stat. 934.03 and other all-party-consent
-   states), given that Retell still processes the audio live.
+   states), given that the voice vendor will process the audio live.
 4. (AI 1) Does the greeting's announcement followed by continued participation establish prior consent under Florida law?
 5. (AI 4) Is continued participation sufficient for your exact notice and use, or should you require affirmative agreement?
 6. (AI 1) Does the same announcement and continued participation satisfy applicable consent requirements in California, Connecticut,
@@ -63,8 +67,8 @@ recording disputes can involve choice-of-law questions, so a state-by-state list
 ## D. What may be published, and what retaining audio would bring
 
 20. (ours) Whether the policy sentence ("We do not record, archive, retain, or provide access to call histories.") can be published
-    as written while Twilio keeps call records, Retell keeps "basic attributes", and Retell records each call and holds the files
-    about 10 minutes.
+    as written while Twilio keeps call records, and while the voice vendors behind ConversationRelay may hold call content for a
+    time (not checked; OpenAI keeps API data up to 30 days without approved zero retention, which is not in hand).
 21. (AI 4) How should your privacy promise distinguish temporary vendor processing, retained compliance metadata, SMS records,
     appointment records, and carrier-held call records?
 22. (AI 1) Does retaining ordinary voice audio, without generating voiceprints, trigger any biometric privacy requirements in the
@@ -91,7 +95,7 @@ sales organizations and telemarketing are excluded, with healthcare and veterina
     including for a visitor who answered yes, was refused and never became a customer. Whether that may be kept without end, and
     what the signup site must tell the visitor (it has no privacy page today).
 29. (ours) Whether brief processing of a call makes Geek @ Your Spot LLC a business associate for a medical customer, and what
-    agreements that needs with the customer, Retell and Twilio. Healthcare and veterinary businesses are refused today.
+    agreements that needs with the customer, the voice vendors and Twilio. Healthcare and veterinary businesses are refused today.
 30. (ours) Whether any law that applies to a customer's profession requires the customer to keep call records, and that the customer
     agreement puts that duty on the customer. The signup form asks legal, accounting, tax, payroll, finance, insurance and education
     businesses to agree to an addendum.

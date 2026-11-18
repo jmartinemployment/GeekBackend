@@ -32,7 +32,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         contact_email AS ContactEmail, contact_phone AS ContactPhone, status AS Status, created_at AS CreatedAt
         """;
     private const string ConfigColumns = """
-        greeting_message AS GreetingMessage, voice_id AS VoiceId, system_prompt_template AS SystemPromptTemplate,
+        greeting_message AS GreetingMessage, system_prompt_template AS SystemPromptTemplate,
         business_hours_json::text AS BusinessHours, qualifying_questions_json::text AS QualifyingQuestions,
         transfer_mode AS TransferMode, transfer_target_number AS TransferTargetNumber,
         transfer_caller_id_mode AS TransferCallerIdMode, emergency_keywords AS EmergencyKeywords,
@@ -250,10 +250,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             await conn.ExecuteAsync(new CommandDefinition("""
                 INSERT INTO geek_voice.tenant_telephony (
                     tenant_id, twilio_subaccount_sid, twilio_auth_token_encrypted, assigned_phone_number, twilio_phone_sid,
-                    retell_agent_id, a2p_brand_sid, a2p_campaign_sid, a2p_status, sms_notifications_enabled)
+                    a2p_brand_sid, a2p_campaign_sid, a2p_status, sms_notifications_enabled)
                 VALUES (
                     @TenantId, @TwilioSubaccountSid, @TwilioAuthTokenEncrypted, @AssignedPhoneNumber, @TwilioPhoneSid,
-                    @RetellAgentId, @A2pBrandSid, @A2pCampaignSid, @A2pStatus, @SmsNotificationsEnabled);
+                    @A2pBrandSid, @A2pCampaignSid, @A2pStatus, @SmsNotificationsEnabled);
                 """,
                 new
                 {
@@ -262,7 +262,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     command.TwilioAuthTokenEncrypted,
                     command.AssignedPhoneNumber,
                     command.TwilioPhoneSid,
-                    command.RetellAgentId,
                     command.A2pBrandSid,
                     command.A2pCampaignSid,
                     command.A2pStatus,
@@ -298,7 +297,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             SELECT
                 tenant_id AS TenantId, twilio_subaccount_sid AS TwilioSubaccountSid,
                 twilio_auth_token_encrypted AS TwilioAuthTokenEncrypted, assigned_phone_number AS AssignedPhoneNumber,
-                twilio_phone_sid AS TwilioPhoneSid, retell_agent_id AS RetellAgentId, a2p_brand_sid AS A2pBrandSid,
+                twilio_phone_sid AS TwilioPhoneSid, a2p_brand_sid AS A2pBrandSid,
                 a2p_campaign_sid AS A2pCampaignSid, a2p_status AS A2pStatus, sms_notifications_enabled AS SmsNotificationsEnabled
             FROM geek_voice.tenant_telephony
             WHERE tenant_id = @TenantId;
@@ -328,14 +327,13 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             await using var conn = await OpenForTenantAsync(tenantId, ct);
             var row = await conn.QuerySingleAsync<ConfigRow>(new CommandDefinition($"""
                 INSERT INTO geek_voice.receptionist_configs (
-                    tenant_id, greeting_message, voice_id, system_prompt_template, business_hours_json, qualifying_questions_json,
+                    tenant_id, greeting_message, system_prompt_template, business_hours_json, qualifying_questions_json,
                     transfer_mode, transfer_target_number, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled)
                 VALUES (
-                    @TenantId, @GreetingMessage, @VoiceId, @SystemPromptTemplate, @BusinessHours::jsonb, @QualifyingQuestions::jsonb,
+                    @TenantId, @GreetingMessage, @SystemPromptTemplate, @BusinessHours::jsonb, @QualifyingQuestions::jsonb,
                     @TransferMode, @TransferTargetNumber, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled)
                 ON CONFLICT (tenant_id) DO UPDATE SET
                     greeting_message = EXCLUDED.greeting_message,
-                    voice_id = EXCLUDED.voice_id,
                     system_prompt_template = EXCLUDED.system_prompt_template,
                     business_hours_json = EXCLUDED.business_hours_json,
                     qualifying_questions_json = EXCLUDED.qualifying_questions_json,
@@ -351,7 +349,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 {
                     TenantId = tenantId,
                     config.GreetingMessage,
-                    config.VoiceId,
                     config.SystemPromptTemplate,
                     BusinessHours = config.BusinessHours.GetRawText(),
                     QualifyingQuestions = config.QualifyingQuestions.GetRawText(),
@@ -505,16 +502,15 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         {
             await using var conn = await OpenForTenantAsync(tenantId, ct);
 
-            // The update arm names the tenant too: a call id that already belongs to another tenant is a conflict, never an overwrite.
+            // The update arm names the tenant too: a call SID that already belongs to another tenant is a conflict, never an overwrite.
             var callId = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition("""
                 INSERT INTO geek_voice.call_logs (
-                    tenant_id, retell_call_id, twilio_call_sid, call_status, started_at, ended_at, duration_seconds,
+                    tenant_id, twilio_call_sid, call_status, started_at, ended_at, duration_seconds,
                     billable_minutes, disposition)
                 VALUES (
-                    @TenantId, @RetellCallId, @TwilioCallSid, @CallStatus, @StartedAt, @EndedAt, @DurationSeconds,
+                    @TenantId, @TwilioCallSid, @CallStatus, @StartedAt, @EndedAt, @DurationSeconds,
                     @BillableMinutes, @Disposition)
-                ON CONFLICT (retell_call_id) DO UPDATE SET
-                    twilio_call_sid = COALESCE(EXCLUDED.twilio_call_sid, geek_voice.call_logs.twilio_call_sid),
+                ON CONFLICT (twilio_call_sid) DO UPDATE SET
                     call_status = EXCLUDED.call_status,
                     ended_at = COALESCE(EXCLUDED.ended_at, geek_voice.call_logs.ended_at),
                     duration_seconds = GREATEST(EXCLUDED.duration_seconds, geek_voice.call_logs.duration_seconds),
@@ -526,7 +522,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 new
                 {
                     TenantId = tenantId,
-                    command.RetellCallId,
                     command.TwilioCallSid,
                     command.CallStatus,
                     StartedAt = command.StartedAt.UtcDateTime,
@@ -538,7 +533,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 cancellationToken: ct));
 
             return callId is null
-                ? Result<VoiceCallStored>.Failure("That call id belongs to another tenant.", VoiceFailureCodes.Conflict)
+                ? Result<VoiceCallStored>.Failure("That call SID belongs to another tenant.", VoiceFailureCodes.Conflict)
                 : Result<VoiceCallStored>.Success(new VoiceCallStored(callId.Value));
         }
         catch (PostgresException ex) when (IsRefusal(ex))
@@ -672,7 +667,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
     private static string? ValidateConfig(VoiceReceptionistConfig c)
     {
-        if (Blank(c.GreetingMessage) || Blank(c.VoiceId) || Blank(c.SystemPromptTemplate)) return "The greeting, voice and prompt are required.";
+        if (Blank(c.GreetingMessage) || Blank(c.SystemPromptTemplate)) return "The greeting and prompt are required.";
         if (!IsJson(c.BusinessHours) || !IsJson(c.QualifyingQuestions)) return "Business hours and qualifying questions are required.";
         if (!VoiceTransferModes.All.Contains(c.TransferMode, StringComparer.Ordinal)) return $"The transfer mode must be one of: {string.Join(", ", VoiceTransferModes.All)}.";
         if (!VoiceTransferCallerIdModes.All.Contains(c.TransferCallerIdMode, StringComparer.Ordinal)) return $"The caller ID mode must be one of: {string.Join(", ", VoiceTransferCallerIdModes.All)}.";
@@ -714,8 +709,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
     private static string? ValidateCall(UpsertVoiceCallCommand c)
     {
-        if (Blank(c.RetellCallId) || Blank(c.CallStatus)) return "The Retell call id and status are required.";
-        if (c.TwilioCallSid is not null && Blank(c.TwilioCallSid)) return "A Twilio call SID, when given, cannot be blank.";
+        if (Blank(c.TwilioCallSid) || Blank(c.CallStatus)) return "The Twilio call SID and status are required.";
         if (c.DurationSeconds < 0 || c.BillableMinutes < 0) return "Duration and billable minutes cannot be negative.";
         if (c.EndedAt is not null && c.EndedAt < c.StartedAt) return "A call cannot end before it starts.";
         return null;
@@ -773,21 +767,19 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public string TwilioAuthTokenEncrypted { get; set; } = "";
         public string AssignedPhoneNumber { get; set; } = "";
         public string TwilioPhoneSid { get; set; } = "";
-        public string? RetellAgentId { get; set; }
         public string? A2pBrandSid { get; set; }
         public string? A2pCampaignSid { get; set; }
         public string A2pStatus { get; set; } = "";
         public bool SmsNotificationsEnabled { get; set; }
 
         public VoiceTelephony ToModel() => new(
-            TenantId, TwilioSubaccountSid, TwilioAuthTokenEncrypted, AssignedPhoneNumber, TwilioPhoneSid, RetellAgentId,
+            TenantId, TwilioSubaccountSid, TwilioAuthTokenEncrypted, AssignedPhoneNumber, TwilioPhoneSid,
             A2pBrandSid, A2pCampaignSid, A2pStatus, SmsNotificationsEnabled);
     }
 
     private sealed class ConfigRow
     {
         public string GreetingMessage { get; set; } = "";
-        public string VoiceId { get; set; } = "";
         public string SystemPromptTemplate { get; set; } = "";
         public string BusinessHours { get; set; } = "";
         public string QualifyingQuestions { get; set; } = "";
@@ -798,7 +790,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public bool RecordingDisclosureEnabled { get; set; }
 
         public VoiceReceptionistConfig ToModel() => new(
-            GreetingMessage, VoiceId, SystemPromptTemplate, ParseJson(BusinessHours),
+            GreetingMessage, SystemPromptTemplate, ParseJson(BusinessHours),
             ParseJson(QualifyingQuestions), TransferMode, TransferTargetNumber, TransferCallerIdMode,
             EmergencyKeywords, RecordingDisclosureEnabled);
     }

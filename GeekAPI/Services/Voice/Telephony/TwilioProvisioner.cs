@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using GeekAPI.Controllers.Voice;
 using GeekApplication.Results;
 
 namespace GeekAPI.Services.Voice.Telephony;
@@ -16,34 +16,33 @@ public static class TelephonyFailureCodes
 
 /// <summary>
 /// What Twilio now holds for a tenant. <see cref="AuthToken"/> is the subaccount's token in plain text, for the caller to encrypt
-/// before it is stored; <see cref="SipUsername"/> and <see cref="SipPassword"/> are the trunk's termination credentials, which
-/// Retell needs once when it imports the number and nothing stores.
+/// before it is stored; it is also what Twilio signs that tenant's webhooks with.
 /// </summary>
 public sealed record ProvisionedTelephony(
     string SubaccountSid,
     string AuthToken,
-    string TrunkSid,
-    string TerminationUri,
-    string SipUsername,
-    string SipPassword,
     string PhoneNumber,
     string PhoneSid);
 
 /// <summary>
-/// Sets up a tenant's Twilio side (docs/Geek-Receptionist.md section 5, item 3): an isolated subaccount, an Elastic SIP trunk on it
-/// whose origination address is Retell and whose termination is guarded by credentials, and a local US number in the tenant's area
-/// code assigned to that trunk. A call to the number goes from Twilio straight to Retell, so no voice webhook is set. For a tenant
-/// with SMS notifications on, the number's SMS webhook is GeekAPI's inbound text route for that tenant.
+/// Sets up a tenant's Twilio side (docs/Geek-Receptionist.md section 5, item 3): an isolated subaccount and a local US number in the
+/// tenant's area code bought on it. The number's voice webhook is GeekAPI's call route for that tenant
+/// (<see cref="TenantVoicePath"/>) and its status callback is GeekAPI's call-status route (<see cref="TenantCallStatusPath"/>), both
+/// POST, so every call to the number is answered and metered by GeekAPI. For a tenant with SMS notifications on, the number's SMS
+/// webhook is GeekAPI's inbound text route for that tenant.
 /// Every call is made once. When a step fails, one attempt is made to close the subaccount, which releases the number and everything
 /// else on it, and the failure names the step. The clean-up result is logged: a subaccount that could not be closed is logged by its
-/// SID at Error so it can be closed by hand. Logs carry ids, steps and statuses, never a token, a password or a body.
+/// SID at Error so it can be closed by hand. Logs carry ids, steps and statuses, never a token or a body.
 /// </summary>
 public sealed class TwilioProvisioner
 {
-    public const string RetellOriginationUri = "sip:sip.retellai.com";
+    /// <summary>The route Twilio posts a call to the tenant's number to, below PUBLIC_BASE_URL.</summary>
+    public static string TenantVoicePath(Guid tenantId) => $"/{TenantCallController.RoutePrefix}/{tenantId}/voice";
+
+    /// <summary>The route Twilio posts the tenant's finished calls to, below PUBLIC_BASE_URL.</summary>
+    public static string TenantCallStatusPath(Guid tenantId) => $"/{TenantCallController.RoutePrefix}/{tenantId}/call-status";
 
     private const string ApiBase = "https://api.twilio.com/2010-04-01/";
-    private const string TrunkingBase = "https://trunking.twilio.com/v1/";
 
     private readonly HttpClient _http;
     private readonly TwilioOptions _options;
@@ -56,15 +55,15 @@ public sealed class TwilioProvisioner
         _logger = logger;
     }
 
-    /// <summary>The variables a signup of this kind needs, so activation can refuse before it creates anything.</summary>
-    public IReadOnlyList<string> Missing(bool smsEnabled) => _options.Missing(smsEnabled);
+    /// <summary>The variables a signup needs, so activation can refuse before it creates anything.</summary>
+    public IReadOnlyList<string> Missing() => _options.Missing();
 
     public async Task<Result<ProvisionedTelephony>> ProvisionAsync(Guid tenantId, string? areaCode, bool smsEnabled, CancellationToken ct = default)
     {
         if (areaCode is null || areaCode.Length != 3 || !areaCode.All(char.IsAsciiDigit))
             return Result<ProvisionedTelephony>.Failure("The preferred area code must be three digits.", TelephonyFailureCodes.AreaCodeInvalid);
 
-        var missing = _options.Missing(smsEnabled);
+        var missing = _options.Missing();
         if (missing.Count > 0)
         {
             _logger.LogError("Telephony cannot be provisioned for tenant {TenantId}: {Variables} not set.", tenantId, string.Join(", ", missing));
@@ -98,7 +97,7 @@ public sealed class TwilioProvisioner
 
     /// <summary>
     /// One attempt to close a subaccount, which releases its number and everything else on it. Used when this class fails partway and
-    /// by activation when a later step (the Retell agent, the stored record) fails. Returns whether it closed; a failure is logged at
+    /// by activation when a later step (the stored settings or the activation) fails. Returns whether it closed; a failure is logged at
     /// Error with the SID, so it can be closed by hand.
     /// </summary>
     public Task<bool> AbandonAsync(string subaccountSid, Guid tenantId, CancellationToken ct = default) =>
@@ -134,48 +133,14 @@ public sealed class TwilioProvisioner
 
     private async Task<Result<ProvisionedTelephony>> BuildAsync(Guid tenantId, string areaCode, bool smsEnabled, (string Sid, string Token) sub, CancellationToken ct)
     {
-        var username = "gr" + Convert.ToHexString(RandomNumberGenerator.GetBytes(12)).ToLowerInvariant();
-        var password = NewPassword();
-        var domain = $"gr-{tenantId:N}.pstn.twilio.com";
-
-        var list = await PostAsync("create the credential list", tenantId, $"{ApiBase}Accounts/{sub.Sid}/SIP/CredentialLists.json", sub,
-            new() { ["FriendlyName"] = "Retell termination" }, ct).ConfigureAwait(false);
-        if (!list.IsSuccess) return Failed(list);
-        string? listSid;
-        using (var doc = list.Value!) listSid = Text(doc, "sid");
-        if (listSid is null) return Missing("the credential list");
-
-        var credential = await PostAsync("add the SIP credential", tenantId, $"{ApiBase}Accounts/{sub.Sid}/SIP/CredentialLists/{listSid}/Credentials.json", sub,
-            new() { ["Username"] = username, ["Password"] = password }, ct).ConfigureAwait(false);
-        if (!credential.IsSuccess) return Failed(credential);
-        credential.Value!.Dispose();
-
-        var trunk = await PostAsync("create the SIP trunk", tenantId, $"{TrunkingBase}Trunks", sub,
-            new() { ["FriendlyName"] = "Retell", ["DomainName"] = domain }, ct).ConfigureAwait(false);
-        if (!trunk.IsSuccess) return Failed(trunk);
-        string? trunkSid, terminationUri;
-        using (var doc = trunk.Value!)
-        {
-            trunkSid = Text(doc, "sid");
-            terminationUri = Text(doc, "domain_name");
-        }
-        if (trunkSid is null || terminationUri is null) return Missing("the SIP trunk");
-
-        var origination = await PostAsync("set the trunk's origination address", tenantId, $"{TrunkingBase}Trunks/{trunkSid}/OriginationUrls", sub,
-            new() { ["FriendlyName"] = "Retell", ["SipUrl"] = RetellOriginationUri, ["Weight"] = "1", ["Priority"] = "1", ["Enabled"] = "true" }, ct).ConfigureAwait(false);
-        if (!origination.IsSuccess) return Failed(origination);
-        origination.Value!.Dispose();
-
-        var attached = await PostAsync("guard the trunk's termination", tenantId, $"{TrunkingBase}Trunks/{trunkSid}/CredentialLists", sub,
-            new() { ["CredentialListSid"] = listSid }, ct).ConfigureAwait(false);
-        if (!attached.IsSuccess) return Failed(attached);
-        attached.Value!.Dispose();
-
         var purchase = new Dictionary<string, string>
         {
             ["AreaCode"] = areaCode,
-            ["TrunkSid"] = trunkSid,
             ["FriendlyName"] = "Geek Receptionist",
+            ["VoiceUrl"] = _options.PublicBaseUrl + TenantVoicePath(tenantId),
+            ["VoiceMethod"] = "POST",
+            ["StatusCallback"] = _options.PublicBaseUrl + TenantCallStatusPath(tenantId),
+            ["StatusCallbackMethod"] = "POST",
         };
         if (smsEnabled)
         {
@@ -193,7 +158,7 @@ public sealed class TwilioProvisioner
         }
         if (phoneSid is null || phoneNumber is null) return Missing("the phone number");
 
-        return Result<ProvisionedTelephony>.Success(new ProvisionedTelephony(sub.Sid, sub.Token, trunkSid, terminationUri, username, password, phoneNumber, phoneSid));
+        return Result<ProvisionedTelephony>.Success(new ProvisionedTelephony(sub.Sid, sub.Token, phoneNumber, phoneSid));
 
         Result<ProvisionedTelephony> Missing(string what)
         {
@@ -267,16 +232,4 @@ public sealed class TwilioProvisioner
         && !string.IsNullOrWhiteSpace(value.GetString())
             ? value.GetString()
             : null;
-
-    /// <summary>Twilio wants twelve or more characters with a digit and mixed case; this is forty, with one of each guaranteed and the order shuffled.</summary>
-    private static string NewPassword()
-    {
-        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-        var chars = RandomNumberGenerator.GetItems<char>(alphabet, 40);
-        chars[0] = RandomNumberGenerator.GetItems<char>("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 1)[0];
-        chars[1] = RandomNumberGenerator.GetItems<char>("abcdefghijklmnopqrstuvwxyz", 1)[0];
-        chars[2] = RandomNumberGenerator.GetItems<char>("0123456789", 1)[0];
-        RandomNumberGenerator.Shuffle<char>(chars);
-        return new string(chars);
-    }
 }

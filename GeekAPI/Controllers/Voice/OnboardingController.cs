@@ -129,8 +129,7 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
         VoiceFailureCodes.NotFound => StatusCodes.Status404NotFound,
         VoiceFailureCodes.Conflict
             or ActivationFailureCodes.TenantNotPending => StatusCodes.Status409Conflict,
-        TelephonyFailureCodes.ProvisioningFailed
-            or RetellFailureCodes.ProvisioningFailed => StatusCodes.Status502BadGateway,
+        TelephonyFailureCodes.ProvisioningFailed => StatusCodes.Status502BadGateway,
         _ => StatusCodes.Status503ServiceUnavailable,
     };
 }

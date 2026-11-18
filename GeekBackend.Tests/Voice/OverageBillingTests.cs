@@ -20,8 +20,9 @@ namespace GeekBackend.Tests.Voice;
 /// <summary>
 /// End-of-cycle billing and a tenant's standing. A period is closed once, only the sweep that recorded a charge sends it, once, and
 /// every outcome is recorded; a failed charge or a PayPal-suspended subscription suspends the tenant; its number keeps answering seven
-/// days and then Retell stops it; a tenant with nothing owed and an ACTIVE subscription is restored with its number back on; a
-/// subscription PayPal cancels cancels the tenant and releases its Retell and Twilio side. The owner pays an unpaid overage through a
+/// days and then the record says it stopped, which the tenant's call route reads; a tenant with nothing owed and an ACTIVE subscription
+/// is restored; a subscription PayPal cancels cancels the tenant and closes its Twilio subaccount. No call leaves for anything but
+/// PayPal and Twilio. The owner pays an unpaid overage through a
 /// PayPal order that is accepted only for that charge's exact amount.
 /// </summary>
 public sealed class OverageBillingTests
@@ -34,7 +35,6 @@ public sealed class OverageBillingTests
     private static readonly DateTimeOffset NextBilling = new(2026, 12, 16, 10, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset Now = PeriodEnd.AddHours(3);
     private const string Number = "+15615550100";
-    private const string Agent = "agent_1";
 
     private static VoiceOverageCharge Charge(string status = VoiceOverageStatuses.Charging, int overage = 10, DateTimeOffset? createdAt = null) => new(
         ChargeId, Tenant, Subscription, "I-SUB", "VAULT-1", PeriodStart, PeriodEnd, 90, 90 + overage, overage, 0.50m, overage * 0.50m,
@@ -159,7 +159,7 @@ public sealed class OverageBillingTests
     private sealed class FakeVoice : IVoiceStore
     {
         public Task<Result<VoiceTelephony>> GetTelephonyAsync(Guid tenantId, CancellationToken ct = default) =>
-            Task.FromResult(Result<VoiceTelephony>.Success(new VoiceTelephony(tenantId, "AC-SUB", "enc", Number, "PN1", Agent, null, null, "pending", false)));
+            Task.FromResult(Result<VoiceTelephony>.Success(new VoiceTelephony(tenantId, "AC-SUB", "enc", Number, "PN1", null, null, "pending", false)));
 
         public Task<Result<VoiceCallStored>> UpsertCallAsync(Guid tenantId, UpsertVoiceCallCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
@@ -174,7 +174,7 @@ public sealed class OverageBillingTests
         public Task<Result<VoiceAppointmentCreated>> CreateAppointmentAsync(Guid tenantId, CreateVoiceAppointmentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
-    /// <summary>PayPal, Retell and Twilio, told apart by host.</summary>
+    /// <summary>PayPal and Twilio, told apart by host.</summary>
     private sealed class Services : HttpMessageHandler
     {
         public HttpStatusCode OrderStatus { get; init; } = HttpStatusCode.Created;
@@ -185,7 +185,6 @@ public sealed class OverageBillingTests
         public HttpStatusCode CaptureStatus { get; init; } = HttpStatusCode.Created;
         public string CaptureBody { get; init; } = Captured("5.00");
         public string OrderReadBody { get; init; } = Captured("5.00");
-        public HttpStatusCode RetellStatus { get; init; } = HttpStatusCode.OK;
         public List<(HttpMethod Method, string Host, string Path, string? RequestId, string? Body)> Requests { get; } = new();
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -193,13 +192,6 @@ public sealed class OverageBillingTests
             var uri = request.RequestUri!;
             var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             Requests.Add((request.Method, uri.Host, uri.AbsolutePath, request.Headers.TryGetValues("PayPal-Request-Id", out var ids) ? ids.Single() : null, body));
-
-            if (uri.Host == "api.retellai.com")
-            {
-                if (uri.AbsolutePath.StartsWith("/get-agent/", StringComparison.Ordinal))
-                    return Json("""{"agent_id":"agent_1","response_engine":{"type":"retell-llm","llm_id":"llm_1"}}""", RetellStatus);
-                return Json("{}", RetellStatus);
-            }
 
             if (uri.Host == "api.twilio.com") return Json("""{"sid":"AC-SUB","status":"closed"}""", HttpStatusCode.OK);
 
@@ -266,7 +258,6 @@ public sealed class OverageBillingTests
         var standing = new TenantStanding(
             store,
             new FakeVoice(),
-            new RetellProvisioner(client, new RetellOptions("key", "gpt", "https://api.example", "webhook_key"), NullLogger<RetellProvisioner>.Instance),
             new TwilioProvisioner(client, new TwilioOptions("AC-MASTER", "master-token", null), NullLogger<TwilioProvisioner>.Instance),
             NullLogger<TenantStanding>.Instance);
         var log = new CapturingLogger<OverageBilling>();
@@ -434,9 +425,6 @@ public sealed class OverageBillingTests
 
         Assert.Contains("settle", rig.Store.Calls);
         Assert.Equal(VoiceTenantStatuses.Cancelled, rig.Store.Current.TenantStatus);
-        Assert.Contains(rig.Http.Requests, r => r.Method == HttpMethod.Delete && r.Path == $"/delete-phone-number/{Uri.EscapeDataString(Number)}");
-        Assert.Contains(rig.Http.Requests, r => r.Method == HttpMethod.Delete && r.Path == "/delete-agent/agent_1");
-        Assert.Contains(rig.Http.Requests, r => r.Method == HttpMethod.Delete && r.Path == "/delete-retell-llm/llm_1");
         var close = Assert.Single(rig.Http.Requests, r => r.Host == "api.twilio.com");
         Assert.Contains("Status=closed", close.Body, StringComparison.Ordinal);
         Assert.Contains("released", rig.Store.Calls);
@@ -462,8 +450,8 @@ public sealed class OverageBillingTests
         Current = standing,
     };
 
-    private static (HttpMethod Method, string Host, string Path, string? RequestId, string? Body) RetellUpdate(Services http) =>
-        Assert.Single(http.Requests, r => r.Method == HttpMethod.Patch && r.Path == $"/update-phone-number/{Uri.EscapeDataString(Number)}");
+    /// <summary>A suspension, a stop and a restore change only the record: nothing is sent to Twilio or anywhere but PayPal.</summary>
+    private static void NothingButPayPal(Services http) => Assert.All(http.Requests, r => Assert.Equal("paypal.test", r.Host));
 
     [Fact]
     public async Task A_suspended_tenant_keeps_answering_for_seven_days()
@@ -471,7 +459,7 @@ public sealed class OverageBillingTests
         var store = SuspendedStore(Standing(VoiceTenantStatuses.Suspended, suspendedAt: Now.AddDays(-6), unpaid: Charge(VoiceOverageStatuses.Failed)));
         var rig = Build(store);
         Assert.Equal(TenantStandingStep.StillSuspended, Assert.Single((await rig.Billing.RunAsync()).Suspended).Step);
-        Assert.DoesNotContain(rig.Http.Requests, r => r.Host == "api.retellai.com");
+        NothingButPayPal(rig.Http);
     }
 
     [Fact]
@@ -481,17 +469,8 @@ public sealed class OverageBillingTests
         var rig = Build(store);
         Assert.Equal(TenantStandingStep.AnsweringStopped, Assert.Single((await rig.Billing.RunAsync()).Suspended).Step);
 
-        Assert.Equal("""{"inbound_agents":[]}""", RetellUpdate(rig.Http).Body);
         Assert.Contains("answering-stopped", store.Calls);
-    }
-
-    [Fact]
-    public async Task A_number_Retell_did_not_stop_is_not_recorded_as_stopped()
-    {
-        var store = SuspendedStore(Standing(VoiceTenantStatuses.Suspended, suspendedAt: Now.AddDays(-8), unpaid: Charge(VoiceOverageStatuses.Failed)));
-        var rig = Build(store, new Services { RetellStatus = HttpStatusCode.InternalServerError });
-        Assert.Equal(TenantStandingStep.Failed, Assert.Single((await rig.Billing.RunAsync()).Suspended).Step);
-        Assert.DoesNotContain("answering-stopped", store.Calls);
+        NothingButPayPal(rig.Http);
     }
 
     [Fact]
@@ -500,27 +479,18 @@ public sealed class OverageBillingTests
         var store = SuspendedStore(Standing(VoiceTenantStatuses.Suspended, suspendedAt: Now.AddDays(-9), stoppedAt: Now.AddDays(-2), unpaid: Charge(VoiceOverageStatuses.Failed)));
         var rig = Build(store);
         Assert.Equal(TenantStandingStep.StillSuspended, Assert.Single((await rig.Billing.RunAsync()).Suspended).Step);
-        Assert.DoesNotContain(rig.Http.Requests, r => r.Host == "api.retellai.com");
+        NothingButPayPal(rig.Http);
     }
 
     [Fact]
-    public async Task A_clear_tenant_whose_number_stopped_gets_it_back_on_before_it_is_restored()
+    public async Task A_clear_tenant_whose_number_stopped_is_restored_by_its_record_alone()
     {
         var store = SuspendedStore(Standing(VoiceTenantStatuses.Suspended, suspendedAt: Now.AddDays(-9), stoppedAt: Now.AddDays(-2)));
         var rig = Build(store);
         Assert.Equal(TenantStandingStep.Restored, Assert.Single((await rig.Billing.RunAsync()).Suspended).Step);
 
-        Assert.Equal("""{"inbound_agents":[{"agent_id":"agent_1","weight":1}]}""", RetellUpdate(rig.Http).Body);
         Assert.Equal(VoiceTenantStatuses.Active, store.Current.TenantStatus);
-    }
-
-    [Fact]
-    public async Task A_number_Retell_did_not_turn_back_on_leaves_the_tenant_suspended()
-    {
-        var store = SuspendedStore(Standing(VoiceTenantStatuses.Suspended, suspendedAt: Now.AddDays(-9), stoppedAt: Now.AddDays(-2)));
-        var rig = Build(store, new Services { RetellStatus = HttpStatusCode.BadGateway });
-        Assert.Equal(TenantStandingStep.Failed, Assert.Single((await rig.Billing.RunAsync()).Suspended).Step);
-        Assert.DoesNotContain("restore", store.Calls);
+        NothingButPayPal(rig.Http);
     }
 
     [Fact]
@@ -530,7 +500,7 @@ public sealed class OverageBillingTests
         var rig = Build(store);
         Assert.Equal(TenantStandingStep.Restored, Assert.Single((await rig.Billing.RunAsync()).Suspended).Step);
         Assert.Contains(new SetVoiceBillingStatusCommand(Subscription, VoiceBillingStatuses.Active), store.StatusesSet);
-        Assert.DoesNotContain(rig.Http.Requests, r => r.Host == "api.retellai.com");
+        NothingButPayPal(rig.Http);
     }
 
     [Fact]
@@ -585,7 +555,7 @@ public sealed class OverageBillingTests
         Assert.Equal(new CollectVoiceOverageChargeCommand("ORDER-9", "CAPTURE-9"), rig.Store.Collected);
         Assert.Equal(VoiceTenantStatuses.Active, standing.Value!.TenantStatus);
         Assert.Equal($"collect-{ChargeId:N}-ORDER-9", Assert.Single(rig.Http.Requests, r => r.Path.EndsWith("/capture", StringComparison.Ordinal)).RequestId);
-        Assert.Contains(rig.Http.Requests, r => r.Method == HttpMethod.Patch);
+        NothingButPayPal(rig.Http);
     }
 
     [Theory]

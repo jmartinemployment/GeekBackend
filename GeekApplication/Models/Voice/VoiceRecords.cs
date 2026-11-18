@@ -147,7 +147,6 @@ public sealed record ActivateVoiceTenantCommand(
     string TwilioAuthTokenEncrypted,
     string AssignedPhoneNumber,
     string TwilioPhoneSid,
-    string? RetellAgentId,
     string? A2pBrandSid,
     string? A2pCampaignSid,
     string A2pStatus,
@@ -161,7 +160,6 @@ public sealed record VoiceTelephony(
     string TwilioAuthTokenEncrypted,
     string AssignedPhoneNumber,
     string TwilioPhoneSid,
-    string? RetellAgentId,
     string? A2pBrandSid,
     string? A2pCampaignSid,
     string A2pStatus,
@@ -170,7 +168,6 @@ public sealed record VoiceTelephony(
 /// <summary>A tenant's receptionist settings. Saving sends the whole record: there are no defaults to fall back on.</summary>
 public sealed record VoiceReceptionistConfig(
     string GreetingMessage,
-    string VoiceId,
     string SystemPromptTemplate,
     JsonElement BusinessHours,
     JsonElement QualifyingQuestions,
@@ -222,14 +219,12 @@ public sealed record VoiceKnowledgeHit(Guid DocumentId, int ChunkIndex, string C
 // ----- Calls and appointments -----
 
 /// <summary>
-/// What billing needs of a call as Retell reports it, and nothing of what was said: no caller number, transcript, summary or
-/// recording link (docs/Geek-Receptionist.md section 5, item 6). Sent again with the same Retell call id it updates the same row: an
-/// end time, a longer duration or a Twilio call SID that was missing arrives later, and one that is already there is kept. The
-/// Twilio call SID is Retell's to give "when available", so it is optional; Retell's call id is always present.
+/// What billing needs of a call as Twilio's status callback reports it, and nothing of what was said: no caller number, transcript,
+/// summary or recording link (docs/Geek-Receptionist.md section 5, item 6). Sent again with the same Twilio call SID it updates the
+/// same row: an end time or a longer duration that arrives later is kept, and one that is already there is not lost.
 /// </summary>
 public sealed record UpsertVoiceCallCommand(
-    string RetellCallId,
-    string? TwilioCallSid,
+    string TwilioCallSid,
     string CallStatus,
     DateTimeOffset StartedAt,
     DateTimeOffset? EndedAt,

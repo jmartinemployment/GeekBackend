@@ -35,10 +35,10 @@ public sealed class VoiceRepositoryValidationTests
 
     private static ActivateVoiceTenantCommand GoodActivation() => new(
         VoiceSubscriptionTiers.Standard, 48m, 250, 0.50m, "I-TEST", "VAULT-TEST", Now, Now.AddMonths(1), "active",
-        "ACtest", "ciphertext", "+15615550199", "PNtest", null, null, null, "not_started", false);
+        "ACtest", "ciphertext", "+15615550199", "PNtest", null, null, "not_started", false);
 
     private static VoiceReceptionistConfig GoodConfig() => new(
-        "Thanks for calling.", "voice-1", "You answer for {business}.", EmptyObject, EmptyList,
+        "Thanks for calling.", "You answer for {business}.", EmptyObject, EmptyList,
         VoiceTransferModes.WarmTransfer, "+15615550102", VoiceTransferCallerIdModes.OriginalCaller, ["flood", "gas leak"], true);
 
     private static async Task AssertInvalid<T>(Task<GeekApplication.Results.Result<T>> call)
@@ -229,13 +229,14 @@ public sealed class VoiceRepositoryValidationTests
 
     // ----- Calls and appointments -----
 
-    private static UpsertVoiceCallCommand GoodCall() => new("call_test", "CAtest", "ended", Now, Now.AddMinutes(3), 180, 3, null);
+    private static UpsertVoiceCallCommand GoodCall() => new("CAtest", "completed", Now, Now.AddMinutes(3), 180, 3, null);
 
     [Fact]
-    public async Task A_call_needs_its_retell_id_and_a_twilio_sid_when_given_is_not_blank()
+    public async Task A_call_needs_its_twilio_sid_and_status()
     {
-        await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { RetellCallId = " " }));
+        await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { TwilioCallSid = " " }));
         await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { TwilioCallSid = "" }));
+        await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { CallStatus = "" }));
     }
 
     [Fact]
