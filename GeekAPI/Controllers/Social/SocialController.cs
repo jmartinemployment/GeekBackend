@@ -176,10 +176,14 @@ public sealed class SocialController : ControllerBase
     }
 
     [HttpPost("connect/meta/start")]
-    public IActionResult ConnectMetaStart([FromBody] ConnectStartBody body)
+    public async Task<IActionResult> ConnectMetaStart([FromBody] ConnectStartBody body, CancellationToken ct)
     {
         if (!Uri.TryCreate(body.RedirectUri, UriKind.Absolute, out var redirect))
             return Failure("redirectUri must be an absolute address.", SocialFailureCodes.InvalidRequest);
+
+        // A person who has not signed up cannot start connecting an account: it would end at complete with nowhere to put it.
+        var (_, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
 
         var url = _connect.Start(SocialPlatforms.Facebook, UserId(), redirect);
         return url.IsSuccess ? Ok(new { authorizationUrl = url.Value!.ToString() }) : Failure(url.Error!, url.ErrorCode);
@@ -344,8 +348,12 @@ public sealed class SocialController : ControllerBase
     }
 
     [HttpPost("posts/copy")]
-    public async Task<IActionResult> PostCopy([FromBody] PostCopyRequest body, CancellationToken ct) =>
-        Answer(await _actions.SuggestPostCopyAsync(body, ct));
+    public async Task<IActionResult> PostCopy([FromBody] PostCopyRequest body, CancellationToken ct)
+    {
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+        return Answer(await _actions.SuggestPostCopyAsync(tenantId, body, ct));
+    }
 
     [HttpPost("posts")]
     public async Task<IActionResult> Publish([FromBody] PublishBody body, CancellationToken ct)

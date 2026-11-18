@@ -166,9 +166,23 @@ public sealed class SocialOperatorActions
         return rejected;
     }
 
-    /// <summary>The Post Writer's suggestion for an article. Nothing is stored or posted.</summary>
-    public Task<Result<PostCopySuggestion>> SuggestPostCopyAsync(PostCopyRequest request, CancellationToken ct) =>
-        _postWriter.WriteAsync(request, ct);
+    /// <summary>
+    /// The Post Writer's suggestion for an article. Nothing is stored or posted. The article reaches the AI provider
+    /// only once the tenant has accepted the AI terms, as a comment does; until then it is refused and nothing is sent.
+    /// </summary>
+    public async Task<Result<PostCopySuggestion>> SuggestPostCopyAsync(Guid tenantId, PostCopyRequest request, CancellationToken ct)
+    {
+        var tenant = await _store.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
+        if (!tenant.IsSuccess)
+            return Pass<PostCopySuggestion>(tenant.Error, tenant.ErrorCode, "load the tenant");
+        if (tenant.Value!.AiConsentAcceptedAt is null)
+        {
+            return Result<PostCopySuggestion>.Failure(
+                "Accept the AI terms before GeekSocial sends an article to the AI provider.", SocialFailureCodes.Forbidden);
+        }
+
+        return await _postWriter.WriteAsync(request, ct).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Publishes a post a person wrote or edited. The Reviewer checks its text (the post's own link is the

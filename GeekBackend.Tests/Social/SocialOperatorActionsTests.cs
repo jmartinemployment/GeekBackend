@@ -37,7 +37,7 @@ public class SocialOperatorActionsTests
         Category = ReplyCategories.Question, DraftText = text, NeedsHumanReason = reason, Status = status,
     };
 
-    private static Rig Build(Action<FakeSocialStore>? script = null)
+    private static Rig Build(Action<FakeSocialStore>? script = null, FakeModelClient? model = null)
     {
         var store = new FakeSocialStore
         {
@@ -77,13 +77,61 @@ public class SocialOperatorActionsTests
         return new Rig
         {
             Actions = new SocialOperatorActions(store, new OutboundTextReviewer(), sendStep, tokens, sender, resync,
-                new GeekAPI.Services.Social.Publishing.PostWriter(FakeModelClient.Never(), new RecordingLog<GeekAPI.Services.Social.Publishing.PostWriter>()),
+                new GeekAPI.Services.Social.Publishing.PostWriter(model ?? FakeModelClient.Never(), new RecordingLog<GeekAPI.Services.Social.Publishing.PostWriter>()),
                 realtime, clock, new RecordingLog<SocialOperatorActions>()),
             Store = store,
             SendStep = sendStep,
             Writer = writer,
             Realtime = realtime,
         };
+    }
+
+    // ----- Post copy and the AI terms -----
+
+    private static PostCopyRequest Article() => new()
+    {
+        ArticleUrl = PostLink,
+        ArticleTitle = "Bookkeeping basics",
+        ArticleSummary = "What a small business should track each month.",
+        Platforms = new List<string> { SocialPlatforms.Facebook },
+    };
+
+    [Fact]
+    public async Task Post_copy_for_a_tenant_that_has_not_accepted_the_ai_terms_is_refused_and_nothing_reaches_the_model()
+    {
+        var rig = Build(script: store => store.OnGetTenant = id =>
+            Result<SocialTenant>.Success(new SocialTenant { Id = id, Name = "Test", AiConsentAcceptedAt = null }));
+
+        var result = await rig.Actions.SuggestPostCopyAsync(TestTenant.Id, Article(), CancellationToken.None);
+
+        Assert.Equal(SocialFailureCodes.Forbidden, result.ErrorCode);
+        Assert.Contains("AI terms", result.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_copy_for_a_tenant_that_accepted_the_ai_terms_reaches_the_post_writer()
+    {
+        var model = new FakeModelClient(_ => Result<System.Text.Json.JsonElement>.Failure("no answer", SocialFailureCodes.ModelFailed));
+        var rig = Build(
+            script: store => store.OnGetTenant = id =>
+                Result<SocialTenant>.Success(new SocialTenant { Id = id, Name = "Test", AiConsentAcceptedAt = Now.UtcDateTime }),
+            model: model);
+
+        var result = await rig.Actions.SuggestPostCopyAsync(TestTenant.Id, Article(), CancellationToken.None);
+
+        Assert.Single(model.Requests);
+        Assert.Equal(SocialFailureCodes.ModelFailed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Post_copy_whose_tenant_cannot_be_read_fails_with_the_stores_code_and_sends_nothing()
+    {
+        var rig = Build(script: store => store.OnGetTenant = _ =>
+            Result<SocialTenant>.Failure("down", SocialFailureCodes.StoreUnavailable));
+
+        var result = await rig.Actions.SuggestPostCopyAsync(TestTenant.Id, Article(), CancellationToken.None);
+
+        Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);
     }
 
     // ----- Editing -----

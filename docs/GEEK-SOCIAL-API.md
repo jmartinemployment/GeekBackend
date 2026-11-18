@@ -20,7 +20,7 @@ then it is held as `blocked_no_clearance` and is never sent to the model.
 
 Only Facebook is built, so `platform` is `facebook` in every example below and the connect routes are Meta's. GeekSocial owns the app on each network, and a tenant connects by signing in. Accounts, drafts, comments, posts and audit rows already carry `platform`; each other platform still needs its own connector and connect routes. The scope is in `docs/GEEKSOCIAL-SCOPE.md`; the plan of work is `geek-social/plans/geek-social-roadmap-2026-11-18.md`.
 
-**What this page describes.** This page documents the API as built. The AI provider is replaceable, auto-send is removed, and status is per tenant (roadmap Phase 0, items 1 to 3, built). Roadmap Phase 0 still changes one thing here, and this page changes with the code: `connect/meta/start` and `posts/copy` get the tenant check.
+**What this page describes.** This page documents the API as built. The AI provider is replaceable, auto-send is removed, status is per tenant, and every route checks the tenant, `posts/copy` the AI terms too (roadmap Phase 0, items 1 to 4, built).
 
 | Route | What it does |
 |---|---|
@@ -98,7 +98,8 @@ any the webhooks missed. Returns `{ "postsRead": 3, "commentsRead": 40, "stored"
 ## Connecting a Facebook Page
 
 1. `POST api/social/connect/meta/start` with `{ "redirectUri": "https://geek-social.geekatyourspot.com/connect/meta/callback" }`
-   returns `{ "authorizationUrl": "https://www.facebook.com/..." }`. Send the browser there.
+   returns `{ "authorizationUrl": "https://www.facebook.com/..." }`. Send the browser there. A person who has not
+   signed up is refused 403, as on every route, so a connect cannot start with nowhere to put the account.
 2. Meta sends the browser back to `redirectUri` with `?code=...&state=...` (or `?error=...`).
 3. `POST api/social/connect/meta/complete` with `{ "code": "...", "state": "...", "redirectUri": "<the same address>" }`
    returns `{ "accounts": [ <account>, ... ], "subscriptions": [ { "accountId": "uuid", "active": true } ] }`.
@@ -168,7 +169,8 @@ A comment view:
   `{ "articleUrl": "https://...", "articleTitle": "...", "articleSummary": "...", "platforms": ["facebook"], "imageUrl": null }`
   returns `{ "copies": [ { "platform": "facebook", "post": { "kind": "link", "text": "...", "linkUrl": "...",
   "linkTitle": "...", "linkDescription": "...", "imageUrl": null, "scheduledFor": null } } ] }`. A suggestion
-  only: nothing is stored or posted.
+  only: nothing is stored or posted. The article goes to the AI provider only once the tenant has accepted the AI
+  terms; until then the route answers 403 `forbidden` and nothing is sent.
 - `POST api/social/posts` with `{ "accountId": "uuid", "post": { "kind": "link", "text": "...", "linkUrl": "...",
   "linkTitle": null, "linkDescription": null, "imageUrl": null, "scheduledFor": null } }` checks the text
   with the Reviewer (422 `review_refused`), publishes it once and returns the stored post.
