@@ -43,21 +43,15 @@ public sealed class FakeCrm : IReceptionistCrm
 {
     public ConcurrentQueue<string> Calls { get; } = new();
 
-    public Task RecordMissedCallAsync(string callSid, string? caller, MissedCallOutcome outcome, string? textBody, CancellationToken ct)
+    public Task RecordMissedCallAsync(string callSid, string? caller, CancellationToken ct)
     {
-        Calls.Enqueue($"missed:{callSid}:{caller}:{outcome}:{(textBody is null ? "no-text" : "text")}");
+        Calls.Enqueue($"missed:{callSid}:{caller}");
         return Task.CompletedTask;
     }
 
     public Task RecordInboundTextAsync(string messageSid, string? from, string body, int mediaCount, string? optOutType, CancellationToken ct)
     {
         Calls.Enqueue($"text:{messageSid}:{from}:{body}:{mediaCount}:{optOutType}");
-        return Task.CompletedTask;
-    }
-
-    public Task RecordVoicemailAsync(string callSid, string? caller, string recordingUrl, int? durationSeconds, CancellationToken ct)
-    {
-        Calls.Enqueue($"voicemail:{callSid}:{caller}:{durationSeconds}");
         return Task.CompletedTask;
     }
 }
@@ -165,30 +159,30 @@ public class VoiceWebhookTests
     }
 
     [Fact]
-    public async Task Unanswered_call_texts_caller_notifies_owner_and_offers_voicemail()
+    public async Task Unanswered_call_hears_a_closing_message_and_ends_with_no_recording_and_no_text()
     {
         using var app = new App();
         var (_, xml) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "no-answer"));
 
-        var callerText = Assert.Single(app.Sms.To(Settings.Caller));
-        Assert.StartsWith("Hi, this is Dag Plumbing.", callerText.Body);
-        Assert.Contains("Auto-text sent", Assert.Single(app.Sms.To(Settings.Owner)).Body);
-        Assert.Contains("<Record", xml);
-        Assert.Contains("/voice/voicemail-complete", xml);
+        Assert.Contains("Thank you for calling Dag Plumbing. We can&apos;t take your call right now.", xml.Replace("'", "&apos;"));
+        Assert.Contains("<Hangup", xml);
+        Assert.DoesNotContain("<Record", xml);
+        Assert.Empty(app.Sms.Sent);
     }
 
     [Fact]
     public async Task Owner_voicemail_picking_up_still_counts_as_missed_when_screening()
     {
-        // Carrier voicemail "answers" → DialCallStatus completed, but nobody pressed a key.
+        // Carrier voicemail "answers" -> DialCallStatus completed, but nobody pressed a key.
         using var app = new App();
-        await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "completed"));
+        var (_, xml) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "completed"));
 
-        Assert.Single(app.Sms.To(Settings.Caller));
+        Assert.Contains("We can", xml);
+        Assert.Equal([$"missed:CA1:{Settings.Caller}"], app.Crm.Calls.ToArray());
     }
 
     [Fact]
-    public async Task Owner_accepting_the_call_sends_no_text()
+    public async Task Owner_accepting_the_call_records_no_missed_call()
     {
         using var app = new App();
         var (screenStatus, screenXml) = await app.PostTwilio("/voice/screen?parent=CA1", Call("CAchild"));
@@ -199,7 +193,8 @@ public class VoiceWebhookTests
         await app.PostTwilio("/voice/screen-accepted?parent=CA1", new() { ["CallSid"] = "CAchild", ["Digits"] = "1" });
         var (_, xml) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "completed"));
 
-        Assert.Empty(app.Sms.Sent);
+        Assert.Empty(app.Crm.Calls);
+        Assert.DoesNotContain("We can", xml);
         Assert.Contains("<Hangup", xml);
     }
 
@@ -211,115 +206,31 @@ public class VoiceWebhookTests
         Assert.DoesNotContain("/screen", incoming);
 
         await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "completed"));
-        Assert.Empty(app.Sms.Sent);
+        Assert.Empty(app.Crm.Calls);
 
         await app.PostTwilio("/voice/dial-complete", Call("CA2", dialStatus: "busy"));
-        Assert.Single(app.Sms.To(Settings.Caller));
+        Assert.Equal([$"missed:CA2:{Settings.Caller}"], app.Crm.Calls.ToArray());
     }
 
     [Fact]
-    public async Task Repeat_caller_is_texted_only_once_within_window()
-    {
-        using var app = new App();
-        await app.PostTwilio("/voice/dial-complete", Call("CA1", dialStatus: "no-answer"));
-        await app.PostTwilio("/voice/dial-complete", Call("CA2", dialStatus: "no-answer"));
-
-        Assert.Single(app.Sms.To(Settings.Caller));
-        Assert.Contains(app.Sms.To(Settings.Owner), m => m.Body.Contains("called again"));
-    }
-
-    [Fact]
-    public async Task Forwarded_mode_texts_immediately_without_ringing_owner()
+    public async Task Forwarded_mode_ends_the_call_without_ringing_the_owner_or_recording()
     {
         using var app = new App(new() { ["CALL_MODE"] = "Forwarded" });
-        var (_, xml) = await app.PostTwilio("/voice/incoming", Call());
+        var (_, xml) = await app.PostTwilio("/voice/incoming", Call("CA9"));
 
         Assert.DoesNotContain("<Dial", xml);
-        Assert.Contains("<Record", xml);
-        Assert.Single(app.Sms.To(Settings.Caller));
+        Assert.DoesNotContain("<Record", xml);
+        Assert.Contains("<Hangup", xml);
+        Assert.Empty(app.Sms.Sent);
+        Assert.Equal([$"missed:CA9:{Settings.Caller}"], app.Crm.Calls.ToArray());
     }
 
     [Fact]
-    public async Task Texted_caller_hears_the_registered_consent_disclosure()
-    {
-        using var app = new App(new() { ["CALL_MODE"] = "Forwarded" });
-        var (_, xml) = await app.PostTwilio("/voice/incoming", Call());
-
-        Assert.Contains("Dag Plumbing is texting you at this number about your call.", xml);
-        Assert.Contains("Message and data rates may apply. Reply STOP to opt out.", xml);
-    }
-
-    [Fact]
-    public async Task Caller_not_texted_hears_no_texting_claim()
-    {
-        using var app = new App(new() { ["CALL_MODE"] = "Forwarded" });
-        await app.PostTwilio("/voice/incoming", Call("CA1"));
-        var (_, xml) = await app.PostTwilio("/voice/incoming", Call("CA2"));
-
-        Assert.DoesNotContain("texting you", xml);
-        Assert.Contains("Please leave a message after the tone.", xml);
-        Assert.Contains("<Record", xml);
-    }
-
-    [Fact]
-    public async Task Missed_call_and_voicemail_are_recorded_in_the_crm()
-    {
-        using var app = new App(new() { ["CALL_MODE"] = "Forwarded" });
-        await app.PostTwilio("/voice/incoming", Call("CA9"));
-        var form = Call("CA9");
-        form["RecordingUrl"] = "https://api.twilio.com/recordings/RE9";
-        form["RecordingDuration"] = "21";
-        await app.PostTwilio("/voice/voicemail-complete", form);
-
-        Assert.Equal(
-            [$"missed:CA9:{Settings.Caller}:Texted:text", $"voicemail:CA9:{Settings.Caller}:21"],
-            app.Crm.Calls.ToArray());
-    }
-
-    [Fact]
-    public async Task Blocked_caller_id_notifies_owner_only()
+    public async Task There_is_no_voicemail_route()
     {
         using var app = new App();
-        await app.PostTwilio("/voice/dial-complete", Call(from: "Anonymous", dialStatus: "no-answer"));
-
-        Assert.Empty(app.Sms.To("Anonymous"));
-        Assert.Contains("blocked number", Assert.Single(app.Sms.To(Settings.Owner)).Body);
-    }
-
-    [Fact]
-    public async Task International_caller_is_not_texted()
-    {
-        using var app = new App();
-        await app.PostTwilio("/voice/dial-complete", Call(from: "+447700900123", dialStatus: "no-answer"));
-
-        Assert.Empty(app.Sms.To("+447700900123"));
-        Assert.Contains("international", Assert.Single(app.Sms.To(Settings.Owner)).Body);
-    }
-
-    [Fact]
-    public async Task Failed_text_is_reported_to_owner_not_hidden()
-    {
-        using var app = new App();
-        app.Sms.Fail = true;
-        await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "no-answer"));
-
-        var owner = Assert.Single(app.Sms.To(Settings.Owner));
-        Assert.Contains("FAILED", owner.Body);
-        Assert.Contains("30034", owner.Body);
-    }
-
-    [Fact]
-    public async Task Voicemail_link_is_sent_to_owner()
-    {
-        using var app = new App();
-        var form = Call();
-        form["RecordingUrl"] = "https://api.twilio.com/recordings/RE1";
-        form["RecordingDuration"] = "14";
-        await app.PostTwilio("/voice/voicemail-complete", form);
-
-        var owner = Assert.Single(app.Sms.To(Settings.Owner));
-        Assert.Contains("RE1", owner.Body);
-        Assert.Contains("14s", owner.Body);
+        var (status, _) = await app.PostTwilio("/voice/voicemail-complete", Call());
+        Assert.Equal(HttpStatusCode.NotFound, status);
     }
 
     [Fact]

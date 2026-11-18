@@ -11,7 +11,8 @@ namespace GeekAPI.Services.Receptionist;
 public sealed record ReceptionistStatus(bool Enabled, string Reason);
 
 /// <summary>
-/// Geek-Receptionist inside GeekAPI: a missed-call text-back for a Twilio number. Twilio calls
+/// Geek-Receptionist inside GeekAPI: rings the owner from the Twilio number; a call nobody answers
+/// hears a closing message and ends, with nothing recorded and nobody texted. Twilio calls
 /// these webhooks directly, so they sit outside ApiKeyMiddleware (see its public prefixes) and
 /// are authenticated by X-Twilio-Signature instead (<see cref="TwilioSignatureFilter"/>).
 /// </summary>
@@ -90,8 +91,8 @@ public static class ReceptionistEndpoints
             if (o.Mode == CallMode.Forwarded)
             {
                 // The client's own line already rang and went unanswered before forwarding here.
-                var outcome = await missed.HandleMissedCallAsync(callSid, form["From"], ct);
-                return Twiml(VoicemailPrompt(o, outcome));
+                await missed.RecordMissedCallAsync(callSid, form["From"], ct);
+                return Twiml(Unanswered(o));
             }
 
             var response = new VoiceResponse();
@@ -150,29 +151,11 @@ public static class ReceptionistEndpoints
                 return Twiml(done);
             }
 
-            var outcome = await missed.HandleMissedCallAsync(callSid, form["From"], ct);
-            return Twiml(VoicemailPrompt(o, outcome));
+            await missed.RecordMissedCallAsync(callSid, form["From"], ct);
+            return Twiml(Unanswered(o));
         });
 
-        // 5. Voicemail recorded: send the owner the recording link.
-        voice.MapPost("/voicemail-complete", async (HttpRequest req, MissedCallService missed, IReceptionistCrm crm, CancellationToken ct) =>
-        {
-            var form = await req.ReadFormAsync(ct);
-            var url = form["RecordingUrl"].ToString();
-            if (!string.IsNullOrEmpty(url) && form["RecordingDuration"].ToString() is var duration && duration != "0")
-            {
-                await missed.NotifyVoicemailAsync(form["From"], url, duration, ct);
-                await crm.RecordVoicemailAsync(form["CallSid"].ToString(), form["From"].ToString(), url,
-                    int.TryParse(duration, out var seconds) ? seconds : null, ct);
-            }
-
-            var response = new VoiceResponse();
-            response.Say("Thank you. Goodbye.");
-            response.Hangup();
-            return Twiml(response);
-        });
-
-        // 6. A text arrives at the business number (usually a reply to the missed-call text).
+        // 5. A text arrives at the business number.
         app.MapPost(RoutePrefix + "/sms/incoming", async (HttpRequest req, InboundSmsService inbound, CancellationToken ct) =>
         {
             await inbound.HandleAsync(await req.ReadFormAsync(ct), ct);
@@ -183,26 +166,18 @@ public static class ReceptionistEndpoints
         return app;
     }
 
-    private static VoiceResponse VoicemailPrompt(ReceptionistOptions o, MissedCallOutcome outcome)
+    // No <Record>: the company keeps no call content (Zero Data Retention), so a missed caller is told
+    // to call again rather than offered voicemail.
+    private static VoiceResponse Unanswered(ReceptionistOptions o)
     {
         var response = new VoiceResponse();
-        response.Say(GreetingText(o.CompanyName, outcome));
-        response.Record(
-            action: Url(o, "/voice/voicemail-complete"),
-            method: HttpMethod.Post,
-            maxLength: 120,
-            playBeep: true,
-            finishOnKey: "#");
+        response.Say(UnansweredText(o.CompanyName));
+        response.Hangup();
         return response;
     }
 
-    // The texted wording is the verbal consent disclosure registered with the A2P 10DLC campaign.
-    // Keep it identical to the campaign's Message flow text; change both together.
-    internal static string GreetingText(string company, MissedCallOutcome outcome) => outcome == MissedCallOutcome.Texted
-        ? $"Sorry we missed you. {company} is texting you at this number about your call. " +
-          "Message and data rates may apply. Reply STOP to opt out. " +
-          "You can also leave a message after the tone."
-        : "Sorry we missed you. Please leave a message after the tone.";
+    internal static string UnansweredText(string company) =>
+        $"Thank you for calling {company}. We can't take your call right now. Please call again later. Goodbye.";
 
     private static Uri Url(ReceptionistOptions o, string pathAndQuery) => new(o.PublicBaseUrl + RoutePrefix + pathAndQuery);
 

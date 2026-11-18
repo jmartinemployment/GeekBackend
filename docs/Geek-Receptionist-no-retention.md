@@ -90,10 +90,9 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
 - **Today:** the call goes from Twilio's trunk straight to Retell; GeekAPI never receives the voice call. `TwilioProvisioner` turns on no
   recording and no transcription: it sets no recording mode on the trunk, and Twilio's docs say a trunk records only in the modes
   `record-from-ringing` and `record-from-answer` (read 2026-11-18; not checked on a real trunk). Twilio keeps its own call records
-  (numbers, times, lengths). The older missed-call path (`GeekAPI/Services/Receptionist/`) sends text messages, whose bodies
-  Twilio stores, and takes voicemail with Twilio's `Record`: Twilio holds that recording, the owner is sent its link, and the link
-  is passed to the CRM. That path is live on the company's own line, (561) 865-6990 (read 2026-11-18,
-  `docs/Geek-Receptionist.md` section 4a), so its voicemails are recorded and kept by Twilio today.
+  (numbers, times, lengths). The older path on the company's own line, (561) 865-6990 (`GeekAPI/Services/Receptionist/`,
+  `docs/Geek-Receptionist.md` section 4a), stopped taking voicemail and sending missed-call texts on 2026-11-18: a call nobody
+  answers hears a closing message and ends. Voicemails it recorded before then are still held by Twilio.
 - **Requirement:** no recording or transcription is ever enabled on a tenant's subaccount, trunk or number. Text messages sent for a
   tenant carry no conversation content.
 - **Enforced by:** a test that no provisioning request sets a recording or transcription option.

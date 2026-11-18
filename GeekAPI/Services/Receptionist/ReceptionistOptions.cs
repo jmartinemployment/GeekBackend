@@ -5,7 +5,7 @@ public enum CallMode
 {
     /// <summary>
     /// Callers dial the Twilio number. We ring the owner's cell; if nobody accepts,
-    /// the caller is texted and offered voicemail. Used for demos and new numbers.
+    /// the caller hears a closing message and the call ends. Used for demos and new numbers.
     /// </summary>
     Dial,
 
@@ -45,20 +45,10 @@ public sealed record ReceptionistOptions
     /// voicemail from "answering" and hiding a missed call.
     /// </summary>
     public required bool ScreenCalls { get; init; }
-    /// <summary>Text sent to a caller who was missed. "{company}" is replaced.</summary>
-    public required string CallerTextTemplate { get; init; }
-    /// <summary>Do not text the same caller again within this window.</summary>
-    public required TimeSpan RepeatTextWindow { get; init; }
     /// <summary>Reject requests without a valid X-Twilio-Signature. Only disable for local testing.</summary>
     public required bool ValidateTwilioSignature { get; init; }
     /// <summary>Geek-CRM tenant the receptionist writes to (RECEPTIONIST_CRM_TENANT_ID); Geek @ Your Spot when unset.</summary>
     public Guid CrmTenantId { get; init; } = GeekApplication.Models.Crm.CrmSeed.GeekAtYourSpotTenantId;
-
-    public const string DefaultCallerText =
-        "Hi, this is {company}. Sorry we missed your call - we're on a job right now. " +
-        "We'll call you back shortly. Feel free to reply here with what you need. Reply STOP to opt out.";
-
-    public string CallerText => CallerTextTemplate.Replace("{company}", CompanyName, StringComparison.Ordinal);
 
     public static ReceptionistOptions FromConfiguration(IConfiguration config)
     {
@@ -104,8 +94,6 @@ public sealed record ReceptionistOptions
             Mode = ParseEnum<CallMode>(config["CALL_MODE"] ?? "Dial", "CALL_MODE", errors),
             RingSeconds = ParseInt(config["RING_SECONDS"] ?? "18", "RING_SECONDS", 5, 60, errors),
             ScreenCalls = ParseBool(config["SCREEN_CALLS"] ?? "true", "SCREEN_CALLS", errors),
-            CallerTextTemplate = string.IsNullOrWhiteSpace(config["CALLER_TEXT"]) ? DefaultCallerText : config["CALLER_TEXT"]!,
-            RepeatTextWindow = TimeSpan.FromMinutes(ParseInt(config["REPEAT_TEXT_MINUTES"] ?? "10", "REPEAT_TEXT_MINUTES", 0, 1440, errors)),
             ValidateTwilioSignature = ParseBool(config["VALIDATE_TWILIO_SIGNATURE"] ?? "true", "VALIDATE_TWILIO_SIGNATURE", errors),
             CrmTenantId = ParseGuid(config["RECEPTIONIST_CRM_TENANT_ID"], "RECEPTIONIST_CRM_TENANT_ID", errors),
         };

@@ -10,13 +10,12 @@ namespace GeekAPI.Services.Receptionist;
 /// </summary>
 public interface IReceptionistCrm
 {
-    Task RecordMissedCallAsync(string callSid, string? caller, MissedCallOutcome outcome, string? textBody, CancellationToken ct);
+    Task RecordMissedCallAsync(string callSid, string? caller, CancellationToken ct);
     Task RecordInboundTextAsync(string messageSid, string? from, string body, int mediaCount, string? optOutType, CancellationToken ct);
-    Task RecordVoicemailAsync(string callSid, string? caller, string recordingUrl, int? durationSeconds, CancellationToken ct);
 }
 
 /// <summary>
-/// Writes calls, texts, voicemails and opt-outs into geek_crm through <see cref="ICrmStore"/>
+/// Writes missed calls, inbound texts and opt-outs into geek_crm through <see cref="ICrmStore"/>
 /// (repo/crm/* on GeekRepository). Every write is idempotent on the Twilio SID, so a webhook
 /// retry records nothing twice. The tenant is <c>RECEPTIONIST_CRM_TENANT_ID</c>, or Geek @ Your
 /// Spot (tenant #1) when unset.
@@ -36,17 +35,12 @@ public sealed class CrmReceptionistRecorder(
     private static readonly HashSet<string> OptInWords =
         new(["START", "YES", "UNSTOP"], StringComparer.OrdinalIgnoreCase);
 
-    public Task RecordMissedCallAsync(string callSid, string? caller, MissedCallOutcome outcome, string? textBody, CancellationToken ct) =>
+    public Task RecordMissedCallAsync(string callSid, string? caller, CancellationToken ct) =>
         GuardedAsync("missed call", callSid, async (crm, token) =>
         {
             var participantId = await EnsureAsync(crm, caller, ParticipantSources.PhoneCall, token);
             await RecordAsync(crm, participantId, ActivityChannels.Call, ActivityDirections.Inbound, ActivityOutcomes.Missed,
                 callSid, body: participantId is null ? $"Caller ID: {caller ?? "blocked"}" : null, token);
-
-            if (outcome == MissedCallOutcome.Texted)
-                await RecordAsync(crm, participantId, ActivityChannels.Sms, ActivityDirections.Outbound, ActivityOutcomes.TextedBack, callSid, textBody, token);
-            else if (outcome == MissedCallOutcome.TextFailed)
-                await RecordAsync(crm, participantId, ActivityChannels.Sms, ActivityDirections.Outbound, ActivityOutcomes.Failed, callSid, textBody, token);
         }, ct);
 
     public Task RecordInboundTextAsync(string messageSid, string? from, string body, int mediaCount, string? optOutType, CancellationToken ct) =>
@@ -65,17 +59,6 @@ public sealed class CrmReceptionistRecorder(
                 if (!result.IsSuccess)
                     log.LogError("CRM opt-out update failed for {MessageSid}: {Code}", messageSid, result.ErrorCode);
             }
-        }, ct);
-
-    public Task RecordVoicemailAsync(string callSid, string? caller, string recordingUrl, int? durationSeconds, CancellationToken ct) =>
-        GuardedAsync("voicemail", callSid, async (crm, token) =>
-        {
-            var participantId = await EnsureAsync(crm, caller, ParticipantSources.PhoneCall, token);
-            var command = new RecordActivityCommand(TenantId, participantId, null, ActivityChannels.Voicemail, ActivityDirections.Inbound,
-                clock.GetUtcNow().UtcDateTime, null, null, null, recordingUrl, durationSeconds, ActivityOutcomes.VoicemailLeft, callSid, CreatedBy);
-            var result = await crm.RecordActivityAsync(command, token);
-            if (!result.IsSuccess)
-                log.LogError("CRM voicemail write failed for {CallSid}: {Code}", callSid, result.ErrorCode);
         }, ct);
 
     private Guid TenantId => options.CrmTenantId;

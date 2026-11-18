@@ -85,26 +85,25 @@ public class CrmReceptionistRecorderTests
     }
 
     [Fact]
-    public async Task A_texted_missed_call_is_a_participant_a_missed_call_and_a_text_back_keyed_by_the_call()
+    public async Task A_missed_call_is_a_participant_and_a_missed_call_keyed_by_the_call()
     {
         var store = new FakeStore();
-        await Recorder(store).RecordMissedCallAsync("CA1", "+15615551234", MissedCallOutcome.Texted, "Hi", CancellationToken.None);
+        await Recorder(store).RecordMissedCallAsync("CA1", "+15615551234", CancellationToken.None);
 
         var writes = store.Writes.ToArray();
+        Assert.Equal(2, writes.Length);
         var ensure = Assert.IsType<EnsureParticipantByPhoneCommand>(writes[0]);
         Assert.Equal(CrmSeed.GeekAtYourSpotTenantId, ensure.TenantId);
         Assert.Equal(ParticipantSources.PhoneCall, ensure.Source);
         var call = Assert.IsType<RecordActivityCommand>(writes[1]);
         Assert.Equal((ActivityChannels.Call, ActivityOutcomes.Missed, "CA1"), (call.Channel, call.Outcome, call.ExternalRef));
-        var text = Assert.IsType<RecordActivityCommand>(writes[2]);
-        Assert.Equal((ActivityChannels.Sms, ActivityOutcomes.TextedBack, "Hi"), (text.Channel, text.Outcome, text.Body));
     }
 
     [Fact]
     public async Task A_blocked_caller_is_recorded_without_a_participant()
     {
         var store = new FakeStore();
-        await Recorder(store).RecordMissedCallAsync("CA2", "Anonymous", MissedCallOutcome.SkippedNoCallerId, null, CancellationToken.None);
+        await Recorder(store).RecordMissedCallAsync("CA2", "Anonymous", CancellationToken.None);
 
         var call = Assert.IsType<RecordActivityCommand>(Assert.Single(store.Writes));
         Assert.Null(call.ParticipantId);
@@ -126,11 +125,11 @@ public class CrmReceptionistRecorderTests
     [Fact]
     public async Task A_failing_or_slow_store_never_throws_into_the_call()
     {
-        await Recorder(new FakeStore { Fail = true }).RecordMissedCallAsync("CA3", "+15615551234", MissedCallOutcome.Texted, "Hi", CancellationToken.None);
+        await Recorder(new FakeStore { Fail = true }).RecordMissedCallAsync("CA3", "+15615551234", CancellationToken.None);
 
         var started = DateTime.UtcNow;
         await Recorder(new FakeStore { Delay = TimeSpan.FromSeconds(30) })
-            .RecordVoicemailAsync("CA4", "+15615551234", "https://r", 5, CancellationToken.None);
+            .RecordMissedCallAsync("CA4", "+15615551234", CancellationToken.None);
         Assert.True(DateTime.UtcNow - started < TimeSpan.FromSeconds(10));
     }
 }
