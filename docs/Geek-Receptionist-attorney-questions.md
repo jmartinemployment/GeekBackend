@@ -84,18 +84,19 @@ recording disputes can involve choice-of-law questions, so a state-by-state list
 
 ## F. Which customers are excluded
 
-Jeff's decision, 2026-11-18: securities broker-dealers, investment advisers, commodity futures and derivatives businesses, Medicare
-sales organizations and telemarketing are excluded, with healthcare and veterinary businesses, which already were
-(`docs/Geek-Receptionist.md` section 5, item 1).
+Jeff's decision, 2026-11-18: exactly five are excluded: HIPAA covered entities and business associates, securities broker-dealers,
+investment advisers, commodity futures and derivatives businesses, and Third-Party Marketing Organizations (TPMOs) involved in
+Medicare Advantage or Part D marketing and sales (`docs/Geek-Receptionist.md` section 5, item 1). Veterinary and telemarketing
+businesses, excluded earlier the same day, no longer are.
 
 26. (AI 3) Can your standard service legally exclude customers with mandatory recording obligations through its terms of service and
     customer qualification process?
 27. (AI 3) Are there particular industries or customer activities that should be expressly excluded from your service?
-28. (ours, 2026-11-18) Every answer to the seven excluded-industry questions is kept forever with the visitor's address and country,
+28. (ours, 2026-11-18) Every answer to the five excluded-industry questions is kept forever with the visitor's address and country,
     including for a visitor who answered yes, was refused and never became a customer. Whether that may be kept without end, and
     what the signup site must tell the visitor (it has no privacy page today).
 29. (ours) Whether brief processing of a call makes Geek @ Your Spot LLC a business associate for a medical customer, and what
-    agreements that needs with the customer, the voice vendors and Twilio. Healthcare and veterinary businesses are refused today.
+    agreements that needs with the customer, the voice vendors and Twilio. HIPAA covered entities and business associates are refused today.
 30. (ours) Whether any law that applies to a customer's profession requires the customer to keep call records, and that the customer
     agreement puts that duty on the customer. The signup form no longer asks legal, accounting, tax, payroll, finance, insurance and
     education businesses to agree to an addendum (removed by Jeff, 2026-11-18).

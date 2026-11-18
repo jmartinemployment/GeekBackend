@@ -84,7 +84,7 @@ public sealed class VoiceRepositoryValidationTests
     public async Task A_tenant_that_answered_yes_to_an_excluded_industry_is_refused()
     {
         var yes = IndustryAnswersFixture.AllNo(Now);
-        yes = yes with { Answers = yes.Answers.Select((a, i) => i == 5 ? a with { Answer = true } : a).ToList() };
+        yes = yes with { Answers = yes.Answers.Select((a, i) => i == 4 ? a with { Answer = true } : a).ToList() };
 
         var result = await Store().CreateTenantAsync(GoodTenant() with { IndustryAnswers = yes });
 

@@ -48,7 +48,7 @@ public sealed class OnboardingEligibilityTests
         string? country = "US", bool? attested = true, string? yesTo = null) =>
         new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, Answers(yesTo));
 
-    /// <summary>The seven questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
+    /// <summary>The five questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
     private static List<IndustryAnswerInput> Answers(string? yesTo = null) =>
         ExcludedIndustries.All.Select(i => new IndustryAnswerInput(i.Code, i.Question, i.Code == yesTo)).ToList();
 
@@ -142,7 +142,7 @@ public sealed class OnboardingEligibilityTests
         Assert.Empty(store.Created);
     }
 
-    public static TheoryData<string, Func<List<IndustryAnswerInput>?>> AnswersThatAreNotTheSevenQuestions() => new()
+    public static TheoryData<string, Func<List<IndustryAnswerInput>?>> AnswersThatAreNotTheFiveQuestions() => new()
     {
         { "none sent", () => null },
         { "an empty list", () => [] },
@@ -150,12 +150,12 @@ public sealed class OnboardingEligibilityTests
         { "one answer left blank", () => Answers().Select((a, i) => i == 2 ? a with { Answer = null } : a).ToList() },
         { "an industry nobody asked about", () => Answers().Append(new IndustryAnswerInput("astrology", "Is the business an astrology business?", false)).ToList() },
         { "a question answered twice", () => Answers().Append(Answers()[0]).ToList() },
-        { "the question reworded", () => Answers().Select((a, i) => i == 0 ? a with { Question = "Healthcare?" } : a).ToList() },
+        { "the question reworded", () => Answers().Select((a, i) => i == 0 ? a with { Question = "HIPAA?" } : a).ToList() },
     };
 
     [Theory]
-    [MemberData(nameof(AnswersThatAreNotTheSevenQuestions))]
-    public async Task Anything_but_an_answer_to_each_of_the_seven_questions_as_worded_is_refused_and_stores_nothing(string why, Func<List<IndustryAnswerInput>?> answers)
+    [MemberData(nameof(AnswersThatAreNotTheFiveQuestions))]
+    public async Task Anything_but_an_answer_to_each_of_the_five_questions_as_worded_is_refused_and_stores_nothing(string why, Func<List<IndustryAnswerInput>?> answers)
     {
         var store = new RecordingStore();
         var refusals = new RecordingSignupAnswerStore();
@@ -183,13 +183,11 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Theory]
-    [InlineData("healthcare")]
-    [InlineData("veterinary")]
+    [InlineData("hipaa")]
     [InlineData("securities_broker_dealer")]
     [InlineData("investment_adviser")]
     [InlineData("commodity_futures_derivatives")]
-    [InlineData("medicare_sales")]
-    [InlineData("telemarketing")]
+    [InlineData("medicare_tpmo")]
     public async Task A_yes_to_any_one_excluded_industry_is_refused_and_the_yes_is_stored(string industry)
     {
         var store = new RecordingStore();
@@ -202,7 +200,7 @@ public sealed class OnboardingEligibilityTests
         Assert.Empty(store.Created);
         var kept = Assert.Single(refusals.Refusals);
         Assert.Equal(industry, Assert.Single(kept.Answers, a => a.Answer).Industry);
-        Assert.Equal(7, kept.Answers.Count);
+        Assert.Equal(5, kept.Answers.Count);
         Assert.Equal(Now, kept.AnsweredAt);
         Assert.Equal("203.0.113.9", kept.IpAddress);
     }
@@ -213,7 +211,7 @@ public sealed class OnboardingEligibilityTests
         var store = new RecordingStore();
         var refusals = new RecordingSignupAnswerStore(() => Result<VoiceIndustryAnswersRecorded>.Failure("the store is down", VoiceFailureCodes.StoreUnavailable));
 
-        var result = await Gate(store, refusals).ValidateAsync(Signup(yesTo: "medicare_sales"), FromUs);
+        var result = await Gate(store, refusals).ValidateAsync(Signup(yesTo: "medicare_tpmo"), FromUs);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(VoiceFailureCodes.StoreUnavailable, result.ErrorCode);
@@ -221,12 +219,11 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Fact]
-    public void The_excluded_industries_are_these_seven_each_with_its_own_question()
+    public void The_excluded_industries_are_these_five_each_with_its_own_question()
     {
         string[] codes =
         [
-            "healthcare", "veterinary", "securities_broker_dealer", "investment_adviser", "commodity_futures_derivatives",
-            "medicare_sales", "telemarketing",
+            "hipaa", "securities_broker_dealer", "investment_adviser", "commodity_futures_derivatives", "medicare_tpmo",
         ];
 
         Assert.Equal(codes, ExcludedIndustries.All.Select(i => i.Code));
@@ -302,9 +299,9 @@ public sealed class OnboardingEligibilityTests
         var store = new RecordingStore();
 
         // Wrong country, an excluded industry and no attestation at once: the country rule speaks first.
-        var first = await Gate(store).ValidateAsync(Signup(country: "CA", attested: false, yesTo: "healthcare"), FromUs);
+        var first = await Gate(store).ValidateAsync(Signup(country: "CA", attested: false, yesTo: "hipaa"), FromUs);
         // An excluded industry and no attestation: the industry rule speaks before the attestation rule.
-        var second = await Gate(store).ValidateAsync(Signup(attested: false, yesTo: "healthcare"), FromUs);
+        var second = await Gate(store).ValidateAsync(Signup(attested: false, yesTo: "hipaa"), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.CountryNotSupported, first.ErrorCode);
         Assert.Equal(OnboardingFailureCodes.IndustryExcluded, second.ErrorCode);
@@ -547,10 +544,10 @@ public sealed class IndustryRefusalsTests
         var result = await Service(store).RecordAsync(UpTo("investment_adviser"), FromUs);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal(4, result.Value!.Answers);
+        Assert.Equal(3, result.Value!.Answers);
         var kept = Assert.Single(store.Refusals);
-        Assert.Equal(["healthcare", "veterinary", "securities_broker_dealer", "investment_adviser"], kept.Answers.Select(a => a.Industry));
-        Assert.Equal([false, false, false, true], kept.Answers.Select(a => a.Answer));
+        Assert.Equal(["hipaa", "securities_broker_dealer", "investment_adviser"], kept.Answers.Select(a => a.Industry));
+        Assert.Equal([false, false, true], kept.Answers.Select(a => a.Answer));
         Assert.Equal("Is the business an investment adviser?", kept.Answers[^1].Question);
         Assert.Equal(Now, kept.AnsweredAt);
         Assert.Equal("203.0.113.9", kept.IpAddress);
@@ -564,7 +561,7 @@ public sealed class IndustryRefusalsTests
     {
         var store = new RecordingSignupAnswerStore();
 
-        var result = await Service(store).RecordAsync(UpTo("healthcare"), new VisitorOrigin(ip, country));
+        var result = await Service(store).RecordAsync(UpTo("hipaa"), new VisitorOrigin(ip, country));
 
         Assert.Equal(OnboardingFailureCodes.VisitorUnverified, result.ErrorCode);
         Assert.Empty(store.Refusals);
@@ -586,7 +583,7 @@ public sealed class IndustryRefusalsTests
     public async Task A_question_that_is_not_this_gates_stores_nothing()
     {
         var store = new RecordingSignupAnswerStore();
-        var reworded = new IndustryRefusalRequest([new IndustryAnswerInput("healthcare", "Healthcare?", true)]);
+        var reworded = new IndustryRefusalRequest([new IndustryAnswerInput("hipaa", "HIPAA?", true)]);
 
         var missing = await Service(store).RecordAsync(null, FromUs);
         var result = await Service(store).RecordAsync(reworded, FromUs);
@@ -601,7 +598,7 @@ public sealed class IndustryRefusalsTests
     {
         var store = new RecordingSignupAnswerStore(() => Result<VoiceIndustryAnswersRecorded>.Failure("down", VoiceFailureCodes.StoreUnavailable));
 
-        var result = await Service(store).RecordAsync(UpTo("telemarketing"), FromUs);
+        var result = await Service(store).RecordAsync(UpTo("medicare_tpmo"), FromUs);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(VoiceFailureCodes.StoreUnavailable, result.ErrorCode);

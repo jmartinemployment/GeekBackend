@@ -183,13 +183,13 @@ Other points on Vapi's pages that bear on ours:
 - A transcript there is a list of turns, each with who spoke, what was said and when, and the two speakers' names are settings.
 - Vapi's own call-recording page tells its customers to inform callers about recording and to follow consent laws. That duty
   does not go away when the recording lands in the client's bucket instead of ours.
-- On Vapi, ZDR and its HIPAA mode cannot both be on. This product refuses healthcare and veterinary businesses, and ZDR does not
+- On Vapi, ZDR and its HIPAA mode cannot both be on. This product refuses HIPAA covered entities and business associates, and ZDR does not
   change that.
 - Vapi says its ZDR depends on the customer's plan. Whether ours does is not stated.
 
 ## 6a. HIPAA as a paid add-on (Jeff, 2026-11-17: "I like how Vapi handles HIPPA $2000/mo")
 
-A stated liking, not yet a decision. Healthcare and veterinary businesses are still refused at signup, and nothing here changes
+A stated liking, not yet a decision. HIPAA covered entities and business associates are still refused at signup, and nothing here changes
 that.
 
 How Vapi does it (its HIPAA page, read 2026-11-17):

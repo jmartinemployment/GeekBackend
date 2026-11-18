@@ -43,10 +43,10 @@ public sealed record EligibilityAccepted(Guid TenantId, string Status);
 
 /// <summary>
 /// The self-service onboarding gate. The three rules run in the order the plan lists them (country, excluded industry,
-/// attestation); the first that fails answers. The excluded industries are decided on the form's seven separate yes-or-no answers
+/// attestation); the first that fails answers. The excluded industries are decided on the form's five separate yes-or-no answers
 /// (<see cref="ExcludedIndustries"/>) (Jeff, 2026-11-18, replacing the list of business codes). The professional services question
 /// and its addendum were removed by Jeff the same day. An answer that was not sent, or whose question is not the one this gate holds,
-/// is refused, never read as a no. Every answer is stored and kept forever: a yes at once, with no tenant, and the seven noes with
+/// is refused, never read as a no. Every answer is stored and kept forever: a yes at once, with no tenant, and the five noes with
 /// the tenant in one write. The country rule has two parts: the country the form declares, and the country of
 /// the visitor's own address (<see cref="VisitorOrigin"/>). A visitor whose address or country is missing is refused as unverified,
 /// never let through. A signup that passes all three becomes a tenant in status pending_payment, the only
@@ -135,27 +135,27 @@ public sealed class IndustryRefusals(IVoiceSignupAnswerStore signupAnswers, Time
 public sealed record ExcludedIndustry(string Code, string Question);
 
 /// <summary>
-/// The industries that cannot sign up (docs/Geek-Receptionist.md section 5, item 1). Healthcare and veterinary businesses were
-/// always excluded; securities broker-dealers, investment advisers, commodity futures and derivatives businesses, Medicare sales
-/// organizations and telemarketing were added by Jeff on 2026-11-18. The form asks about each one separately (Jeff, the same day:
-/// "more enforceable to ask each separately"). The portal holds the same codes and questions in lib/signup/excluded.ts; the two
+/// The industries that cannot sign up (docs/Geek-Receptionist.md section 5, item 1), exactly these five, set by Jeff on 2026-11-18:
+/// HIPAA covered entities and business associates (replacing the healthcare question), securities broker-dealers, investment
+/// advisers, commodity futures and derivatives businesses, and Third-Party Marketing Organizations (TPMOs) involved in Medicare
+/// Advantage or Part D marketing and sales (replacing the Medicare sales question). Veterinary and telemarketing businesses are no
+/// longer excluded. Answers already stored under the old codes are kept forever and are not rewritten; this gate accepts only these
+/// five. The form asks about each one separately (Jeff, the same day: "more enforceable to ask each separately"). The portal holds the same codes and questions in lib/signup/excluded.ts; the two
 /// change together, and an answer whose question is not the one here is refused, so what is stored is what was shown.
 /// </summary>
 public static class ExcludedIndustries
 {
     public static readonly IReadOnlyList<ExcludedIndustry> All =
     [
-        new("healthcare", "Is the business a healthcare business?"),
-        new("veterinary", "Is the business a veterinary business?"),
+        new("hipaa", "Is the business a HIPAA covered entity or business associate, such as a healthcare provider, health plan or a business that handles patient health information for one?"),
         new("securities_broker_dealer", "Is the business a securities broker-dealer?"),
         new("investment_adviser", "Is the business an investment adviser?"),
         new("commodity_futures_derivatives", "Is the business a commodity futures or derivatives business?"),
-        new("medicare_sales", "Is the business a Medicare sales organization?"),
-        new("telemarketing", "Is the business a telemarketing business?"),
+        new("medicare_tpmo", "Is the business a Third-Party Marketing Organization (TPMO) involved in Medicare Advantage or Part D marketing and sales?"),
     ];
 
     public const string Refusal =
-        "Healthcare, veterinary, securities broker-dealer, investment adviser, commodity futures or derivatives, Medicare sales and telemarketing businesses cannot use the receptionist.";
+        "HIPAA covered entities and business associates, securities broker-dealers, investment advisers, commodity futures or derivatives businesses, and Third-Party Marketing Organizations (TPMOs) involved in Medicare Advantage or Part D marketing and sales cannot use the receptionist.";
 
     /// <summary>
     /// The answers as sent, in this list's order, or null when any one of them is not an answer to a question held here: an unknown
