@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.RegularExpressions;
 using Dapper;
 using GeekApplication.Interfaces.Social;
 using GeekApplication.Models.Social;
@@ -113,6 +114,16 @@ public sealed class SocialRepository : ISocialStore
         actor_user_id AS ActorUserId,
         occurred_at AS OccurredAt
         """;
+
+    private const string FailureColumns = """
+        id AS Id,
+        tenant_id AS TenantId,
+        step AS Step,
+        code AS Code,
+        occurred_at AS OccurredAt
+        """;
+
+    private static readonly Regex FailureCode = new("^[a-z_]{1,64}$", RegexOptions.CultureInvariant);
 
     private readonly SocialDbContext _db;
     private readonly IDbConnectionFactory _connections;
@@ -714,6 +725,90 @@ public sealed class SocialRepository : ISocialStore
             return Result<IReadOnlyList<ActionAudit>>.Success(rows.ToList());
         }, ct);
 
+    // ----- Status -----
+
+    public Task<Result<SocialStepFailure>> RecordStepFailureAsync(RecordSocialStepFailureCommand command, CancellationToken ct = default) =>
+        GuardAsync("record a step failure", async () =>
+        {
+            if (command is null) return Invalid<SocialStepFailure>("A step failure is required.");
+            if (command.TenantId == Guid.Empty) return Invalid<SocialStepFailure>("tenantId is a tenant id or null.");
+            var step = command.Step?.Trim() ?? string.Empty;
+            if (step.Length is 0 or > 100) return Invalid<SocialStepFailure>("step is required, at most 100 characters.");
+            if (command.Code is null || !FailureCode.IsMatch(command.Code))
+                return Invalid<SocialStepFailure>("code is required: lower-case letters and underscores, at most 64.");
+            if (command.At == default) return Invalid<SocialStepFailure>("at is required.");
+
+            var row = new SocialStepFailureRow
+            {
+                Id = Guid.NewGuid(),
+                TenantId = command.TenantId,
+                Step = step,
+                Code = command.Code,
+                OccurredAt = SocialTime.Normalize(command.At),
+            };
+            _db.StepFailures.Add(row);
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return Result<SocialStepFailure>.Success(new SocialStepFailure
+            {
+                Id = row.Id,
+                TenantId = row.TenantId,
+                Step = row.Step,
+                Code = row.Code,
+                OccurredAt = row.OccurredAt,
+            });
+        }, ct);
+
+    public Task<Result<SocialTenantStatus>> GetTenantStatusAsync(Guid tenantId, int failureLimit, CancellationToken ct = default) =>
+        GuardAsync("read a tenant's status", async () =>
+        {
+            if (tenantId == Guid.Empty) return Invalid<SocialTenantStatus>("tenantId is required.");
+            var limit = failureLimit <= 0 ? SocialStepFailures.MaxListed : Math.Min(failureLimit, SocialStepFailures.MaxListed);
+
+            using var conn = await OpenAsync(ct).ConfigureAwait(false);
+            var comments = await conn.QuerySingleAsync<SocialCommentCounts>(new CommandDefinition(
+                $"""
+                SELECT
+                    count(*) FILTER (WHERE kind = '{EngagementKinds.CommentCreated}' AND triage_outcome IS NULL)::int AS Undecided,
+                    count(*) FILTER (WHERE triage_outcome = '{TriageOutcomes.ReplyNeeded}')::int AS ReplyNeeded,
+                    count(*) FILTER (WHERE triage_outcome = '{TriageOutcomes.NoReplyNeeded}')::int AS NoReplyNeeded,
+                    count(*) FILTER (WHERE triage_outcome = '{TriageOutcomes.BlockedNoClearance}')::int AS BlockedNoClearance,
+                    count(*) FILTER (WHERE triage_outcome = '{TriageOutcomes.Failed}')::int AS Failed
+                FROM geek_social.engagement_events
+                WHERE tenant_id = @tenantId
+                """,
+                new { tenantId }, cancellationToken: ct)).ConfigureAwait(false);
+
+            var drafts = await conn.QuerySingleAsync<SocialDraftCounts>(new CommandDefinition(
+                $"""
+                SELECT
+                    count(*) FILTER (WHERE status = '{ReplyDraftStatuses.Pending}')::int AS Pending,
+                    count(*) FILTER (WHERE status = '{ReplyDraftStatuses.Approved}')::int AS Approved,
+                    count(*) FILTER (WHERE status = '{ReplyDraftStatuses.Sending}')::int AS Sending,
+                    count(*) FILTER (WHERE status = '{ReplyDraftStatuses.Sent}')::int AS Sent,
+                    count(*) FILTER (WHERE status = '{ReplyDraftStatuses.Failed}')::int AS Failed,
+                    count(*) FILTER (WHERE status = '{ReplyDraftStatuses.Rejected}')::int AS Rejected
+                FROM geek_social.reply_drafts
+                WHERE tenant_id = @tenantId
+                """,
+                new { tenantId }, cancellationToken: ct)).ConfigureAwait(false);
+
+            var failures = await conn.QueryAsync<SocialStepFailure>(new CommandDefinition(
+                $"""
+                SELECT {FailureColumns} FROM geek_social.step_failures
+                WHERE tenant_id = @tenantId OR tenant_id IS NULL
+                ORDER BY occurred_at DESC
+                LIMIT @limit
+                """,
+                new { tenantId, limit }, cancellationToken: ct)).ConfigureAwait(false);
+
+            return Result<SocialTenantStatus>.Success(new SocialTenantStatus
+            {
+                Comments = comments,
+                Drafts = drafts,
+                Failures = failures.ToList(),
+            });
+        }, ct);
+
     // ----- Retention and recovery -----
 
     public Task<Result<SocialPurgeResult>> PurgeExpiredAsync(DateTime asOf, CancellationToken ct = default) =>
@@ -730,7 +825,12 @@ public sealed class SocialRepository : ISocialStore
                    OR (author_display_name IS NOT NULL AND author_expires_at IS NOT NULL AND author_expires_at <= {cutoff})
                 """, ct).ConfigureAwait(false);
 
-            return Result<SocialPurgeResult>.Success(new SocialPurgeResult { EventsScrubbed = scrubbed });
+            var failuresBefore = cutoff - SocialStepFailures.Retention;
+            var failuresDeleted = await _db.Database.ExecuteSqlInterpolatedAsync($"""
+                DELETE FROM geek_social.step_failures WHERE occurred_at <= {failuresBefore}
+                """, ct).ConfigureAwait(false);
+
+            return Result<SocialPurgeResult>.Success(new SocialPurgeResult { EventsScrubbed = scrubbed, FailuresDeleted = failuresDeleted });
         }, ct);
 
     public Task<Result<SocialInterruptedSends>> FailInterruptedSendsAsync(DateTime at, CancellationToken ct = default) =>

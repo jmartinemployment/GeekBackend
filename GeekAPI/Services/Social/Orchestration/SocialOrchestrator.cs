@@ -14,13 +14,14 @@ namespace GeekAPI.Services.Social.Orchestration;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A pending draft waits for a person, unless the account sends that category without one; then the
-/// send step (<see cref="ISocialSendStep"/>) approves and sends it once the comment's outcome is stored.
-/// Approved drafts a limit held back are sent after each event taken in and at startup. A comment the
-/// account itself wrote (the Page's own reply arriving back through the webhook) is never triaged.
+/// A pending draft waits for a person to approve it; nothing is sent from the reply path. Approved
+/// drafts a limit held back are sent by the send step (<see cref="ISocialSendStep"/>) after each event
+/// taken in and at startup. A comment the account itself wrote (the Page's own reply arriving back
+/// through the webhook) is never triaged.
 /// </para>
 /// <para>
-/// Every failure is logged where it happens and recorded on <see cref="SocialOrchestratorStatus"/>.
+/// Every failure is logged where it happens and kept in the store (<see cref="ISocialStore.RecordStepFailureAsync"/>)
+/// for the status page of the tenant whose comment it was, or of every tenant when it belongs to none.
 /// What an agent decided, including that it could not run, is stored on the event, so an operator sees
 /// it. A step the store could not complete leaves the event undecided, and recovery finds it again.
 /// There is no timer (AGENTS.md forbids polling), so recovery that could not finish at startup runs
@@ -37,7 +38,6 @@ public sealed class SocialOrchestrator : BackgroundService
 
     private readonly SocialWake _wake;
     private readonly IServiceScopeFactory _scopes;
-    private readonly SocialOrchestratorStatus _status;
     private readonly ISocialRealtime _realtime;
     private readonly TimeProvider _clock;
     private readonly ILogger<SocialOrchestrator> _logger;
@@ -59,14 +59,12 @@ public sealed class SocialOrchestrator : BackgroundService
     public SocialOrchestrator(
         SocialWake wake,
         IServiceScopeFactory scopes,
-        SocialOrchestratorStatus status,
         ISocialRealtime realtime,
         TimeProvider clock,
         ILogger<SocialOrchestrator> logger)
     {
         _wake = wake;
         _scopes = scopes;
-        _status = status;
         _realtime = realtime;
         _clock = clock;
         _logger = logger;
@@ -85,9 +83,9 @@ public sealed class SocialOrchestrator : BackgroundService
         }
         catch (Exception ex)
         {
-            // A recovery that throws must not stop the host; it is recorded and tried again at the next wake.
-            _status.RecordFailure("recover at startup", "unexpected_error", _clock.GetUtcNow().UtcDateTime);
+            // A recovery that throws must not stop the host; it is kept and tried again at the next wake.
             _logger.LogError(ex, "SocialOrchestrator could not finish its startup recovery; it will try again at the next wake.");
+            await KeepUnexpectedFailureAsync("recover at startup", stoppingToken).ConfigureAwait(false);
         }
 
         await foreach (var eventId in _wake.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
@@ -106,8 +104,8 @@ public sealed class SocialOrchestrator : BackgroundService
             }
             catch (Exception ex)
             {
-                _status.RecordFailure("take in an event", "unexpected_error", _clock.GetUtcNow().UtcDateTime);
                 _logger.LogError(ex, "SocialOrchestrator failed on event {EventId}; it stays undecided and is found again at startup.", eventId);
+                await KeepUnexpectedFailureAsync("take in an event", stoppingToken).ConfigureAwait(false);
             }
         }
     }
@@ -132,7 +130,7 @@ public sealed class SocialOrchestrator : BackgroundService
         if (sends.IsSuccess)
             interrupted = sends.Value!.DraftIds.Count;
         else
-            allSucceeded &= Fail("fail interrupted sends", sends.ErrorCode, sends.Error, null);
+            allSucceeded &= await FailAsync(store, null, "fail interrupted sends", sends.ErrorCode, sends.Error, null, ct).ConfigureAwait(false);
 
         allSucceeded &= await PurgeAsync(store, ct).ConfigureAwait(false);
 
@@ -144,7 +142,7 @@ public sealed class SocialOrchestrator : BackgroundService
             var batch = await store.ListUntriagedEventsAsync(RecoveryBatch, ct).ConfigureAwait(false);
             if (!batch.IsSuccess)
             {
-                allSucceeded &= Fail("list undecided events", batch.ErrorCode, batch.Error, null);
+                allSucceeded &= await FailAsync(store, null, "list undecided events", batch.ErrorCode, batch.Error, null, ct).ConfigureAwait(false);
                 break;
             }
 
@@ -167,7 +165,6 @@ public sealed class SocialOrchestrator : BackgroundService
         await SendWaitingAsync(scope.ServiceProvider, ct).ConfigureAwait(false);
 
         _recovered = allSucceeded;
-        _status.RecordRecovered(now, recovered, interrupted);
         _logger.LogInformation(
             "SocialOrchestrator recovery: {Interrupted} interrupted send(s) failed, {Recovered} undecided comment(s) handled, complete: {Complete}.",
             interrupted, recovered, allSucceeded);
@@ -184,7 +181,7 @@ public sealed class SocialOrchestrator : BackgroundService
         if (owner.IsSuccess)
             await HandleAsync(scope.ServiceProvider, store, owner.Value!.TenantId, eventId, ct).ConfigureAwait(false);
         else
-            Fail("load an event", owner.ErrorCode, owner.Error, eventId);
+            await FailAsync(store, null, "load an event", owner.ErrorCode, owner.Error, eventId, ct).ConfigureAwait(false);
 
         await PurgeAsync(store, ct).ConfigureAwait(false);
         await SendWaitingAsync(scope.ServiceProvider, ct).ConfigureAwait(false);
@@ -236,8 +233,8 @@ public sealed class SocialOrchestrator : BackgroundService
         }
         catch (Exception ex)
         {
-            _status.RecordFailure("handle an event", "unexpected_error", _clock.GetUtcNow().UtcDateTime);
             _logger.LogError(ex, "SocialOrchestrator failed on event {EventId}; it stays undecided.", eventId);
+            await KeepFailureAsync(store, tenantId, "handle an event", SocialStepFailures.UnexpectedError, ct).ConfigureAwait(false);
             return Handled.Stalled;
         }
     }
@@ -250,11 +247,10 @@ public sealed class SocialOrchestrator : BackgroundService
         var loaded = await store.GetEventAsync(tenantId, eventId, ct).ConfigureAwait(false);
         if (!loaded.IsSuccess)
         {
-            Fail("load an event", loaded.ErrorCode, loaded.Error, eventId);
+            await FailAsync(store, tenantId, "load an event", loaded.ErrorCode, loaded.Error, eventId, ct).ConfigureAwait(false);
             return Handled.Stalled;
         }
 
-        _status.RecordEventTakenIn();
         var ev = loaded.Value!;
         if (ev.Kind != EngagementKinds.CommentCreated)
         {
@@ -279,7 +275,7 @@ public sealed class SocialOrchestrator : BackgroundService
         var account = await store.GetAccountAsync(ev.TenantId, ev.AccountId, ct).ConfigureAwait(false);
         if (!account.IsSuccess)
         {
-            Fail("load the account", account.ErrorCode, account.Error, ev.Id);
+            await FailAsync(store, ev.TenantId, "load the account", account.ErrorCode, account.Error, ev.Id, ct).ConfigureAwait(false);
             return Handled.Stalled;
         }
 
@@ -298,7 +294,7 @@ public sealed class SocialOrchestrator : BackgroundService
             var posts = await store.ListPostsAsync(ev.TenantId, ev.AccountId, PostLookup, ct).ConfigureAwait(false);
             if (!posts.IsSuccess)
             {
-                Fail("load the post", posts.ErrorCode, posts.Error, ev.Id);
+                await FailAsync(store, ev.TenantId, "load the post", posts.ErrorCode, posts.Error, ev.Id, ct).ConfigureAwait(false);
                 return Handled.Stalled;
             }
 
@@ -310,7 +306,7 @@ public sealed class SocialOrchestrator : BackgroundService
         var tenant = await store.GetTenantAsync(ev.TenantId, ct).ConfigureAwait(false);
         if (!tenant.IsSuccess)
         {
-            Fail("load the tenant", tenant.ErrorCode, tenant.Error, ev.Id);
+            await FailAsync(store, ev.TenantId, "load the tenant", tenant.ErrorCode, tenant.Error, ev.Id, ct).ConfigureAwait(false);
             return Handled.Stalled;
         }
 
@@ -336,7 +332,6 @@ public sealed class SocialOrchestrator : BackgroundService
 
         // 5. A person writes it, or the drafter does and the Reviewer checks it.
         CreateReplyDraftCommand draft;
-        SocialDraftKind kind;
         if (decision.NeedsHumanReason is not null)
         {
             draft = new CreateReplyDraftCommand
@@ -346,7 +341,6 @@ public sealed class SocialOrchestrator : BackgroundService
                 DraftText = string.Empty,
                 NeedsHumanReason = decision.NeedsHumanReason,
             };
-            kind = SocialDraftKind.ForAPerson;
         }
         else
         {
@@ -384,7 +378,6 @@ public sealed class SocialOrchestrator : BackgroundService
                 DraftText = written.Value.DraftText,
                 ReviewRefusal = refused ? review.Value.Violations.ToList() : null,
             };
-            kind = refused ? SocialDraftKind.Refused : SocialDraftKind.Pending;
             if (refused)
             {
                 _logger.LogWarning(
@@ -396,7 +389,6 @@ public sealed class SocialOrchestrator : BackgroundService
         var created = await store.CreateDraftAsync(ev.TenantId, draft, ct).ConfigureAwait(false);
         if (created.IsSuccess)
         {
-            _status.RecordDraft(kind);
             await _realtime.DraftChangedAsync(ev.TenantId, created.Value!.Id, ev.AccountId, created.Value.Status, ct).ConfigureAwait(false);
         }
         else if (created.ErrorCode == SocialFailureCodes.Conflict)
@@ -407,7 +399,7 @@ public sealed class SocialOrchestrator : BackgroundService
         }
         else
         {
-            Fail("create a draft", created.ErrorCode, created.Error, ev.Id);
+            await FailAsync(store, ev.TenantId, "create a draft", created.ErrorCode, created.Error, ev.Id, ct).ConfigureAwait(false);
             return Handled.Stalled;
         }
 
@@ -420,17 +412,17 @@ public sealed class SocialOrchestrator : BackgroundService
     /// An agent could not complete. A platform that is not cleared is blocked_no_clearance; anything else
     /// is failed with the agent's code. The agent has already logged its reason.
     /// </summary>
-    private Task<Handled> RecordAgentFailureAsync(ISocialStore store, EngagementEvent ev, string step, string? code, CancellationToken ct)
+    private async Task<Handled> RecordAgentFailureAsync(ISocialStore store, EngagementEvent ev, string step, string? code, CancellationToken ct)
     {
         if (code == SocialFailureCodes.ClearanceRequired)
         {
-            _logger.LogWarning("Event {EventId} is held: {Platform} is not cleared to send comment text to Claude.", ev.Id, ev.Platform);
-            return RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.BlockedNoClearance, null, ct);
+            _logger.LogWarning("Event {EventId} is held: {Platform} is not cleared to send comment text to the AI provider.", ev.Id, ev.Platform);
+            return await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.BlockedNoClearance, null, ct).ConfigureAwait(false);
         }
 
         var failure = SocialFailureCodes.IsKnown(code) ? code! : SocialFailureCodes.ModelFailed;
-        Fail(step, failure, null, ev.Id);
-        return RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.Failed, failure, ct);
+        await FailAsync(store, ev.TenantId, step, failure, null, ev.Id, ct).ConfigureAwait(false);
+        return await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.Failed, failure, ct).ConfigureAwait(false);
     }
 
     private async Task<Handled> RecordAsync(ISocialStore store, Guid tenantId, Guid eventId, string outcome, string? failureCode, CancellationToken ct)
@@ -444,7 +436,6 @@ public sealed class SocialOrchestrator : BackgroundService
 
         if (recorded.IsSuccess)
         {
-            _status.RecordOutcome(outcome);
             await _realtime.CommentChangedAsync(tenantId, eventId, recorded.Value!.AccountId, outcome, ct).ConfigureAwait(false);
             return Handled.Decided;
         }
@@ -455,7 +446,7 @@ public sealed class SocialOrchestrator : BackgroundService
             return Handled.Decided;
         }
 
-        Fail("record the triage outcome", recorded.ErrorCode, recorded.Error, eventId);
+        await FailAsync(store, tenantId, "record the triage outcome", recorded.ErrorCode, recorded.Error, eventId, ct).ConfigureAwait(false);
         return Handled.Stalled;
     }
 
@@ -463,19 +454,75 @@ public sealed class SocialOrchestrator : BackgroundService
     {
         var purged = await store.PurgeExpiredAsync(_clock.GetUtcNow().UtcDateTime, ct).ConfigureAwait(false);
         if (!purged.IsSuccess)
-            return Fail("purge expired text", purged.ErrorCode, purged.Error, null);
+            return await FailAsync(store, null, "purge expired text", purged.ErrorCode, purged.Error, null, ct).ConfigureAwait(false);
 
-        _status.RecordScrubbed(purged.Value!.EventsScrubbed);
+        var result = purged.Value!;
+        if (result.EventsScrubbed > 0 || result.FailuresDeleted > 0)
+        {
+            _logger.LogInformation(
+                "SocialOrchestrator purge: {Scrubbed} event(s) scrubbed past their retention, {Deleted} kept failure(s) deleted.",
+                result.EventsScrubbed, result.FailuresDeleted);
+        }
+
         return true;
     }
 
-    private bool Fail(string step, string? code, string? error, Guid? eventId)
+    /// <summary>
+    /// Logs a step that could not complete and keeps it for the status page of <paramref name="tenantId"/>, or of every
+    /// tenant when it belongs to none. Always false, so a caller can fold it into "did every step succeed".
+    /// </summary>
+    private async Task<bool> FailAsync(ISocialStore store, Guid? tenantId, string step, string? code, string? error, Guid? eventId, CancellationToken ct)
     {
-        _status.RecordFailure(step, code ?? "unknown", _clock.GetUtcNow().UtcDateTime);
         if (eventId is { } id)
             _logger.LogError("SocialOrchestrator could not {Step} for event {EventId}: {Code}. {Error}", step, id, code, error);
         else
             _logger.LogError("SocialOrchestrator could not {Step}: {Code}. {Error}", step, code, error);
+
+        await KeepFailureAsync(store, tenantId, step, code ?? SocialStepFailures.Unknown, ct).ConfigureAwait(false);
         return false;
+    }
+
+    /// <summary>
+    /// Keeps a failure for the status page. A store that cannot keep it is logged as an error of its own: the failure
+    /// itself was already logged, and nothing pretends it was kept.
+    /// </summary>
+    private async Task KeepFailureAsync(ISocialStore store, Guid? tenantId, string step, string code, CancellationToken ct)
+    {
+        var kept = await store.RecordStepFailureAsync(new RecordSocialStepFailureCommand
+        {
+            TenantId = tenantId,
+            Step = step,
+            Code = code,
+            At = _clock.GetUtcNow().UtcDateTime,
+        }, ct).ConfigureAwait(false);
+
+        if (!kept.IsSuccess)
+        {
+            _logger.LogError(
+                "SocialOrchestrator could not keep the failure of {Step} ({Code}) for the status page: {KeepCode}. {Error}",
+                step, code, kept.ErrorCode, kept.Error);
+        }
+    }
+
+    /// <summary>
+    /// Keeps a step that threw in the wake loop, which belongs to no one tenant. It runs inside a catch, so anything it
+    /// throws other than shutdown is logged rather than allowed to end the loop.
+    /// </summary>
+    private async Task KeepUnexpectedFailureAsync(string step, CancellationToken stoppingToken)
+    {
+        try
+        {
+            using var scope = _scopes.CreateScope();
+            var store = scope.ServiceProvider.GetRequiredService<ISocialStore>();
+            await KeepFailureAsync(store, null, step, SocialStepFailures.UnexpectedError, stoppingToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SocialOrchestrator could not keep the failure of {Step} for the status page.", step);
+        }
     }
 }

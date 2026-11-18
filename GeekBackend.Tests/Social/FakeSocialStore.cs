@@ -46,6 +46,14 @@ internal sealed class FakeSocialStore : ISocialStore
 
     public List<EngagementEvent> RecordedEvents { get; } = new();
 
+    /// <summary>Every step failure a component asked the store to keep, in order. Not in <see cref="Writes"/>.</summary>
+    public List<RecordSocialStepFailureCommand> StepFailures { get; } = new();
+
+    /// <summary>Answers a keep. Unset, every keep succeeds, so a test scripts it only to make keeping fail.</summary>
+    public Func<RecordSocialStepFailureCommand, Result<SocialStepFailure>>? OnRecordStepFailure { get; set; }
+
+    public Func<int, Result<SocialTenantStatus>>? OnGetTenantStatus { get; set; }
+
     /// <summary>The tenant of every tenant-scoped call, in order, so a test can check which tenant a component asked for.</summary>
     public List<Guid> TenantsSeen { get; } = new();
 
@@ -154,6 +162,22 @@ internal sealed class FakeSocialStore : ISocialStore
 
     public Task<Result<IReadOnlyList<ReplyDraft>>> ListDraftsAcrossTenantsAsync(string status, int limit, CancellationToken ct = default) =>
         Task.FromResult(Scripted(OnListDrafts, nameof(ListDraftsAcrossTenantsAsync))(status, null, limit));
+
+    public Task<Result<SocialStepFailure>> RecordStepFailureAsync(RecordSocialStepFailureCommand command, CancellationToken ct = default)
+    {
+        StepFailures.Add(command);
+        return Task.FromResult(OnRecordStepFailure?.Invoke(command) ?? Result<SocialStepFailure>.Success(new SocialStepFailure
+        {
+            Id = Guid.NewGuid(),
+            TenantId = command.TenantId,
+            Step = command.Step,
+            Code = command.Code,
+            OccurredAt = command.At,
+        }));
+    }
+
+    public Task<Result<SocialTenantStatus>> GetTenantStatusAsync(Guid tenantId, int failureLimit, CancellationToken ct = default) =>
+        Seen(tenantId, Scripted(OnGetTenantStatus, nameof(GetTenantStatusAsync))(failureLimit));
 
     private static NotSupportedException Unscripted() => new("The component under test should not reach for this store method.");
 

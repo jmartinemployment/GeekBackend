@@ -415,6 +415,63 @@ public sealed class ActionAudit
     public DateTime OccurredAt { get; set; }
 }
 
+/// <summary>A kept step failure. <see cref="TenantId"/> is null for a step that belongs to no one tenant.</summary>
+public sealed class SocialStepFailure
+{
+    public Guid Id { get; set; }
+    public Guid? TenantId { get; set; }
+    public string Step { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public DateTime OccurredAt { get; set; }
+}
+
+/// <summary>How long a step failure is kept, and the code an exception is kept under.</summary>
+public static class SocialStepFailures
+{
+    public static readonly TimeSpan Retention = TimeSpan.FromDays(30);
+
+    /// <summary>The code for a step that threw instead of returning a failure; the log has the exception.</summary>
+    public const string UnexpectedError = "unexpected_error";
+
+    /// <summary>The code for a failure that came back without one.</summary>
+    public const string Unknown = "unknown";
+
+    /// <summary>The most failures one status read returns.</summary>
+    public const int MaxListed = 50;
+}
+
+/// <summary>A tenant's comments, by what triage decided. Only comments are triaged; undecided ones wait for it.</summary>
+public sealed class SocialCommentCounts
+{
+    public int Undecided { get; set; }
+    public int ReplyNeeded { get; set; }
+    public int NoReplyNeeded { get; set; }
+    public int BlockedNoClearance { get; set; }
+    public int Failed { get; set; }
+}
+
+/// <summary>A tenant's reply drafts, by status.</summary>
+public sealed class SocialDraftCounts
+{
+    public int Pending { get; set; }
+    public int Approved { get; set; }
+    public int Sending { get; set; }
+    public int Sent { get; set; }
+    public int Failed { get; set; }
+    public int Rejected { get; set; }
+}
+
+/// <summary>
+/// What one tenant's status page reads: its comment and draft counts from the rows the store holds for it, and the most
+/// recent kept failures, its own and those that belong to no one tenant, newest first.
+/// </summary>
+public sealed class SocialTenantStatus
+{
+    public SocialCommentCounts Comments { get; set; } = new();
+    public SocialDraftCounts Drafts { get; set; } = new();
+    public List<SocialStepFailure> Failures { get; set; } = new();
+}
+
 /// <summary>One customer of GeekSocial: the person who signed up, and the accounts and content that belong to them.</summary>
 public sealed class SocialTenant
 {

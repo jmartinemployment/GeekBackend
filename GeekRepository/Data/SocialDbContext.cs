@@ -25,6 +25,7 @@ public sealed class SocialDbContext(DbContextOptions<SocialDbContext> options) :
     public DbSet<EngagementEventRow> Events => Set<EngagementEventRow>();
     public DbSet<ReplyDraftRow> Drafts => Set<ReplyDraftRow>();
     public DbSet<ActionAuditRow> Audit => Set<ActionAuditRow>();
+    public DbSet<SocialStepFailureRow> StepFailures => Set<SocialStepFailureRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -66,6 +67,12 @@ public sealed class SocialDbContext(DbContextOptions<SocialDbContext> options) :
         modelBuilder.Entity<ActionAuditRow>(e =>
         {
             e.ToTable("action_audit", Schema);
+            e.HasKey(x => x.Id);
+        });
+
+        modelBuilder.Entity<SocialStepFailureRow>(e =>
+        {
+            e.ToTable("step_failures", Schema);
             e.HasKey(x => x.Id);
         });
 

@@ -17,10 +17,14 @@ public class HttpSocialRepositoryTests
     {
         public List<(HttpMethod Method, string PathAndQuery, string? Body)> Requests { get; } = new();
 
+        /// <summary>The tenant header of each request, or null when it carried none.</summary>
+        public List<string?> TenantHeaders { get; } = new();
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
             Requests.Add((request.Method, request.RequestUri!.PathAndQuery, body));
+            TenantHeaders.Add(request.Headers.TryGetValues(HttpSocialRepository.TenantHeader, out var values) ? values.Single() : null);
             return respond(request);
         }
     }
@@ -209,6 +213,51 @@ public class HttpSocialRepositoryTests
         Assert.Equal("pending", json.RootElement.GetProperty("from").GetString());
         Assert.Equal("approved", json.RootElement.GetProperty("to").GetString());
         Assert.EndsWith("Z", json.RootElement.GetProperty("at").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_kept_failure_names_its_tenant_in_the_header_only_and_one_for_no_tenant_sends_none()
+    {
+        var at = new DateTime(2026, 11, 18, 12, 0, 0, DateTimeKind.Utc);
+        var (repo, handler, _) = Build(_ => Json(new { id = Guid.NewGuid(), step = "load the account", code = "store_unavailable", occurredAt = at }));
+
+        Assert.True((await repo.RecordStepFailureAsync(new RecordSocialStepFailureCommand
+        {
+            TenantId = TestTenant.Id, Step = "load the account", Code = SocialFailureCodes.StoreUnavailable, At = at,
+        })).IsSuccess);
+        Assert.True((await repo.RecordStepFailureAsync(new RecordSocialStepFailureCommand
+        {
+            Step = "purge expired text", Code = SocialFailureCodes.StoreUnavailable, At = at,
+        })).IsSuccess);
+
+        Assert.All(handler.Requests, r => Assert.Equal((HttpMethod.Post, "/repo/social/status/failures"), (r.Method, r.PathAndQuery)));
+        Assert.Equal(new[] { TestTenant.Id.ToString(), null }, handler.TenantHeaders);
+        foreach (var request in handler.Requests)
+        {
+            using var json = JsonDocument.Parse(request.Body!);
+            var named = json.RootElement.TryGetProperty("tenantId", out var tenant) && tenant.ValueKind != JsonValueKind.Null;
+            Assert.False(named, "the body never names a tenant; only the header does");
+        }
+    }
+
+    [Fact]
+    public async Task A_tenant_status_is_read_for_that_tenant_and_comes_back_as_the_model()
+    {
+        var (repo, handler, _) = Build(_ => Json(new
+        {
+            comments = new { undecided = 1, replyNeeded = 2, noReplyNeeded = 0, blockedNoClearance = 4, failed = 0 },
+            drafts = new { pending = 3, approved = 0, sending = 0, sent = 5, failed = 0, rejected = 0 },
+            failures = new[] { new { id = Guid.NewGuid(), tenantId = (Guid?)null, step = "purge expired text", code = "store_unavailable", occurredAt = DateTime.UtcNow } },
+        }));
+
+        var read = await repo.GetTenantStatusAsync(TestTenant.Id, 50);
+
+        Assert.True(read.IsSuccess);
+        Assert.Equal((2, 4, 3, 5), (read.Value!.Comments.ReplyNeeded, read.Value.Comments.BlockedNoClearance, read.Value.Drafts.Pending, read.Value.Drafts.Sent));
+        Assert.Null(Assert.Single(read.Value.Failures).TenantId);
+        var sent = Assert.Single(handler.Requests);
+        Assert.Equal((HttpMethod.Get, "/repo/social/status?failureLimit=50"), (sent.Method, sent.PathAndQuery));
+        Assert.Equal(TestTenant.Id.ToString(), Assert.Single(handler.TenantHeaders));
     }
 
     [Fact]

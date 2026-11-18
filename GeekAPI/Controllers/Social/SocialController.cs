@@ -30,7 +30,6 @@ public sealed class SocialController : ControllerBase
     private readonly ISocialStore _store;
     private readonly SocialOperatorActions _actions;
     private readonly SocialOrchestrator _orchestrator;
-    private readonly SocialOrchestratorStatus _status;
     private readonly SocialConnectService _connect;
     private readonly SocialAiClearance _clearance;
     private readonly SocialModelSettings _ai;
@@ -40,7 +39,6 @@ public sealed class SocialController : ControllerBase
         ISocialStore store,
         SocialOperatorActions actions,
         SocialOrchestrator orchestrator,
-        SocialOrchestratorStatus status,
         SocialConnectService connect,
         SocialAiClearance clearance,
         SocialModelSettings ai,
@@ -49,7 +47,6 @@ public sealed class SocialController : ControllerBase
         _store = store;
         _actions = actions;
         _orchestrator = orchestrator;
-        _status = status;
         _connect = connect;
         _clearance = clearance;
         _ai = ai;
@@ -59,34 +56,50 @@ public sealed class SocialController : ControllerBase
     // ----- Status -----
 
     /// <summary>
-    /// What GeekSocial is running with. <c>aiProvider</c> is the provider GeekAPI is set to call, its
-    /// model and whether its key is set (null when no provider is set; the model is null when it is
-    /// not set; the key itself is never returned);
-    /// <c>clearedPlatforms</c> are the platforms cleared to send comment text to that provider, so it
-    /// is empty when no provider is set. The route reads the settings, not the model client: only the
-    /// agents reach the model.
+    /// The signed-in person's tenant's status, and what GeekSocial is running with. <c>comments</c> and
+    /// <c>drafts</c> count only this tenant's rows; <c>failures</c> are the steps that could not complete
+    /// for this tenant, and those that belong to no one tenant (<c>forEveryTenant</c>), newest first, kept
+    /// 30 days. <c>aiProvider</c> is the provider GeekAPI is set to call, its model and whether its key is
+    /// set (null when no provider is set; the model is null when it is not set; the key itself is never
+    /// returned); <c>clearedPlatforms</c> are the platforms cleared to send comment text to that provider,
+    /// so it is empty when no provider is set. The route reads the settings, not the model client: only
+    /// the agents reach the model.
     /// </summary>
     [HttpGet("status")]
-    public IActionResult Status() => Ok(new
+    public async Task<IActionResult> Status(CancellationToken ct)
     {
-        orchestrator = _status.Snapshot(),
-        aiProvider = _ai.Provider is null
-            ? null
-            : new
-            {
-                id = _ai.Provider,
-                name = SocialModelProviders.DisplayName(_ai.Provider),
-                model = string.IsNullOrWhiteSpace(_ai.Model) ? null : _ai.Model,
-                apiKeySet = !string.IsNullOrWhiteSpace(_ai.ApiKey),
-            },
-        clearedPlatforms = _clearance.ClearedFor(_ai.Provider),
-        metaConfigured = _meta.AppId is not null && _meta.AppSecret is not null && _meta.VerifyToken is not null && _meta.LoginConfigId is not null,
-        sendLimits = new
+        var (tenantId, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+
+        var read = await _store.GetTenantStatusAsync(tenantId, SocialStepFailures.MaxListed, ct);
+        if (!read.IsSuccess) return Failure(read.Error!, read.ErrorCode);
+
+        var status = read.Value!;
+        return Ok(new
         {
-            repliesPerAccountPerHour = SocialSendLimits.RepliesPerAccountPerHour,
-            coolDownMinutes = (int)SocialSendLimits.CoolDown.TotalMinutes,
-        },
-    });
+            comments = status.Comments,
+            drafts = status.Drafts,
+            failures = status.Failures.Select(f => new { f.Step, f.Code, At = f.OccurredAt, ForEveryTenant = f.TenantId is null }),
+            aiProvider = AiProviderStatus(),
+            clearedPlatforms = _clearance.ClearedFor(_ai.Provider),
+            metaConfigured = _meta.AppId is not null && _meta.AppSecret is not null && _meta.VerifyToken is not null && _meta.LoginConfigId is not null,
+            sendLimits = new
+            {
+                repliesPerAccountPerHour = SocialSendLimits.RepliesPerAccountPerHour,
+                coolDownMinutes = (int)SocialSendLimits.CoolDown.TotalMinutes,
+            },
+        });
+    }
+
+    private object? AiProviderStatus() => _ai.Provider is null
+        ? null
+        : new
+        {
+            id = _ai.Provider,
+            name = SocialModelProviders.DisplayName(_ai.Provider),
+            model = string.IsNullOrWhiteSpace(_ai.Model) ? null : _ai.Model,
+            apiKeySet = !string.IsNullOrWhiteSpace(_ai.ApiKey),
+        };
 
     // ----- Tenant -----
 

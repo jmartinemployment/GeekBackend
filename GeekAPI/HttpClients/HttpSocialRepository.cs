@@ -153,6 +153,16 @@ public sealed class HttpSocialRepository : ISocialStore
         return AsReadOnly(await SendAsync<List<ActionAudit>>(tenantId, HttpMethod.Get, path.ToString(), null, ct).ConfigureAwait(false));
     }
 
+    // ----- Status -----
+
+    public Task<Result<SocialStepFailure>> RecordStepFailureAsync(RecordSocialStepFailureCommand command, CancellationToken ct = default) =>
+        SendAsync<SocialStepFailure>(
+            command.TenantId, HttpMethod.Post, "repo/social/status/failures",
+            new RecordSocialStepFailureCommand { Step = command.Step, Code = command.Code, At = command.At }, ct);
+
+    public Task<Result<SocialTenantStatus>> GetTenantStatusAsync(Guid tenantId, int failureLimit, CancellationToken ct = default) =>
+        SendAsync<SocialTenantStatus>(tenantId, HttpMethod.Get, $"repo/social/status?failureLimit={failureLimit}", null, ct);
+
     // ----- Retention and recovery -----
 
     public Task<Result<SocialPurgeResult>> PurgeExpiredAsync(DateTime asOf, CancellationToken ct = default) =>

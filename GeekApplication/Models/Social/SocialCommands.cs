@@ -103,6 +103,27 @@ public sealed class TransitionReplyDraftCommand
 public sealed class SocialPurgeResult
 {
     public int EventsScrubbed { get; set; }
+
+    /// <summary>Kept step failures deleted because they were older than <see cref="SocialStepFailures.Retention"/>.</summary>
+    public int FailuresDeleted { get; set; }
+}
+
+/// <summary>
+/// A step GeekSocial could not complete, to keep for the status page. <see cref="TenantId"/> is the tenant whose comment
+/// or draft it was working on, or null for a step that belongs to no one tenant. It carries a step name and a code,
+/// never a comment, a draft or a person's data.
+/// </summary>
+public sealed class RecordSocialStepFailureCommand
+{
+    public Guid? TenantId { get; set; }
+
+    /// <summary>What GeekSocial was doing, in words: "load the account", "send a draft".</summary>
+    public string Step { get; set; } = string.Empty;
+
+    /// <summary>A <see cref="SocialFailureCodes"/> value, or unexpected_error for an exception: lower case and underscores.</summary>
+    public string Code { get; set; } = string.Empty;
+
+    public DateTime At { get; set; }
 }
 
 /// <summary>The drafts a restart found mid-send, now failed with an unknown outcome and audited.</summary>
@@ -117,7 +138,10 @@ public sealed class SocialEventStored
     public bool Inserted { get; set; }
 }
 
-/// <summary>Asks the store to scrub every event whose text or author name is past its retention deadline as of <see cref="AsOf"/>.</summary>
+/// <summary>
+/// Asks the store to scrub every event whose text or author name is past its retention deadline as of <see cref="AsOf"/>,
+/// and to delete every kept step failure older than <see cref="SocialStepFailures.Retention"/>.
+/// </summary>
 public sealed class SocialPurgeCommand
 {
     public DateTime AsOf { get; set; }

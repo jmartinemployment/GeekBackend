@@ -115,7 +115,6 @@ public static class SocialServiceRegistration
                 sp.GetRequiredService<TimeProvider>()));
 
         services.AddSingleton<SocialWake>();
-        services.AddSingleton<SocialOrchestratorStatus>();
         services.AddSingleton<ISocialRealtime, SocialRealtimeNotifier>();
         services.AddScoped<SocialResync>();
 

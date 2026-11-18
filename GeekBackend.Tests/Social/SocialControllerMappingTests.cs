@@ -23,6 +23,11 @@ public class SocialControllerMappingTests
         public Func<Result<bool>>? Event { get; init; }
         public Func<Result<EngagementEvent>>? Triage { get; init; }
         public Func<string, Result<IReadOnlyList<EngagementEvent>>>? ListEvents { get; init; }
+        public Func<RecordSocialStepFailureCommand, Result<SocialStepFailure>>? KeepFailure { get; init; }
+        public Func<Guid, Result<SocialTenantStatus>>? TenantStatus { get; init; }
+
+        public Task<Result<SocialStepFailure>> RecordStepFailureAsync(RecordSocialStepFailureCommand command, CancellationToken ct = default) => Task.FromResult(KeepFailure!(command));
+        public Task<Result<SocialTenantStatus>> GetTenantStatusAsync(Guid tenantId, int failureLimit, CancellationToken ct = default) => Task.FromResult(TenantStatus!(tenantId));
 
         public Task<Result<EngagementEvent>> RecordTriageOutcomeAsync(Guid tenantId, Guid eventId, RecordTriageOutcomeCommand command, CancellationToken ct = default) => Task.FromResult(Triage!());
         public Task<Result<IReadOnlyList<EngagementEvent>>> ListEventsAsync(Guid tenantId, string triageState, Guid? accountId, int limit, CancellationToken ct = default) => Task.FromResult(ListEvents!(triageState));
@@ -167,5 +172,72 @@ public class SocialControllerMappingTests
 
         Assert.Equal(string.Empty, asked);
         Assert.IsType<BadRequestObjectResult>(action);
+    }
+
+    // ----- Kept failures and a tenant's status -----
+
+    private static RecordSocialStepFailureCommand Failure() =>
+        new() { Step = "load the account", Code = SocialFailureCodes.StoreUnavailable, At = new DateTime(2026, 11, 18, 12, 0, 0, DateTimeKind.Utc) };
+
+    private static Result<SocialStepFailure> Kept(RecordSocialStepFailureCommand command) =>
+        Result<SocialStepFailure>.Success(new SocialStepFailure { Id = Guid.NewGuid(), TenantId = command.TenantId, Step = command.Step, Code = command.Code, OccurredAt = command.At });
+
+    [Fact]
+    public async Task A_failure_is_kept_for_the_tenant_the_header_names()
+    {
+        RecordSocialStepFailureCommand? asked = null;
+        var controller = new SocialStatusController(new ScriptedStore { KeepFailure = c => Kept(asked = c) }) { ControllerContext = WithTenant() };
+
+        var answer = await controller.RecordFailure(Failure(), CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(answer);
+        Assert.Equal(TestTenant.Id, asked!.TenantId);
+    }
+
+    [Fact]
+    public async Task A_failure_with_no_header_belongs_to_no_tenant_and_a_body_cannot_name_one()
+    {
+        RecordSocialStepFailureCommand? asked = null;
+        var controller = new SocialStatusController(new ScriptedStore { KeepFailure = c => Kept(asked = c) })
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+        var command = Failure();
+        command.TenantId = Guid.NewGuid();
+
+        var answer = await controller.RecordFailure(command, CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(answer);
+        Assert.Null(asked!.TenantId);
+    }
+
+    [Fact]
+    public async Task A_header_that_is_not_a_tenant_id_is_refused_not_read_as_no_tenant()
+    {
+        var http = new DefaultHttpContext();
+        http.Request.Headers["X-Social-Tenant-Id"] = "not-a-tenant";
+        var controller = new SocialStatusController(new ScriptedStore()) { ControllerContext = new ControllerContext { HttpContext = http } };
+
+        var answer = await controller.RecordFailure(Failure(), CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(answer);
+    }
+
+    [Fact]
+    public async Task A_status_read_needs_the_tenant_header_and_reads_only_that_tenant()
+    {
+        Guid? read = null;
+        var store = new ScriptedStore { TenantStatus = id => { read = id; return Result<SocialTenantStatus>.Success(new SocialTenantStatus()); } };
+
+        var refused = await new SocialStatusController(store)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        }.Status(10, CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(refused);
+        Assert.Null(read);
+
+        var answered = await new SocialStatusController(store) { ControllerContext = WithTenant() }.Status(10, CancellationToken.None);
+        Assert.IsType<OkObjectResult>(answered);
+        Assert.Equal(TestTenant.Id, read);
     }
 }

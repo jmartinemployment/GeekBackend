@@ -89,9 +89,26 @@ public interface ISocialStore
     Task<Result<ActionAudit>> RecordAuditAsync(Guid tenantId, ActionAudit audit, CancellationToken ct = default);
     Task<Result<IReadOnlyList<ActionAudit>>> ListAuditAsync(Guid tenantId, Guid? accountId, int limit, CancellationToken ct = default);
 
+    // Status
+
+    /// <summary>
+    /// Keeps a step GeekSocial could not complete, for the status page: the tenant's own when the command names one,
+    /// every tenant's when it names none. Kept for <see cref="SocialStepFailures.Retention"/>.
+    /// </summary>
+    Task<Result<SocialStepFailure>> RecordStepFailureAsync(RecordSocialStepFailureCommand command, CancellationToken ct = default);
+
+    /// <summary>
+    /// The tenant's comment and draft counts, and up to <paramref name="failureLimit"/> kept failures, its own and those
+    /// that belong to no one tenant, newest first. Nothing of another tenant is counted or listed.
+    /// </summary>
+    Task<Result<SocialTenantStatus>> GetTenantStatusAsync(Guid tenantId, int failureLimit, CancellationToken ct = default);
+
     // Retention and recovery. Each is one call; the caller decides when to make it.
 
-    /// <summary>Scrubs the text and author name of every event whose retention has run out as of <paramref name="asOf"/>.</summary>
+    /// <summary>
+    /// Scrubs the text and author name of every event whose retention has run out as of <paramref name="asOf"/>, and
+    /// deletes every kept step failure older than <see cref="SocialStepFailures.Retention"/>.
+    /// </summary>
     Task<Result<SocialPurgeResult>> PurgeExpiredAsync(DateTime asOf, CancellationToken ct = default);
 
     /// <summary>

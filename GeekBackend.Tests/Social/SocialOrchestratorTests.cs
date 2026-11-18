@@ -54,7 +54,6 @@ public class SocialOrchestratorTests
     {
         public required SocialOrchestrator Orchestrator { get; init; }
         public required SocialWake Wake { get; init; }
-        public required SocialOrchestratorStatus Status { get; init; }
         public required FakeSocialStore Store { get; init; }
         public required FakeTriage Triage { get; init; }
         public required FakeDrafter Drafter { get; init; }
@@ -107,7 +106,6 @@ public class SocialOrchestratorTests
         var fakeDrafter = new FakeDrafter(drafter ?? (_ => throw new InvalidOperationException("The drafter must not be called in this test.")));
         var log = new RecordingLog<SocialOrchestrator>();
         var wake = new SocialWake();
-        var status = new SocialOrchestratorStatus();
         var realtime = new FakeRealtime();
         var sendStep = new FakeSendStep();
 
@@ -122,11 +120,10 @@ public class SocialOrchestratorTests
         var rig = new Rig
         {
             Orchestrator = new SocialOrchestrator(
-                wake, services.GetRequiredService<IServiceScopeFactory>(), status, realtime, new MetaEngagementReaderTests.FixedClock(Now), log),
+                wake, services.GetRequiredService<IServiceScopeFactory>(), realtime, new MetaEngagementReaderTests.FixedClock(Now), log),
             Realtime = realtime,
             SendStep = sendStep,
             Wake = wake,
-            Status = status,
             Store = store,
             Triage = fakeTriage,
             Drafter = fakeDrafter,
@@ -171,8 +168,7 @@ public class SocialOrchestratorTests
         Assert.Equal(Now.UtcDateTime, command.At);
         Assert.Empty(rig.Drafts);
         Assert.Empty(rig.Drafter.Requests);
-        Assert.Equal(1, rig.Status.Snapshot().CommentsNoReplyNeeded);
-        Assert.Empty(rig.Status.Snapshot().Failures);
+        Assert.Empty(rig.Store.StepFailures);
     }
 
     [Fact]
@@ -212,7 +208,6 @@ public class SocialOrchestratorTests
         Assert.Equal(TriageOutcomes.BlockedNoClearance, command.Outcome);
         Assert.Null(command.FailureCode);
         Assert.Empty(rig.Drafts);
-        Assert.Equal(1, rig.Status.Snapshot().CommentsBlockedNoClearance);
         Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Warning && e.Message.Contains(id.ToString(), StringComparison.Ordinal));
         AssertNothingPrivateLogged(rig);
     }
@@ -231,11 +226,10 @@ public class SocialOrchestratorTests
         Assert.Equal(TriageOutcomes.Failed, command.Outcome);
         Assert.Equal(code, command.FailureCode);
         Assert.Empty(rig.Drafts);
-        Assert.Equal(1, rig.Status.Snapshot().CommentsFailed);
         var error = Assert.Single(rig.Log.Entries, e => e.Level == LogLevel.Error);
         Assert.Contains(id.ToString(), error.Message, StringComparison.Ordinal);
         Assert.Contains(code, error.Message, StringComparison.Ordinal);
-        Assert.Contains(rig.Status.Snapshot().Failures, f => f.Step == "triage" && f.Code == code);
+        Assert.Contains(rig.Store.StepFailures, f => f.Step == "triage" && f.Code == code);
     }
 
     [Fact]
@@ -255,7 +249,6 @@ public class SocialOrchestratorTests
         Assert.Empty(rig.Drafter.Requests);
         Assert.Equal(TriageOutcomes.ReplyNeeded, Assert.Single(rig.Outcomes).Command.Outcome);
         Assert.Equal(new[] { "draft", "outcome" }, rig.Store.Writes);
-        Assert.Equal(1, rig.Status.Snapshot().DraftsForAPerson);
     }
 
     [Fact]
@@ -278,7 +271,6 @@ public class SocialOrchestratorTests
         Assert.Null(draft.NeedsHumanReason);
         Assert.Equal(TriageOutcomes.ReplyNeeded, Assert.Single(rig.Outcomes).Command.Outcome);
         Assert.Equal(new[] { "draft", "outcome" }, rig.Store.Writes);
-        Assert.Equal(1, rig.Status.Snapshot().DraftsPending);
     }
 
     [Fact]
@@ -332,7 +324,7 @@ public class SocialOrchestratorTests
 
         Assert.Empty(rig.Triage.Requests);
         Assert.Empty(rig.Outcomes);
-        var failure = Assert.Single(rig.Status.Snapshot().Failures);
+        var failure = Assert.Single(rig.Store.StepFailures);
         Assert.Equal(("load the tenant", SocialFailureCodes.StoreUnavailable), (failure.Step, failure.Code));
     }
 
@@ -352,7 +344,6 @@ public class SocialOrchestratorTests
         Assert.Contains(ReviewRules.Smb, draft.ReviewRefusal!);
         Assert.Contains(ReviewRules.UnapprovedLink, draft.ReviewRefusal!);
         Assert.Equal(TriageOutcomes.ReplyNeeded, Assert.Single(rig.Outcomes).Command.Outcome);
-        Assert.Equal(1, rig.Status.Snapshot().DraftsRefused);
         var warning = Assert.Single(rig.Log.Entries, e => e.Level == LogLevel.Warning);
         Assert.Contains(ReviewRules.EmDash, warning.Message, StringComparison.Ordinal);
         Assert.Contains(id.ToString(), warning.Message, StringComparison.Ordinal);
@@ -414,7 +405,7 @@ public class SocialOrchestratorTests
         Assert.Empty(rig.Drafts);
         var command = Assert.Single(rig.Outcomes).Command;
         Assert.Equal((TriageOutcomes.Failed, SocialFailureCodes.InvalidRequest), (command.Outcome, command.FailureCode));
-        Assert.Contains(rig.Status.Snapshot().Failures, f => f.Step == "review the draft");
+        Assert.Contains(rig.Store.StepFailures, f => f.Step == "review the draft");
     }
 
     [Fact]
@@ -428,7 +419,7 @@ public class SocialOrchestratorTests
         await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
 
         Assert.Equal(TriageOutcomes.ReplyNeeded, Assert.Single(rig.Outcomes).Command.Outcome);
-        Assert.Empty(rig.Status.Snapshot().Failures);
+        Assert.Empty(rig.Store.StepFailures);
         Assert.DoesNotContain(rig.Log.Entries, e => e.Level == LogLevel.Error);
     }
 
@@ -444,7 +435,7 @@ public class SocialOrchestratorTests
         await rig.Orchestrator.TakeInAsync(id, CancellationToken.None);
 
         Assert.Empty(rig.Outcomes);
-        var failure = Assert.Single(rig.Status.Snapshot().Failures);
+        var failure = Assert.Single(rig.Store.StepFailures);
         Assert.Equal(("create a draft", SocialFailureCodes.StoreUnavailable), (failure.Step, failure.Code));
         var error = Assert.Single(rig.Log.Entries, e => e.Level == LogLevel.Error);
         Assert.Contains(id.ToString(), error.Message, StringComparison.Ordinal);
@@ -458,7 +449,7 @@ public class SocialOrchestratorTests
 
         await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
 
-        Assert.Empty(rig.Status.Snapshot().Failures);
+        Assert.Empty(rig.Store.StepFailures);
         Assert.DoesNotContain(rig.Log.Entries, e => e.Level == LogLevel.Error);
     }
 
@@ -470,7 +461,7 @@ public class SocialOrchestratorTests
 
         await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
 
-        var failure = Assert.Single(rig.Status.Snapshot().Failures);
+        var failure = Assert.Single(rig.Store.StepFailures);
         Assert.Equal(("record the triage outcome", SocialFailureCodes.StoreUnavailable), (failure.Step, failure.Code));
         Assert.Single(rig.Log.Entries, e => e.Level == LogLevel.Error);
     }
@@ -518,7 +509,6 @@ public class SocialOrchestratorTests
 
         Assert.Empty(rig.Triage.Requests);
         Assert.Empty(rig.Store.Writes);
-        Assert.Equal(1, rig.Status.Snapshot().EventsTakenIn);
     }
 
     [Theory]
@@ -566,7 +556,7 @@ public class SocialOrchestratorTests
 
         Assert.Empty(rig.Triage.Requests);
         Assert.Empty(rig.Store.Writes);
-        Assert.Equal("load the account", Assert.Single(rig.Status.Snapshot().Failures).Step);
+        Assert.Equal("load the account", Assert.Single(rig.Store.StepFailures).Step);
     }
 
     [Fact]
@@ -577,7 +567,7 @@ public class SocialOrchestratorTests
         await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
 
         Assert.Empty(rig.Triage.Requests);
-        Assert.Equal("load the post", Assert.Single(rig.Status.Snapshot().Failures).Step);
+        Assert.Equal("load the post", Assert.Single(rig.Store.StepFailures).Step);
     }
 
     [Fact]
@@ -646,12 +636,11 @@ public class SocialOrchestratorTests
         Assert.Equal(TriageOutcomes.Untriaged, listedState);
         Assert.Equal(new[] { first, second }, rig.Outcomes.Select(o => o.EventId));
         Assert.False(rig.Wake.Reader.TryRead(out _));
-        var snapshot = rig.Status.Snapshot();
-        Assert.Equal(Now.UtcDateTime, snapshot.RecoveredAt);
-        Assert.Equal(2, snapshot.EventsRecoveredAtStartup);
-        Assert.Equal(2, snapshot.InterruptedSendsFailed);
-        Assert.Equal(3, snapshot.EventsScrubbed);
-        Assert.Empty(snapshot.Failures);
+        Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Information
+            && e.Message.Contains("2 interrupted send(s) failed, 2 undecided comment(s) handled, complete: True", StringComparison.Ordinal));
+        Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Information
+            && e.Message.Contains("3 event(s) scrubbed past their retention", StringComparison.Ordinal));
+        Assert.Empty(rig.Store.StepFailures);
     }
 
     [Fact]
@@ -670,7 +659,6 @@ public class SocialOrchestratorTests
 
         Assert.Equal(new[] { SocialOrchestrator.RecoveryBatch, SocialOrchestrator.RecoveryBatch }, limits);
         Assert.Equal(SocialOrchestrator.RecoveryBatch + 1, rig.Outcomes.Count);
-        Assert.Equal(SocialOrchestrator.RecoveryBatch + 1, rig.Status.Snapshot().EventsRecoveredAtStartup);
     }
 
     [Fact]
@@ -692,7 +680,7 @@ public class SocialOrchestratorTests
 
         Assert.Equal(1, listings);
         Assert.Empty(rig.Triage.Requests);
-        Assert.Equal(SocialOrchestrator.RecoveryBatch, rig.Status.Snapshot().EventsRecoveredAtStartup);
+        Assert.Equal(SocialOrchestrator.RecoveryBatch, rig.Store.StepFailures.Count(f => f.Step == "load the account"));
     }
 
     [Fact]
@@ -748,7 +736,7 @@ public class SocialOrchestratorTests
 
         Assert.True(purged);
         Assert.Equal(pending, Assert.Single(rig.Outcomes).EventId);
-        var failure = Assert.Single(rig.Status.Snapshot().Failures);
+        var failure = Assert.Single(rig.Store.StepFailures);
         Assert.Equal("fail interrupted sends", failure.Step);
         Assert.Equal(SocialFailureCodes.StoreUnavailable, failure.Code);
         Assert.Equal(Now.UtcDateTime, failure.At);
@@ -768,7 +756,8 @@ public class SocialOrchestratorTests
         await rig.Orchestrator.RecoverAsync(CancellationToken.None);
 
         Assert.Empty(rig.Triage.Requests);
-        Assert.Equal(new[] { "purge expired text", "list undecided events" }, rig.Status.Snapshot().Failures.Select(f => f.Step));
+        Assert.Equal(new[] { "purge expired text", "list undecided events" }, rig.Store.StepFailures.Select(f => f.Step));
+        Assert.All(rig.Store.StepFailures, f => Assert.Null(f.TenantId));
         Assert.Equal(2, rig.Log.Entries.Count(e => e.Level == LogLevel.Error));
     }
 
@@ -788,7 +777,7 @@ public class SocialOrchestratorTests
         await rig.Orchestrator.RecoverAsync(CancellationToken.None);
 
         Assert.Equal(good, Assert.Single(rig.Outcomes).EventId);
-        Assert.Equal(("handle an event", "unexpected_error"), (rig.Status.Snapshot().Failures[0].Step, rig.Status.Snapshot().Failures[0].Code));
+        Assert.Equal(("handle an event", "unexpected_error"), (rig.Store.StepFailures[0].Step, rig.Store.StepFailures[0].Code));
         Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Error && e.Exception is InvalidOperationException);
     }
 
@@ -809,9 +798,8 @@ public class SocialOrchestratorTests
 
         Assert.Equal(id, Assert.Single(rig.Outcomes).EventId);
         Assert.Equal(1, purges);
-        var snapshot = rig.Status.Snapshot();
-        Assert.Equal(1, snapshot.EventsTakenIn);
-        Assert.Equal(1, snapshot.EventsScrubbed);
+        Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Information
+            && e.Message.Contains("1 event(s) scrubbed past their retention", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -831,9 +819,10 @@ public class SocialOrchestratorTests
         await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
 
         Assert.True(purged);
-        Assert.Equal(0, rig.Status.Snapshot().EventsTakenIn);
-        var failure = Assert.Single(rig.Status.Snapshot().Failures);
+        Assert.Empty(rig.Triage.Requests);
+        var failure = Assert.Single(rig.Store.StepFailures);
         Assert.Equal(("load an event", SocialFailureCodes.NotFound), (failure.Step, failure.Code));
+        Assert.Null(failure.TenantId);
         Assert.Single(rig.Log.Entries, e => e.Level == LogLevel.Error);
     }
 
@@ -884,7 +873,7 @@ public class SocialOrchestratorTests
         await rig.Orchestrator.StopAsync(CancellationToken.None);
 
         Assert.Equal(2, listings);
-        Assert.Single(rig.Status.Snapshot().Failures);
+        Assert.Single(rig.Store.StepFailures);
     }
 
     [Fact]
@@ -934,7 +923,7 @@ public class SocialOrchestratorTests
         await loadedSecond.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await rig.Orchestrator.StopAsync(CancellationToken.None);
 
-        var failure = Assert.Single(rig.Status.Snapshot().Failures);
+        var failure = Assert.Single(rig.Store.StepFailures);
         Assert.Equal(("take in an event", "unexpected_error"), (failure.Step, failure.Code));
     }
 
@@ -961,11 +950,11 @@ public class SocialOrchestratorTests
         await woken.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await rig.Orchestrator.StopAsync(CancellationToken.None);
 
-        Assert.Equal(("recover at startup", "unexpected_error"), (rig.Status.Snapshot().Failures[0].Step, rig.Status.Snapshot().Failures[0].Code));
+        Assert.Equal(("recover at startup", "unexpected_error"), (rig.Store.StepFailures[0].Step, rig.Store.StepFailures[0].Code));
         Assert.Equal(2, calls);
     }
 
-    // ----- The send side: own comments, auto-send, waiting drafts, re-runs and live updates -----
+    // ----- The send side: own comments, waiting drafts, re-runs and live updates -----
 
     [Fact]
     public async Task The_accounts_own_comment_is_never_triaged_and_needs_no_reply()
@@ -1086,31 +1075,67 @@ public class SocialOrchestratorTests
         Assert.Equal(
             new[]
             {
-                typeof(SocialWake), typeof(IServiceScopeFactory), typeof(SocialOrchestratorStatus),
+                typeof(SocialWake), typeof(IServiceScopeFactory),
                 typeof(GeekAPI.Services.Social.Realtime.ISocialRealtime), typeof(TimeProvider), typeof(ILogger<SocialOrchestrator>),
             },
             taken);
     }
 
+    // ----- Kept failures -----
+
     [Fact]
-    public void The_status_keeps_only_the_most_recent_failures()
+    public async Task A_failure_on_a_comment_is_kept_for_that_comments_tenant_with_its_step_code_and_time()
     {
-        var status = new SocialOrchestratorStatus();
-        for (var i = 0; i < 30; i++)
-            status.RecordFailure($"step {i}", SocialFailureCodes.StoreUnavailable, Now.UtcDateTime);
+        var tenant = Guid.NewGuid();
+        var rig = Build(script: store =>
+        {
+            store.OnGetEvent = id =>
+            {
+                var owned = Comment(id);
+                owned.TenantId = tenant;
+                return Result<EngagementEvent>.Success(owned);
+            };
+            store.OnGetAccount = _ => Result<SocialAccount>.Failure("down", SocialFailureCodes.StoreUnavailable);
+        });
 
-        var kept = status.Snapshot().Failures;
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
 
-        Assert.Equal(20, kept.Count);
-        Assert.Equal("step 10", kept[0].Step);
-        Assert.Equal("step 29", kept[^1].Step);
+        var failure = Assert.Single(rig.Store.StepFailures);
+        Assert.Equal(tenant, failure.TenantId);
+        Assert.Equal(("load the account", SocialFailureCodes.StoreUnavailable, Now.UtcDateTime), (failure.Step, failure.Code, failure.At));
     }
 
     [Fact]
-    public void The_status_refuses_an_outcome_the_store_does_not_hold()
+    public async Task A_failure_with_no_code_is_kept_as_unknown_not_dropped()
     {
-        var status = new SocialOrchestratorStatus();
+        var rig = Build(script: store => store.OnPurge = _ => Result<SocialPurgeResult>.Failure("down", null!));
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => status.RecordOutcome(TriageOutcomes.Untriaged));
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Equal(SocialStepFailures.Unknown, Assert.Single(rig.Store.StepFailures).Code);
+    }
+
+    [Fact]
+    public async Task A_failure_the_store_cannot_keep_is_logged_as_an_error_of_its_own_and_the_comment_still_stalls()
+    {
+        var rig = Build(script: store =>
+        {
+            store.OnGetAccount = _ => Result<SocialAccount>.Failure("down", SocialFailureCodes.StoreUnavailable);
+            store.OnRecordStepFailure = _ => Result<SocialStepFailure>.Failure("still down", SocialFailureCodes.StoreUnavailable);
+        });
+
+        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
+
+        Assert.Empty(rig.Outcomes);
+        Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Error
+            && e.Message.Contains("could not keep the failure of load the account", StringComparison.Ordinal));
+        Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Error
+            && e.Message.Contains("could not load the account", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Nothing_in_GeekAPI_keeps_failures_or_counts_in_memory_any_more()
+    {
+        Assert.Null(typeof(SocialOrchestrator).Assembly.GetType("GeekAPI.Services.Social.Orchestration.SocialOrchestratorStatus"));
     }
 }

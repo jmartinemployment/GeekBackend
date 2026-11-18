@@ -85,7 +85,6 @@ public sealed class SocialSendStep : ISocialSendStep
     private readonly ISocialTokenProvider _tokens;
     private readonly SocialSender _sender;
     private readonly IOutboundTextReviewer _reviewer;
-    private readonly SocialOrchestratorStatus _status;
     private readonly ISocialRealtime _realtime;
     private readonly TimeProvider _clock;
     private readonly ILogger<SocialSendStep> _logger;
@@ -95,7 +94,6 @@ public sealed class SocialSendStep : ISocialSendStep
         ISocialTokenProvider tokens,
         SocialSender sender,
         IOutboundTextReviewer reviewer,
-        SocialOrchestratorStatus status,
         ISocialRealtime realtime,
         TimeProvider clock,
         ILogger<SocialSendStep> logger)
@@ -104,7 +102,6 @@ public sealed class SocialSendStep : ISocialSendStep
         _tokens = tokens;
         _sender = sender;
         _reviewer = reviewer;
-        _status = status;
         _realtime = realtime;
         _clock = clock;
         _logger = logger;
@@ -118,7 +115,7 @@ public sealed class SocialSendStep : ISocialSendStep
     {
         var loaded = await _store.GetDraftAsync(tenantId, draftId, ct).ConfigureAwait(false);
         if (!loaded.IsSuccess)
-            return StepFailed<SocialSendOutcome>("load the draft", loaded.ErrorCode, loaded.Error, draftId);
+            return await StepFailedAsync<SocialSendOutcome>(tenantId, "load the draft", loaded.ErrorCode, loaded.Error, draftId, ct).ConfigureAwait(false);
 
         var draft = loaded.Value!;
         if (draft.Status != ReplyDraftStatuses.Approved)
@@ -127,7 +124,7 @@ public sealed class SocialSendStep : ISocialSendStep
 
         var account = await _store.GetAccountAsync(tenantId, draft.AccountId, ct).ConfigureAwait(false);
         if (!account.IsSuccess)
-            return StepFailed<SocialSendOutcome>("load the account", account.ErrorCode, account.Error, draftId);
+            return await StepFailedAsync<SocialSendOutcome>(tenantId, "load the account", account.ErrorCode, account.Error, draftId, ct).ConfigureAwait(false);
 
         if (account.Value!.Status != SocialAccountStatuses.Connected)
             return Held(draft, SocialFailureCodes.TokenInvalid, "The account must be reconnected before it can send.", null);
@@ -136,22 +133,22 @@ public sealed class SocialSendStep : ISocialSendStep
 
         var ev = await _store.GetEventAsync(tenantId, draft.EngagementEventId, ct).ConfigureAwait(false);
         if (!ev.IsSuccess)
-            return StepFailed<SocialSendOutcome>("load the comment", ev.ErrorCode, ev.Error, draftId);
+            return await StepFailedAsync<SocialSendOutcome>(tenantId, "load the comment", ev.ErrorCode, ev.Error, draftId, ct).ConfigureAwait(false);
 
         // The text is checked again here, whoever approved it: nothing leaves without passing the Reviewer.
         var links = await ApprovedLinksAsync(ev.Value!, ct).ConfigureAwait(false);
         if (!links.IsSuccess)
-            return StepFailed<SocialSendOutcome>("load the post", links.ErrorCode, links.Error, draftId);
+            return await StepFailedAsync<SocialSendOutcome>(tenantId, "load the post", links.ErrorCode, links.Error, draftId, ct).ConfigureAwait(false);
 
         var refusal = Review(draft, links.Value!);
         if (!refusal.IsSuccess)
-            return StepFailed<SocialSendOutcome>("review the draft", refusal.ErrorCode, refusal.Error, draftId);
+            return await StepFailedAsync<SocialSendOutcome>(tenantId, "review the draft", refusal.ErrorCode, refusal.Error, draftId, ct).ConfigureAwait(false);
         if (refusal.Value is { } violations)
             return await RejectUnsendableAsync(draft, violations, ct).ConfigureAwait(false);
 
         var limit = await CheckLimitsAsync(tenantId, draft.AccountId, ct).ConfigureAwait(false);
         if (!limit.IsSuccess)
-            return StepFailed<SocialSendOutcome>("read the audit for the limits", limit.ErrorCode, limit.Error, draftId);
+            return await StepFailedAsync<SocialSendOutcome>(tenantId, "read the audit for the limits", limit.ErrorCode, limit.Error, draftId, ct).ConfigureAwait(false);
         if (limit.Value is { } retryAfter)
             return Held(draft, SocialFailureCodes.RateLimited,
                 $"A send limit holds this draft until {retryAfter:u}. It goes at the next wake after that, or with Send.", retryAfter);
@@ -171,7 +168,7 @@ public sealed class SocialSendStep : ISocialSendStep
             // Conflict here is a pause or reconnect that landed meanwhile, or another sender winning the draft.
             if (sending.ErrorCode == SocialFailureCodes.Conflict)
                 return Held(draft, SocialFailureCodes.Conflict, sending.Error!, null);
-            return StepFailed<SocialSendOutcome>("move the draft to sending", sending.ErrorCode, sending.Error, draftId);
+            return await StepFailedAsync<SocialSendOutcome>(tenantId, "move the draft to sending", sending.ErrorCode, sending.Error, draftId, ct).ConfigureAwait(false);
         }
 
         await _realtime.DraftChangedAsync(draft.TenantId, draft.Id, draft.AccountId, ReplyDraftStatuses.Sending, ct).ConfigureAwait(false);
@@ -198,7 +195,7 @@ public sealed class SocialSendStep : ISocialSendStep
         var waiting = await _store.ListDraftsAcrossTenantsAsync(ReplyDraftStatuses.Approved, WaitingBatch, ct).ConfigureAwait(false);
         if (!waiting.IsSuccess)
         {
-            Fail("list approved drafts", waiting.ErrorCode, waiting.Error, null);
+            await FailAsync(null, "list approved drafts", waiting.ErrorCode, waiting.Error, null, ct).ConfigureAwait(false);
             return 0;
         }
 
@@ -265,11 +262,11 @@ public sealed class SocialSendStep : ISocialSendStep
             At = Now(),
         }, ct).ConfigureAwait(false);
         if (!rejected.IsSuccess)
-            return StepFailed<SocialSendOutcome>("reject an unsendable draft", rejected.ErrorCode, rejected.Error, draft.Id);
+            return await StepFailedAsync<SocialSendOutcome>(draft.TenantId, "reject an unsendable draft", rejected.ErrorCode, rejected.Error, draft.Id, ct).ConfigureAwait(false);
 
         var why = violations.Count == 0 ? "it has no text" : $"it breaks: {string.Join(", ", violations)}";
         _logger.LogError("Approved draft {DraftId} was not sent and is now rejected: {Why}.", draft.Id, why);
-        _status.RecordFailure("send a draft", SocialFailureCodes.InvalidRequest, Now());
+        await KeepFailureAsync(draft.TenantId, "send a draft", SocialFailureCodes.InvalidRequest, ct).ConfigureAwait(false);
         await _realtime.DraftChangedAsync(draft.TenantId, draft.Id, draft.AccountId, ReplyDraftStatuses.Rejected, ct).ConfigureAwait(false);
         return Result<SocialSendOutcome>.Success(new SocialSendOutcome
         {
@@ -315,12 +312,11 @@ public sealed class SocialSendStep : ISocialSendStep
             At = Now(),
         }, ct).ConfigureAwait(false);
 
-        _status.RecordSend(SocialSendKind.Sent);
         if (!sent.IsSuccess)
         {
             // The reply is live and the store would not say so. The draft stays sending, and the next
             // startup marks it outcome_unknown, so it is never sent twice.
-            Fail("record a sent draft", sent.ErrorCode, sent.Error, draft.Id);
+            await FailAsync(draft.TenantId, "record a sent draft", sent.ErrorCode, sent.Error, draft.Id, ct).ConfigureAwait(false);
             _logger.LogCritical(
                 "Draft {DraftId} was sent as comment {CommentId} and could not be recorded as sent; it stays sending and is never resent.",
                 draft.Id, platformCommentId);
@@ -341,8 +337,7 @@ public sealed class SocialSendStep : ISocialSendStep
     private async Task<Result<SocialSendOutcome>> RecordSendFailedAsync(ReplyDraft draft, string? code, string? error, CancellationToken ct)
     {
         var failure = SocialFailureCodes.IsKnown(code) ? code! : SocialFailureCodes.PlatformRejected;
-        _status.RecordSend(SocialSendKind.Failed);
-        _status.RecordFailure("send a draft", failure, Now());
+        await KeepFailureAsync(draft.TenantId, "send a draft", failure, ct).ConfigureAwait(false);
 
         var failed = await _store.TransitionDraftAsync(draft.TenantId, draft.Id, new TransitionReplyDraftCommand
         {
@@ -353,7 +348,7 @@ public sealed class SocialSendStep : ISocialSendStep
         }, ct).ConfigureAwait(false);
         if (!failed.IsSuccess)
         {
-            Fail("record a failed send", failed.ErrorCode, failed.Error, draft.Id);
+            await FailAsync(draft.TenantId, "record a failed send", failed.ErrorCode, failed.Error, draft.Id, ct).ConfigureAwait(false);
             return Result<SocialSendOutcome>.Success(new SocialSendOutcome
             {
                 Code = failure,
@@ -368,7 +363,6 @@ public sealed class SocialSendStep : ISocialSendStep
 
     private Result<SocialSendOutcome> Held(ReplyDraft draft, string code, string reason, DateTime? retryAfter)
     {
-        _status.RecordSend(SocialSendKind.Held);
         _logger.LogWarning("Draft {DraftId} is held and stays approved: {Code}.", draft.Id, code);
         return Result<SocialSendOutcome>.Success(new SocialSendOutcome
         {
@@ -380,19 +374,40 @@ public sealed class SocialSendStep : ISocialSendStep
         });
     }
 
-    private Result<T> StepFailed<T>(string step, string? code, string? error, Guid draftId)
+    private async Task<Result<T>> StepFailedAsync<T>(Guid tenantId, string step, string? code, string? error, Guid draftId, CancellationToken ct)
     {
-        Fail(step, code, error, draftId);
+        await FailAsync(tenantId, step, code, error, draftId, ct).ConfigureAwait(false);
         return Result<T>.Failure(error ?? $"Could not {step}.", code ?? SocialFailureCodes.StoreUnavailable);
     }
 
-    private void Fail(string step, string? code, string? error, Guid? draftId)
+    /// <summary>Logs a step that could not complete and keeps it for the status page of the tenant, or of every tenant when it belongs to none.</summary>
+    private async Task FailAsync(Guid? tenantId, string step, string? code, string? error, Guid? draftId, CancellationToken ct)
     {
-        _status.RecordFailure(step, code ?? "unknown", Now());
         if (draftId is { } id)
             _logger.LogError("The send step could not {Step} for draft {DraftId}: {Code}. {Error}", step, id, code, error);
         else
             _logger.LogError("The send step could not {Step}: {Code}. {Error}", step, code, error);
+
+        await KeepFailureAsync(tenantId, step, code ?? SocialStepFailures.Unknown, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Keeps a failure for the status page; a store that cannot keep it is logged as an error of its own.</summary>
+    private async Task KeepFailureAsync(Guid? tenantId, string step, string code, CancellationToken ct)
+    {
+        var kept = await _store.RecordStepFailureAsync(new RecordSocialStepFailureCommand
+        {
+            TenantId = tenantId,
+            Step = step,
+            Code = code,
+            At = Now(),
+        }, ct).ConfigureAwait(false);
+
+        if (!kept.IsSuccess)
+        {
+            _logger.LogError(
+                "The send step could not keep the failure of {Step} ({Code}) for the status page: {KeepCode}. {Error}",
+                step, code, kept.ErrorCode, kept.Error);
+        }
     }
 
     private DateTime Now() => _clock.GetUtcNow().UtcDateTime;

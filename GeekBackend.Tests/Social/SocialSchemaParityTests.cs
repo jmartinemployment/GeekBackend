@@ -28,10 +28,11 @@ public class SocialSchemaParityTests
         "0043_geek_social_schema.sql",
         "0064_geek_social_tenants.sql",
         "0072_geek_social_drop_auto_send.sql",
+        "0073_geek_social_step_failures.sql",
     };
 
     /// <summary>
-    /// The geek_social scripts, 0043 (the schema), 0064 (tenants) and 0072 (auto-send dropped), with their comments
+    /// The geek_social scripts, 0043 (the schema), 0064 (tenants), 0072 (auto-send dropped) and 0073 (kept step failures), with their comments
     /// removed, so prose that names a constraint cannot satisfy a test.
     /// </summary>
     private static string Sql => Regex.Replace(
@@ -68,6 +69,16 @@ public class SocialSchemaParityTests
         Assert.Equal(Sorted(ReplyDraftStatuses.All), CheckList("ck_reply_drafts_status"));
         Assert.Equal(Sorted(ActionKinds.All), CheckList("ck_action_audit_action"));
         Assert.Equal(Sorted(ActionOutcomes.All), CheckList("ck_action_audit_outcome"));
+    }
+
+    private static readonly string[] StepFailureColumns = { "code", "id", "occurred_at", "step", "tenant_id" };
+
+    [Fact]
+    public void A_kept_failure_holds_a_step_a_code_and_a_time_and_may_belong_to_no_tenant()
+    {
+        Assert.Equal(StepFailureColumns, ScriptColumns("step_failures"));
+        Assert.Matches(@"tenant_id\s+uuid\s+NULL\s+REFERENCES\s+geek_social\.tenants", Sql);
+        Assert.Matches(@"ck_step_failures_code\s+CHECK\s*\(\s*code\s*~\s*'\^\[a-z_\]\{1,64\}\$'\s*\)", Sql);
     }
 
     [Fact]
@@ -130,6 +141,7 @@ public class SocialSchemaParityTests
         new object[] { typeof(EngagementEventRow), "engagement_events" },
         new object[] { typeof(ReplyDraftRow), "reply_drafts" },
         new object[] { typeof(ActionAuditRow), "action_audit" },
+        new object[] { typeof(SocialStepFailureRow), "step_failures" },
     };
 
     private static string[] ScriptColumns(string table)
@@ -191,6 +203,7 @@ public class SocialSchemaParityTests
         yield return new object[] { "PostColumns", nameof(SocialPost), "social_posts" };
         yield return new object[] { "DraftColumns", "DraftReadRow", "reply_drafts" };
         yield return new object[] { "AuditColumns", nameof(ActionAudit), "action_audit" };
+        yield return new object[] { "FailureColumns", nameof(SocialStepFailure), "step_failures" };
     }
 
     private static Type ModelNamed(string name) =>

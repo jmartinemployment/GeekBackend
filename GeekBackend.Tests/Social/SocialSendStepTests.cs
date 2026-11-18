@@ -79,7 +79,6 @@ public class SocialSendStepTests
         public required FakeWriter Writer { get; init; }
         public required FakeTokens Tokens { get; init; }
         public required FakeRealtime Realtime { get; init; }
-        public required SocialOrchestratorStatus Status { get; init; }
         public required RecordingLog<SocialSendStep> Log { get; init; }
         public required RecordingLog<SocialSender> SenderLog { get; init; }
     }
@@ -87,6 +86,7 @@ public class SocialSendStepTests
     private static ReplyDraft Draft(string status = ReplyDraftStatuses.Approved, string text = "Thanks for asking. We do.", string category = ReplyCategories.Question) => new()
     {
         Id = DraftId,
+        TenantId = TestTenant.Id,
         AccountId = AccountId,
         EngagementEventId = EventId,
         Platform = SocialPlatforms.Facebook,
@@ -153,19 +153,17 @@ public class SocialSendStepTests
         var clock = new MetaEngagementReaderTests.FixedClock(Now);
         var senderLog = new RecordingLog<SocialSender>();
         var sender = new SocialSender(services, store, clock, senderLog);
-        var status = new SocialOrchestratorStatus();
         var realtime = new FakeRealtime();
         var log = new RecordingLog<SocialSendStep>();
         tokens ??= FakeTokens.Good();
 
         return new Rig
         {
-            Step = new SocialSendStep(store, tokens, sender, new OutboundTextReviewer(), status, realtime, clock, log),
+            Step = new SocialSendStep(store, tokens, sender, new OutboundTextReviewer(), realtime, clock, log),
             Store = store,
             Writer = writer,
             Tokens = tokens,
             Realtime = realtime,
-            Status = status,
             Log = log,
             SenderLog = senderLog,
         };
@@ -204,7 +202,7 @@ public class SocialSendStepTests
         Assert.Equal("user-1", audit.ActorUserId);
 
         Assert.Contains(("draftChanged", DraftId, AccountId, ReplyDraftStatuses.Sent), rig.Realtime.Sent);
-        Assert.Equal(1, rig.Status.Snapshot().DraftsSent);
+        Assert.Empty(rig.Store.StepFailures);
     }
 
     [Theory]
@@ -226,7 +224,8 @@ public class SocialSendStepTests
         Assert.Equal(code, rig.Store.Transitions[^1].Command.FailureCode);
         Assert.Equal(outcome, Assert.Single(rig.Store.Audits).Outcome);
         Assert.Contains(rig.SenderLog.Entries, e => e.Level == LogLevel.Error);
-        Assert.Equal(1, rig.Status.Snapshot().DraftsSendFailed);
+        var kept = Assert.Single(rig.Store.StepFailures);
+        Assert.Equal(("send a draft", code, (Guid?)TestTenant.Id), (kept.Step, kept.Code, kept.TenantId));
         AssertNothingPrivate(rig);
     }
 
@@ -388,7 +387,8 @@ public class SocialSendStepTests
 
         Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);
         Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Error);
-        Assert.NotEmpty(rig.Status.Snapshot().Failures);
+        var kept = Assert.Single(rig.Store.StepFailures);
+        Assert.Equal(("load the draft", SocialFailureCodes.StoreUnavailable, (Guid?)TestTenant.Id), (kept.Step, kept.Code, kept.TenantId));
     }
 
     // ----- The Sender -----
@@ -484,6 +484,8 @@ public class SocialSendStepTests
 
         Assert.Equal(0, sent);
         Assert.Contains(rig.Log.Entries, e => e.Level == LogLevel.Error);
-        Assert.Contains(rig.Status.Snapshot().Failures, f => f.Step == "list approved drafts");
+        var kept = Assert.Single(rig.Store.StepFailures);
+        Assert.Equal("list approved drafts", kept.Step);
+        Assert.Null(kept.TenantId);
     }
 }

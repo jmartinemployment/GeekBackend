@@ -183,6 +183,37 @@ public class SocialRepositoryValidationTests
     }
 
     [Fact]
+    public async Task A_status_read_the_database_cannot_answer_is_a_failure_never_zero_counts()
+    {
+        var result = await NewRepository().GetTenantStatusAsync(TestTenant.Id, 10);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(SocialFailureCodes.StoreUnavailable, result.ErrorCode);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public async Task A_step_failure_is_refused_without_a_step_a_code_shaped_like_one_a_time_or_with_an_empty_tenant()
+    {
+        var repo = NewRepository();
+        var cases = new List<RecordSocialStepFailureCommand>
+        {
+            new() { TenantId = TestTenant.Id, Step = " ", Code = SocialFailureCodes.StoreUnavailable, At = Now },
+            new() { TenantId = TestTenant.Id, Step = new string('x', 101), Code = SocialFailureCodes.StoreUnavailable, At = Now },
+            new() { TenantId = TestTenant.Id, Step = "load the account", Code = "", At = Now },
+            new() { TenantId = TestTenant.Id, Step = "load the account", Code = "Store Unavailable", At = Now },
+            new() { TenantId = TestTenant.Id, Step = "load the account", Code = new string('a', 65), At = Now },
+            new() { TenantId = TestTenant.Id, Step = "load the account", Code = SocialFailureCodes.StoreUnavailable, At = default },
+            new() { TenantId = Guid.Empty, Step = "load the account", Code = SocialFailureCodes.StoreUnavailable, At = Now },
+        };
+
+        foreach (var command in cases)
+            AssertInvalid(await repo.RecordStepFailureAsync(command));
+        AssertInvalid(await repo.RecordStepFailureAsync(null!));
+        AssertInvalid(await repo.GetTenantStatusAsync(Guid.Empty, 10));
+    }
+
+    [Fact]
     public async Task A_database_failure_is_a_failed_result_that_says_so_and_leaks_nothing()
     {
         var result = await NewRepository().ListAccountsAsync(TestTenant.Id);

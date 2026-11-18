@@ -95,6 +95,15 @@ public sealed class ActionAuditRow
     public DateTime OccurredAt { get; set; }
 }
 
+public sealed class SocialStepFailureRow
+{
+    public Guid Id { get; set; }
+    public Guid? TenantId { get; set; }
+    public string Step { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
+    public DateTime OccurredAt { get; set; }
+}
+
 public sealed class SocialTenantRow
 {
     public Guid Id { get; set; }

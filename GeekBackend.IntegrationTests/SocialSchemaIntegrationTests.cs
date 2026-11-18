@@ -582,4 +582,71 @@ public sealed class SocialSchemaIntegrationTests
         Assert.Equal(T0, second.AiConsentAcceptedAt);
         Assert.Equal(SocialFailureCodes.NotFound, (await repo.AcceptAiTermsAsync(Guid.NewGuid(), T0)).ErrorCode);
     }
+
+    [Fact]
+    public async Task A_tenant_status_counts_only_its_own_rows_and_lists_its_failures_and_those_of_no_tenant()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var repo = NewRepository(new MovableClock());
+
+        // Earlier runs left rows in these tenants, so the counts are compared before and after.
+        var before = (await repo.GetTenantStatusAsync(Tenant, 50)).Value!;
+        var otherBefore = (await repo.GetTenantStatusAsync(OtherTenant, 50)).Value!;
+
+        var account = await ConnectAsync(repo);
+        var undecided = CommentOn(account);
+        var decided = CommentOn(account);
+        Assert.True((await repo.RecordEventAsync(undecided)).IsSuccess);
+        Assert.True((await repo.RecordEventAsync(decided)).IsSuccess);
+        Assert.True((await repo.RecordTriageOutcomeAsync(Tenant, decided.Id,
+            new RecordTriageOutcomeCommand { Outcome = TriageOutcomes.ReplyNeeded, At = T0 })).IsSuccess);
+        Assert.True((await repo.CreateDraftAsync(Tenant, new CreateReplyDraftCommand
+            { EngagementEventId = decided.Id, Category = ReplyCategories.Question, DraftText = "Thanks for asking." })).IsSuccess);
+
+        var after = (await repo.GetTenantStatusAsync(Tenant, 50)).Value!;
+        Assert.Equal(before.Comments.Undecided + 1, after.Comments.Undecided);
+        Assert.Equal(before.Comments.ReplyNeeded + 1, after.Comments.ReplyNeeded);
+        Assert.Equal(before.Drafts.Pending + 1, after.Drafts.Pending);
+
+        var otherAfter = (await repo.GetTenantStatusAsync(OtherTenant, 50)).Value!;
+        Assert.Equal(otherBefore.Comments.Undecided, otherAfter.Comments.Undecided);
+        Assert.Equal(otherBefore.Drafts.Pending, otherAfter.Drafts.Pending);
+
+        // Kept failures: dated after every earlier run's, so they are the newest and inside the limit.
+        var mark = Guid.NewGuid().ToString("N")[..8];
+        var at = DateTime.UtcNow;
+        foreach (var (tenant, step) in new[] { ((Guid?)Tenant, $"mine {mark}"), (OtherTenant, $"theirs {mark}"), (null, $"everyone {mark}") })
+        {
+            var kept = await repo.RecordStepFailureAsync(new RecordSocialStepFailureCommand
+                { TenantId = tenant, Step = step, Code = SocialFailureCodes.StoreUnavailable, At = at });
+            Assert.True(kept.IsSuccess, kept.Error);
+        }
+
+        var steps = (await repo.GetTenantStatusAsync(Tenant, 50)).Value!.Failures.Select(f => f.Step).ToList();
+        Assert.Contains($"mine {mark}", steps);
+        Assert.Contains($"everyone {mark}", steps);
+        Assert.DoesNotContain($"theirs {mark}", steps);
+    }
+
+    [Fact]
+    public async Task The_purge_deletes_kept_failures_older_than_thirty_days_and_keeps_the_rest()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var repo = NewRepository(new MovableClock());
+
+        var mark = Guid.NewGuid().ToString("N")[..8];
+        Assert.True((await repo.RecordStepFailureAsync(new RecordSocialStepFailureCommand
+            { TenantId = Tenant, Step = $"old {mark}", Code = SocialFailureCodes.StoreUnavailable, At = T0.AddDays(-31) })).IsSuccess);
+        Assert.True((await repo.RecordStepFailureAsync(new RecordSocialStepFailureCommand
+            { TenantId = Tenant, Step = $"recent {mark}", Code = SocialFailureCodes.StoreUnavailable, At = T0.AddDays(-29) })).IsSuccess);
+
+        var purged = await repo.PurgeExpiredAsync(T0);
+
+        Assert.True(purged.IsSuccess, purged.Error);
+        Assert.True(purged.Value!.FailuresDeleted >= 1);
+        Assert.Equal(0, await ScalarAsync("SELECT count(*) FROM geek_social.step_failures WHERE step = @step", ("step", $"old {mark}")));
+        Assert.Equal(1, await ScalarAsync("SELECT count(*) FROM geek_social.step_failures WHERE step = @step", ("step", $"recent {mark}")));
+    }
 }

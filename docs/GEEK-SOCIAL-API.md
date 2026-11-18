@@ -20,9 +20,7 @@ then it is held as `blocked_no_clearance` and is never sent to the model.
 
 Only Facebook is built, so `platform` is `facebook` in every example below and the connect routes are Meta's. GeekSocial owns the app on each network, and a tenant connects by signing in. Accounts, drafts, comments, posts and audit rows already carry `platform`; each other platform still needs its own connector and connect routes. The scope is in `docs/GEEKSOCIAL-SCOPE.md`; the plan of work is `geek-social/plans/geek-social-roadmap-2026-11-18.md`.
 
-**What this page describes.** This page documents the API as built. The AI provider is replaceable and auto-send is removed (roadmap Phase 0, items 1 and 2, built). Roadmap Phase 0 still changes two things here, and this page changes with the code:
-- status becomes per tenant;
-- `connect/meta/start` and `posts/copy` get the tenant check.
+**What this page describes.** This page documents the API as built. The AI provider is replaceable, auto-send is removed, and status is per tenant (roadmap Phase 0, items 1 to 3, built). Roadmap Phase 0 still changes one thing here, and this page changes with the code: `connect/meta/start` and `posts/copy` get the tenant check.
 
 | Route | What it does |
 |---|---|
@@ -52,21 +50,28 @@ and are null once their retention has run out.
 
 ## Status
 
-`GET api/social/status`
+`GET api/social/status`, for the signed-in person's tenant (403 before sign-up, like every other route).
 
 ```json
 {
-  "orchestrator": { "recoveredAt": "...", "eventsRecoveredAtStartup": 0, "interruptedSendsFailed": 0, "eventsScrubbed": 0,
-    "eventsTakenIn": 0, "commentsReplyNeeded": 0, "commentsNoReplyNeeded": 0, "commentsBlockedNoClearance": 0,
-    "commentsFailed": 0, "draftsPending": 0, "draftsForAPerson": 0, "draftsRefused": 0,
-    "draftsSent": 0, "draftsSendFailed": 0, "sendsHeld": 0,
-    "failures": [ { "step": "create a draft", "code": "store_unavailable", "at": "..." } ] },
+  "comments": { "undecided": 0, "replyNeeded": 0, "noReplyNeeded": 0, "blockedNoClearance": 0, "failed": 0 },
+  "drafts": { "pending": 0, "approved": 0, "sending": 0, "sent": 0, "failed": 0, "rejected": 0 },
+  "failures": [ { "step": "create a draft", "code": "store_unavailable", "at": "...", "forEveryTenant": false } ],
   "aiProvider": { "id": "anthropic", "name": "Anthropic", "model": "<model>", "apiKeySet": true },
   "clearedPlatforms": ["facebook"],
   "metaConfigured": true,
   "sendLimits": { "repliesPerAccountPerHour": 30, "coolDownMinutes": 15 }
 }
 ```
+
+`comments` and `drafts` count the rows GeekRepository holds for this tenant and no other: comments by what triage
+decided (`undecided` is waiting for it), drafts by status. `failures` are the steps GeekSocial could not complete,
+newest first, at most 50, kept 30 days in `geek_social.step_failures` (migration 0073) and deleted by the retention
+purge: this tenant's own, and those that belong to no one tenant (`forEveryTenant`: startup recovery, the purge, a
+list across tenants), which carry only the step, the code and the time. `code` is a failure code, `unexpected_error`
+for a step that threw (the log has the exception), or `unknown` for a failure that came back without a code. A
+failure the store could not keep is logged as an error of its own. A status read the store cannot answer fails
+(503); it is never answered with zero counts.
 
 `aiProvider` is the provider GeekAPI is set to call, or `null` when none is set. `model` is `null` when no
 model is set; the key is never returned, only whether it is set. `clearedPlatforms` are the platforms cleared
