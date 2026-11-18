@@ -57,11 +57,11 @@ public sealed class HttpVoiceRepositoryTests
 
     private static object TenantBody() => new
     {
-        id = Tenant, businessName = "Boca Cool HVAC", industryVertical = "Plumbing, heating, & air-conditioning contractors", requiresAddendum = false, complianceAttestedAt = DateTimeOffset.UnixEpoch,
+        id = Tenant, businessName = "Boca Cool HVAC", industryVertical = "Plumbing, heating, & air-conditioning contractors", complianceAttestedAt = DateTimeOffset.UnixEpoch,
         countryCode = "US", stateCode = "FL", contactEmail = "owner@bocacool.example", contactPhone = "+15615550101", status = "pending_payment", createdAt = DateTimeOffset.UnixEpoch,
     };
 
-    private static CreateVoiceTenantCommand SomeTenant() => new("Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", "owner@bocacool.example", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(DateTimeOffset.UnixEpoch) };
+    private static CreateVoiceTenantCommand SomeTenant() => new("Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", DateTimeOffset.UnixEpoch, "US", "FL", "owner@bocacool.example", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(DateTimeOffset.UnixEpoch) };
 
     [Fact]
     public async Task Creating_a_tenant_posts_the_command_and_reads_the_tenant()

@@ -9,9 +9,8 @@ using Microsoft.Extensions.Time.Testing;
 namespace GeekBackend.Tests.Voice;
 
 /// <summary>
-/// The four rules of the self-service gate, in the plan's order, and what each leaves behind: a refused signup creates nothing,
-/// and an accepted one is exactly one pending tenant carrying the attestation, what the business does and, where the
-/// industry needs it, the addendum.
+/// The three rules of the self-service gate, in the plan's order, and what each leaves behind: a refused signup creates nothing,
+/// and an accepted one is exactly one pending tenant carrying the attestation and what the business does.
 /// </summary>
 public sealed class OnboardingEligibilityTests
 {
@@ -28,8 +27,8 @@ public sealed class OnboardingEligibilityTests
             return Task.FromResult(create is not null ? create() : Result<VoiceTenant>.Success(Tenant(command)));
         }
 
-        private static VoiceTenant Tenant(CreateVoiceTenantCommand c) => new(NewTenant, c.BusinessName, c.IndustryVertical, c.RequiresAddendum,
-            c.AddendumSignedAt, c.AddendumIpAddress, c.ComplianceAttestedAt, c.CountryCode, c.StateCode, c.ContactEmail, c.ContactPhone,
+        private static VoiceTenant Tenant(CreateVoiceTenantCommand c) => new(NewTenant, c.BusinessName, c.IndustryVertical,
+            c.ComplianceAttestedAt, c.CountryCode, c.StateCode, c.ContactEmail, c.ContactPhone,
             VoiceTenantStatuses.PendingPayment, Now);
 
         public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
@@ -46,8 +45,8 @@ public sealed class OnboardingEligibilityTests
     }
 
     private static ValidateEligibilityRequest Signup(
-        string? country = "US", bool? attested = true, bool? addendumSigned = null, string? yesTo = null, bool? professional = false) =>
-        new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, addendumSigned, Answers(yesTo), professional);
+        string? country = "US", bool? attested = true, string? yesTo = null) =>
+        new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, Answers(yesTo));
 
     /// <summary>The seven questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
     private static List<IndustryAnswerInput> Answers(string? yesTo = null) =>
@@ -69,9 +68,6 @@ public sealed class OnboardingEligibilityTests
         Assert.Equal(new EligibilityAccepted(NewTenant, VoiceTenantStatuses.PendingPayment), result.Value);
         var created = Assert.Single(store.Created);
         Assert.Equal(Now, created.ComplianceAttestedAt);
-        Assert.False(created.RequiresAddendum);
-        Assert.Null(created.AddendumSignedAt);
-        Assert.Null(created.AddendumIpAddress);
         Assert.Equal("US", created.CountryCode);
         Assert.Equal("+15615550101", created.ContactPhone);
         Assert.Equal("Heating and air conditioning", created.IndustryVertical);
@@ -104,7 +100,6 @@ public sealed class OnboardingEligibilityTests
         Assert.True(result.IsSuccess, result.Error);
         var created = Assert.Single(store.Created);
         Assert.Equal("AI for accounting firms", created.IndustryVertical);
-        Assert.False(created.RequiresAddendum);
     }
 
     [Fact]
@@ -144,17 +139,6 @@ public sealed class OnboardingEligibilityTests
         var result = await Gate(store).ValidateAsync(Signup() with { BusinessDescription = description }, FromUs);
 
         Assert.Equal(OnboardingFailureCodes.BusinessDescriptionRequired, result.ErrorCode);
-        Assert.Empty(store.Created);
-    }
-
-    [Fact]
-    public async Task A_signup_without_its_professional_services_answer_is_refused_and_never_read_as_a_no()
-    {
-        var store = new RecordingStore();
-
-        var result = await Gate(store).ValidateAsync(Signup(professional: null), FromUs);
-
-        Assert.Equal(OnboardingFailureCodes.IndustryNotAnswered, result.ErrorCode);
         Assert.Empty(store.Created);
     }
 
@@ -206,12 +190,12 @@ public sealed class OnboardingEligibilityTests
     [InlineData("commodity_futures_derivatives")]
     [InlineData("medicare_sales")]
     [InlineData("telemarketing")]
-    public async Task A_yes_to_any_one_excluded_industry_is_refused_even_with_a_signed_addendum_and_the_yes_is_stored(string industry)
+    public async Task A_yes_to_any_one_excluded_industry_is_refused_and_the_yes_is_stored(string industry)
     {
         var store = new RecordingStore();
         var refusals = new RecordingSignupAnswerStore();
 
-        var result = await Gate(store, refusals).ValidateAsync(Signup(addendumSigned: true, yesTo: industry, professional: true), FromUs);
+        var result = await Gate(store, refusals).ValidateAsync(Signup(yesTo: industry), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.IndustryExcluded, result.ErrorCode);
         Assert.Equal(ExcludedIndustries.Refusal, result.Error);
@@ -248,49 +232,6 @@ public sealed class OnboardingEligibilityTests
         Assert.Equal(codes, ExcludedIndustries.All.Select(i => i.Code));
         Assert.Equal(IndustryAnswersFixture.Questions.Select(q => q.Question), ExcludedIndustries.All.Select(i => i.Question));
         Assert.All(ExcludedIndustries.All, i => Assert.EndsWith("?", i.Question, StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task A_professional_services_business_is_refused_without_a_signed_addendum_and_accepted_with_one()
-    {
-        var store = new RecordingStore();
-
-        var unsigned = await Gate(store).ValidateAsync(Signup(professional: true), FromUs);
-
-        Assert.Equal(OnboardingFailureCodes.AddendumRequired, unsigned.ErrorCode);
-        Assert.Empty(store.Created);
-
-        var signed = await Gate(store).ValidateAsync(Signup(addendumSigned: true, professional: true), FromUs);
-
-        Assert.True(signed.IsSuccess, signed.Error);
-        Assert.True(Assert.Single(store.Created).RequiresAddendum);
-    }
-
-    [Fact]
-    public async Task A_signed_addendum_is_recorded_with_its_time_and_address()
-    {
-        var store = new RecordingStore();
-
-        var result = await Gate(store).ValidateAsync(Signup(addendumSigned: true, professional: true), FromUs);
-
-        Assert.True(result.IsSuccess, result.Error);
-        var created = Assert.Single(store.Created);
-        Assert.True(created.RequiresAddendum);
-        Assert.Equal(Now, created.AddendumSignedAt);
-        Assert.Equal("203.0.113.9", created.AddendumIpAddress);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(null)]
-    public async Task An_unsigned_addendum_is_refused(bool? signed)
-    {
-        var store = new RecordingStore();
-
-        var result = await Gate(store).ValidateAsync(Signup(addendumSigned: signed, professional: true), FromUs);
-
-        Assert.Equal(OnboardingFailureCodes.AddendumRequired, result.ErrorCode);
-        Assert.Empty(store.Created);
     }
 
     [Theory]
@@ -364,12 +305,9 @@ public sealed class OnboardingEligibilityTests
         var first = await Gate(store).ValidateAsync(Signup(country: "CA", attested: false, yesTo: "healthcare"), FromUs);
         // An excluded industry and no attestation: the industry rule speaks before the attestation rule.
         var second = await Gate(store).ValidateAsync(Signup(attested: false, yesTo: "healthcare"), FromUs);
-        // A professional services business with no addendum and no attestation: the addendum rule speaks before the attestation rule.
-        var third = await Gate(store).ValidateAsync(Signup(attested: false, professional: true), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.CountryNotSupported, first.ErrorCode);
         Assert.Equal(OnboardingFailureCodes.IndustryExcluded, second.ErrorCode);
-        Assert.Equal(OnboardingFailureCodes.AddendumRequired, third.ErrorCode);
         Assert.Empty(store.Created);
     }
 
@@ -392,7 +330,6 @@ public sealed class OnboardingEligibilityTests
     [InlineData(OnboardingFailureCodes.IndustryNotAnswered, 400)]
     [InlineData(OnboardingFailureCodes.ContactPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.IndustryExcluded, 400)]
-    [InlineData(OnboardingFailureCodes.AddendumRequired, 400)]
     [InlineData(OnboardingFailureCodes.AttestationRequired, 400)]
     [InlineData(OnboardingFailureCodes.VisitorUnverified, 400)]
     [InlineData(OnboardingFailureCodes.VisitorCountryNotSupported, 400)]

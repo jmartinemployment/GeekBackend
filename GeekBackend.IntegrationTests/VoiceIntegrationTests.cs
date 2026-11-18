@@ -35,7 +35,7 @@ public sealed class VoiceIntegrationTests
     private static async Task<Guid> ActiveTenantAsync(VoiceRepository store)
     {
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
         Assert.True(created.IsSuccess, created.Error);
         var id = created.Value!.Id;
 
@@ -54,7 +54,7 @@ public sealed class VoiceIntegrationTests
         var store = NewRepository();
 
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+            "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
         Assert.True(created.IsSuccess, created.Error);
         Assert.Equal(VoiceTenantStatuses.PendingPayment, created.Value!.Status);
         var id = created.Value.Id;
@@ -86,7 +86,7 @@ public sealed class VoiceIntegrationTests
         var number = (await store.GetTelephonyAsync(first)).Value!.AssignedPhoneNumber;
 
         var second = await store.CreateTenantAsync(new(
-            "Other HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "other@example.test", "+15615550102") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+            "Other HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "other@example.test", "+15615550102") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
         var clash = await store.ActivateTenantAsync(second.Value!.Id, new(
             VoiceSubscriptionTiers.Pro, 148m, 1000, 0.50m, "I-" + Unique(), "VAULT-" + Unique(), Now, Now.AddMonths(1), "active",
             "AC" + Unique(), "ciphertext", number, "PN" + Unique(), null, null, "not_started", false));
@@ -216,7 +216,7 @@ public sealed class VoiceIntegrationTests
         var store = NewRepository();
 
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC " + Unique()[..6], "Heating and air conditioning", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+            "Boca Cool HVAC " + Unique()[..6], "Heating and air conditioning", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
         Assert.True(created.IsSuccess, created.Error);
         var id = created.Value!.Id;
 

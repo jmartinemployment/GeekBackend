@@ -152,7 +152,7 @@ public sealed class OwnerAuthTests
     }
 
     private static VoiceTenant MakeTenant(string status) => new(
-        Tenant, "Dag Plumbing", "Plumbing, heating, & air-conditioning contractors", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", "owner@example.com", "+15615550100", status, DateTimeOffset.UnixEpoch);
+        Tenant, "Dag Plumbing", "Plumbing, heating, & air-conditioning contractors", DateTimeOffset.UnixEpoch, "US", "FL", "owner@example.com", "+15615550100", status, DateTimeOffset.UnixEpoch);
 
     private sealed class Rig
     {

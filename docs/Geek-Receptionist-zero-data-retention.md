@@ -248,7 +248,7 @@ changes any of it.
 5. Whether connecting storage is offered as an onboarding step, or only in the dashboard afterward.
 6. Cost and latency per call: where they would come from once the voice AI exists is not decided. Storing them is not built.
 7. Settled 2026-11-18: the wording callers and clients are given stays. The greeting says "this call may be recorded", and the
-   signup checkbox and the first paragraph of the addendum say calls are recorded. Today no tenant call is recorded, and we keep no recording either way (section 1).
+   signup checkbox says calls are recorded (the addendum that also said so was removed by Jeff, 2026-11-18). Today no tenant call is recorded, and we keep no recording either way (section 1).
 
 ## 9. Questions the multi-step form puts to the client (kept 2026-11-17, not built)
 

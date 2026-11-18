@@ -26,8 +26,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     private const int MaxSearchResults = 50;
     private const string TenantColumns = """
         id AS Id, business_name AS BusinessName, industry_vertical AS IndustryVertical,
-        requires_addendum AS RequiresAddendum,
-        addendum_signed_at AS AddendumSignedAt, host(addendum_ip_address) AS AddendumIpAddress,
         compliance_attested_at AS ComplianceAttestedAt, country_code AS CountryCode, state_code AS StateCode,
         contact_email AS ContactEmail, contact_phone AS ContactPhone, status AS Status, created_at AS CreatedAt
         """;
@@ -58,10 +56,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             await using var tx = await conn.BeginTransactionAsync(ct);
             var row = await conn.QuerySingleAsync<TenantRow>(new CommandDefinition($"""
                 INSERT INTO geek_voice.tenants (
-                    id, business_name, industry_vertical, requires_addendum, addendum_signed_at, addendum_ip_address,
+                    id, business_name, industry_vertical,
                     compliance_attested_at, country_code, state_code, contact_email, contact_phone)
                 VALUES (
-                    @TenantId, @BusinessName, @IndustryVertical, @RequiresAddendum, @AddendumSignedAt, @AddendumIpAddress::inet,
+                    @TenantId, @BusinessName, @IndustryVertical,
                     @ComplianceAttestedAt, @CountryCode, @StateCode, @ContactEmail, @ContactPhone)
                 RETURNING {TenantColumns};
                 """,
@@ -70,9 +68,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     TenantId = tenantId,
                     command.BusinessName,
                     command.IndustryVertical,
-                    command.RequiresAddendum,
-                    AddendumSignedAt = command.AddendumSignedAt?.UtcDateTime,
-                    command.AddendumIpAddress,
                     ComplianceAttestedAt = command.ComplianceAttestedAt.UtcDateTime,
                     command.CountryCode,
                     command.StateCode,
@@ -646,9 +641,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         if (c.StateCode is null || c.StateCode.Length != 2) return "The state must be a two-letter code.";
         if (Blank(c.ContactEmail) || !c.ContactEmail.Contains('@', StringComparison.Ordinal)) return "A contact email is required.";
         if (Blank(c.ContactPhone) || !E164().IsMatch(c.ContactPhone)) return "The contact phone must be in E.164 form, such as +15615550101.";
-        if ((c.AddendumSignedAt is null) != (c.AddendumIpAddress is null)) return "The addendum time and address are recorded together.";
-        if (c.AddendumIpAddress is not null && !IPAddress.TryParse(c.AddendumIpAddress, out _)) return "The addendum address is not an IP address.";
-        if (c.RequiresAddendum && c.AddendumSignedAt is null) return "This industry requires a signed addendum.";
         return null;
     }
 
@@ -764,9 +756,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public Guid Id { get; set; }
         public string BusinessName { get; set; } = "";
         public string IndustryVertical { get; set; } = "";
-        public bool RequiresAddendum { get; set; }
-        public DateTime? AddendumSignedAt { get; set; }
-        public string? AddendumIpAddress { get; set; }
         public DateTime ComplianceAttestedAt { get; set; }
         public string CountryCode { get; set; } = "";
         public string StateCode { get; set; } = "";
@@ -776,8 +765,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public DateTime CreatedAt { get; set; }
 
         public VoiceTenant ToModel() => new(
-            Id, BusinessName, IndustryVertical, RequiresAddendum, AddendumSignedAt is null ? null : Utc(AddendumSignedAt.Value),
-            AddendumIpAddress, Utc(ComplianceAttestedAt), CountryCode, StateCode, ContactEmail, ContactPhone, Status, Utc(CreatedAt));
+            Id, BusinessName, IndustryVertical, Utc(ComplianceAttestedAt), CountryCode, StateCode, ContactEmail, ContactPhone, Status, Utc(CreatedAt));
     }
 
     private sealed class TelephonyRow

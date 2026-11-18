@@ -79,15 +79,11 @@ public static class VoiceEmbedding
 // ----- Tenants -----
 
 /// <summary>
-/// A business that signs up. GeekAPI has already applied the eligibility gate; the store records the answer, so
-/// <see cref="AddendumSignedAt"/> and <see cref="AddendumIpAddress"/> are both present or both absent.
+/// A business that signs up. GeekAPI has already applied the eligibility gate; the store records the tenant and its answers.
 /// </summary>
 public sealed record CreateVoiceTenantCommand(
     string BusinessName,
     string IndustryVertical,
-    bool RequiresAddendum,
-    DateTimeOffset? AddendumSignedAt,
-    string? AddendumIpAddress,
     DateTimeOffset ComplianceAttestedAt,
     string CountryCode,
     string StateCode,
@@ -118,9 +114,6 @@ public sealed record VoiceTenant(
     Guid Id,
     string BusinessName,
     string IndustryVertical,
-    bool RequiresAddendum,
-    DateTimeOffset? AddendumSignedAt,
-    string? AddendumIpAddress,
     DateTimeOffset ComplianceAttestedAt,
     string CountryCode,
     string StateCode,

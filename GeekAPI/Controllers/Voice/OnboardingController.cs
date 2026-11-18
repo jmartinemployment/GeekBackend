@@ -113,7 +113,6 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
             or OnboardingFailureCodes.IndustryNotAnswered
             or OnboardingFailureCodes.ContactPhoneNotUs
             or OnboardingFailureCodes.IndustryExcluded
-            or OnboardingFailureCodes.AddendumRequired
             or OnboardingFailureCodes.AttestationRequired
             or OnboardingFailureCodes.VisitorUnverified
             or OnboardingFailureCodes.VisitorCountryNotSupported

@@ -10,7 +10,7 @@ namespace GeekBackend.Tests.Voice;
 public sealed class ReceptionistDefaultsTests
 {
     private static VoiceTenant Tenant(string name = "Boca Cool HVAC", string industry = "HVAC", string state = "FL") => new(
-        Guid.Parse("22222222-2222-2222-2222-222222222222"), name, industry, false, null, null,
+        Guid.Parse("22222222-2222-2222-2222-222222222222"), name, industry,
         new DateTimeOffset(2026, 11, 14, 15, 0, 0, TimeSpan.Zero), "US", state, "owner@bocacool.example", "+15615550101",
         VoiceTenantStatuses.PendingPayment, new DateTimeOffset(2026, 11, 14, 15, 0, 0, TimeSpan.Zero));
 

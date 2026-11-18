@@ -97,5 +97,5 @@ sales organizations and telemarketing are excluded, with healthcare and veterina
 29. (ours) Whether brief processing of a call makes Geek @ Your Spot LLC a business associate for a medical customer, and what
     agreements that needs with the customer, the voice vendors and Twilio. Healthcare and veterinary businesses are refused today.
 30. (ours) Whether any law that applies to a customer's profession requires the customer to keep call records, and that the customer
-    agreement puts that duty on the customer. The signup form asks legal, accounting, tax, payroll, finance, insurance and education
-    businesses to agree to an addendum.
+    agreement puts that duty on the customer. The signup form no longer asks legal, accounting, tax, payroll, finance, insurance and
+    education businesses to agree to an addendum (removed by Jeff, 2026-11-18).

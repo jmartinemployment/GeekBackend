@@ -44,7 +44,7 @@ public sealed class TenantCallTests
             : Result<VoiceTelephony>.Success(new VoiceTelephony(tenantId, SubSid, Protector.Protect(SubToken, VoiceSecretPurposes.TwilioAuthToken).Value!, "+15615550100", "PN1", null, null, "not_requested", false)));
 
         public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) => Task.FromResult(Result<VoiceTenant>.Success(new VoiceTenant(
-            tenantId, Business, "HVAC", false, null, null, Now, "US", "FL", "owner@bocacool.example", "+15615550101", VoiceTenantStatuses.Active, Now)));
+            tenantId, Business, "HVAC", Now, "US", "FL", "owner@bocacool.example", "+15615550101", VoiceTenantStatuses.Active, Now)));
 
         public Task<Result<VoiceCallStored>> UpsertCallAsync(Guid tenantId, UpsertVoiceCallCommand command, CancellationToken ct = default)
         {

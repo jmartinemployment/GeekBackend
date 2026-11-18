@@ -12,7 +12,6 @@ public static class OnboardingFailureCodes
     public const string IndustryNotAnswered = "industry_not_answered";
     public const string ContactPhoneNotUs = "contact_phone_not_us";
     public const string IndustryExcluded = "industry_excluded";
-    public const string AddendumRequired = "addendum_required";
     public const string AttestationRequired = "attestation_required";
     public const string VisitorUnverified = "visitor_unverified";
     public const string VisitorCountryNotSupported = "visitor_country_not_supported";
@@ -31,9 +30,7 @@ public sealed record ValidateEligibilityRequest(
     string? ContactEmail,
     string? ContactPhone,
     bool? ComplianceAttested,
-    bool? AddendumSigned,
-    IReadOnlyList<IndustryAnswerInput>? IndustryAnswers,
-    bool? ProfessionalServices);
+    IReadOnlyList<IndustryAnswerInput>? IndustryAnswers);
 
 /// <summary>One excluded-industry question as the signup form sends it: the industry's code, the words it showed, and the answer.</summary>
 public sealed record IndustryAnswerInput(string? Industry, string? Question, bool? Answer);
@@ -45,15 +42,15 @@ public sealed record IndustryRefusalRequest(IReadOnlyList<IndustryAnswerInput>? 
 public sealed record EligibilityAccepted(Guid TenantId, string Status);
 
 /// <summary>
-/// The self-service onboarding gate. The four rules run in the order the plan lists them (country, excluded industry, addendum,
+/// The self-service onboarding gate. The three rules run in the order the plan lists them (country, excluded industry,
 /// attestation); the first that fails answers. The excluded industries are decided on the form's seven separate yes-or-no answers
-/// (<see cref="ExcludedIndustries"/>), and the addendum on <see cref="ValidateEligibilityRequest.ProfessionalServices"/> (Jeff,
-/// 2026-11-18, replacing the list of business codes). An answer that was not sent, or whose question is not the one this gate holds,
+/// (<see cref="ExcludedIndustries"/>) (Jeff, 2026-11-18, replacing the list of business codes). The professional services question
+/// and its addendum were removed by Jeff the same day. An answer that was not sent, or whose question is not the one this gate holds,
 /// is refused, never read as a no. Every answer is stored and kept forever: a yes at once, with no tenant, and the seven noes with
 /// the tenant in one write. The country rule has two parts: the country the form declares, and the country of
 /// the visitor's own address (<see cref="VisitorOrigin"/>). A visitor whose address or country is missing is refused as unverified,
-/// never let through. A signup that passes all four becomes a tenant in status pending_payment, the only
-/// place the attestation and the addendum record can be stored. Nothing is created for a signup that fails, and a store that
+/// never let through. A signup that passes all three becomes a tenant in status pending_payment, the only
+/// place the attestation can be stored. Nothing is created for a signup that fails, and a store that
 /// cannot be reached is a failure, never an accepted signup.
 /// </summary>
 public sealed class OnboardingEligibility(IVoiceStore voice, IVoiceSignupAnswerStore signupAnswers, TimeProvider clock)
@@ -70,7 +67,7 @@ public sealed class OnboardingEligibility(IVoiceStore voice, IVoiceSignupAnswerS
 
         var now = clock.GetUtcNow();
         var answers = ExcludedIndustries.Read(request.IndustryAnswers);
-        if (answers is null || answers.Count != ExcludedIndustries.All.Count || request.ProfessionalServices is null)
+        if (answers is null || answers.Count != ExcludedIndustries.All.Count)
             return Refused(OnboardingFailureCodes.IndustryNotAnswered, "Every question about the business's industry must be answered.");
 
         var answerSet = new VoiceIndustryAnswerSet(answers, now, visitor.IpAddress, visitor.CountryCode);
@@ -83,10 +80,6 @@ public sealed class OnboardingEligibility(IVoiceStore voice, IVoiceSignupAnswerS
                 : Result<EligibilityAccepted>.Failure(recorded.Error ?? "The answers could not be stored.", recorded.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
         }
 
-        var requiresAddendum = request.ProfessionalServices.Value;
-        if (requiresAddendum && request.AddendumSigned != true)
-            return Refused(OnboardingFailureCodes.AddendumRequired, "This industry requires a signed addendum.");
-
         if (request.ComplianceAttested != true)
             return Refused(OnboardingFailureCodes.AttestationRequired, "The compliance attestation must be accepted.");
 
@@ -97,20 +90,9 @@ public sealed class OnboardingEligibility(IVoiceStore voice, IVoiceSignupAnswerS
         if (phone is null)
             return Refused(OnboardingFailureCodes.ContactPhoneNotUs, "Enter the business's US phone number, ten digits, such as (561) 555-0101.");
 
-        DateTimeOffset? addendumSignedAt = null;
-        string? addendumAddress = null;
-        if (requiresAddendum)
-        {
-            addendumSignedAt = now;
-            addendumAddress = visitor.IpAddress;
-        }
-
         var created = await voice.CreateTenantAsync(new CreateVoiceTenantCommand(
             request.BusinessName ?? string.Empty,
             request.BusinessDescription.Trim(),
-            requiresAddendum,
-            addendumSignedAt,
-            addendumAddress,
             now,
             request.CountryCode!,
             request.StateCode ?? string.Empty,

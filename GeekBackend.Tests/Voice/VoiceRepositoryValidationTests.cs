@@ -31,7 +31,7 @@ public sealed class VoiceRepositoryValidationTests
     private static IReadOnlyList<float> Embedding(int length = VoiceEmbedding.Dimensions) => Enumerable.Repeat(0.5f, length).ToList();
 
     private static CreateVoiceTenantCommand GoodTenant() => new(
-        "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) };
+        "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) };
 
     private static ActivateVoiceTenantCommand GoodActivation() => new(
         VoiceSubscriptionTiers.Standard, 48m, 250, 0.50m, "I-TEST", "VAULT-TEST", Now, Now.AddMonths(1), "active",
@@ -58,7 +58,7 @@ public sealed class VoiceRepositoryValidationTests
     [InlineData("Acme", "HVAC", "US", "FL", "no-at-sign", "+15615550101")]
     [InlineData("Acme", "HVAC", "US", "FL", "a@b.example", "561-555-0101")]
     public async Task A_tenant_with_a_bad_field_is_refused(string name, string industry, string country, string state, string email, string phone) =>
-        await AssertInvalid(Store().CreateTenantAsync(new(name, industry, false, null, null, Now, country, state, email, phone) { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) }));
+        await AssertInvalid(Store().CreateTenantAsync(new(name, industry, Now, country, state, email, phone) { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) }));
 
     public static TheoryData<string, Func<VoiceIndustryAnswerSet>> AnswerSetsThatCannotBeStored() => new()
     {
@@ -107,18 +107,6 @@ public sealed class VoiceRepositoryValidationTests
 
         Assert.Equal(VoiceFailureCodes.InvalidRequest, result.ErrorCode);
     }
-
-    [Fact]
-    public async Task An_addendum_time_without_an_address_is_refused() =>
-        await AssertInvalid(Store().CreateTenantAsync(GoodTenant() with { AddendumSignedAt = Now }));
-
-    [Fact]
-    public async Task An_addendum_address_that_is_not_an_address_is_refused() =>
-        await AssertInvalid(Store().CreateTenantAsync(GoodTenant() with { AddendumSignedAt = Now, AddendumIpAddress = "not-an-ip" }));
-
-    [Fact]
-    public async Task An_industry_that_requires_an_addendum_cannot_sign_up_without_one() =>
-        await AssertInvalid(Store().CreateTenantAsync(GoodTenant() with { RequiresAddendum = true }));
 
     // ----- Activation -----
 

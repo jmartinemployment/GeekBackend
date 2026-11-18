@@ -128,7 +128,7 @@ public sealed class VoiceControllerTests
         Assert.Equal(VoiceFailureCodes.InvalidRequest, result.ErrorCode);
     }
 
-    private static VoiceTenant SomeTenant() => new(Tenant, "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", "a@b.example", "+15615550101", "pending_payment", DateTimeOffset.UnixEpoch);
+    private static VoiceTenant SomeTenant() => new(Tenant, "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", DateTimeOffset.UnixEpoch, "US", "FL", "a@b.example", "+15615550101", "pending_payment", DateTimeOffset.UnixEpoch);
 
     [Theory]
     [InlineData(VoiceFailureCodes.NotFound, 404)]

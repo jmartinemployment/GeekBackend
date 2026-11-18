@@ -134,7 +134,7 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
   `recording_disclosure_enabled` starts `TRUE`. Both were taken out of the working tree on 2026-11-17 and put back on 2026-11-18 at
   Jeff's instruction, before anything was deployed. Today no tenant call is recorded (section 3.1). Zero Data Retention decides where a recording is kept (never with us; in the client's own
   storage when it has connected one), not whether there is one.
-- The signup site's compliance checkbox and the first paragraph of its draft professional services addendum say calls are recorded.
+- The signup site's compliance checkbox says calls are recorded. The professional services addendum was removed by Jeff on 2026-11-18.
 - Geek @ Your Spot LLC's own callers are asked on the call whether they want a text confirming their appointment, and consent is
   their YES reply to one text, not a recording (Jeff, 2026-11-18; `docs/Geek-Receptionist.md` section 4a). Not built.
 
@@ -147,7 +147,7 @@ merged with nine more, so there is one list.
 
 1. Build the voice AI on Twilio ConversationRelay (not built), and get each layer's retention in writing first (section 3.1).
 2. Stop storing content in GeekAPI (changed in the code 2026-11-17); drop the columns; delete what is stored.
-3. The greeting, the checkbox and the addendum stay as they are (2026-11-18, section 4).
+3. The greeting and the checkbox stay as they are (2026-11-18, section 4). The addendum was removed by Jeff the same day.
 4. Clean the logs, then get the vendors' answers in section 3 in writing.
 5. Publish the policy sentence only after 1 to 4 are done and checked. The public wording is the attorney's
    (`docs/Geek-Receptionist-attorney-questions.md`, section D).
