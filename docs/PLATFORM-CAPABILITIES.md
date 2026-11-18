@@ -166,6 +166,9 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
 
 ## 2. Matrix
 
+Re-checked operation by operation on 2026-11-18 in `docs/PLATFORM-CAPABILITY-MATRIX.md`, which also lists
+what has changed or contradicts this section since. Where the two differ, that file is the newer reading.
+
 ### 2a. Meta Page (Graph API v27.0)
 
 | Action | Endpoint | Permission / token | Tier | Status |
