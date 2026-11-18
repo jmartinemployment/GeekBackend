@@ -272,12 +272,18 @@ The same app, review and token rules as the organization row (`linkedin:131-132`
 LinkedIn open items: `linkedin:105`, `PC:560-565` (a second company's Page on the Development tier, refresh
 tokens, whether member comment text may go to the AI provider).
 
-**Where the research and `PLATFORM-CAPABILITIES.md` disagree** (to be corrected in `PLATFORM-CAPABILITIES.md`):
-- LinkedIn webhooks: `PC:197` places them in the Development tier; `linkedin:164` and `PC:440` say Standard only.
-- LinkedIn webhook payload: `PC:200` says URNs only; `linkedin:170` says it can carry comment text.
-- LinkedIn technical sign-off: `PC:503` says required; `linkedin:121` says UNVERIFIED.
-- X Automation Rules page: `x:167` says it returned 403; `PC:311` says it was re-read in a browser.
-- YouTube `thumbnails.set` scopes: `PC:327-328` lists one; `youtube:22` lists several.
+**Where the research and `PLATFORM-CAPABILITIES.md` disagreed.** Corrected in `PLATFORM-CAPABILITIES.md` on
+2026-11-18, to match its own section 2j and the research:
+- LinkedIn webhooks: the section 2b row said Development tier; they need Standard (`linkedin:164`, `PC:440`).
+- LinkedIn webhook payload: section 2b said URNs only; it can carry comment text (`linkedin:170`, `PC:442`).
+- LinkedIn technical sign-off: section 4 said Standard needs it; whether it does is UNVERIFIED (`linkedin:121`).
+
+Not disagreements, on reading both:
+- X Automation Rules and the Basic and Pro plans: the research's fetches failed or found only the changelog, and
+  `PC:289-291` and `PC:311` record a later re-read in a browser. `PC` is the newer evidence; the changelog's "remain
+  available" (`x:35`) and a pricing page that lists no Basic or Pro price can both be true.
+- YouTube `thumbnails.set`: `PC:327` names the one scope GeekSocial uses; `youtube:22` lists every scope the method
+  accepts.
 
 ## Nextdoor
 
