@@ -112,6 +112,7 @@ public static class ServiceRegistration
         // Geek-Receptionist v1 (geek_voice): tenant data for /internal/v1/*, over Dapper. docs/Geek-Receptionist.md.
         services.AddScoped<IVoiceStore, VoiceRepository>();
         services.AddScoped<IVoiceSignupAnswerStore, VoiceRepository>();
+        services.AddScoped<IVoiceBillingExemption, VoiceRepository>();
         services.AddScoped<IVoiceOwnerStore, VoiceOwnerRepository>();
         services.AddScoped<IVoiceBillingStore, VoiceBillingRepository>();
 

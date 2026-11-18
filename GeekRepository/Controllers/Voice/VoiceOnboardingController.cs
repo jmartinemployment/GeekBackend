@@ -14,7 +14,7 @@ namespace GeekRepository.Controllers.Voice;
 [ApiController]
 [Route("internal/v1/onboarding/tenants")]
 [Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]
-public sealed class VoiceOnboardingController(IVoiceStore voice, IVoiceSignupAnswerStore answers) : VoiceStoreController
+public sealed class VoiceOnboardingController(IVoiceStore voice, IVoiceSignupAnswerStore answers, IVoiceBillingExemption exemption) : VoiceStoreController
 {
     /// <summary>The answers of a visitor who said yes to an excluded industry and was refused: stored with no tenant, kept forever.</summary>
     [HttpPost("/internal/v1/onboarding/industry-refusals")]
@@ -32,4 +32,9 @@ public sealed class VoiceOnboardingController(IVoiceStore voice, IVoiceSignupAns
     [HttpPost("{tenantId:guid}/activate")]
     public async Task<IActionResult> Activate(Guid tenantId, [FromBody] ActivateVoiceTenantCommand command, CancellationToken ct) =>
         command is null ? BadRequest("An activation is required.") : ToAction(await voice.ActivateTenantAsync(tenantId, command, ct));
+
+    /// <summary>A tenant GeekAPI found exempt from billing: active with no subscription and no telephony.</summary>
+    [HttpPost("{tenantId:guid}/activate-without-billing")]
+    public async Task<IActionResult> ActivateWithoutBilling(Guid tenantId, CancellationToken ct) =>
+        ToAction(await exemption.ActivateWithoutBillingAsync(tenantId, ct));
 }

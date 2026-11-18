@@ -5,9 +5,11 @@ was setting up the Meta app. Nothing in this file was committed or pushed.
 
 ## What it is
 
-GeekSocial watches comments on connected Facebook Pages, has Claude classify each comment and draft
-a reply, and holds every draft for a person to approve, edit or reject before it is sent. It also
-publishes link posts. It runs inside GeekAPI (`GeekAPI/Services/Social`, routes `api/social/*`, hub
+GeekSocial is a multi-tenant, multi-platform product. It watches comments on each tenant's connected
+social accounts, has Claude classify each comment and draft a reply, and holds every draft for a person
+to approve, edit or reject before it is sent. It also publishes link posts. In scope: Facebook,
+Instagram, LinkedIn, Google Business Profile, X and TikTok; only the Facebook Pages connector is built
+(`geek-social/plans/geek-social-multi-tenant-connectors-2026-11-16.md`, "Platforms"). It runs inside GeekAPI (`GeekAPI/Services/Social`, routes `api/social/*`, hub
 `/hubs/social-realtime`) with storage in GeekRepository. The operator screen is its own repository,
 `/Users/jeffmartin/development/geek-social` (Next.js, port 3006, pushed to
 github.com/jmartinemployment/geek-social, no Vercel project yet).

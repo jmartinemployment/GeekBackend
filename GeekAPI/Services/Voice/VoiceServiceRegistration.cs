@@ -30,6 +30,12 @@ public static class VoiceServiceRegistration
             new HttpVoiceRepository(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),
                 sp.GetRequiredService<ILogger<HttpVoiceRepository>>()));
+        services.AddScoped<IVoiceBillingExemption>(sp =>
+            new HttpVoiceRepository(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),
+                sp.GetRequiredService<ILogger<HttpVoiceRepository>>()));
+        services.AddSingleton(BillingExemptionOptions.FromEnvironment());
+        services.AddScoped<BillingExemption>();
         services.AddScoped<OnboardingEligibility>();
         services.AddScoped<IndustryRefusals>();
         services.AddSingleton<VoiceCredentialProtector>();

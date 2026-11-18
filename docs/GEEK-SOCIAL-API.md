@@ -11,6 +11,14 @@ accounts, drafts, comments, posts and audit rows. A row of another tenant answer
 as a row that does not exist. A comment reaches the AI only after the tenant has accepted the AI terms; until
 then it is held as `blocked_no_clearance` and is never sent to the model.
 
+**Billing.** GeekSocial is a paid SaaS, and tenants pay through PayPal. Nothing checks payment yet:
+`POST /api/social/tenant` creates a tenant for any person whose token carries the scope.
+
+**Platforms.** GeekSocial is multi-platform: Facebook, Instagram, LinkedIn, Google Business Profile, X and
+TikTok are in scope. Only Facebook is built, so `platform` is `facebook` in every example below and the
+connect routes are Meta's. Accounts, drafts, comments, posts and audit rows already carry `platform`; each
+other platform still needs its own connector and connect routes.
+
 | Route | What it does |
 |---|---|
 | `GET /api/social/tenant` | The person's tenant `{ id, ownerUserId, name, aiConsentAcceptedAt, createdAt }`, or 404 before sign-up. |

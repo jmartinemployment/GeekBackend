@@ -20,7 +20,7 @@ namespace GeekAPI.Controllers.Voice;
 [RequireApiKey]
 [Route("api/v1/onboarding")]
 [EnableRateLimiting(OnboardingRateLimit.PolicyName)]
-public sealed class OnboardingController(OnboardingEligibility eligibility, IndustryRefusals refusals, SignupPayments payments, SubscriptionActivation activation) : ControllerBase
+public sealed class OnboardingController(OnboardingEligibility eligibility, IndustryRefusals refusals, BillingExemption exemption, SignupPayments payments, SubscriptionActivation activation) : ControllerBase
 {
     /// <summary>
     /// A visitor answered yes to an excluded industry on /signup. The yes and the answers before it are stored and kept forever;
@@ -46,6 +46,19 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
 
         var error = string.IsNullOrWhiteSpace(result.Error) ? "The signup failed." : result.Error;
         return StatusCode(StatusFor(result.ErrorCode), new { error, code = result.ErrorCode });
+    }
+
+    /// <summary>
+    /// Asked right after a business is accepted: is it Geek @ Your Spot's own account (BILLING_EXEMPT_EMAIL)? If so it is activated
+    /// with no subscription and no telephony and answers exempt; any other tenant answers not exempt and goes on to PayPal.
+    /// </summary>
+    [HttpPost("billing-exemption")]
+    public async Task<IActionResult> ApplyBillingExemption([FromBody] BillingExemptionRequest? request, CancellationToken ct)
+    {
+        var result = await exemption.ApplyAsync(request, ct);
+        return result.IsSuccess
+            ? Ok(new { exempt = result.Value!.Exempt, status = result.Value.Status })
+            : Refuse(result.Error, result.ErrorCode, "The billing exemption could not be checked.");
     }
 
     /// <summary>A PayPal subscription to the tier's plan for this signup; the visitor approves it on the page this answers.</summary>
