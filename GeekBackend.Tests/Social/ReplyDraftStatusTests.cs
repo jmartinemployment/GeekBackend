@@ -54,12 +54,23 @@ public class ReplyDraftStatusTests
     }
 
     [Fact]
-    public void Complaint_and_sensitive_are_never_auto_sent()
+    public void No_account_carries_a_setting_that_sends_without_a_person()
     {
-        Assert.Equal(new[] { ReplyCategories.Complaint, ReplyCategories.Sensitive }, ReplyCategories.NeverAutoSend);
+        foreach (var type in new[] { typeof(SocialAccount), typeof(UpdateSocialAccountSettingsCommand) })
+            Assert.DoesNotContain(type.GetProperties(), p => p.Name.Contains("AutoSend", StringComparison.Ordinal));
 
-        foreach (var category in ReplyCategories.NeverAutoSend)
-            Assert.Contains(category, ReplyCategories.All);
+        Assert.Equal(new[] { nameof(UpdateSocialAccountSettingsCommand.SendsDisabled) },
+            typeof(UpdateSocialAccountSettingsCommand).GetProperties().Select(p => p.Name));
+    }
+
+    [Fact]
+    public void A_settings_body_that_still_asks_for_auto_send_is_refused_not_half_applied()
+    {
+        var web = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+
+        Assert.True(System.Text.Json.JsonSerializer.Deserialize<UpdateSocialAccountSettingsCommand>("""{"sendsDisabled":true}""", web)!.SendsDisabled);
+        Assert.Throws<System.Text.Json.JsonException>(() => System.Text.Json.JsonSerializer.Deserialize<UpdateSocialAccountSettingsCommand>(
+            """{"autoSendCategories":["praise"],"sendsDisabled":false}""", web));
     }
 }
 

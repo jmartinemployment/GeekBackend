@@ -30,9 +30,6 @@ public sealed class SocialAccount
     public string DisplayName { get; set; } = string.Empty;
     public string Status { get; set; } = SocialAccountStatuses.Connected;
 
-    /// <summary>The reply categories this account sends without approval. Complaint and sensitive are never listed.</summary>
-    public List<string> AutoSendCategories { get; set; } = new();
-
     /// <summary>The per-account kill switch: while true, nothing is sent from this account.</summary>
     public bool SendsDisabled { get; set; }
 
@@ -270,9 +267,6 @@ public static class ReplyCategories
     public const string Sensitive = "sensitive";
 
     public static readonly IReadOnlyList<string> All = new[] { Question, Praise, Complaint, Spam, Sensitive };
-
-    /// <summary>Categories no setting can turn into an automatic send: a person always reads these first.</summary>
-    public static readonly IReadOnlyList<string> NeverAutoSend = new[] { Complaint, Sensitive };
 
     public static bool IsKnown(string? category) => category is not null && All.Contains(category);
 }

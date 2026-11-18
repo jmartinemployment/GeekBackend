@@ -106,24 +106,14 @@ internal sealed class FakeRealtime : GeekAPI.Services.Social.Realtime.ISocialRea
 /// <summary>A send step a test scripts; by default nothing is waiting and nothing is auto-sent.</summary>
 internal sealed class FakeSendStep : GeekAPI.Services.Social.Orchestration.ISocialSendStep
 {
-    public List<Guid> AutoSent { get; } = new();
     public List<(Guid DraftId, string? Actor)> Sends { get; } = new();
     public int WaitingPasses { get; private set; }
-
-    public Func<ReplyDraft, Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>?> OnAutoSend { get; set; } =
-        _ => Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>.Success(new GeekAPI.Services.Social.Orchestration.SocialSendOutcome { Sent = true });
 
     public Func<Guid, Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>> OnSend { get; set; } =
         _ => Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>.Success(new GeekAPI.Services.Social.Orchestration.SocialSendOutcome { Sent = true });
 
     public Func<EngagementEvent, Result<List<string>>> OnApprovedLinks { get; set; } =
         _ => Result<List<string>>.Success(new List<string>());
-
-    public Task<Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>?> AutoSendAsync(ReplyDraft draft, SocialAccount account, CancellationToken ct)
-    {
-        AutoSent.Add(draft.Id);
-        return Task.FromResult(OnAutoSend(draft));
-    }
 
     public Task<Result<GeekAPI.Services.Social.Orchestration.SocialSendOutcome>> SendAsync(Guid tenantId, Guid draftId, string? actorUserId, CancellationToken ct)
     {

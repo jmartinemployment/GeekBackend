@@ -61,13 +61,12 @@ public class HttpSocialRepositoryTests
     [Fact]
     public async Task A_success_is_read_as_the_model()
     {
-        var (repo, handler, _) = Build(_ => Json(new { id = AccountId, platform = "facebook", platformAccountId = "123", displayName = "Geek Page", status = "connected", autoSendCategories = QuestionOnly, sendsDisabled = false }));
+        var (repo, handler, _) = Build(_ => Json(new { id = AccountId, platform = "facebook", platformAccountId = "123", displayName = "Geek Page", status = "connected", sendsDisabled = false }));
 
         var result = await repo.GetAccountAsync(TestTenant.Id, AccountId);
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal("Geek Page", result.Value!.DisplayName);
-        Assert.Equal(QuestionOnly, result.Value.AutoSendCategories);
         Assert.Equal((HttpMethod.Get, $"/repo/social/accounts/{AccountId}", null), handler.Requests.Single());
     }
 

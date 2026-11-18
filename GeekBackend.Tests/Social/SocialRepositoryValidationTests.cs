@@ -60,17 +60,6 @@ public class SocialRepositoryValidationTests
         AssertInvalid(await repo.StoreTokenAsync(TestTenant.Id, Guid.NewGuid(), new StoreSocialTokenCommand { Token = new SocialEncryptedToken { Cipher = new byte[] { 1 }, Iv = new byte[12], Tag = new byte[15] } }));
     }
 
-    [Theory]
-    [InlineData(ReplyCategories.Complaint)]
-    [InlineData(ReplyCategories.Sensitive)]
-    [InlineData("anything-else")]
-    public async Task No_setting_can_send_a_complaint_or_a_sensitive_comment_without_a_person(string category)
-    {
-        var result = await NewRepository().UpdateSettingsAsync(TestTenant.Id, Guid.NewGuid(), new UpdateSocialAccountSettingsCommand { AutoSendCategories = new List<string> { ReplyCategories.Question, category } });
-
-        AssertInvalid(result);
-    }
-
     [Fact]
     public async Task Recording_a_post_refuses_a_missing_account_id_and_an_unknown_kind()
     {

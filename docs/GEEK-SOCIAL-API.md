@@ -20,8 +20,7 @@ then it is held as `blocked_no_clearance` and is never sent to the model.
 
 Only Facebook is built, so `platform` is `facebook` in every example below and the connect routes are Meta's. GeekSocial owns the app on each network, and a tenant connects by signing in. Accounts, drafts, comments, posts and audit rows already carry `platform`; each other platform still needs its own connector and connect routes. The scope is in `docs/GEEKSOCIAL-SCOPE.md`; the plan of work is `geek-social/plans/geek-social-roadmap-2026-11-18.md`.
 
-**What this page describes.** This page documents the API as built. The AI provider is replaceable (roadmap Phase 0, item 1, built). Roadmap Phase 0 still changes three things here, and this page changes with the code:
-- auto-send is removed;
+**What this page describes.** This page documents the API as built. The AI provider is replaceable and auto-send is removed (roadmap Phase 0, items 1 and 2, built). Roadmap Phase 0 still changes two things here, and this page changes with the code:
 - status becomes per tenant;
 - `connect/meta/start` and `posts/copy` get the tenant check.
 
@@ -32,7 +31,7 @@ Only Facebook is built, so `platform` is `facebook` in every example below and t
 | `POST /api/social/tenant/ai-terms` | Records that the tenant accepted the AI terms. The first acceptance stands. |
 
 Not built yet: the check that the person has a confirmed email and phone before connecting an account (it needs
-GeekOAuth to say so), and removing auto-send.
+GeekOAuth to say so).
 
 JSON is camelCase. Times are UTC ISO 8601. Every failure is answered with
 
@@ -59,7 +58,7 @@ and are null once their retention has run out.
 {
   "orchestrator": { "recoveredAt": "...", "eventsRecoveredAtStartup": 0, "interruptedSendsFailed": 0, "eventsScrubbed": 0,
     "eventsTakenIn": 0, "commentsReplyNeeded": 0, "commentsNoReplyNeeded": 0, "commentsBlockedNoClearance": 0,
-    "commentsFailed": 0, "draftsPending": 0, "draftsForAPerson": 0, "draftsRefused": 0, "draftsAutoApproved": 0,
+    "commentsFailed": 0, "draftsPending": 0, "draftsForAPerson": 0, "draftsRefused": 0,
     "draftsSent": 0, "draftsSendFailed": 0, "sendsHeld": 0,
     "failures": [ { "step": "create a draft", "code": "store_unavailable", "at": "..." } ] },
   "aiProvider": { "id": "anthropic", "name": "Anthropic", "model": "<model>", "apiKeySet": true },
@@ -79,14 +78,14 @@ to send comment text to that provider, so it is empty when no provider is set.
 
 ```json
 { "id": "uuid", "platform": "facebook", "platformAccountId": "1234", "displayName": "Geek @ Your Spot",
-  "status": "connected | reconnect_required", "autoSendCategories": ["praise"], "sendsDisabled": false,
+  "status": "connected | reconnect_required", "sendsDisabled": false,
   "tokenExpiresAt": null, "connectedAt": "..." }
 ```
 
-`PUT api/social/accounts/{id}/settings` with `{ "autoSendCategories": ["praise", "question"], "sendsDisabled": false }`
-returns the account. `complaint` and `sensitive` are refused in `autoSendCategories` (400). Auto-send is switched
-off: the orchestrator no longer sends any draft a person has not approved (GeekBackend `02de4a82`), so
-`autoSendCategories` is stored and has no effect. Phase 0 removes it, and the route then takes only `sendsDisabled`.
+`PUT api/social/accounts/{id}/settings` with `{ "sendsDisabled": true }` pauses (or with `false` resumes) every send
+from the account, and returns the account. It is the account's only setting: there is no auto-send, and a person
+approves every reply. A body with any other field, such as the removed `autoSendCategories`, is refused (400)
+rather than half-applied.
 
 `POST api/social/accounts/{id}/resync` reads the comments under the account's stored posts and stores
 any the webhooks missed. Returns `{ "postsRead": 3, "commentsRead": 40, "stored": 2 }`.
@@ -176,7 +175,7 @@ A comment view:
 ```json
 { "id": "uuid", "accountId": "uuid", "platform": "facebook", "action": "reply", "outcome": "succeeded | failed | outcome_unknown",
   "platformObjectId": "...", "replyDraftId": "uuid", "failureCode": null, "failureDetail": null,
-  "actorUserId": "sub of the person, or null when auto-sent", "occurredAt": "..." }
+  "actorUserId": "sub of the person, or null when an approved draft a limit held back went later", "occurredAt": "..." }
 ```
 
 ## Live updates (SignalR)
@@ -226,5 +225,5 @@ held to a JSON schema by each provider's own mechanism, checked against its docu
 A send is one attempt and is never retried. An account sends at most 30 replies in any hour, and
 sends nothing for 15 minutes after a send of its was throttled, failed on Meta's side or may not
 have landed. A draft a limit holds stays approved and goes at the next event taken in, or with Send.
-Nothing is sent without a person's approval; auto-send is switched off (see Accounts). A comment the Page
+Nothing is sent without a person's approval; there is no auto-send. A comment the Page
 itself wrote is never triaged.

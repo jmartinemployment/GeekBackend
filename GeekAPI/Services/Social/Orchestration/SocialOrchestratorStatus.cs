@@ -19,7 +19,6 @@ public sealed record SocialOrchestratorSnapshot(
     int DraftsPending,
     int DraftsForAPerson,
     int DraftsRefused,
-    int DraftsAutoApproved,
     int DraftsSent,
     int DraftsSendFailed,
     int SendsHeld,
@@ -73,7 +72,6 @@ public sealed class SocialOrchestratorStatus
     private int _draftsPending;
     private int _draftsForAPerson;
     private int _draftsRefused;
-    private int _autoApproved;
     private int _sent;
     private int _sendFailed;
     private int _held;
@@ -128,11 +126,6 @@ public sealed class SocialOrchestratorStatus
         }
     }
 
-    public void RecordAutoApproved()
-    {
-        lock (_gate) _autoApproved++;
-    }
-
     public void RecordSend(SocialSendKind kind)
     {
         lock (_gate)
@@ -165,7 +158,7 @@ public sealed class SocialOrchestratorStatus
                 _recoveredAt, _recoveredAtStartup, _interruptedFailed, _scrubbed, _takenIn,
                 _replyNeeded, _noReplyNeeded, _blocked, _failed,
                 _draftsPending, _draftsForAPerson, _draftsRefused,
-                _autoApproved, _sent, _sendFailed, _held,
+                _sent, _sendFailed, _held,
                 _failures.ToArray());
         }
     }

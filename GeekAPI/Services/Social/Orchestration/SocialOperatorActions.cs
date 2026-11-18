@@ -264,27 +264,17 @@ public sealed class SocialOperatorActions
     public Task<Result<SocialResyncResult>> ResyncAsync(Guid tenantId, Guid accountId, CancellationToken ct) =>
         _resync.ResyncAsync(tenantId, accountId, ct);
 
-    /// <summary>Saves which categories an account sends without a person, and its pause switch. Complaint and sensitive never auto-send.</summary>
+    /// <summary>Saves the account's pause switch, its one setting. No setting sends a reply without a person.</summary>
     public async Task<Result<SocialAccount>> UpdateSettingsAsync(Guid tenantId, Guid accountId, UpdateSocialAccountSettingsCommand command, CancellationToken ct)
     {
-        var unknown = command.AutoSendCategories.FirstOrDefault(c => !ReplyCategories.IsKnown(c));
-        if (unknown is not null)
-            return Result<SocialAccount>.Failure($"'{unknown}' is not a reply category.", SocialFailureCodes.InvalidRequest);
-
-        var never = command.AutoSendCategories.FirstOrDefault(c => ReplyCategories.NeverAutoSend.Contains(c));
-        if (never is not null)
-            return Result<SocialAccount>.Failure($"A {never} reply always waits for a person; it cannot auto-send.", SocialFailureCodes.InvalidRequest);
-
         var updated = await _store.UpdateSettingsAsync(tenantId, accountId, new UpdateSocialAccountSettingsCommand
         {
-            AutoSendCategories = command.AutoSendCategories.Distinct(StringComparer.Ordinal).ToList(),
             SendsDisabled = command.SendsDisabled,
         }, ct).ConfigureAwait(false);
         if (!updated.IsSuccess)
             return Pass<SocialAccount>(updated.Error, updated.ErrorCode, "save the account settings");
 
-        _logger.LogInformation("Account {AccountId} settings saved: auto-send {Categories}, sends paused {Paused}.",
-            accountId, string.Join(", ", updated.Value!.AutoSendCategories), updated.Value.SendsDisabled);
+        _logger.LogInformation("Account {AccountId} settings saved: sends paused {Paused}.", accountId, updated.Value!.SendsDisabled);
         await _realtime.AccountChangedAsync(tenantId, accountId, updated.Value.Status, ct).ConfigureAwait(false);
         return updated;
     }

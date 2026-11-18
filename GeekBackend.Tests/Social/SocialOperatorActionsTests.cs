@@ -57,7 +57,7 @@ public class SocialOperatorActionsTests
             OnRecordPost = command => Result<SocialPost>.Success(new SocialPost { AccountId = command.AccountId, PlatformPostId = command.PlatformPostId, Text = command.Text }),
             OnUpdateSettings = (id, command) => Result<SocialAccount>.Success(new SocialAccount
             {
-                Id = id, AutoSendCategories = command.AutoSendCategories, SendsDisabled = command.SendsDisabled, Status = SocialAccountStatuses.Connected,
+                Id = id, SendsDisabled = command.SendsDisabled, Status = SocialAccountStatuses.Connected,
             }),
         };
         script?.Invoke(store);
@@ -273,34 +273,18 @@ public class SocialOperatorActionsTests
 
     // ----- Settings -----
 
-    [Theory]
-    [InlineData(ReplyCategories.Complaint)]
-    [InlineData(ReplyCategories.Sensitive)]
-    [InlineData("rant")]
-    public async Task Complaint_sensitive_or_an_unknown_category_can_never_be_set_to_auto_send(string category)
-    {
-        var rig = Build();
-
-        var result = await rig.Actions.UpdateSettingsAsync(TestTenant.Id, AccountId,
-            new UpdateSocialAccountSettingsCommand { AutoSendCategories = new List<string> { ReplyCategories.Praise, category } }, CancellationToken.None);
-
-        Assert.Equal(SocialFailureCodes.InvalidRequest, result.ErrorCode);
-    }
-
     [Fact]
-    public async Task Settings_are_saved_once_each_and_announced()
+    public async Task The_pause_switch_is_saved_and_announced()
     {
         var rig = Build();
 
         var result = await rig.Actions.UpdateSettingsAsync(TestTenant.Id, AccountId, new UpdateSocialAccountSettingsCommand
         {
-            AutoSendCategories = new List<string> { ReplyCategories.Praise, ReplyCategories.Praise },
             SendsDisabled = true,
         }, CancellationToken.None);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal(new[] { ReplyCategories.Praise }, result.Value!.AutoSendCategories);
-        Assert.True(result.Value.SendsDisabled);
+        Assert.True(result.Value!.SendsDisabled);
         Assert.Contains(rig.Realtime.Sent, m => m.Message == "accountChanged");
     }
 }

@@ -94,9 +94,9 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    tenant's one-time `ai_consent_accepted_at` stays, because it covers sending comment text to the AI (item 4).
    **Still open, because it is about the app and not about consent:** X's rule that an app which "generates and
    posts replies" needs X's prior approval, which may apply even when a person approves each reply (item 3).
-   **What this changes in what is already built (no code is changed at Gate 7a):** `AutoSendCategories` on
-   `SocialAccount`, the auto-send step in the Orchestrator, and the auto-send settings on the Accounts page are
-   to be removed in a later gate, and the Sender must refuse any send whose draft was not approved by a person.
+   **What this changed in what was built:** the auto-send setting on accounts, the auto-send step in the
+   Orchestrator, its column (dropped by `0072_geek_social_drop_auto_send.sql`) and the auto-send settings on the
+   Accounts page are removed (roadmap Phase 0, item 2). The send step sends only a draft a person approved.
 2. **Google's content-storage rule. DECIDED by design (Jeff, 2026-11-16): no question is put to Google.** Google's
    policy ("Content storage", re-read in a browser) restricts storing Content "for use outside of your Business
    Profile project" and caching "to improve the performance of your project", and says what is stored "must be

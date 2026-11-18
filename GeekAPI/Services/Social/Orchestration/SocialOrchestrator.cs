@@ -242,7 +242,7 @@ public sealed class SocialOrchestrator : BackgroundService
         }
     }
 
-    /// <summary>The reply path for one event, in the plan's order (steps 1 to 6), then auto-send.</summary>
+    /// <summary>The reply path for one event, in the plan's order (steps 1 to 6). It ends at a draft a person approves; nothing is sent from here.</summary>
     internal async Task<Handled> HandleAsync(IServiceProvider services, ISocialStore store, Guid tenantId, Guid eventId, CancellationToken ct, bool rerun = false)
     {
         // 1. Load it. Only a new comment is triaged, and a decided one is never decided again here; an
@@ -411,18 +411,9 @@ public sealed class SocialOrchestrator : BackgroundService
             return Handled.Stalled;
         }
 
-        // 6. Only now is the comment marked answered, so a crash before this leaves it for recovery.
-        var outcome = await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.ReplyNeeded, null, ct).ConfigureAwait(false);
-
-        // 7. Auto-send is switched off: a person approves every reply (docs/PLATFORM-CAPABILITIES.md section 1a).
-        // if (outcome == Handled.Decided && created.IsSuccess && SocialSendStep.IsAutoSendable(created.Value!, account.Value!))
-        // {
-        //     var autoSent = await services.GetRequiredService<ISocialSendStep>().AutoSendAsync(created.Value!, account.Value!, ct).ConfigureAwait(false);
-        //     if (autoSent is { IsSuccess: false })
-        //         Fail("auto-send a draft", autoSent.ErrorCode, autoSent.Error, ev.Id);
-        // }
-
-        return outcome;
+        // 6. Only now is the comment marked answered, so a crash before this leaves it for recovery. A person
+        // approves the draft before anything is sent (docs/PLATFORM-CAPABILITIES.md section 1a).
+        return await RecordAsync(store, ev.TenantId, ev.Id, TriageOutcomes.ReplyNeeded, null, ct).ConfigureAwait(false);
     }
 
     /// <summary>

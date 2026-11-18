@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace GeekApplication.Models.Social;
 
 // What GeekAPI sends to GeekRepository's repo/social/* routes and what comes back. The store keeps
@@ -36,10 +38,14 @@ public sealed class StoreSocialTokenCommand
     public SocialEncryptedToken Token { get; set; } = new();
 }
 
-/// <summary>The two settings an owner changes: which categories send without approval, and the kill switch.</summary>
+/// <summary>
+/// The one setting an owner changes on an account: the kill switch. There is no setting to send without
+/// approval; a person approves every reply. A body carrying any other field (an old screen still sending
+/// autoSendCategories) is refused rather than half-applied, so no caller believes it set something it did not.
+/// </summary>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class UpdateSocialAccountSettingsCommand
 {
-    public List<string> AutoSendCategories { get; set; } = new();
     public bool SendsDisabled { get; set; }
 }
 

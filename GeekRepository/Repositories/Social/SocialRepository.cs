@@ -37,7 +37,6 @@ public sealed class SocialRepository : ISocialStore
         platform_account_id AS PlatformAccountId,
         display_name AS DisplayName,
         status AS Status,
-        auto_send_categories AS AutoSendCategories,
         sends_disabled AS SendsDisabled,
         token_expires_at AS TokenExpiresAt,
         connected_at AS ConnectedAt
@@ -114,10 +113,6 @@ public sealed class SocialRepository : ISocialStore
         actor_user_id AS ActorUserId,
         occurred_at AS OccurredAt
         """;
-
-    /// <summary>The categories an account may be set to send without approval: every category a person need not read first.</summary>
-    private static readonly string[] AutoSendable =
-        ReplyCategories.All.Where(c => !ReplyCategories.NeverAutoSend.Contains(c)).ToArray();
 
     private readonly SocialDbContext _db;
     private readonly IDbConnectionFactory _connections;
@@ -307,19 +302,9 @@ public sealed class SocialRepository : ISocialStore
         {
             if (command is null) return Invalid<SocialAccount>("Settings are required.");
 
-            var categories = (command.AutoSendCategories ?? new List<string>()).Distinct().OrderBy(c => c, StringComparer.Ordinal).ToList();
-            foreach (var category in categories)
-            {
-                if (ReplyCategories.NeverAutoSend.Contains(category))
-                    return Invalid<SocialAccount>($"'{category}' replies are never sent without a person.");
-                if (!AutoSendable.Contains(category))
-                    return Invalid<SocialAccount>($"Unknown category '{category}'.");
-            }
-
             var row = await _db.Accounts.FirstOrDefaultAsync(a => a.Id == accountId && a.TenantId == tenantId, ct).ConfigureAwait(false);
             if (row is null) return NotFound<SocialAccount>("No such account.");
 
-            row.AutoSendCategories = categories;
             row.SendsDisabled = command.SendsDisabled;
             row.Version++;
             await _db.SaveChangesAsync(ct).ConfigureAwait(false);
@@ -911,7 +896,6 @@ public sealed class SocialRepository : ISocialStore
         PlatformAccountId = row.PlatformAccountId,
         DisplayName = row.DisplayName,
         Status = row.Status,
-        AutoSendCategories = row.AutoSendCategories.ToList(),
         SendsDisabled = row.SendsDisabled,
         TokenExpiresAt = row.TokenExpiresAt,
         ConnectedAt = row.ConnectedAt,
@@ -965,7 +949,7 @@ public sealed class SocialRepository : ISocialStore
         OccurredAt = row.OccurredAt,
     };
 
-    /// <summary>An account as Dapper reads it: Postgres gives text[] as string[].</summary>
+    /// <summary>An account as Dapper reads it.</summary>
     private sealed class AccountReadRow
     {
         public Guid Id { get; set; }
@@ -974,7 +958,6 @@ public sealed class SocialRepository : ISocialStore
         public string PlatformAccountId { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
-        public string[] AutoSendCategories { get; set; } = Array.Empty<string>();
         public bool SendsDisabled { get; set; }
         public DateTime? TokenExpiresAt { get; set; }
         public DateTime ConnectedAt { get; set; }
@@ -987,7 +970,6 @@ public sealed class SocialRepository : ISocialStore
             PlatformAccountId = PlatformAccountId,
             DisplayName = DisplayName,
             Status = Status,
-            AutoSendCategories = AutoSendCategories.ToList(),
             SendsDisabled = SendsDisabled,
             TokenExpiresAt = TokenExpiresAt,
             ConnectedAt = ConnectedAt,

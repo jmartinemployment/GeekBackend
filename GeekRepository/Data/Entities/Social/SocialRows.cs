@@ -12,7 +12,6 @@ public sealed class SocialAccountRow
     public string PlatformAccountId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
-    public List<string> AutoSendCategories { get; set; } = new();
     public bool SendsDisabled { get; set; }
     public byte[] TokenCipher { get; set; } = Array.Empty<byte>();
     public byte[] TokenIv { get; set; } = Array.Empty<byte>();

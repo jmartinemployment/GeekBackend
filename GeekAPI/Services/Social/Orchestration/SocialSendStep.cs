@@ -52,9 +52,6 @@ public sealed class SocialSendOutcome
 /// <summary>The orchestrator's send step, as the orchestrator and the operator routes reach it.</summary>
 public interface ISocialSendStep
 {
-    /// <summary>Approves and sends a pending draft the account sends without a person; null when the draft is not one to auto-send.</summary>
-    Task<Result<SocialSendOutcome>?> AutoSendAsync(ReplyDraft draft, SocialAccount account, CancellationToken ct);
-
     /// <summary>Sends one approved draft.</summary>
     Task<Result<SocialSendOutcome>> SendAsync(Guid tenantId, Guid draftId, string? actorUserId, CancellationToken ct);
 
@@ -66,7 +63,8 @@ public interface ISocialSendStep
 }
 
 /// <summary>
-/// The orchestrator's send step for a reply draft (the plan's steps 7 and 8), and auto-send. It checks
+/// The orchestrator's send step for a reply draft (the plan's steps 7 and 8). It sends only a draft a
+/// person approved: there is no automatic send. It checks
 /// the draft is approved, the account connected and not paused, the text still passes the Reviewer,
 /// and the limits; it gets the token; then it moves the draft from approved to sending by
 /// compare-and-set, hands it to the Sender once, and stores sent or failed. It never calls a platform
@@ -111,44 +109,6 @@ public sealed class SocialSendStep : ISocialSendStep
         _clock = clock;
         _logger = logger;
     }
-
-    /// <summary>
-    /// Approves a pending draft the account sends without a person, and sends it. It applies only to a
-    /// category the account opted into, never complaint or sensitive, only to text the Reviewer passed
-    /// and never to a draft a person must write. Returns null when the draft is not one to auto-send.
-    /// </summary>
-    public async Task<Result<SocialSendOutcome>?> AutoSendAsync(ReplyDraft draft, SocialAccount account, CancellationToken ct)
-    {
-        if (!IsAutoSendable(draft, account))
-            return null;
-
-        var approved = await _store.TransitionDraftAsync(draft.TenantId, draft.Id, new TransitionReplyDraftCommand
-        {
-            From = ReplyDraftStatuses.Pending,
-            To = ReplyDraftStatuses.Approved,
-            At = Now(),
-        }, ct).ConfigureAwait(false);
-        if (!approved.IsSuccess)
-        {
-            Fail("auto-approve a draft", approved.ErrorCode, approved.Error, draft.Id);
-            return Result<SocialSendOutcome>.Failure(approved.Error!, approved.ErrorCode ?? SocialFailureCodes.StoreUnavailable);
-        }
-
-        _status.RecordAutoApproved();
-        _logger.LogInformation("Draft {DraftId} ({Category}) was approved by the account's auto-send setting.", draft.Id, draft.Category);
-        await _realtime.DraftChangedAsync(draft.TenantId, draft.Id, draft.AccountId, ReplyDraftStatuses.Approved, ct).ConfigureAwait(false);
-        return await SendAsync(draft.TenantId, draft.Id, actorUserId: null, ct).ConfigureAwait(false);
-    }
-
-    internal static bool IsAutoSendable(ReplyDraft draft, SocialAccount account) =>
-        draft.Status == ReplyDraftStatuses.Pending
-        && draft.ReviewRefusal is null
-        && draft.NeedsHumanReason is null
-        && !string.IsNullOrWhiteSpace(draft.DraftText)
-        && account.Status == SocialAccountStatuses.Connected
-        && !account.SendsDisabled
-        && account.AutoSendCategories.Contains(draft.Category)
-        && !ReplyCategories.NeverAutoSend.Contains(draft.Category);
 
     /// <summary>
     /// Sends one approved draft. A failed Result means the step could not run (the store, or the draft is

@@ -127,7 +127,6 @@ public sealed class SocialSchemaIntegrationTests
 
         var account = await ConnectAsync(repo);
         Assert.Equal(SocialAccountStatuses.Connected, account.Status);
-        Assert.Empty(account.AutoSendCategories);
         Assert.False(account.SendsDisabled);
 
         // Connecting the same platform account again replaces its token and keeps its row.
@@ -152,20 +151,19 @@ public sealed class SocialSchemaIntegrationTests
 
         var settings = await repo.UpdateSettingsAsync(Tenant, account.Id, new UpdateSocialAccountSettingsCommand
         {
-            AutoSendCategories = new List<string> { ReplyCategories.Praise, ReplyCategories.Question },
             SendsDisabled = true,
         });
         Assert.True(settings.IsSuccess, settings.Error);
-        Assert.Equal(new[] { ReplyCategories.Praise, ReplyCategories.Question }, settings.Value!.AutoSendCategories);
-        Assert.True(settings.Value.SendsDisabled);
+        Assert.True(settings.Value!.SendsDisabled);
 
         var listed = await repo.ListAccountsAsync(Tenant);
         Assert.True(listed.IsSuccess, listed.Error);
         Assert.Contains(listed.Value!, a => a.Id == account.Id && a.SendsDisabled);
 
-        // The database refuses what the code refuses, for a writer that is not this code.
-        Assert.Equal("23514", await SqlStateOfAsync(
-            "UPDATE geek_social.social_accounts SET auto_send_categories = ARRAY['complaint'] WHERE id = @id", ("id", account.Id)));
+        // The database refuses what the code refuses, for a writer that is not this code. Auto-send has no column
+        // to write to since 0072 (undefined_column).
+        Assert.Equal("42703", await SqlStateOfAsync(
+            "UPDATE geek_social.social_accounts SET auto_send_categories = ARRAY['praise'] WHERE id = @id", ("id", account.Id)));
         Assert.Equal("23514", await SqlStateOfAsync(
             "UPDATE geek_social.social_accounts SET platform = 'myspace' WHERE id = @id", ("id", account.Id)));
         Assert.Equal("23505", await SqlStateOfAsync(

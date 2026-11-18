@@ -96,7 +96,7 @@ public class SocialSendStepTests
         CreatedAt = Now.UtcDateTime.AddMinutes(-5),
     };
 
-    private static SocialAccount Account(bool paused = false, string status = SocialAccountStatuses.Connected, params string[] autoSend) => new()
+    private static SocialAccount Account(bool paused = false, string status = SocialAccountStatuses.Connected) => new()
     {
         Id = AccountId,
         Platform = SocialPlatforms.Facebook,
@@ -104,7 +104,6 @@ public class SocialSendStepTests
         DisplayName = "Geek @ Your Spot",
         Status = status,
         SendsDisabled = paused,
-        AutoSendCategories = autoSend.ToList(),
     };
 
     private static ActionAudit Audit(string action, string outcome, string? code, TimeSpan ago) => new()
@@ -434,50 +433,6 @@ public class SocialSendStepTests
 
         Assert.Equal(new[] { ActionKinds.Publish, ActionKinds.React }, rig.Store.Audits.Select(a => a.Action));
         Assert.Equal(new[] { "POST9", "COMMENT1" }, rig.Store.Audits.Select(a => a.PlatformObjectId));
-    }
-
-    // ----- Auto-send -----
-
-    [Fact]
-    public async Task A_category_the_account_opted_into_is_approved_and_sent_without_a_person()
-    {
-        var rig = Build(store => store.OnGetDraft = _ => Result<ReplyDraft>.Success(Draft()));
-        var pending = Draft(ReplyDraftStatuses.Pending, category: ReplyCategories.Praise);
-
-        var result = await rig.Step.AutoSendAsync(pending, Account(autoSend: ReplyCategories.Praise), CancellationToken.None);
-
-        Assert.NotNull(result);
-        Assert.True(result!.Value!.Sent);
-        Assert.Equal(new[] { "pending->approved", "approved->sending", "sending->sent" }, rig.Store.Writes);
-        Assert.Null(Assert.Single(rig.Store.Audits).ActorUserId);
-        Assert.Equal(1, rig.Status.Snapshot().DraftsAutoApproved);
-    }
-
-    public static TheoryData<string, string[], bool, string?, string?> NotAutoSent => new()
-    {
-        { ReplyCategories.Complaint, new[] { ReplyCategories.Complaint }, false, null, null },
-        { ReplyCategories.Sensitive, new[] { ReplyCategories.Sensitive }, false, null, null },
-        { ReplyCategories.Question, new[] { ReplyCategories.Praise }, false, null, null },
-        { ReplyCategories.Praise, new[] { ReplyCategories.Praise }, true, null, null },
-        { ReplyCategories.Praise, new[] { ReplyCategories.Praise }, false, "A person should answer.", null },
-        { ReplyCategories.Praise, new[] { ReplyCategories.Praise }, false, null, ReviewRules.EmDash },
-    };
-
-    [Theory]
-    [MemberData(nameof(NotAutoSent))]
-    public async Task Complaint_sensitive_unchosen_paused_for_a_person_or_refused_is_never_auto_sent(
-        string category, string[] optedIn, bool paused, string? needsHuman, string? refusal)
-    {
-        var rig = Build();
-        var pending = Draft(ReplyDraftStatuses.Pending, category: category);
-        pending.NeedsHumanReason = needsHuman;
-        pending.ReviewRefusal = refusal is null ? null : new List<string> { refusal };
-
-        var result = await rig.Step.AutoSendAsync(pending, Account(paused, autoSend: optedIn), CancellationToken.None);
-
-        Assert.Null(result);
-        Assert.Empty(rig.Store.Transitions);
-        Assert.Empty(rig.Writer.Replies);
     }
 
     // ----- Drafts a limit held back -----

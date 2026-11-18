@@ -22,12 +22,20 @@ public class SocialSchemaParityTests
     private static string ScriptPath(string name) => Path.GetFullPath(Path.Combine(
         AppContext.BaseDirectory, "..", "..", "..", "..", "GeekRepository", "Migrations", "Sql", name));
 
+    /// <summary>The geek_social scripts, in the order they apply.</summary>
+    private static readonly string[] Scripts =
+    {
+        "0043_geek_social_schema.sql",
+        "0064_geek_social_tenants.sql",
+        "0072_geek_social_drop_auto_send.sql",
+    };
+
     /// <summary>
-    /// The geek_social scripts, 0043 (the schema) and 0064 (tenants), with their comments removed, so prose that
-    /// names a constraint cannot satisfy a test.
+    /// The geek_social scripts, 0043 (the schema), 0064 (tenants) and 0072 (auto-send dropped), with their comments
+    /// removed, so prose that names a constraint cannot satisfy a test.
     /// </summary>
     private static string Sql => Regex.Replace(
-        File.ReadAllText(ScriptPath("0043_geek_social_schema.sql")) + "\n" + File.ReadAllText(ScriptPath("0064_geek_social_tenants.sql")),
+        string.Join("\n", Scripts.Select(name => File.ReadAllText(ScriptPath(name)))),
         @"--[^\n]*", string.Empty);
 
     private static SocialDbContext NewContext() =>
@@ -63,13 +71,12 @@ public class SocialSchemaParityTests
     }
 
     [Fact]
-    public void The_auto_send_check_lists_every_category_except_the_ones_a_person_must_read()
+    public void Auto_send_is_dropped_from_the_schema_by_0072()
     {
-        var match = Regex.Match(Sql, @"auto_send_categories\s*<@\s*ARRAY\[([^\]]*)\]");
-        Assert.True(match.Success, "ck_social_accounts_auto_send is not in 0043.");
-        var listed = Regex.Matches(match.Groups[1].Value, "'([^']+)'").Select(m => m.Groups[1].Value);
+        var drop = File.ReadAllText(ScriptPath("0072_geek_social_drop_auto_send.sql"));
 
-        Assert.Equal(Sorted(ReplyCategories.All.Where(c => !ReplyCategories.NeverAutoSend.Contains(c))), Sorted(listed));
+        Assert.Contains("DROP CONSTRAINT IF EXISTS ck_social_accounts_auto_send", drop, StringComparison.Ordinal);
+        Assert.Contains("DROP COLUMN IF EXISTS auto_send_categories", drop, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -133,7 +140,10 @@ public class SocialSchemaParityTests
             .Select(m => m.Groups[1].Value);
         var added = Regex.Matches(Sql, $@"ALTER TABLE geek_social\.{table}\s+ADD COLUMN IF NOT EXISTS ([a-z_]+)\s+uuid\b")
             .Select(m => m.Groups[1].Value);
-        return created.Concat(added).OrderBy(c => c, StringComparer.Ordinal).ToArray();
+        var dropped = Regex.Matches(Sql, $@"ALTER TABLE geek_social\.{table}\s+DROP COLUMN IF EXISTS ([a-z_]+)\s*;")
+            .Select(m => m.Groups[1].Value)
+            .ToHashSet(StringComparer.Ordinal);
+        return created.Concat(added).Where(c => !dropped.Contains(c)).OrderBy(c => c, StringComparer.Ordinal).ToArray();
     }
 
     [Theory]

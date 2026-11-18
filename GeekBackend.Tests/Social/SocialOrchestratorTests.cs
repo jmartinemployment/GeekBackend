@@ -991,17 +991,9 @@ public class SocialOrchestratorTests
     }
 
     [Fact]
-    public async Task A_pending_draft_in_an_opted_in_category_is_not_auto_sent_and_waits_for_a_person()
+    public async Task A_drafted_reply_is_never_sent_from_the_reply_path_and_waits_for_a_person()
     {
         var rig = Build(
-            script: store =>
-            {
-                store.OnGetAccount = id => Result<SocialAccount>.Success(new SocialAccount
-                {
-                    Id = id, Platform = SocialPlatforms.Facebook, PlatformAccountId = "PAGE1", DisplayName = "Geek @ Your Spot",
-                    Status = SocialAccountStatuses.Connected, AutoSendCategories = new List<string> { ReplyCategories.Praise },
-                });
-            },
             triage: _ => Decide(needsReply: true, ReplyCategories.Praise),
             drafter: _ => Written("Thank you, that is kind of you."));
         rig.Store.OnCreateDraft = command => Result<ReplyDraft>.Success(new ReplyDraft
@@ -1012,20 +1004,9 @@ public class SocialOrchestratorTests
 
         await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
 
-        // Auto-send is switched off: a person approves every reply, even in a category the account opted into.
-        Assert.Empty(rig.SendStep.AutoSent);
+        // A person approves every reply: the reply path stores the draft and the outcome, and sends nothing.
+        Assert.Empty(rig.SendStep.Sends);
         Assert.Equal(new[] { "draft", "outcome" }, rig.Store.Writes);
-    }
-
-    [Fact]
-    public async Task A_draft_in_a_category_not_opted_into_waits_for_a_person()
-    {
-        var rig = Build(triage: _ => Decide(needsReply: true, ReplyCategories.Question), drafter: _ => Written("We do, on Saturdays."));
-
-        await rig.Orchestrator.TakeInAsync(Guid.NewGuid(), CancellationToken.None);
-
-        Assert.Empty(rig.SendStep.AutoSent);
-        Assert.Single(rig.Drafts);
     }
 
     [Fact]
