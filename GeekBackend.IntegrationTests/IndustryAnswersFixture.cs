@@ -4,12 +4,15 @@ using GeekApplication.Results;
 
 namespace GeekBackend.IntegrationTests;
 
-/// <summary>The five excluded-industry questions each answered no, as an accepted signup stores them with its tenant.</summary>
+/// <summary>The eight excluded-industry questions each answered no, as an accepted signup stores them with its tenant.</summary>
 internal static class IndustryAnswersFixture
 {
     public static readonly (string Code, string Question)[] Questions =
     [
-        ("hipaa", "Is the business a HIPAA covered entity or business associate, such as a healthcare provider, health plan or a business that handles patient health information for one?"),
+        ("hipaa_healthcare_provider", "Is the business a healthcare provider?"),
+        ("hipaa_health_plan", "Is the business a health plan?"),
+        ("hipaa_clearinghouse", "Is the business a healthcare clearinghouse?"),
+        ("hipaa_business_associate", "Does the business handle patient health information for a healthcare provider or health plan?"),
         ("securities_broker_dealer", "Is the business a securities broker-dealer?"),
         ("investment_adviser", "Is the business an investment adviser?"),
         ("commodity_futures_derivatives", "Is the business a commodity futures or derivatives business?"),

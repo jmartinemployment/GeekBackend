@@ -24,8 +24,8 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
 
 4. **"What the business does" is an IRS code, not free text.** Jeff: "Change What the business does to the Class C" (2026-11-16).
    **Pushed 2026-11-16 21:13 UTC, removed 2026-11-18 (not yet pushed).** Signup step 1 offered a list of 303 IRS business
-   codes and GeekAPI decided healthcare and the addendum on the code. Jeff vetoed the list on 2026-11-18. Signup now asks five
-   separate excluded-industry questions (Jeff, 2026-11-18: HIPAA, securities broker-dealer, investment adviser, commodity
+   codes and GeekAPI decided healthcare and the addendum on the code. Jeff vetoed the list on 2026-11-18. Signup now asks eight
+   separate excluded-industry questions about five industries (Jeff, 2026-11-18: HIPAA as four questions, healthcare provider, health plan, healthcare clearinghouse and business associate; securities broker-dealer, investment adviser, commodity
    futures or derivatives, Medicare Advantage or Part D TPMO; veterinary and telemarketing are no longer excluded) (the professional services question and its addendum were removed by Jeff the same day), stores every excluded-industry answer forever,
    and takes what the business does as the owner's own words (`industry_vertical`). The code list, its route and the field that
    stored a tenant's code are gone (migration 0069). `docs/Geek-Receptionist.md` section 5, item 1.

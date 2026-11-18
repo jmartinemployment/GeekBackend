@@ -92,7 +92,7 @@ businesses, excluded earlier the same day, no longer are.
 26. (AI 3) Can your standard service legally exclude customers with mandatory recording obligations through its terms of service and
     customer qualification process?
 27. (AI 3) Are there particular industries or customer activities that should be expressly excluded from your service?
-28. (ours, 2026-11-18) Every answer to the five excluded-industry questions is kept forever with the visitor's address and country,
+28. (ours, 2026-11-18) Every answer to the eight excluded-industry questions (five industries; HIPAA is asked as four, Jeff, 2026-11-18) is kept forever with the visitor's address and country,
     including for a visitor who answered yes, was refused and never became a customer. Whether that may be kept without end, and
     what the signup site must tell the visitor (it has no privacy page today).
 29. (ours) Whether brief processing of a call makes Geek @ Your Spot LLC a business associate for a medical customer, and what

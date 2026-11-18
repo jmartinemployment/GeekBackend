@@ -250,7 +250,7 @@ public sealed class VoiceIntegrationTests
         var at = Now.AddTicks(Random.Shared.NextInt64(1, 10_000_000) * 10);
         var answers = new VoiceIndustryAnswerSet(
             [
-                new VoiceIndustryAnswer("hipaa", "Is the business a HIPAA covered entity or business associate, such as a healthcare provider, health plan or a business that handles patient health information for one?", false),
+                new VoiceIndustryAnswer("hipaa_healthcare_provider", "Is the business a healthcare provider?", false),
                 new VoiceIndustryAnswer("securities_broker_dealer", "Is the business a securities broker-dealer?", true),
             ],
             at, "203.0.113.9", "US");
@@ -263,7 +263,7 @@ public sealed class VoiceIntegrationTests
         await conn.OpenAsync();
         var rows = await Dapper.SqlMapper.QueryAsync<(string Industry, bool Answer)>(conn,
             "SELECT industry, answer FROM geek_voice.signup_industry_answers WHERE tenant_id IS NULL AND answered_at = @at ORDER BY industry", new { at = at.UtcDateTime });
-        Assert.Equal([("hipaa", false), ("securities_broker_dealer", true)], rows);
+        Assert.Equal([("hipaa_healthcare_provider", false), ("securities_broker_dealer", true)], rows);
     }
 
     [Fact]

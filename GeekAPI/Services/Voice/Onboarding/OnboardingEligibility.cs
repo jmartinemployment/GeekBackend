@@ -43,10 +43,10 @@ public sealed record EligibilityAccepted(Guid TenantId, string Status);
 
 /// <summary>
 /// The self-service onboarding gate. The three rules run in the order the plan lists them (country, excluded industry,
-/// attestation); the first that fails answers. The excluded industries are decided on the form's five separate yes-or-no answers
+/// attestation); the first that fails answers. The excluded industries are decided on the form's eight separate yes-or-no answers
 /// (<see cref="ExcludedIndustries"/>) (Jeff, 2026-11-18, replacing the list of business codes). The professional services question
 /// and its addendum were removed by Jeff the same day. An answer that was not sent, or whose question is not the one this gate holds,
-/// is refused, never read as a no. Every answer is stored and kept forever: a yes at once, with no tenant, and the five noes with
+/// is refused, never read as a no. Every answer is stored and kept forever: a yes at once, with no tenant, and the eight noes with
 /// the tenant in one write. The country rule has two parts: the country the form declares, and the country of
 /// the visitor's own address (<see cref="VisitorOrigin"/>). A visitor whose address or country is missing is refused as unverified,
 /// never let through. A signup that passes all three becomes a tenant in status pending_payment, the only
@@ -139,15 +139,20 @@ public sealed record ExcludedIndustry(string Code, string Question);
 /// HIPAA covered entities and business associates (replacing the healthcare question), securities broker-dealers, investment
 /// advisers, commodity futures and derivatives businesses, and Third-Party Marketing Organizations (TPMOs) involved in Medicare
 /// Advantage or Part D marketing and sales (replacing the Medicare sales question). Veterinary and telemarketing businesses are no
-/// longer excluded. Answers already stored under the old codes are kept forever and are not rewritten; this gate accepts only these
-/// five. The form asks about each one separately (Jeff, the same day: "more enforceable to ask each separately"). The portal holds the same codes and questions in lib/signup/excluded.ts; the two
+/// longer excluded. HIPAA is asked as four questions, one each for a healthcare provider, a health plan, a healthcare
+/// clearinghouse and a business associate (Jeff, 2026-11-18), so the five industries are eight questions; the single `hipaa`
+/// question is retired. Answers already stored under the old codes are kept forever and are not rewritten; this gate accepts only
+/// these eight. The form asks about each one separately (Jeff, the same day: "more enforceable to ask each separately"). The portal holds the same codes and questions in lib/signup/excluded.ts; the two
 /// change together, and an answer whose question is not the one here is refused, so what is stored is what was shown.
 /// </summary>
 public static class ExcludedIndustries
 {
     public static readonly IReadOnlyList<ExcludedIndustry> All =
     [
-        new("hipaa", "Is the business a HIPAA covered entity or business associate, such as a healthcare provider, health plan or a business that handles patient health information for one?"),
+        new("hipaa_healthcare_provider", "Is the business a healthcare provider?"),
+        new("hipaa_health_plan", "Is the business a health plan?"),
+        new("hipaa_clearinghouse", "Is the business a healthcare clearinghouse?"),
+        new("hipaa_business_associate", "Does the business handle patient health information for a healthcare provider or health plan?"),
         new("securities_broker_dealer", "Is the business a securities broker-dealer?"),
         new("investment_adviser", "Is the business an investment adviser?"),
         new("commodity_futures_derivatives", "Is the business a commodity futures or derivatives business?"),
