@@ -49,8 +49,10 @@ the only reachability rule is Pinterest's "not accessible". So the pages must op
 draft on geek-social's `legal-pages` branch does; nothing in the research requires them to be indexed, so the
 site-wide `noindex` can stay. A reviewer reads the page in a browser, which `noindex` does not stop.
 
-**For the draft privacy policy:** its deletion section can serve as Meta's data deletion instructions URL
-(`meta:207` accepts an instructions URL in place of a callback). The YouTube and Google wording above is added when
+**For the draft privacy policy:** its deletion section, `https://geek-social.geekatyourspot.com/privacy#delete` once
+published (section 6 of the draft on geek-social's `legal-pages` branch), can serve as Meta's data deletion
+instructions URL (`meta:207` accepts an instructions URL in place of a callback). Its promise that a comment's
+drafts are deleted with it is not yet true in code (geek-social `HANDOFF.md`, "Legal pages"). The YouTube and Google wording above is added when
 those connectors are built.
 
 ## At a glance
