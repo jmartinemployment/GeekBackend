@@ -127,10 +127,12 @@ public interface IReplyDrafter
 /// <summary>
 /// Writes post copy for an article or link, one <see cref="PostCopy"/> per platform asked for, as a
 /// suggestion for a person to edit in the post form. It never posts and never makes an image.
+/// <paramref name="businessName"/> is the tenant's own name, the business sharing the article; the caller
+/// reads it from the tenant, never from the request.
 /// </summary>
 public interface IPostWriter
 {
-    Task<Result<PostCopySuggestion>> WriteAsync(PostCopyRequest request, CancellationToken ct = default);
+    Task<Result<PostCopySuggestion>> WriteAsync(string businessName, PostCopyRequest request, CancellationToken ct = default);
 }
 
 /// <summary>

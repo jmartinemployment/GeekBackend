@@ -119,7 +119,8 @@ public class SocialOperatorActionsTests
 
         var result = await rig.Actions.SuggestPostCopyAsync(TestTenant.Id, Article(), CancellationToken.None);
 
-        Assert.Single(model.Requests);
+        Assert.Contains("<business>", Assert.Single(model.Requests).UserMessage, StringComparison.Ordinal);
+        Assert.Contains("Test", model.Requests[0].UserMessage, StringComparison.Ordinal);
         Assert.Equal(SocialFailureCodes.ModelFailed, result.ErrorCode);
     }
 

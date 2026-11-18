@@ -181,7 +181,7 @@ public sealed class SocialOperatorActions
                 "Accept the AI terms before GeekSocial sends an article to the AI provider.", SocialFailureCodes.Forbidden);
         }
 
-        return await _postWriter.WriteAsync(request, ct).ConfigureAwait(false);
+        return await _postWriter.WriteAsync(tenant.Value.Name, request, ct).ConfigureAwait(false);
     }
 
     /// <summary>

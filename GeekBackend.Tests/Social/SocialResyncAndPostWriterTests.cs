@@ -117,7 +117,7 @@ public class SocialResyncAndPostWriterTests
             (SocialPlatforms.Facebook, "  A new guide.  "), (SocialPlatforms.LinkedInOrganization, "Our new guide."))));
         var writer = new PostWriter(model, new RecordingLog<PostWriter>());
 
-        var result = await writer.WriteAsync(Article(SocialPlatforms.Facebook, SocialPlatforms.LinkedInOrganization));
+        var result = await writer.WriteAsync("Acme Bookkeeping", Article(SocialPlatforms.Facebook, SocialPlatforms.LinkedInOrganization));
 
         Assert.True(result.IsSuccess, result.Error);
         var facebook = result.Value!.Copies.Single(c => c.Platform == SocialPlatforms.Facebook).Post;
@@ -136,6 +136,18 @@ public class SocialResyncAndPostWriterTests
         Assert.Contains("Never use an em dash", sent.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("https://geekatyourspot.com/blog/bookkeeping", sent.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains($"At most {ReviewLimits.PostCharacters} characters", sent.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("<business>\nAcme Bookkeeping\n</business>", sent.UserMessage.ReplaceLineEndings("\n"), StringComparison.Ordinal);
+        Assert.DoesNotContain("Geek @ Your Spot", sent.SystemPrompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_post_needs_the_business_name_and_is_refused_before_any_call_without_one()
+    {
+        var writer = new PostWriter(FakeModelClient.Never(), new RecordingLog<PostWriter>());
+
+        var result = await writer.WriteAsync("  ", Article(SocialPlatforms.Facebook));
+
+        Assert.Equal(SocialFailureCodes.InvalidRequest, result.ErrorCode);
     }
 
     public static TheoryData<string> UnsoundPosts => new()
@@ -155,7 +167,7 @@ public class SocialResyncAndPostWriterTests
         var log = new RecordingLog<PostWriter>();
         var writer = new PostWriter(new FakeModelClient(_ => FakeModelClient.Answer(answer)), log);
 
-        var result = await writer.WriteAsync(Article(SocialPlatforms.Facebook));
+        var result = await writer.WriteAsync("Acme Bookkeeping", Article(SocialPlatforms.Facebook));
 
         Assert.Equal(SocialFailureCodes.ModelFailed, result.ErrorCode);
         Assert.Equal(LogLevel.Error, Assert.Single(log.Entries).Level);
@@ -171,7 +183,7 @@ public class SocialResyncAndPostWriterTests
     {
         var writer = new PostWriter(FakeModelClient.Never(), new RecordingLog<PostWriter>());
 
-        var result = await writer.WriteAsync(new PostCopyRequest
+        var result = await writer.WriteAsync("Acme Bookkeeping", new PostCopyRequest
         {
             ArticleUrl = url, ArticleTitle = title, ArticleSummary = summary, Platforms = new List<string> { platform },
         });

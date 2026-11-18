@@ -174,8 +174,9 @@ A comment view:
   `{ "articleUrl": "https://...", "articleTitle": "...", "articleSummary": "...", "platforms": ["facebook"], "imageUrl": null }`
   returns `{ "copies": [ { "platform": "facebook", "post": { "kind": "link", "text": "...", "linkUrl": "...",
   "linkTitle": "...", "linkDescription": "...", "imageUrl": null, "scheduledFor": null } } ] }`. A suggestion
-  only: nothing is stored or posted. The article goes to the AI provider only once the tenant has accepted the AI
-  terms; until then the route answers 403 `forbidden` and nothing is sent.
+  only: nothing is stored or posted. The article goes to the AI provider, with the tenant's name as the business
+  sharing it, only once the tenant has accepted the AI terms; until then the route answers 403 `forbidden` and
+  nothing is sent.
 - `POST api/social/posts` with `{ "accountId": "uuid", "post": { "kind": "link", "text": "...", "linkUrl": "...",
   "linkTitle": null, "linkDescription": null, "imageUrl": null, "scheduledFor": null } }` checks the text
   with the Reviewer (422 `review_refused`), publishes it once and returns the stored post.
