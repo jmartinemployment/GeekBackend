@@ -19,9 +19,11 @@ public sealed record RetellCallRecorded(string Event, Guid? CallId);
 
 /// <summary>
 /// Records a tenant's call from Retell's webhook (docs/Geek-Receptionist.md section 5): <c>call_ended</c> brings the call with its
-/// length, and <c>call_analyzed</c> brings it again with Retell's summary. Both write the same row, keyed by Retell's call id, so a
-/// repeated delivery changes nothing. Billable minutes are the call's length rounded up to the whole minute, per call; they are what
-/// end-of-cycle billing adds up. The call must come from the agent this tenant's number answers with, so one tenant's route cannot
+/// length, and <c>call_analyzed</c> brings it again. Both write the same row, keyed by Retell's call id, so a repeated delivery
+/// changes nothing. The row holds what billing needs and nothing of what was said: no caller number, transcript, summary or
+/// recording link (item 6). The transcript and Retell's summary are not read here, and nothing forwards a transcript to the tenant
+/// yet: where it goes is the tenant's to say, and the wizard that asks is not built. Billable minutes are the call's length rounded
+/// up to the whole minute, per call; they are what end-of-cycle billing adds up. The call must come from the agent this tenant's number answers with, so one tenant's route cannot
 /// record another tenant's call. Other events are accepted and not recorded. Nothing is guessed: a call Retell says ended but sends
 /// without a length is refused, not recorded as zero minutes.
 /// </summary>
@@ -69,20 +71,15 @@ public sealed class RetellCallRecorder
         if (!string.Equals(telephony.Value!.RetellAgentId, agentId, StringComparison.Ordinal))
             return Result<RetellCallRecorded>.Failure("The call's agent is not this tenant's agent.", RetellCallFailureCodes.AgentMismatch);
 
-        var analysis = call.TryGetProperty("call_analysis", out var a) && a.ValueKind == JsonValueKind.Object ? a : (JsonElement?)null;
         var command = new UpsertVoiceCallCommand(
             RetellCallId: callId,
             TwilioCallSid: Text(call, "telephony_identifier", "twilio_call_sid"),
-            CallerNumber: caller,
             CallStatus: status,
             StartedAt: DateTimeOffset.FromUnixTimeMilliseconds(started.Value),
             EndedAt: ended is null ? null : DateTimeOffset.FromUnixTimeMilliseconds(ended.Value),
             DurationSeconds: (int)((duration ?? 0) / 1000),
             BillableMinutes: BillableMinutes(duration ?? 0),
-            Transcript: Transcript(call),
-            CallSummary: analysis is null ? null : Text(analysis.Value, "call_summary"),
-            Disposition: null,
-            RecordingUrl: Text(call, "recording_url"));
+            Disposition: null);
 
         var stored = await _store.UpsertCallAsync(tenantId, command, ct).ConfigureAwait(false);
         if (!stored.IsSuccess) return Result<RetellCallRecorded>.Failure(stored.Error!, stored.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
@@ -90,26 +87,6 @@ public sealed class RetellCallRecorder
         _logger.LogInformation("Tenant {TenantId}: Retell {Event} recorded as call {CallId}, {Minutes} billable minutes.",
             tenantId, evt, stored.Value!.CallId, command.BillableMinutes);
         return Result<RetellCallRecorded>.Success(new RetellCallRecorded(evt, stored.Value.CallId));
-    }
-
-    /// <summary>
-    /// Who said what, in order: each utterance's role and words. The per-word timings Retell adds are left out. A call in which nobody
-    /// spoke has an empty transcript.
-    /// </summary>
-    private static JsonElement Transcript(JsonElement call)
-    {
-        var utterances = new List<object>();
-        if (call.TryGetProperty("transcript_object", out var items) && items.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in items.EnumerateArray())
-            {
-                var role = Text(item, "role");
-                var content = Text(item, "content");
-                if (role is not null && content is not null) utterances.Add(new { role, content });
-            }
-        }
-
-        return JsonSerializer.SerializeToElement(utterances);
     }
 
     private static Result<RetellCallRecorded> Invalid(string message) => Result<RetellCallRecorded>.Failure(message, RetellCallFailureCodes.InvalidCall);

@@ -26,7 +26,12 @@ public static class VoiceServiceRegistration
             var logger = sp.GetRequiredService<ILogger<HttpVoiceRepository>>();
             return new HttpVoiceRepository(httpClient, logger);
         });
+        services.AddScoped<IVoiceSignupAnswerStore>(sp =>
+            new HttpVoiceRepository(
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),
+                sp.GetRequiredService<ILogger<HttpVoiceRepository>>()));
         services.AddScoped<OnboardingEligibility>();
+        services.AddScoped<IndustryRefusals>();
         services.AddSingleton<VoiceCredentialProtector>();
         services.AddSingleton(PayPalOptions.FromEnvironment());
         services.AddHttpClient<PayPalBillingVerifier>(client => client.Timeout = TimeSpan.FromSeconds(30));

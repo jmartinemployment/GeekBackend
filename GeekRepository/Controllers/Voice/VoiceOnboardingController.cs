@@ -14,8 +14,13 @@ namespace GeekRepository.Controllers.Voice;
 [ApiController]
 [Route("internal/v1/onboarding/tenants")]
 [Authorize(Policy = RepositoryAuthConstants.InternalServicePolicy)]
-public sealed class VoiceOnboardingController(IVoiceStore voice) : VoiceStoreController
+public sealed class VoiceOnboardingController(IVoiceStore voice, IVoiceSignupAnswerStore answers) : VoiceStoreController
 {
+    /// <summary>The answers of a visitor who said yes to an excluded industry and was refused: stored with no tenant, kept forever.</summary>
+    [HttpPost("/internal/v1/onboarding/industry-refusals")]
+    public async Task<IActionResult> RecordIndustryRefusal([FromBody] VoiceIndustryAnswerSet set, CancellationToken ct) =>
+        set is null ? BadRequest("The answers are required.") : ToAction(await answers.RecordIndustryRefusalAsync(set, ct));
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateVoiceTenantCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A tenant is required.") : ToAction(await voice.CreateTenantAsync(command, ct));

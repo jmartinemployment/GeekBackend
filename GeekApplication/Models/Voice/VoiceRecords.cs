@@ -85,7 +85,6 @@ public static class VoiceEmbedding
 public sealed record CreateVoiceTenantCommand(
     string BusinessName,
     string IndustryVertical,
-    string BusinessActivityCode,
     bool RequiresAddendum,
     DateTimeOffset? AddendumSignedAt,
     string? AddendumIpAddress,
@@ -93,13 +92,32 @@ public sealed record CreateVoiceTenantCommand(
     string CountryCode,
     string StateCode,
     string ContactEmail,
-    string ContactPhone);
+    string ContactPhone)
+{
+    /// <summary>The business's no to every excluded-industry question, stored with the tenant in one transaction and kept forever.</summary>
+    public required VoiceIndustryAnswerSet IndustryAnswers { get; init; }
+}
+
+/// <summary>One excluded-industry question of /signup as it was answered: the industry's code, the exact words shown, and the answer.</summary>
+public sealed record VoiceIndustryAnswer(string Industry, string Question, bool Answer);
+
+/// <summary>
+/// The excluded-industry answers one visitor gave, with when they were recorded and the visitor's own address and country. Stored in
+/// geek_voice.signup_industry_answers, which the database never lets change or lose a row (docs/Geek-Receptionist.md section 5, item 1).
+/// </summary>
+public sealed record VoiceIndustryAnswerSet(
+    IReadOnlyList<VoiceIndustryAnswer> Answers,
+    DateTimeOffset AnsweredAt,
+    string IpAddress,
+    string VisitorCountry);
+
+/// <summary>How many answers of a refused visitor were stored.</summary>
+public sealed record VoiceIndustryAnswersRecorded(int Answers);
 
 public sealed record VoiceTenant(
     Guid Id,
     string BusinessName,
     string IndustryVertical,
-    string? BusinessActivityCode,
     bool RequiresAddendum,
     DateTimeOffset? AddendumSignedAt,
     string? AddendumIpAddress,
@@ -204,23 +222,20 @@ public sealed record VoiceKnowledgeHit(Guid DocumentId, int ChunkIndex, string C
 // ----- Calls and appointments -----
 
 /// <summary>
-/// A call as Retell reports it. Sent again with the same Retell call id it updates the same row: an end time, a longer
-/// duration, a summary, a recording link or a Twilio call SID that was missing arrives later, and one that is already there is
-/// kept. The Twilio call SID is Retell's to give "when available", so it is optional; Retell's call id is always present.
+/// What billing needs of a call as Retell reports it, and nothing of what was said: no caller number, transcript, summary or
+/// recording link (docs/Geek-Receptionist.md section 5, item 6). Sent again with the same Retell call id it updates the same row: an
+/// end time, a longer duration or a Twilio call SID that was missing arrives later, and one that is already there is kept. The
+/// Twilio call SID is Retell's to give "when available", so it is optional; Retell's call id is always present.
 /// </summary>
 public sealed record UpsertVoiceCallCommand(
     string RetellCallId,
     string? TwilioCallSid,
-    string CallerNumber,
     string CallStatus,
     DateTimeOffset StartedAt,
     DateTimeOffset? EndedAt,
     int DurationSeconds,
     int BillableMinutes,
-    JsonElement Transcript,
-    string? CallSummary,
-    string? Disposition,
-    string? RecordingUrl);
+    string? Disposition);
 
 public sealed record VoiceCallStored(Guid CallId);
 

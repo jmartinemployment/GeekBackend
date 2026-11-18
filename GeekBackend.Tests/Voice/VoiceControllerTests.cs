@@ -33,7 +33,7 @@ public sealed class VoiceControllerTests
         public Task<Result<VoiceAppointmentCreated>> CreateAppointmentAsync(Guid tenantId, CreateVoiceAppointmentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
-    private static VoiceTenant SomeTenant() => new(Tenant, "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", "a@b.example", "+15615550101", "pending_payment", DateTimeOffset.UnixEpoch);
+    private static VoiceTenant SomeTenant() => new(Tenant, "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", "a@b.example", "+15615550101", "pending_payment", DateTimeOffset.UnixEpoch);
 
     [Theory]
     [InlineData(VoiceFailureCodes.NotFound, 404)]
@@ -43,7 +43,7 @@ public sealed class VoiceControllerTests
     [InlineData("a code nobody has heard of", 503)]
     public async Task Onboarding_status_comes_from_the_failure_code(string code, int status)
     {
-        var controller = new VoiceOnboardingController(new FakeVoiceStore(tenant: () => Result<VoiceTenant>.Failure("words that decide nothing", code)));
+        var controller = new VoiceOnboardingController(new FakeVoiceStore(tenant: () => Result<VoiceTenant>.Failure("words that decide nothing", code)), new RecordingSignupAnswerStore());
 
         var result = await controller.Get(Tenant, CancellationToken.None);
 
@@ -91,7 +91,7 @@ public sealed class VoiceControllerTests
     [Fact]
     public async Task A_not_found_result_with_no_code_is_a_404()
     {
-        var controller = new VoiceOnboardingController(new FakeVoiceStore(tenant: () => Result<VoiceTenant>.NotFound("no such tenant")));
+        var controller = new VoiceOnboardingController(new FakeVoiceStore(tenant: () => Result<VoiceTenant>.NotFound("no such tenant")), new RecordingSignupAnswerStore());
 
         var result = await controller.Get(Tenant, CancellationToken.None);
 
@@ -102,7 +102,7 @@ public sealed class VoiceControllerTests
     public async Task A_success_carries_the_value()
     {
         var tenant = SomeTenant();
-        var controller = new VoiceOnboardingController(new FakeVoiceStore(tenant: () => Result<VoiceTenant>.Success(tenant)));
+        var controller = new VoiceOnboardingController(new FakeVoiceStore(tenant: () => Result<VoiceTenant>.Success(tenant)), new RecordingSignupAnswerStore());
 
         var result = await controller.Get(Tenant, CancellationToken.None);
 
@@ -113,7 +113,7 @@ public sealed class VoiceControllerTests
     public async Task A_missing_body_is_a_400_and_never_reaches_the_store()
     {
         var store = new FakeVoiceStore(tenant: () => Result<VoiceTenant>.Success(SomeTenant()), config: () => throw new InvalidOperationException("must not be called"));
-        var onboarding = new VoiceOnboardingController(store);
+        var onboarding = new VoiceOnboardingController(store, new RecordingSignupAnswerStore());
         var tenants = new VoiceTenantController(store);
 
         Assert.IsType<BadRequestObjectResult>(await onboarding.Create(null!, CancellationToken.None));

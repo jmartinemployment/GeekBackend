@@ -23,12 +23,11 @@ what he said, what is decided, and whether it is done. Nothing here is built unt
 ## Signup
 
 4. **"What the business does" is an IRS code, not free text.** Jeff: "Change What the business does to the Class C" (2026-11-16).
-   **Pushed 2026-11-16 21:13 UTC.** Signup step 1 offers the 303 codes of the 2025 Schedule C chart (IRS Principal
-   Business Activity codes), grouped by sector; GeekAPI serves the list, refuses a code not on it, and decides healthcare
-   (`621`, `622`, `623`, `541940` veterinary) and addendum (`5411`, `5412`, `52`, `61`) by prefix. The tenant stores the code
-   (`business_activity_code`, migration 0065) and its name in `industry_vertical`.
-   - The Schedule C chart has no `541511` Custom computer programming; for Geek @ Your Spot it is `541510` Computer systems design
-     & related services.
+   **Pushed 2026-11-16 21:13 UTC, removed 2026-11-18 (not yet pushed).** Signup step 1 offered a list of 303 IRS business
+   codes and GeekAPI decided healthcare and the addendum on the code. Jeff vetoed the list on 2026-11-18. Signup now asks seven
+   separate excluded-industry questions and one professional services question, stores every excluded-industry answer forever,
+   and takes what the business does as the owner's own words (`industry_vertical`). The code list, its route and the field that
+   stored a tenant's code are gone (migration 0069). `docs/Geek-Receptionist.md` section 5, item 1.
    - Open for Jeff: the receptionist's script reads "works in {industry}", which now gives the IRS name, e.g. "works in Plumbing,
      heating, & air-conditioning contractors".
 

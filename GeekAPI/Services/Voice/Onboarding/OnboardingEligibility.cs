@@ -8,7 +8,8 @@ namespace GeekAPI.Services.Voice.Onboarding;
 public static class OnboardingFailureCodes
 {
     public const string CountryNotSupported = "country_not_supported";
-    public const string BusinessActivityUnknown = "business_activity_unknown";
+    public const string BusinessDescriptionRequired = "business_description_required";
+    public const string IndustryNotAnswered = "industry_not_answered";
     public const string ContactPhoneNotUs = "contact_phone_not_us";
     public const string IndustryExcluded = "industry_excluded";
     public const string AddendumRequired = "addendum_required";
@@ -24,27 +25,38 @@ public static class OnboardingFailureCodes
 /// </summary>
 public sealed record ValidateEligibilityRequest(
     string? BusinessName,
-    string? BusinessActivityCode,
+    string? BusinessDescription,
     string? CountryCode,
     string? StateCode,
     string? ContactEmail,
     string? ContactPhone,
     bool? ComplianceAttested,
-    bool? AddendumSigned);
+    bool? AddendumSigned,
+    IReadOnlyList<IndustryAnswerInput>? IndustryAnswers,
+    bool? ProfessionalServices);
+
+/// <summary>One excluded-industry question as the signup form sends it: the industry's code, the words it showed, and the answer.</summary>
+public sealed record IndustryAnswerInput(string? Industry, string? Question, bool? Answer);
+
+/// <summary>What the form sends the moment a visitor answers yes to an excluded industry: that answer and the ones before it.</summary>
+public sealed record IndustryRefusalRequest(IReadOnlyList<IndustryAnswerInput>? Answers);
 
 /// <summary>The tenant that now exists and is waiting for payment.</summary>
 public sealed record EligibilityAccepted(Guid TenantId, string Status);
 
 /// <summary>
-/// The self-service onboarding gate. The four rules run in the order the plan lists them (country, healthcare, addendum,
-/// attestation); the first that fails answers. Healthcare and the addendum are decided on the IRS business activity code the
-/// signup chose (<see cref="BusinessActivities"/>), and a code the chart does not have is refused before them. The country rule has two parts: the country the form declares, and the country of
+/// The self-service onboarding gate. The four rules run in the order the plan lists them (country, excluded industry, addendum,
+/// attestation); the first that fails answers. The excluded industries are decided on the form's seven separate yes-or-no answers
+/// (<see cref="ExcludedIndustries"/>), and the addendum on <see cref="ValidateEligibilityRequest.ProfessionalServices"/> (Jeff,
+/// 2026-11-18, replacing the list of business codes). An answer that was not sent, or whose question is not the one this gate holds,
+/// is refused, never read as a no. Every answer is stored and kept forever: a yes at once, with no tenant, and the seven noes with
+/// the tenant in one write. The country rule has two parts: the country the form declares, and the country of
 /// the visitor's own address (<see cref="VisitorOrigin"/>). A visitor whose address or country is missing is refused as unverified,
 /// never let through. A signup that passes all four becomes a tenant in status pending_payment, the only
 /// place the attestation and the addendum record can be stored. Nothing is created for a signup that fails, and a store that
 /// cannot be reached is a failure, never an accepted signup.
 /// </summary>
-public sealed class OnboardingEligibility(IVoiceStore voice, TimeProvider clock)
+public sealed class OnboardingEligibility(IVoiceStore voice, IVoiceSignupAnswerStore signupAnswers, TimeProvider clock)
 {
     public async Task<Result<EligibilityAccepted>> ValidateAsync(ValidateEligibilityRequest request, VisitorOrigin visitor, CancellationToken ct = default)
     {
@@ -56,19 +68,30 @@ public sealed class OnboardingEligibility(IVoiceStore voice, TimeProvider clock)
         if (!string.Equals(visitor.CountryCode, "US", StringComparison.OrdinalIgnoreCase))
             return Refused(OnboardingFailureCodes.VisitorCountryNotSupported, "Signup is open only from the United States.");
 
-        var activity = BusinessActivities.Find(request.BusinessActivityCode);
-        if (activity is null)
-            return Refused(OnboardingFailureCodes.BusinessActivityUnknown, "Choose what the business does from the list of IRS business activity codes.");
+        var now = clock.GetUtcNow();
+        var answers = ExcludedIndustries.Read(request.IndustryAnswers);
+        if (answers is null || answers.Count != ExcludedIndustries.All.Count || request.ProfessionalServices is null)
+            return Refused(OnboardingFailureCodes.IndustryNotAnswered, "Every question about the business's industry must be answered.");
 
-        if (BusinessActivities.IsHealthcare(activity))
-            return Refused(OnboardingFailureCodes.IndustryExcluded, "Healthcare and veterinary businesses cannot use the receptionist.");
+        var answerSet = new VoiceIndustryAnswerSet(answers, now, visitor.IpAddress, visitor.CountryCode);
+        if (answers.Any(a => a.Answer))
+        {
+            // A yes is kept as well as refused. If it cannot be stored the visitor is still refused, with the store's own failure.
+            var recorded = await signupAnswers.RecordIndustryRefusalAsync(answerSet, ct).ConfigureAwait(false);
+            return recorded.IsSuccess
+                ? Refused(OnboardingFailureCodes.IndustryExcluded, ExcludedIndustries.Refusal)
+                : Result<EligibilityAccepted>.Failure(recorded.Error ?? "The answers could not be stored.", recorded.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+        }
 
-        var requiresAddendum = BusinessActivities.RequiresAddendum(activity);
+        var requiresAddendum = request.ProfessionalServices.Value;
         if (requiresAddendum && request.AddendumSigned != true)
             return Refused(OnboardingFailureCodes.AddendumRequired, "This industry requires a signed addendum.");
 
         if (request.ComplianceAttested != true)
             return Refused(OnboardingFailureCodes.AttestationRequired, "The compliance attestation must be accepted.");
+
+        if (string.IsNullOrWhiteSpace(request.BusinessDescription))
+            return Refused(OnboardingFailureCodes.BusinessDescriptionRequired, "Say what the business does.");
 
         var phone = UsPhone.ToE164(request.ContactPhone);
         if (phone is null)
@@ -76,7 +99,6 @@ public sealed class OnboardingEligibility(IVoiceStore voice, TimeProvider clock)
 
         DateTimeOffset? addendumSignedAt = null;
         string? addendumAddress = null;
-        var now = clock.GetUtcNow();
         if (requiresAddendum)
         {
             addendumSignedAt = now;
@@ -85,8 +107,7 @@ public sealed class OnboardingEligibility(IVoiceStore voice, TimeProvider clock)
 
         var created = await voice.CreateTenantAsync(new CreateVoiceTenantCommand(
             request.BusinessName ?? string.Empty,
-            activity.Name,
-            activity.Code,
+            request.BusinessDescription.Trim(),
             requiresAddendum,
             addendumSignedAt,
             addendumAddress,
@@ -94,7 +115,10 @@ public sealed class OnboardingEligibility(IVoiceStore voice, TimeProvider clock)
             request.CountryCode!,
             request.StateCode ?? string.Empty,
             request.ContactEmail ?? string.Empty,
-            phone), ct).ConfigureAwait(false);
+            phone)
+        {
+            IndustryAnswers = answerSet,
+        }, ct).ConfigureAwait(false);
 
         return created.IsSuccess
             ? Result<EligibilityAccepted>.Success(new EligibilityAccepted(created.Value!.Id, created.Value.Status))
@@ -102,4 +126,72 @@ public sealed class OnboardingEligibility(IVoiceStore voice, TimeProvider clock)
     }
 
     private static Result<EligibilityAccepted> Refused(string code, string message) => Result<EligibilityAccepted>.Failure(message, code);
+}
+
+/// <summary>
+/// The moment a visitor answers yes to an excluded industry on /signup: the yes, and the noes given before it, are stored with no
+/// tenant and kept forever (docs/Geek-Receptionist.md section 5, item 1). The visitor's address and country must be verified, as
+/// for a signup. Nothing is stored for a request with no yes in it, or with an answer this gate does not recognise.
+/// </summary>
+public sealed class IndustryRefusals(IVoiceSignupAnswerStore signupAnswers, TimeProvider clock)
+{
+    public async Task<Result<VoiceIndustryAnswersRecorded>> RecordAsync(IndustryRefusalRequest? request, VisitorOrigin visitor, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(visitor.IpAddress) || string.IsNullOrWhiteSpace(visitor.CountryCode))
+            return Result<VoiceIndustryAnswersRecorded>.Failure("The visitor's location could not be verified.", OnboardingFailureCodes.VisitorUnverified);
+
+        var answers = ExcludedIndustries.Read(request?.Answers);
+        if (answers is null || !answers.Any(a => a.Answer))
+            return Result<VoiceIndustryAnswersRecorded>.Failure("A refusal carries a yes to one of the excluded industries.", OnboardingFailureCodes.IndustryNotAnswered);
+
+        return await signupAnswers.RecordIndustryRefusalAsync(
+            new VoiceIndustryAnswerSet(answers, clock.GetUtcNow(), visitor.IpAddress, visitor.CountryCode), ct).ConfigureAwait(false);
+    }
+}
+
+/// <summary>One industry that cannot sign up: its code, and the question the signup form asks about it, word for word.</summary>
+public sealed record ExcludedIndustry(string Code, string Question);
+
+/// <summary>
+/// The industries that cannot sign up (docs/Geek-Receptionist.md section 5, item 1). Healthcare and veterinary businesses were
+/// always excluded; securities broker-dealers, investment advisers, commodity futures and derivatives businesses, Medicare sales
+/// organizations and telemarketing were added by Jeff on 2026-11-18. The form asks about each one separately (Jeff, the same day:
+/// "more enforceable to ask each separately"). The portal holds the same codes and questions in lib/signup/excluded.ts; the two
+/// change together, and an answer whose question is not the one here is refused, so what is stored is what was shown.
+/// </summary>
+public static class ExcludedIndustries
+{
+    public static readonly IReadOnlyList<ExcludedIndustry> All =
+    [
+        new("healthcare", "Is the business a healthcare business?"),
+        new("veterinary", "Is the business a veterinary business?"),
+        new("securities_broker_dealer", "Is the business a securities broker-dealer?"),
+        new("investment_adviser", "Is the business an investment adviser?"),
+        new("commodity_futures_derivatives", "Is the business a commodity futures or derivatives business?"),
+        new("medicare_sales", "Is the business a Medicare sales organization?"),
+        new("telemarketing", "Is the business a telemarketing business?"),
+    ];
+
+    public const string Refusal =
+        "Healthcare, veterinary, securities broker-dealer, investment adviser, commodity futures or derivatives, Medicare sales and telemarketing businesses cannot use the receptionist.";
+
+    /// <summary>
+    /// The answers as sent, in this list's order, or null when any one of them is not an answer to a question held here: an unknown
+    /// or repeated industry, words that differ from the question, or no yes or no. Fewer than all of them is still a reading; the
+    /// caller decides whether every question had to be answered.
+    /// </summary>
+    public static IReadOnlyList<VoiceIndustryAnswer>? Read(IReadOnlyList<IndustryAnswerInput>? sent)
+    {
+        if (sent is not { Count: > 0 }) return null;
+        var read = new Dictionary<string, VoiceIndustryAnswer>(StringComparer.Ordinal);
+        foreach (var input in sent)
+        {
+            if (input is null || input.Answer is null) return null;
+            var industry = All.FirstOrDefault(i => string.Equals(i.Code, input.Industry, StringComparison.Ordinal));
+            if (industry is null || !string.Equals(industry.Question, input.Question, StringComparison.Ordinal)) return null;
+            if (!read.TryAdd(industry.Code, new VoiceIndustryAnswer(industry.Code, industry.Question, input.Answer.Value))) return null;
+        }
+
+        return All.Where(i => read.ContainsKey(i.Code)).Select(i => read[i.Code]).ToList();
+    }
 }

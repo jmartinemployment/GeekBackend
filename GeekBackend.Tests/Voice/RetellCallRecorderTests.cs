@@ -15,8 +15,8 @@ namespace GeekBackend.Tests.Voice;
 
 /// <summary>
 /// Recording calls from Retell's webhook: only a delivery signed with the Retell key within five minutes is read; a call is recorded
-/// from call_ended and call_analyzed by Retell's call id, its minutes rounded up per call; a call from another tenant's agent is
-/// refused; and a call Retell says ended but sends with no length is refused rather than recorded as zero minutes.
+/// from call_ended and call_analyzed by Retell's call id, its minutes rounded up per call, with nothing of what was said; a call
+/// from another tenant's agent is refused; and a call Retell says ended but sends with no length is refused rather than recorded as zero minutes.
 /// </summary>
 public sealed class RetellCallRecorderTests
 {
@@ -104,20 +104,17 @@ public sealed class RetellCallRecorderTests
         var call = Assert.Single(store.Calls);
         Assert.Equal("call_123", call.RetellCallId);
         Assert.Equal("CA5d0d", call.TwilioCallSid);
-        Assert.Equal("+15615550111", call.CallerNumber);
         Assert.Equal(61, call.DurationSeconds);
         Assert.Equal(2, call.BillableMinutes);
         Assert.Equal(Now.AddMinutes(-2), call.StartedAt);
-        Assert.Equal("https://recordings.example/call_123.wav", call.RecordingUrl);
-        Assert.Equal("""[{"role":"agent","content":"Thanks for calling."},{"role":"user","content":"My AC is out."}]""", call.Transcript.GetRawText());
+        Assert.DoesNotContain(typeof(UpsertVoiceCallCommand).GetProperties(), p => p.Name is "CallerNumber" or "Transcript" or "CallSummary" or "RecordingUrl");
     }
 
     [Fact]
-    public async Task The_analysis_brings_retells_summary_and_a_missing_twilio_sid_is_left_empty()
+    public async Task The_analysis_records_the_call_again_and_a_missing_twilio_sid_is_left_empty()
     {
         var (_, store) = await Record(Delivery("call_analyzed", summary: "Caller's AC is out; asked for a visit.", twilioSid: false));
         var call = Assert.Single(store.Calls);
-        Assert.Equal("Caller's AC is out; asked for a visit.", call.CallSummary);
         Assert.Null(call.TwilioCallSid);
         Assert.Null(call.Disposition);
     }

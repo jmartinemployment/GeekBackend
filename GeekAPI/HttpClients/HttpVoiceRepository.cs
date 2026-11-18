@@ -10,7 +10,7 @@ namespace GeekAPI.HttpClients;
 /// carrying a <see cref="VoiceFailureCodes"/> value, read by <see cref="VoiceRepositoryTransport"/> as every Geek-Receptionist client reads
 /// it; nothing here turns a failure into an empty list, so a store that is down is never read as "nothing there".
 /// </summary>
-public sealed class HttpVoiceRepository : IVoiceStore
+public sealed class HttpVoiceRepository : IVoiceStore, IVoiceSignupAnswerStore
 {
     private readonly VoiceRepositoryTransport _transport;
 
@@ -23,6 +23,9 @@ public sealed class HttpVoiceRepository : IVoiceStore
 
     public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) =>
         _transport.SendAsync<VoiceTenant>(HttpMethod.Post, "internal/v1/onboarding/tenants", command, ct);
+
+    public Task<Result<VoiceIndustryAnswersRecorded>> RecordIndustryRefusalAsync(VoiceIndustryAnswerSet answers, CancellationToken ct = default) =>
+        _transport.SendAsync<VoiceIndustryAnswersRecorded>(HttpMethod.Post, "internal/v1/onboarding/industry-refusals", answers, ct);
 
     public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) =>
         _transport.SendAsync<VoiceTenant>(HttpMethod.Get, $"internal/v1/onboarding/tenants/{tenantId}", null, ct);

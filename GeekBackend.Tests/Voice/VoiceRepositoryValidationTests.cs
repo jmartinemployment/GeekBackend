@@ -31,7 +31,7 @@ public sealed class VoiceRepositoryValidationTests
     private static IReadOnlyList<float> Embedding(int length = VoiceEmbedding.Dimensions) => Enumerable.Repeat(0.5f, length).ToList();
 
     private static CreateVoiceTenantCommand GoodTenant() => new(
-        "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101");
+        "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) };
 
     private static ActivateVoiceTenantCommand GoodActivation() => new(
         VoiceSubscriptionTiers.Standard, 48m, 250, 0.50m, "I-TEST", "VAULT-TEST", Now, Now.AddMonths(1), "active",
@@ -58,16 +58,55 @@ public sealed class VoiceRepositoryValidationTests
     [InlineData("Acme", "HVAC", "US", "FL", "no-at-sign", "+15615550101")]
     [InlineData("Acme", "HVAC", "US", "FL", "a@b.example", "561-555-0101")]
     public async Task A_tenant_with_a_bad_field_is_refused(string name, string industry, string country, string state, string email, string phone) =>
-        await AssertInvalid(Store().CreateTenantAsync(new(name, industry, "238220", false, null, null, Now, country, state, email, phone)));
+        await AssertInvalid(Store().CreateTenantAsync(new(name, industry, false, null, null, Now, country, state, email, phone) { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) }));
+
+    public static TheoryData<string, Func<VoiceIndustryAnswerSet>> AnswerSetsThatCannotBeStored() => new()
+    {
+        { "no answers", () => IndustryAnswersFixture.AllNo(Now) with { Answers = [] } },
+        { "a blank industry", () => IndustryAnswersFixture.AllNo(Now) with { Answers = [new VoiceIndustryAnswer(" ", "Is the business a healthcare business?", false)] } },
+        { "a blank question", () => IndustryAnswersFixture.AllNo(Now) with { Answers = [new VoiceIndustryAnswer("healthcare", "", false)] } },
+        { "an industry answered twice", () => IndustryAnswersFixture.AllNo(Now) with { Answers = [new VoiceIndustryAnswer("healthcare", "q", false), new VoiceIndustryAnswer("healthcare", "q", false)] } },
+        { "no visitor address", () => IndustryAnswersFixture.AllNo(Now) with { IpAddress = "" } },
+        { "an address that is not one", () => IndustryAnswersFixture.AllNo(Now) with { IpAddress = "not an address" } },
+        { "no visitor country", () => IndustryAnswersFixture.AllNo(Now) with { VisitorCountry = " " } },
+    };
 
     [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("54151")]
-    [InlineData("54151X")]
-    [InlineData("5415100")]
-    public async Task A_tenant_without_a_six_digit_business_activity_code_is_refused(string? code) =>
-        await AssertInvalid(Store().CreateTenantAsync(GoodTenant() with { BusinessActivityCode = code! }));
+    [MemberData(nameof(AnswerSetsThatCannotBeStored))]
+    public async Task A_tenant_whose_industry_answers_cannot_be_stored_is_refused(string why, Func<VoiceIndustryAnswerSet> answers)
+    {
+        var result = await Store().CreateTenantAsync(GoodTenant() with { IndustryAnswers = answers() });
+
+        Assert.True(VoiceFailureCodes.InvalidRequest == result.ErrorCode, why);
+    }
+
+    [Fact]
+    public async Task A_tenant_that_answered_yes_to_an_excluded_industry_is_refused()
+    {
+        var yes = IndustryAnswersFixture.AllNo(Now);
+        yes = yes with { Answers = yes.Answers.Select((a, i) => i == 5 ? a with { Answer = true } : a).ToList() };
+
+        var result = await Store().CreateTenantAsync(GoodTenant() with { IndustryAnswers = yes });
+
+        Assert.Equal(VoiceFailureCodes.InvalidRequest, result.ErrorCode);
+    }
+
+    [Theory]
+    [MemberData(nameof(AnswerSetsThatCannotBeStored))]
+    public async Task A_refusal_whose_answers_cannot_be_stored_is_refused(string why, Func<VoiceIndustryAnswerSet> answers)
+    {
+        var result = await Store().RecordIndustryRefusalAsync(answers());
+
+        Assert.True(VoiceFailureCodes.InvalidRequest == result.ErrorCode, why);
+    }
+
+    [Fact]
+    public async Task A_refusal_with_no_yes_in_it_is_refused()
+    {
+        var result = await Store().RecordIndustryRefusalAsync(IndustryAnswersFixture.AllNo(Now));
+
+        Assert.Equal(VoiceFailureCodes.InvalidRequest, result.ErrorCode);
+    }
 
     [Fact]
     public async Task An_addendum_time_without_an_address_is_refused() =>
@@ -190,7 +229,7 @@ public sealed class VoiceRepositoryValidationTests
 
     // ----- Calls and appointments -----
 
-    private static UpsertVoiceCallCommand GoodCall() => new("call_test", "CAtest", "+15615550111", "ended", Now, Now.AddMinutes(3), 180, 3, EmptyList, null, null, null);
+    private static UpsertVoiceCallCommand GoodCall() => new("call_test", "CAtest", "ended", Now, Now.AddMinutes(3), 180, 3, null);
 
     [Fact]
     public async Task A_call_needs_its_retell_id_and_a_twilio_sid_when_given_is_not_blank()
@@ -198,10 +237,6 @@ public sealed class VoiceRepositoryValidationTests
         await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { RetellCallId = " " }));
         await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { TwilioCallSid = "" }));
     }
-
-    [Fact]
-    public async Task A_transcript_that_is_not_a_list_is_refused() =>
-        await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { Transcript = EmptyObject }));
 
     [Fact]
     public async Task A_call_that_ends_before_it_starts_is_refused() =>

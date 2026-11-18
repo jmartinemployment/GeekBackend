@@ -106,6 +106,7 @@ public sealed class RetellProvisionerTests
         Assert.Equal("llm_1", agent.RootElement.GetProperty("response_engine").GetProperty("llm_id").GetString());
         Assert.Equal("retell-Lily", agent.RootElement.GetProperty("voice_id").GetString());
         Assert.Equal($"https://api.example.test/api/receptionist/retell/webhook/{Tenant}", agent.RootElement.GetProperty("webhook_url").GetString());
+        Assert.Equal("basic_attributes_only", agent.RootElement.GetProperty("data_storage_setting").GetString());
 
         using var number = JsonDocument.Parse(handler.Requests[2].Body);
         Assert.Equal("+15615550123", number.RootElement.GetProperty("phone_number").GetString());

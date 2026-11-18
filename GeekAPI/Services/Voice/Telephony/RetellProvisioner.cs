@@ -30,6 +30,12 @@ public sealed class RetellProvisioner
 {
     public const double Temperature = 0.2;
 
+    /// <summary>
+    /// Zero Data Retention (docs/Geek-Receptionist-zero-data-retention.md): Retell keeps a call's ids, times, status and cost and no
+    /// transcript, recording or log. Its webhook still carries them, and Retell deletes its own files about ten minutes later.
+    /// </summary>
+    public const string DataStorageSetting = "basic_attributes_only";
+
     private const string ApiBase = "https://api.retellai.com/";
 
     private readonly HttpClient _http;
@@ -74,6 +80,7 @@ public sealed class RetellProvisioner
             voice_id = script.VoiceId,
             agent_name = $"Geek Receptionist {tenantId:N}",
             webhook_url = $"{_options.PublicBaseUrl}/api/receptionist/retell/webhook/{tenantId}",
+            data_storage_setting = DataStorageSetting,
         }, ct).ConfigureAwait(false);
         if (!agent.IsSuccess) return await UndoAsync(tenantId, new ProvisionedRetell(llmId, "", ""), Failed(agent), ct).ConfigureAwait(false);
         string? agentId;

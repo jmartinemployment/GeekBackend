@@ -48,7 +48,7 @@ public sealed class SignupPaymentsTests
     {
         public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) =>
             Task.FromResult(tenantId == Tenant
-                ? Result<VoiceTenant>.Success(new VoiceTenant(Tenant, "Plumbing", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", "o@example.test", "+15615550100", status, DateTimeOffset.UnixEpoch))
+                ? Result<VoiceTenant>.Success(new VoiceTenant(Tenant, "Plumbing", "Plumbing, heating, & air-conditioning contractors", false, null, null, DateTimeOffset.UnixEpoch, "US", "FL", "o@example.test", "+15615550100", status, DateTimeOffset.UnixEpoch))
                 : Result<VoiceTenant>.Failure("No such tenant.", VoiceFailureCodes.NotFound));
 
         public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();

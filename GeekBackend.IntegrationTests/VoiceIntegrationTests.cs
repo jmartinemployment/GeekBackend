@@ -35,7 +35,7 @@ public sealed class VoiceIntegrationTests
     private static async Task<Guid> ActiveTenantAsync(VoiceRepository store)
     {
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101"));
+            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
         Assert.True(created.IsSuccess, created.Error);
         var id = created.Value!.Id;
 
@@ -54,7 +54,7 @@ public sealed class VoiceIntegrationTests
         var store = NewRepository();
 
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101"));
+            "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
         Assert.True(created.IsSuccess, created.Error);
         Assert.Equal(VoiceTenantStatuses.PendingPayment, created.Value!.Status);
         var id = created.Value.Id;
@@ -86,7 +86,7 @@ public sealed class VoiceIntegrationTests
         var number = (await store.GetTelephonyAsync(first)).Value!.AssignedPhoneNumber;
 
         var second = await store.CreateTenantAsync(new(
-            "Other HVAC", "Plumbing, heating, & air-conditioning contractors", "238220", false, null, null, Now, "US", "FL", "other@example.test", "+15615550102"));
+            "Other HVAC", "Plumbing, heating, & air-conditioning contractors", false, null, null, Now, "US", "FL", "other@example.test", "+15615550102") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
         var clash = await store.ActivateTenantAsync(second.Value!.Id, new(
             VoiceSubscriptionTiers.Pro, 148m, 1000, 0.50m, "I-" + Unique(), "VAULT-" + Unique(), Now, Now.AddMonths(1), "active",
             "AC" + Unique(), "ciphertext", number, "PN" + Unique(), null, null, null, "not_started", false));
@@ -166,7 +166,7 @@ public sealed class VoiceIntegrationTests
     }
 
     [Fact]
-    public async Task A_retried_call_report_is_one_row_that_fills_in_and_never_loses_a_summary()
+    public async Task A_retried_call_report_is_one_row_that_fills_in()
     {
         if (!IntegrationTestConfig.IsDatabaseConfigured) return;
         await SqlMigrationTestHelper.ApplyAsync();
@@ -174,9 +174,9 @@ public sealed class VoiceIntegrationTests
         var tenant = await ActiveTenantAsync(store);
         var callId = "call_" + Unique();
 
-        var first = await store.UpsertCallAsync(tenant, new(callId, null, "+15615550111", "in_progress", Now, null, 0, 0, EmptyList, null, null, null));
-        var second = await store.UpsertCallAsync(tenant, new(callId, null, "+15615550111", "completed", Now, Now.AddMinutes(3), 180, 3, EmptyList, "Needs a new capacitor.", "booked", null));
-        var third = await store.UpsertCallAsync(tenant, new(callId, null, "+15615550111", "completed", Now, Now.AddMinutes(3), 120, 2, EmptyList, null, null, null));
+        var first = await store.UpsertCallAsync(tenant, new(callId, null, "in_progress", Now, null, 0, 0, null));
+        var second = await store.UpsertCallAsync(tenant, new(callId, null, "completed", Now, Now.AddMinutes(3), 180, 3, "booked"));
+        var third = await store.UpsertCallAsync(tenant, new(callId, null, "completed", Now, Now.AddMinutes(3), 120, 2, null));
 
         Assert.True(first.IsSuccess, first.Error);
         Assert.Equal(first.Value!.CallId, second.Value!.CallId);
@@ -193,10 +193,10 @@ public sealed class VoiceIntegrationTests
         var tenantB = await ActiveTenantAsync(store);
         var callId = "call_" + Unique();
 
-        var call = await store.UpsertCallAsync(tenantA, new(callId, null, "+15615550111", "completed", Now, Now.AddMinutes(3), 180, 3, EmptyList, null, null, null));
+        var call = await store.UpsertCallAsync(tenantA, new(callId, null, "completed", Now, Now.AddMinutes(3), 180, 3, null));
         Assert.True(call.IsSuccess, call.Error);
 
-        var overwrite = await store.UpsertCallAsync(tenantB, new(callId, null, "+15615550999", "completed", Now, Now.AddMinutes(1), 60, 1, EmptyList, null, null, null));
+        var overwrite = await store.UpsertCallAsync(tenantB, new(callId, null, "completed", Now, Now.AddMinutes(1), 60, 1, null));
         Assert.Equal(VoiceFailureCodes.Conflict, overwrite.ErrorCode);
 
         var appointment = new CreateVoiceAppointmentCommand(
@@ -206,5 +206,76 @@ public sealed class VoiceIntegrationTests
 
         var own = await store.CreateAppointmentAsync(tenantA, appointment);
         Assert.True(own.IsSuccess, own.Error);
+    }
+
+    [Fact]
+    public async Task The_excluded_industry_answers_are_stored_with_the_tenant_and_the_database_refuses_to_change_or_delete_them()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var store = NewRepository();
+
+        var created = await store.CreateTenantAsync(new(
+            "Boca Cool HVAC " + Unique()[..6], "Heating and air conditioning", false, null, null, Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+        Assert.True(created.IsSuccess, created.Error);
+        var id = created.Value!.Id;
+
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        var rows = await Dapper.SqlMapper.QueryAsync<(string Industry, string Question, bool Answer, string Ip, string Country)>(conn,
+            "SELECT industry, question, answer, host(ip_address), visitor_country FROM geek_voice.signup_industry_answers WHERE tenant_id = @id ORDER BY industry", new { id });
+        Assert.Equal(IndustryAnswersFixture.Questions.Select(q => q.Code).Order(StringComparer.Ordinal), rows.Select(r => r.Industry));
+        Assert.All(rows, r => { Assert.False(r.Answer); Assert.Equal("203.0.113.9", r.Ip); Assert.Equal("US", r.Country); });
+
+        var update = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "UPDATE geek_voice.signup_industry_answers SET answer = TRUE WHERE tenant_id = @id", new { id }));
+        var delete = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "DELETE FROM geek_voice.signup_industry_answers WHERE tenant_id = @id", new { id }));
+        var truncate = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "TRUNCATE geek_voice.signup_industry_answers"));
+        Assert.Contains("kept forever", update.MessageText, StringComparison.Ordinal);
+        Assert.Contains("kept forever", delete.MessageText, StringComparison.Ordinal);
+        Assert.Contains("kept forever", truncate.MessageText, StringComparison.Ordinal);
+
+        var still = await Dapper.SqlMapper.ExecuteScalarAsync<long>(conn, "SELECT count(*) FROM geek_voice.signup_industry_answers WHERE tenant_id = @id AND answer = FALSE", new { id });
+        Assert.Equal(7, still);
+    }
+
+    [Fact]
+    public async Task A_refused_visitors_yes_is_stored_with_no_tenant()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var store = NewRepository();
+        var at = Now.AddTicks(Random.Shared.NextInt64(1, 10_000_000) * 10);
+        var answers = new VoiceIndustryAnswerSet(
+            [
+                new VoiceIndustryAnswer("healthcare", "Is the business a healthcare business?", false),
+                new VoiceIndustryAnswer("veterinary", "Is the business a veterinary business?", true),
+            ],
+            at, "203.0.113.9", "US");
+
+        var recorded = await store.RecordIndustryRefusalAsync(answers);
+
+        Assert.True(recorded.IsSuccess, recorded.Error);
+        Assert.Equal(2, recorded.Value!.Answers);
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        var rows = await Dapper.SqlMapper.QueryAsync<(string Industry, bool Answer)>(conn,
+            "SELECT industry, answer FROM geek_voice.signup_industry_answers WHERE tenant_id IS NULL AND answered_at = @at ORDER BY industry", new { at = at.UtcDateTime });
+        Assert.Equal([("healthcare", false), ("veterinary", true)], rows);
+    }
+
+    [Fact]
+    public async Task The_old_business_code_field_is_gone_from_the_tenants_table()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        var columns = await Dapper.SqlMapper.ExecuteScalarAsync<long>(conn,
+            "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'geek_voice' AND table_name = 'tenants' AND column_name = 'business_activity_code'");
+        Assert.Equal(0, columns);
     }
 }

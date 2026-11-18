@@ -54,7 +54,6 @@
       The IRS Principal Business Activity codes a Geek-Receptionist signup chooses from, taken from the
       2025 Schedule C instructions (the source is inside the file). Next year's chart replaces it.
     -->
-    <EmbeddedResource Include="Assets\BusinessActivities\schedule-c-2025.json" LogicalName="GeekAPI.Assets.BusinessActivities.schedule-c-2025.json" />
   </ItemGroup>
 
   <ItemGroup>

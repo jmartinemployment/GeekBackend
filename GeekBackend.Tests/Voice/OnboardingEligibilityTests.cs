@@ -10,7 +10,7 @@ namespace GeekBackend.Tests.Voice;
 
 /// <summary>
 /// The four rules of the self-service gate, in the plan's order, and what each leaves behind: a refused signup creates nothing,
-/// and an accepted one is exactly one pending tenant carrying the attestation, its IRS business activity code and, where the
+/// and an accepted one is exactly one pending tenant carrying the attestation, what the business does and, where the
 /// industry needs it, the addendum.
 /// </summary>
 public sealed class OnboardingEligibilityTests
@@ -28,7 +28,7 @@ public sealed class OnboardingEligibilityTests
             return Task.FromResult(create is not null ? create() : Result<VoiceTenant>.Success(Tenant(command)));
         }
 
-        private static VoiceTenant Tenant(CreateVoiceTenantCommand c) => new(NewTenant, c.BusinessName, c.IndustryVertical, c.BusinessActivityCode, c.RequiresAddendum,
+        private static VoiceTenant Tenant(CreateVoiceTenantCommand c) => new(NewTenant, c.BusinessName, c.IndustryVertical, c.RequiresAddendum,
             c.AddendumSignedAt, c.AddendumIpAddress, c.ComplianceAttestedAt, c.CountryCode, c.StateCode, c.ContactEmail, c.ContactPhone,
             VoiceTenantStatuses.PendingPayment, Now);
 
@@ -46,13 +46,17 @@ public sealed class OnboardingEligibilityTests
     }
 
     private static ValidateEligibilityRequest Signup(
-        string? activity = "238220", string? country = "US", bool? attested = true, bool? addendumSigned = null) =>
-        new("Boca Cool HVAC", activity, country, "FL", "owner@bocacool.example", "+15615550101", attested, addendumSigned);
+        string? country = "US", bool? attested = true, bool? addendumSigned = null, string? yesTo = null, bool? professional = false) =>
+        new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, addendumSigned, Answers(yesTo), professional);
+
+    /// <summary>The seven questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
+    private static List<IndustryAnswerInput> Answers(string? yesTo = null) =>
+        ExcludedIndustries.All.Select(i => new IndustryAnswerInput(i.Code, i.Question, i.Code == yesTo)).ToList();
 
     private static readonly VisitorOrigin FromUs = new("203.0.113.9", "US");
 
-    private static OnboardingEligibility Gate(RecordingStore store) =>
-        new(store, new FakeTimeProvider(Now));
+    private static OnboardingEligibility Gate(RecordingStore store, RecordingSignupAnswerStore? refusals = null) =>
+        new(store, refusals ?? new RecordingSignupAnswerStore(), new FakeTimeProvider(Now));
 
     [Fact]
     public async Task A_passing_signup_becomes_one_pending_tenant_with_its_attestation()
@@ -70,22 +74,37 @@ public sealed class OnboardingEligibilityTests
         Assert.Null(created.AddendumIpAddress);
         Assert.Equal("US", created.CountryCode);
         Assert.Equal("+15615550101", created.ContactPhone);
-        Assert.Equal("238220", created.BusinessActivityCode);
-        Assert.Equal("Plumbing, heating, & air-conditioning contractors", created.IndustryVertical);
+        Assert.Equal("Heating and air conditioning", created.IndustryVertical);
     }
 
-    [Theory]
-    [InlineData("541510")] // computer systems design: an AI consultancy that serves accounting firms is not an accounting firm
-    [InlineData("624410")] // childcare is social assistance, not healthcare and not education
-    [InlineData("541600")]
-    public async Task A_code_outside_the_excluded_ranges_passes_without_an_addendum(string activity)
+    [Fact]
+    public async Task An_accepted_signup_stores_its_no_to_every_excluded_industry_with_the_visitors_address_and_the_time()
+    {
+        var store = new RecordingStore();
+        var refusals = new RecordingSignupAnswerStore();
+
+        var result = await Gate(store, refusals).ValidateAsync(Signup(), FromUs);
+
+        Assert.True(result.IsSuccess, result.Error);
+        var kept = Assert.Single(store.Created).IndustryAnswers;
+        Assert.Equal(ExcludedIndustries.All.Select(i => new VoiceIndustryAnswer(i.Code, i.Question, false)), kept.Answers);
+        Assert.Equal(Now, kept.AnsweredAt);
+        Assert.Equal("203.0.113.9", kept.IpAddress);
+        Assert.Equal("US", kept.VisitorCountry);
+        Assert.Empty(refusals.Refusals);
+    }
+
+    [Fact]
+    public async Task What_the_business_does_is_stored_as_typed_without_the_spaces_around_it()
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store).ValidateAsync(Signup(activity), FromUs);
+        var result = await Gate(store).ValidateAsync(Signup() with { BusinessDescription = "  AI for accounting firms " }, FromUs);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.False(Assert.Single(store.Created).RequiresAddendum);
+        var created = Assert.Single(store.Created);
+        Assert.Equal("AI for accounting firms", created.IndustryVertical);
+        Assert.False(created.RequiresAddendum);
     }
 
     [Fact]
@@ -115,19 +134,53 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Theory]
-    [InlineData("HVAC")]
-    [InlineData("541511")] // NAICS has it; the 2025 Schedule C chart folds it into 541510
-    [InlineData("999000")] // "unclassified" would step around every rule
     [InlineData("")]
+    [InlineData("   ")]
     [InlineData(null)]
-    public async Task A_code_the_chart_does_not_have_is_refused_and_creates_nothing(string? activity)
+    public async Task A_signup_that_does_not_say_what_the_business_does_is_refused_and_creates_nothing(string? description)
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store).ValidateAsync(Signup(activity), FromUs);
+        var result = await Gate(store).ValidateAsync(Signup() with { BusinessDescription = description }, FromUs);
 
-        Assert.Equal(OnboardingFailureCodes.BusinessActivityUnknown, result.ErrorCode);
+        Assert.Equal(OnboardingFailureCodes.BusinessDescriptionRequired, result.ErrorCode);
         Assert.Empty(store.Created);
+    }
+
+    [Fact]
+    public async Task A_signup_without_its_professional_services_answer_is_refused_and_never_read_as_a_no()
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup(professional: null), FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.IndustryNotAnswered, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    public static TheoryData<string, Func<List<IndustryAnswerInput>?>> AnswersThatAreNotTheSevenQuestions() => new()
+    {
+        { "none sent", () => null },
+        { "an empty list", () => [] },
+        { "one question left out", () => Answers().Skip(1).ToList() },
+        { "one answer left blank", () => Answers().Select((a, i) => i == 2 ? a with { Answer = null } : a).ToList() },
+        { "an industry nobody asked about", () => Answers().Append(new IndustryAnswerInput("astrology", "Is the business an astrology business?", false)).ToList() },
+        { "a question answered twice", () => Answers().Append(Answers()[0]).ToList() },
+        { "the question reworded", () => Answers().Select((a, i) => i == 0 ? a with { Question = "Healthcare?" } : a).ToList() },
+    };
+
+    [Theory]
+    [MemberData(nameof(AnswersThatAreNotTheSevenQuestions))]
+    public async Task Anything_but_an_answer_to_each_of_the_seven_questions_as_worded_is_refused_and_stores_nothing(string why, Func<List<IndustryAnswerInput>?> answers)
+    {
+        var store = new RecordingStore();
+        var refusals = new RecordingSignupAnswerStore();
+
+        var result = await Gate(store, refusals).ValidateAsync(Signup() with { IndustryAnswers = answers() }, FromUs);
+
+        Assert.True(OnboardingFailureCodes.IndustryNotAnswered == result.ErrorCode, why);
+        Assert.Empty(store.Created);
+        Assert.Empty(refusals.Refusals);
     }
 
     [Theory]
@@ -146,39 +199,68 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Theory]
-    [InlineData("621111")] // offices of physicians
-    [InlineData("621210")] // offices of dentists
-    [InlineData("622000")] // hospitals
-    [InlineData("623000")] // nursing and residential care
-    [InlineData("541940")] // veterinary services
-    public async Task A_healthcare_industry_is_refused_even_with_a_signed_addendum(string industry)
+    [InlineData("healthcare")]
+    [InlineData("veterinary")]
+    [InlineData("securities_broker_dealer")]
+    [InlineData("investment_adviser")]
+    [InlineData("commodity_futures_derivatives")]
+    [InlineData("medicare_sales")]
+    [InlineData("telemarketing")]
+    public async Task A_yes_to_any_one_excluded_industry_is_refused_even_with_a_signed_addendum_and_the_yes_is_stored(string industry)
     {
         var store = new RecordingStore();
+        var refusals = new RecordingSignupAnswerStore();
 
-        var result = await Gate(store).ValidateAsync(Signup(industry, addendumSigned: true), FromUs);
+        var result = await Gate(store, refusals).ValidateAsync(Signup(addendumSigned: true, yesTo: industry, professional: true), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.IndustryExcluded, result.ErrorCode);
+        Assert.Equal(ExcludedIndustries.Refusal, result.Error);
+        Assert.Empty(store.Created);
+        var kept = Assert.Single(refusals.Refusals);
+        Assert.Equal(industry, Assert.Single(kept.Answers, a => a.Answer).Industry);
+        Assert.Equal(7, kept.Answers.Count);
+        Assert.Equal(Now, kept.AnsweredAt);
+        Assert.Equal("203.0.113.9", kept.IpAddress);
+    }
+
+    [Fact]
+    public async Task A_yes_that_cannot_be_stored_is_still_refused_and_says_the_store_failed()
+    {
+        var store = new RecordingStore();
+        var refusals = new RecordingSignupAnswerStore(() => Result<VoiceIndustryAnswersRecorded>.Failure("the store is down", VoiceFailureCodes.StoreUnavailable));
+
+        var result = await Gate(store, refusals).ValidateAsync(Signup(yesTo: "medicare_sales"), FromUs);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(VoiceFailureCodes.StoreUnavailable, result.ErrorCode);
         Assert.Empty(store.Created);
     }
 
-    [Theory]
-    [InlineData("541100")] // legal services
-    [InlineData("541211")] // certified public accountants
-    [InlineData("541213")] // tax preparation
-    [InlineData("541214")] // payroll services
-    [InlineData("522100")] // banking
-    [InlineData("524210")] // insurance agencies
-    [InlineData("611000")] // educational services
-    public async Task An_addendum_industry_is_refused_without_a_signed_addendum_and_accepted_with_one(string industry)
+    [Fact]
+    public void The_excluded_industries_are_these_seven_each_with_its_own_question()
+    {
+        string[] codes =
+        [
+            "healthcare", "veterinary", "securities_broker_dealer", "investment_adviser", "commodity_futures_derivatives",
+            "medicare_sales", "telemarketing",
+        ];
+
+        Assert.Equal(codes, ExcludedIndustries.All.Select(i => i.Code));
+        Assert.Equal(IndustryAnswersFixture.Questions.Select(q => q.Question), ExcludedIndustries.All.Select(i => i.Question));
+        Assert.All(ExcludedIndustries.All, i => Assert.EndsWith("?", i.Question, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_professional_services_business_is_refused_without_a_signed_addendum_and_accepted_with_one()
     {
         var store = new RecordingStore();
 
-        var unsigned = await Gate(store).ValidateAsync(Signup(industry), FromUs);
+        var unsigned = await Gate(store).ValidateAsync(Signup(professional: true), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.AddendumRequired, unsigned.ErrorCode);
         Assert.Empty(store.Created);
 
-        var signed = await Gate(store).ValidateAsync(Signup(industry, addendumSigned: true), FromUs);
+        var signed = await Gate(store).ValidateAsync(Signup(addendumSigned: true, professional: true), FromUs);
 
         Assert.True(signed.IsSuccess, signed.Error);
         Assert.True(Assert.Single(store.Created).RequiresAddendum);
@@ -189,7 +271,7 @@ public sealed class OnboardingEligibilityTests
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store).ValidateAsync(Signup("541100", addendumSigned: true), FromUs);
+        var result = await Gate(store).ValidateAsync(Signup(addendumSigned: true, professional: true), FromUs);
 
         Assert.True(result.IsSuccess, result.Error);
         var created = Assert.Single(store.Created);
@@ -205,7 +287,7 @@ public sealed class OnboardingEligibilityTests
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store).ValidateAsync(Signup("541211", addendumSigned: signed), FromUs);
+        var result = await Gate(store).ValidateAsync(Signup(addendumSigned: signed, professional: true), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.AddendumRequired, result.ErrorCode);
         Assert.Empty(store.Created);
@@ -278,12 +360,12 @@ public sealed class OnboardingEligibilityTests
     {
         var store = new RecordingStore();
 
-        // Wrong country, healthcare and no attestation at once: the country rule speaks first.
-        var first = await Gate(store).ValidateAsync(Signup("621111", country: "CA", attested: false), FromUs);
-        // Healthcare and no attestation: the industry rule speaks before the attestation rule.
-        var second = await Gate(store).ValidateAsync(Signup("621111", attested: false), FromUs);
-        // An addendum industry with no addendum and no attestation: the addendum rule speaks before the attestation rule.
-        var third = await Gate(store).ValidateAsync(Signup("541100", attested: false), FromUs);
+        // Wrong country, an excluded industry and no attestation at once: the country rule speaks first.
+        var first = await Gate(store).ValidateAsync(Signup(country: "CA", attested: false, yesTo: "healthcare"), FromUs);
+        // An excluded industry and no attestation: the industry rule speaks before the attestation rule.
+        var second = await Gate(store).ValidateAsync(Signup(attested: false, yesTo: "healthcare"), FromUs);
+        // A professional services business with no addendum and no attestation: the addendum rule speaks before the attestation rule.
+        var third = await Gate(store).ValidateAsync(Signup(attested: false, professional: true), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.CountryNotSupported, first.ErrorCode);
         Assert.Equal(OnboardingFailureCodes.IndustryExcluded, second.ErrorCode);
@@ -306,7 +388,8 @@ public sealed class OnboardingEligibilityTests
 
     [Theory]
     [InlineData(OnboardingFailureCodes.CountryNotSupported, 400)]
-    [InlineData(OnboardingFailureCodes.BusinessActivityUnknown, 400)]
+    [InlineData(OnboardingFailureCodes.BusinessDescriptionRequired, 400)]
+    [InlineData(OnboardingFailureCodes.IndustryNotAnswered, 400)]
     [InlineData(OnboardingFailureCodes.ContactPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.IndustryExcluded, 400)]
     [InlineData(OnboardingFailureCodes.AddendumRequired, 400)]
@@ -492,5 +575,98 @@ public sealed class OnboardingVisitorTests
 
         Assert.False(limiter.AttemptAcquire(From("203.0.113.9")).IsAcquired);
         Assert.True(limiter.AttemptAcquire(From("203.0.113.10")).IsAcquired);
+    }
+}
+
+
+/// <summary>
+/// The yes a visitor gives to an excluded industry on /signup is stored at once, with the noes before it, and with no tenant. Nothing
+/// is stored for a visitor who cannot be verified, or for answers that hold no yes or are not this gate's questions.
+/// </summary>
+public sealed class IndustryRefusalsTests
+{
+    private static readonly DateTimeOffset Now = new(2026, 11, 18, 15, 0, 0, TimeSpan.Zero);
+    private static readonly VisitorOrigin FromUs = new("203.0.113.9", "US");
+
+    private static IndustryRefusals Service(RecordingSignupAnswerStore store) => new(store, new FakeTimeProvider(Now));
+
+    private static IndustryRefusalRequest UpTo(string yesTo)
+    {
+        var answers = new List<IndustryAnswerInput>();
+        foreach (var industry in ExcludedIndustries.All)
+        {
+            answers.Add(new IndustryAnswerInput(industry.Code, industry.Question, industry.Code == yesTo));
+            if (industry.Code == yesTo) break;
+        }
+
+        return new IndustryRefusalRequest(answers);
+    }
+
+    [Fact]
+    public async Task A_yes_is_stored_with_the_noes_before_it_the_time_and_the_visitors_address()
+    {
+        var store = new RecordingSignupAnswerStore();
+
+        var result = await Service(store).RecordAsync(UpTo("investment_adviser"), FromUs);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal(4, result.Value!.Answers);
+        var kept = Assert.Single(store.Refusals);
+        Assert.Equal(["healthcare", "veterinary", "securities_broker_dealer", "investment_adviser"], kept.Answers.Select(a => a.Industry));
+        Assert.Equal([false, false, false, true], kept.Answers.Select(a => a.Answer));
+        Assert.Equal("Is the business an investment adviser?", kept.Answers[^1].Question);
+        Assert.Equal(Now, kept.AnsweredAt);
+        Assert.Equal("203.0.113.9", kept.IpAddress);
+        Assert.Equal("US", kept.VisitorCountry);
+    }
+
+    [Theory]
+    [InlineData(null, "US")]
+    [InlineData("203.0.113.9", null)]
+    public async Task A_visitor_who_cannot_be_verified_stores_nothing(string? ip, string? country)
+    {
+        var store = new RecordingSignupAnswerStore();
+
+        var result = await Service(store).RecordAsync(UpTo("healthcare"), new VisitorOrigin(ip, country));
+
+        Assert.Equal(OnboardingFailureCodes.VisitorUnverified, result.ErrorCode);
+        Assert.Empty(store.Refusals);
+    }
+
+    [Fact]
+    public async Task Answers_with_no_yes_in_them_are_not_a_refusal_and_store_nothing()
+    {
+        var store = new RecordingSignupAnswerStore();
+        var noes = new IndustryRefusalRequest(ExcludedIndustries.All.Select(i => new IndustryAnswerInput(i.Code, i.Question, false)).ToList());
+
+        var result = await Service(store).RecordAsync(noes, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.IndustryNotAnswered, result.ErrorCode);
+        Assert.Empty(store.Refusals);
+    }
+
+    [Fact]
+    public async Task A_question_that_is_not_this_gates_stores_nothing()
+    {
+        var store = new RecordingSignupAnswerStore();
+        var reworded = new IndustryRefusalRequest([new IndustryAnswerInput("healthcare", "Healthcare?", true)]);
+
+        var missing = await Service(store).RecordAsync(null, FromUs);
+        var result = await Service(store).RecordAsync(reworded, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.IndustryNotAnswered, missing.ErrorCode);
+        Assert.Equal(OnboardingFailureCodes.IndustryNotAnswered, result.ErrorCode);
+        Assert.Empty(store.Refusals);
+    }
+
+    [Fact]
+    public async Task A_store_that_is_down_is_a_failure_and_never_a_recorded_answer()
+    {
+        var store = new RecordingSignupAnswerStore(() => Result<VoiceIndustryAnswersRecorded>.Failure("down", VoiceFailureCodes.StoreUnavailable));
+
+        var result = await Service(store).RecordAsync(UpTo("telemarketing"), FromUs);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(VoiceFailureCodes.StoreUnavailable, result.ErrorCode);
     }
 }

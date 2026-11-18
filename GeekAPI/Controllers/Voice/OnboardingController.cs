@@ -20,15 +20,20 @@ namespace GeekAPI.Controllers.Voice;
 [RequireApiKey]
 [Route("api/v1/onboarding")]
 [EnableRateLimiting(OnboardingRateLimit.PolicyName)]
-public sealed class OnboardingController(OnboardingEligibility eligibility, SignupPayments payments, SubscriptionActivation activation) : ControllerBase
+public sealed class OnboardingController(OnboardingEligibility eligibility, IndustryRefusals refusals, SignupPayments payments, SubscriptionActivation activation) : ControllerBase
 {
     /// <summary>
-    /// The IRS business activity codes the first step of /signup offers, with the chart they come from. Not counted against the
-    /// signup cap: it writes nothing, and showing the form must not use up the visitor's attempts.
+    /// A visitor answered yes to an excluded industry on /signup. The yes and the answers before it are stored and kept forever;
+    /// the signup ends there, on the portal, whatever this answers.
     /// </summary>
-    [HttpGet("business-activities")]
-    [DisableRateLimiting]
-    public IActionResult BusinessActivityList() => Ok(new { source = BusinessActivities.Source, activities = BusinessActivities.All });
+    [HttpPost("industry-refusals")]
+    public async Task<IActionResult> RecordIndustryRefusal([FromBody] IndustryRefusalRequest? request, CancellationToken ct)
+    {
+        var result = await refusals.RecordAsync(request, OnboardingVisitor.From(HttpContext), ct);
+        return result.IsSuccess
+            ? Ok(new { recorded = result.Value!.Answers })
+            : Refuse(result.Error, result.ErrorCode, "The answers could not be stored.");
+    }
 
     [HttpPost("validate-eligibility")]
     public async Task<IActionResult> ValidateEligibility([FromBody] ValidateEligibilityRequest request, CancellationToken ct)
@@ -91,7 +96,8 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Sign
     internal static int StatusFor(string? code) => code switch
     {
         OnboardingFailureCodes.CountryNotSupported
-            or OnboardingFailureCodes.BusinessActivityUnknown
+            or OnboardingFailureCodes.BusinessDescriptionRequired
+            or OnboardingFailureCodes.IndustryNotAnswered
             or OnboardingFailureCodes.ContactPhoneNotUs
             or OnboardingFailureCodes.IndustryExcluded
             or OnboardingFailureCodes.AddendumRequired
