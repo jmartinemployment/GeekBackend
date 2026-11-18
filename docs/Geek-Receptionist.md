@@ -194,6 +194,34 @@ This is about the company's own phone line, not a tenant's.
 
 ---
 
+## 5a. Approved SaaS plan (Jeff, 2026-11-18)
+
+The full plan, with the market research behind it, is `Geek-Receptionist/plans/saas-plan.md`. What it decides:
+
+* **Positioning:** the AI receptionist that stores no call recordings or transcripts. Call metadata (start and end time, duration, caller ID, Twilio call SID) is stored for billing, minute counting and overage; no call content is.
+* **Pricing:** the four tiers above are kept as they are, deliberately $1 under Rosie (heyrosie.com: $49 for 250 minutes, $149 for 1,000, $299 for 2,000) to win the first sales; margins are raised later. Paid upfront through PayPal, no free trial and no starting credit.
+* **Consent:** keypad consent before the AI is connected, on every call.
+* **Excluded industries:** healthcare and HIPAA-regulated businesses are excluded permanently.
+* **Launch features (none built unless stated):**
+  1. Answer 24/7 with the owner's greeting, business hours and after-hours behaviour.
+  2. Keypad consent (above).
+  3. Booking into the owner's calendar: Google first (connector built), a no-calendar mode, then Outlook, Apple iCloud, Calendly and Cal.com.
+  4. FAQs from the owner's own answers and website.
+  5. Warm and cold transfer; for a call the AI cannot take, ring a person, play a message, or both. Never voicemail.
+  6. Keep the owner's number by call forwarding (no porting at launch).
+  7. A short email summary of what each call was about, made in memory and not stored.
+  8. Appointment confirmation by text with a YES reply once the tenant's A2P campaign is approved; email confirmation from day one.
+  9. No call recordings or transcripts stored; recording to the client's own S3 or GCS bucket only if the client turns it on (post-launch).
+  10. Email and text alert to the owner for every call (owner texts may need the A2P campaign amended: a couple of days and a $15 vetting fee).
+  11. 10+ voices from ConversationRelay's standard set; custom agent name and greeting.
+  12. Waterfall transfer through the owner's numbers in turn.
+  13. Message-taking: the message is emailed to the owner and never stored.
+  14. A website chat widget answering from the same FAQ; chats are not stored.
+  15. Zapier: the owner can send each call's details to their own apps.
+* **Next:** Spanish, spam and robocall screening, analytics from call metadata, number porting, the client-bucket recording option.
+* **Later:** CRM connectors when Geek-CRM is ready, outbound reminder calls, reseller and white-label.
+* **Order of work:** Retell removed (done, `a3a28858`); then the company line 865-6990 (billing-exempt signup, Google Calendar, booking routes, consent step, ConversationRelay handler with its tools); then the signup calendar step; then the launch list one item at a time.
+
 ## 6. Exact API Route Inventory
 
 ### `GeekAPI` Public & Webhook Routes
