@@ -11,6 +11,14 @@ accounts, drafts, comments, posts and audit rows. A row of another tenant answer
 as a row that does not exist. A comment reaches the AI only after the tenant has accepted the AI terms; until
 then it is held as `blocked_no_clearance` and is never sent to the model.
 
+**Cross-tenant tests gate every release.** `GeekBackend.Tests/Social/SocialRouteTenantIsolationTests.cs` calls every
+route below as one tenant's person with another tenant's ids, over the real services and a store that keeps two
+tenants apart as GeekRepository's SQL does. Another tenant's id answers exactly as an id that exists nowhere, nothing of
+theirs changes, the store is never asked for their tenant, and nothing reaches the platform or the AI provider. A route
+added to `SocialController` fails `Every_route_on_the_controller_is_in_the_route_table_once` until it is put in that
+table. Joining a live-update group is tested in `SocialTenantIsolationTests.cs`. The tenant filter in GeekRepository's
+own SQL is tested only by the integration tests, which run with `TEST_DATABASE_URL` and not in CI.
+
 **Billing.** GeekSocial is a paid SaaS, and tenants pay through PayPal. Nothing checks payment yet:
 `POST /api/social/tenant` creates a tenant for any person whose token carries the scope.
 
@@ -20,7 +28,7 @@ then it is held as `blocked_no_clearance` and is never sent to the model.
 
 Only Facebook is built, so `platform` is `facebook` in every example below and the connect routes are Meta's. GeekSocial owns the app on each network, and a tenant connects by signing in. Accounts, drafts, comments, posts and audit rows already carry `platform`; each other platform still needs its own connector and connect routes. The scope is in `docs/GEEKSOCIAL-SCOPE.md`; the plan of work is `geek-social/plans/geek-social-roadmap-2026-11-18.md`.
 
-**What this page describes.** This page documents the API as built. The AI provider is replaceable, auto-send is removed, status is per tenant, every route checks the tenant, `posts/copy` the AI terms too, and the capability matrix is served to the post form (roadmap Phase 0, items 1 to 5, built).
+**What this page describes.** This page documents the API as built. The AI provider is replaceable, auto-send is removed, status is per tenant, every route checks the tenant, `posts/copy` the AI terms too, the capability matrix is served to the post form, post copy names the tenant's business, and every route has cross-tenant tests (roadmap Phase 0, items 1 to 7, built).
 
 | Route | What it does |
 |---|---|
