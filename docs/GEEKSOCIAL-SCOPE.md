@@ -30,6 +30,7 @@ GeekSocial is a social media management product for small businesses. It is paid
 | Publishing | Composer with per-network versions, media, scheduling, calendar, queue and time slots, drafts, first comment, RSS | Facebook link post, publish now |
 | Content categories and recycling | Categories with time slots, evergreen re-queue, expiry | None |
 | Approvals | Every post and reply approved by a person; multi-step; client approval link | Replies only, one person |
+| AI provider | Chosen by configuration; clearance per provider and platform | Anthropic, OpenAI, Gemini, Perplexity and Groq clients behind one interface, chosen by `LlmProviders__DefaultProvider`; clearance as `provider:platform` pairs. Only the provider whose key is set is proven live |
 | AI content | Per-network versions from one source; brand voice; email versions | Suggested copy for one link post |
 | Inbox | Comments, DMs, mentions, reviews across networks; assignment, saved replies, labels, hide and delete; AI drafts a person approves | Facebook comments; Like |
 | Reviews | Google Business Profile and Facebook | None |

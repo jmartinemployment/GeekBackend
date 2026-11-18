@@ -14,15 +14,15 @@ namespace GeekAPI.Services.Social.Drafting;
 /// </summary>
 /// <remarks>
 /// It holds the same clearance as Triage, because it is given the same comment text, and sends nothing
-/// for a platform that is not cleared. Every failure it returns is logged here, by platform and code,
-/// never with the comment or the draft.
+/// for a platform that is not cleared for the configured provider. Every failure it returns is logged
+/// here, by platform and code, never with the comment or the draft.
 /// </remarks>
 public sealed class ReplyDrafter : IReplyDrafter
 {
-    public const string ToolName = "write_reply";
+    public const string AnswerName = "writeReply";
     private const int MaxOutputTokens = 800;
 
-    private static readonly string InputSchema = JsonSerializer.Serialize(new
+    internal static readonly string AnswerSchema = JsonSerializer.Serialize(new
     {
         type = "object",
         properties = new Dictionary<string, object>
@@ -38,10 +38,10 @@ public sealed class ReplyDrafter : IReplyDrafter
     });
 
     private readonly ISocialModelClient _model;
-    private readonly SocialClaudeClearance _clearance;
+    private readonly SocialAiClearance _clearance;
     private readonly ILogger<ReplyDrafter> _logger;
 
-    public ReplyDrafter(ISocialModelClient model, SocialClaudeClearance clearance, ILogger<ReplyDrafter> logger)
+    public ReplyDrafter(ISocialModelClient model, SocialAiClearance clearance, ILogger<ReplyDrafter> logger)
     {
         _model = model;
         _clearance = clearance;
@@ -55,14 +55,12 @@ public sealed class ReplyDrafter : IReplyDrafter
         if (!SocialPlatforms.IsKnown(request.Platform))
             return Fail(request.Platform, SocialFailureCodes.InvalidRequest, "The comment's platform is not one GeekSocial serves.");
 
-        if (!_clearance.IsCleared(request.Platform))
+        if (!_clearance.IsCleared(_model.Provider, request.Platform))
         {
-            _logger.LogWarning(
-                "The drafter held a {Platform} comment: that platform is not cleared to send comment text to Claude. Nothing was sent. Add it to {Variable} once its terms allow it.",
-                request.Platform, SocialClaudeClearance.Variable);
-            return Result<ReplyDraftSuggestion>.Failure(
-                $"{request.Platform} is not cleared to send comment text to Claude ({SocialClaudeClearance.Variable}).",
-                SocialFailureCodes.ClearanceRequired);
+            var reason = SocialAiClearance.HoldReason(_model.Provider, request.Platform);
+            _logger.LogWarning("The drafter held a {Platform} comment: {Reason} Add {Pair} to {Variable} once its terms allow it.",
+                request.Platform, reason, $"{_model.Provider ?? "provider"}:{request.Platform}", SocialAiClearance.Variable);
+            return Result<ReplyDraftSuggestion>.Failure(reason, SocialFailureCodes.ClearanceRequired);
         }
 
         if (!ReplyCategories.IsKnown(request.Category))
@@ -71,21 +69,21 @@ public sealed class ReplyDrafter : IReplyDrafter
         if (string.IsNullOrWhiteSpace(request.CommentText))
             return Fail(request.Platform, SocialFailureCodes.InvalidRequest, "The comment has no text to answer.");
 
-        var answer = await _model.CallToolAsync(new SocialModelRequest
+        var answer = await _model.AnswerAsync(new SocialModelRequest
         {
             Purpose = "draft a reply",
             SystemPrompt = SystemPrompt(request),
             UserMessage = UserMessage(request),
-            ToolName = ToolName,
-            ToolDescription = "Give the reply to post under the comment.",
-            InputSchemaJson = InputSchema,
+            AnswerName = AnswerName,
+            AnswerDescription = "Give the reply to post under the comment.",
+            AnswerSchemaJson = AnswerSchema,
             MaxOutputTokens = MaxOutputTokens,
         }, ct).ConfigureAwait(false);
 
         if (!answer.IsSuccess)
             return Fail(request.Platform, answer.ErrorCode ?? SocialFailureCodes.ModelFailed, answer.Error ?? "The model call failed.");
 
-        var read = Read(answer.Value);
+        var read = Read(answer.Value!.Answer);
         return read.IsSuccess ? read : Fail(request.Platform, SocialFailureCodes.ModelFailed, read.Error!);
     }
 
@@ -128,11 +126,11 @@ public sealed class ReplyDrafter : IReplyDrafter
             {request.CommentText.Trim()}
             </comment>
 
-            Write the reply with the {ToolName} tool.
+            Write the reply and give it in the requested form.
             """;
     }
 
-    /// <summary>Reads the tool's input. The text is returned exactly as the model wrote it, apart from surrounding whitespace.</summary>
+    /// <summary>Reads the structured answer. The text is returned exactly as the model wrote it, apart from surrounding whitespace.</summary>
     internal static Result<ReplyDraftSuggestion> Read(JsonElement input)
     {
         if (input.ValueKind != JsonValueKind.Object

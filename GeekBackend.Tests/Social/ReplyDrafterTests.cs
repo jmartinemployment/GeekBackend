@@ -16,8 +16,8 @@ public class ReplyDrafterTests
 {
     private const string Comment = "PRIVATE-COMMENT what does bookkeeping cost?";
 
-    private static readonly SocialClaudeClearance FacebookCleared =
-        SocialClaudeClearance.From(name => name == SocialClaudeClearance.Variable ? SocialPlatforms.Facebook : null);
+    private static readonly SocialAiClearance FacebookCleared =
+        SocialAiClearance.From(name => name == SocialAiClearance.Variable ? "anthropic:facebook" : null);
 
     private static ReplyDraftRequest Request(
         string category = ReplyCategories.Question,
@@ -33,7 +33,7 @@ public class ReplyDrafterTests
         ApprovedLinks = approvedLinks.ToList(),
     };
 
-    private static (ReplyDrafter Drafter, RecordingLog<ReplyDrafter> Log) Build(FakeModelClient model, SocialClaudeClearance? clearance = null)
+    private static (ReplyDrafter Drafter, RecordingLog<ReplyDrafter> Log) Build(FakeModelClient model, SocialAiClearance? clearance = null)
     {
         var log = new RecordingLog<ReplyDrafter>();
         return (new ReplyDrafter(model, clearance ?? FacebookCleared, log), log);
@@ -48,14 +48,27 @@ public class ReplyDrafterTests
     [Fact]
     public async Task A_platform_that_is_not_cleared_sends_nothing()
     {
-        var (drafter, log) = Build(FakeModelClient.Never(), SocialClaudeClearance.From(_ => null));
+        var (drafter, log) = Build(FakeModelClient.Never(), SocialAiClearance.From(_ => null));
 
         var result = await drafter.DraftAsync(Request());
 
         Assert.Equal(SocialFailureCodes.ClearanceRequired, result.ErrorCode);
+        Assert.DoesNotContain(SocialAiClearance.Variable, result.Error, StringComparison.Ordinal);
         var line = Assert.Single(log.Entries);
         Assert.Equal(LogLevel.Warning, line.Level);
-        Assert.Contains(SocialClaudeClearance.Variable, line.Message, StringComparison.Ordinal);
+        Assert.Contains(SocialAiClearance.Variable, line.Message, StringComparison.Ordinal);
+        Assert.Contains("anthropic:facebook", line.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_clearance_for_another_provider_sends_nothing_after_a_switch()
+    {
+        var (drafter, _) = Build(new FakeModelClient(_ => throw new InvalidOperationException("must not send"), SocialModelProviders.Gemini));
+
+        var result = await drafter.DraftAsync(Request());
+
+        Assert.Equal(SocialFailureCodes.ClearanceRequired, result.ErrorCode);
+        Assert.Contains("Google Gemini", result.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -122,7 +135,7 @@ public class ReplyDrafterTests
         await drafter.DraftAsync(Request(ReplyCategories.Complaint, SocialPlatforms.Facebook, "https://geekatyourspot.com/bookkeeping"));
 
         var sent = Assert.Single(model.Requests);
-        Assert.Equal(ReplyDrafter.ToolName, sent.ToolName);
+        Assert.Equal(ReplyDrafter.AnswerName, sent.AnswerName);
         Assert.Contains("complaint", sent.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("Never use an em dash", sent.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("never \"SMB\"", sent.SystemPrompt, StringComparison.Ordinal);

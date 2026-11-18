@@ -102,10 +102,10 @@ public static class SocialFailureCodes
     /// <summary>The key that protects stored tokens is missing or unusable, so no token can be stored or read.</summary>
     public const string EncryptionUnavailable = "encryption_unavailable";
 
-    /// <summary>The platform's app settings (app id, secret, verify token) are not set on this service, so nothing can be verified or called until they are.</summary>
+    /// <summary>A setting this service needs is not set (a platform's app id, secret or verify token, or the AI provider, its key or its model), so nothing was verified or called.</summary>
     public const string NotConfigured = "not_configured";
 
-    /// <summary>The platform has no operator clearance to send comment text to the language model, so nothing was sent. The operator records one with GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS.</summary>
+    /// <summary>The platform has no operator clearance to send comment text to the configured AI provider, so nothing was sent. The operator records one as a provider:platform pair in GEEK_SOCIAL_AI_CLEARED_PLATFORMS.</summary>
     public const string ClearanceRequired = "clearance_required";
 
     /// <summary>The language model could not be reached, refused, or answered outside the schema it was given. One attempt; nothing is retried.</summary>

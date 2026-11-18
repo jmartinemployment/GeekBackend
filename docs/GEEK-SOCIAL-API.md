@@ -20,8 +20,7 @@ then it is held as `blocked_no_clearance` and is never sent to the model.
 
 Only Facebook is built, so `platform` is `facebook` in every example below and the connect routes are Meta's. GeekSocial owns the app on each network, and a tenant connects by signing in. Accounts, drafts, comments, posts and audit rows already carry `platform`; each other platform still needs its own connector and connect routes. The scope is in `docs/GEEKSOCIAL-SCOPE.md`; the plan of work is `geek-social/plans/geek-social-roadmap-2026-11-18.md`.
 
-**What this page describes.** This page documents the API as built. Roadmap Phase 0 changes four things here, and this page changes with the code:
-- the AI provider becomes replaceable;
+**What this page describes.** This page documents the API as built. The AI provider is replaceable (roadmap Phase 0, item 1, built). Roadmap Phase 0 still changes three things here, and this page changes with the code:
 - auto-send is removed;
 - status becomes per tenant;
 - `connect/meta/start` and `posts/copy` get the tenant check.
@@ -63,11 +62,16 @@ and are null once their retention has run out.
     "commentsFailed": 0, "draftsPending": 0, "draftsForAPerson": 0, "draftsRefused": 0, "draftsAutoApproved": 0,
     "draftsSent": 0, "draftsSendFailed": 0, "sendsHeld": 0,
     "failures": [ { "step": "create a draft", "code": "store_unavailable", "at": "..." } ] },
+  "aiProvider": { "id": "anthropic", "name": "Anthropic", "model": "<model>", "apiKeySet": true },
   "clearedPlatforms": ["facebook"],
   "metaConfigured": true,
   "sendLimits": { "repliesPerAccountPerHour": 30, "coolDownMinutes": 15 }
 }
 ```
+
+`aiProvider` is the provider GeekAPI is set to call, or `null` when none is set. `model` is `null` when no
+model is set; the key is never returned, only whether it is set. `clearedPlatforms` are the platforms cleared
+to send comment text to that provider, so it is empty when no provider is set.
 
 ## Accounts
 
@@ -198,16 +202,17 @@ before connecting.").
 | `GEEK_SOCIAL_META_APP_SECRET` | The Meta app's secret. Signs every webhook delivery. | Deliveries are refused and connecting fails `not_configured`. |
 | `GEEK_SOCIAL_META_VERIFY_TOKEN` | Any string, typed into the Meta app's webhook form as well. | The webhook handshake is refused. |
 | `GEEK_SOCIAL_META_LOGIN_CONFIG_ID` | The Facebook Login for Business configuration (user access token type) that grants `pages_show_list`, `pages_manage_metadata`, `pages_read_engagement`, `pages_read_user_content`, `pages_manage_posts`, `pages_manage_engagement`. | Connecting fails `not_configured`; a configuration missing a permission fails `forbidden` and names it. |
-| `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` | Comma list of platforms whose comment text may go to Claude, e.g. `facebook`. | Every comment is held `blocked_no_clearance`. A name that is not a platform stops GeekAPI. |
-| `ANTHROPIC_API_KEY`, `LlmProviders__Anthropic__Model` | Claude, for Triage, the drafter and the post writer. | Each call fails `not_configured`, naming the setting. |
+| `LlmProviders__DefaultProvider` | The AI provider for Triage, the drafter and the post writer: `anthropic`, `openai`, `gemini`, `perplexity` or `groq`, in any case. Content Creator reads the same setting, and every value it accepts (`OpenAi`, `Anthropic`, `Groq`, or their numbers 1 to 3) is accepted here too. There is no default. | Every GeekSocial AI call fails `not_configured` and nothing is sent; the rest of GeekAPI runs. A value that names no provider stops GeekAPI. |
+| `LlmProviders__{Section}__ApiKey`, `LlmProviders__{Section}__Model` | The chosen provider's key and model. `{Section}` is `Anthropic`, `OpenAi`, `Gemini`, `Perplexity` or `Groq`. Anthropic's key may instead be `ANTHROPIC_API_KEY`. Optional per section: `__BaseUrl`, `__TimeoutSeconds` (default 120). | Each call fails `not_configured`; the log line names the setting, the message shown does not. |
+| `GEEK_SOCIAL_AI_CLEARED_PLATFORMS` | Comma list of `provider:platform` pairs whose comment text may be sent, e.g. `anthropic:facebook`. A pair is named once that platform's terms and that provider's agreement allow it (M4, I6, L5 in `PLATFORM-CAPABILITIES.md`). | Every comment is held `blocked_no_clearance`, and after a change of provider every comment is held until the new provider's pair is named. An entry that is not a pair stops GeekAPI. |
+| `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` | Retired: it cleared platforms for Claude alone. | When it is still set, GeekAPI stops at startup and names `GEEK_SOCIAL_AI_CLEARED_PLATFORMS`. Remove it. |
 
-These two AI rows describe the code as built: GeekSocial calls only Claude and ignores `LlmProviders__DefaultProvider`.
-
-Phase 0, item 1 of the roadmap changes this:
-- GeekSocial reads `LlmProviders__DefaultProvider`, the setting Content Creator already uses, and the provider's own `LlmProviders__{Provider}__ApiKey` and `__Model`.
-- The clearance becomes `GEEK_SOCIAL_AI_CLEARED_PLATFORMS`, as `provider:platform` pairs.
-
-This table is updated when that ships.
+**How each provider is called.** One attempt, no retry, and no second provider when a call fails. The answer is
+held to a JSON schema by each provider's own mechanism, checked against its documentation on 2026-11-18:
+- Anthropic: the Messages API with one forced tool.
+- OpenAI and Groq: Chat Completions with a strict `json_schema` response format. Groq enforces strict schemas only on some of its models; with another model Groq refuses the call and the call fails.
+- Gemini: `models/{model}:generateContent` with `responseMimeType` `application/json` and `responseJsonSchema`.
+- Perplexity: the Agent API (`/v1/agent`), with a `model` and no tools. Perplexity searches the web only when the `web_search` tool or an `effort` level is sent, so neither is sent, and a response that holds search results or any other tool output fails and nothing from it is used.
 
 ## In the Meta app
 

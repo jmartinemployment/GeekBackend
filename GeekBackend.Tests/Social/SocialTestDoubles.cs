@@ -42,15 +42,25 @@ internal sealed class ScriptedModelHandler(Func<HttpRequestMessage, string?, Htt
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 }
 
-/// <summary>A model client a test scripts; it records every request it was handed.</summary>
-internal sealed class FakeModelClient(Func<SocialModelRequest, Result<JsonElement>> answer) : ISocialModelClient
+/// <summary>
+/// A model client a test scripts; it records every request it was handed. It stands for
+/// <see cref="Provider"/>, Anthropic unless the test says otherwise.
+/// </summary>
+internal sealed class FakeModelClient(Func<SocialModelRequest, Result<JsonElement>> answer, string? provider = SocialModelProviders.Anthropic) : ISocialModelClient
 {
     public List<SocialModelRequest> Requests { get; } = new();
 
-    public Task<Result<JsonElement>> CallToolAsync(SocialModelRequest request, CancellationToken ct = default)
+    public string? Provider => provider;
+
+    public string? Model => provider is null ? null : "fake-model";
+
+    public Task<Result<SocialModelAnswer>> AnswerAsync(SocialModelRequest request, CancellationToken ct = default)
     {
         Requests.Add(request);
-        return Task.FromResult(answer(request));
+        var result = answer(request);
+        return Task.FromResult(result.IsSuccess
+            ? Result<SocialModelAnswer>.Success(new SocialModelAnswer { Answer = result.Value, Provider = provider ?? string.Empty, Model = "fake-model" })
+            : Result<SocialModelAnswer>.Failure(result.Error ?? "The fake model failed.", result.ErrorCode ?? SocialFailureCodes.ModelFailed));
     }
 
     public static Result<JsonElement> Answer(string json)

@@ -155,15 +155,22 @@ public interface ISocialTokenProvider
 }
 
 /// <summary>
-/// The language model Triage, the drafter and the post writer call. Claude is the implementation
-/// registered by default; another provider is another class behind this interface, and the agents do
-/// not change. One call is one attempt and is never retried. Every failure is a failed Result
-/// (<see cref="SocialFailureCodes.ModelFailed"/>, or <see cref="SocialFailureCodes.NotConfigured"/> when
-/// the key or model is not set) and is logged by the implementation; a log line never carries the
-/// prompt, the comment or the model's answer.
+/// The language model Triage, the drafter and the post writer call. Each provider
+/// (<see cref="SocialModelProviders"/>) is one class behind this interface, and the one GeekAPI's
+/// <c>LlmProviders__DefaultProvider</c> names is the one registered; there is no default and no second
+/// provider on a failure. The agents do not change with the provider. One call is one attempt and is
+/// never retried. Every failure is a failed Result (<see cref="SocialFailureCodes.ModelFailed"/>, or
+/// <see cref="SocialFailureCodes.NotConfigured"/> when the provider, key or model is not set) and is
+/// logged by the implementation; a log line never carries the prompt, the comment or the model's answer.
 /// </summary>
 public interface ISocialModelClient
 {
-    /// <summary>Sends the request and returns the input the model gave the forced tool.</summary>
-    Task<Result<JsonElement>> CallToolAsync(SocialModelRequest request, CancellationToken ct = default);
+    /// <summary>The provider this client calls, one of <see cref="SocialModelProviders.All"/>, or null when none is configured.</summary>
+    string? Provider { get; }
+
+    /// <summary>The model this client is configured to call, or null when none is set.</summary>
+    string? Model { get; }
+
+    /// <summary>Sends the request and returns the structured answer the schema asked for.</summary>
+    Task<Result<SocialModelAnswer>> AnswerAsync(SocialModelRequest request, CancellationToken ct = default);
 }

@@ -14,7 +14,7 @@ namespace GeekAPI.Services.Social.Publishing;
 /// </summary>
 public sealed class PostWriter : IPostWriter
 {
-    public const string ToolName = "write_posts";
+    public const string AnswerName = "writePosts";
     private const int MaxOutputTokens = 2000;
     private const int MaxSummaryCharacters = 4000;
 
@@ -36,21 +36,21 @@ public sealed class PostWriter : IPostWriter
             return Fail(SocialFailureCodes.InvalidRequest, problem);
 
         var platforms = request.Platforms.Distinct(StringComparer.Ordinal).ToList();
-        var answer = await _model.CallToolAsync(new SocialModelRequest
+        var answer = await _model.AnswerAsync(new SocialModelRequest
         {
             Purpose = "write post copy",
             SystemPrompt = SystemPrompt(request, platforms),
             UserMessage = UserMessage(request),
-            ToolName = ToolName,
-            ToolDescription = "Give the text of the post for each platform.",
-            InputSchemaJson = Schema(platforms),
+            AnswerName = AnswerName,
+            AnswerDescription = "Give the text of the post for each platform.",
+            AnswerSchemaJson = AnswerSchema(platforms),
             MaxOutputTokens = MaxOutputTokens,
         }, ct).ConfigureAwait(false);
 
         if (!answer.IsSuccess)
             return Fail(answer.ErrorCode ?? SocialFailureCodes.ModelFailed, answer.Error ?? "The model call failed.");
 
-        var read = Read(answer.Value, request, platforms);
+        var read = Read(answer.Value!.Answer, request, platforms);
         return read.IsSuccess ? read : Fail(SocialFailureCodes.ModelFailed, read.Error!);
     }
 
@@ -74,30 +74,19 @@ public sealed class PostWriter : IPostWriter
         return null;
     }
 
-    private static string Schema(IReadOnlyList<string> platforms) => JsonSerializer.Serialize(new
+    /// <summary>
+    /// One text property per platform asked for, every one required and nothing else allowed: flat, so
+    /// every provider enforces it as written, and a platform missing or added is refused by the
+    /// provider before Read sees it.
+    /// </summary>
+    internal static string AnswerSchema(IReadOnlyList<string> platforms) => JsonSerializer.Serialize(new
     {
         type = "object",
-        properties = new Dictionary<string, object>
-        {
-            ["posts"] = new
-            {
-                type = "array",
-                minItems = platforms.Count,
-                maxItems = platforms.Count,
-                items = new
-                {
-                    type = "object",
-                    properties = new Dictionary<string, object>
-                    {
-                        ["platform"] = new { type = "string", @enum = platforms },
-                        ["text"] = new { type = "string", description = "The post's text exactly as it will be published." },
-                    },
-                    required = new[] { "platform", "text" },
-                    additionalProperties = false,
-                },
-            },
-        },
-        required = new[] { "posts" },
+        properties = platforms.ToDictionary(
+            p => p,
+            p => (object)new { type = "string", description = $"The {p} post's text exactly as it will be published." },
+            StringComparer.Ordinal),
+        required = platforms,
         additionalProperties = false,
     });
 
@@ -135,38 +124,33 @@ public sealed class PostWriter : IPostWriter
         {request.ArticleSummary.Trim()}
         </summary>
 
-        Write the posts with the {ToolName} tool.
+        Write the posts and give them in the requested form.
         """;
 
-    /// <summary>Reads the tool's input: one text per platform asked for, each exactly once, as the model wrote it.</summary>
+    /// <summary>Reads the structured answer: one text per platform asked for, as the model wrote it, and nothing else.</summary>
     internal static Result<PostCopySuggestion> Read(JsonElement input, PostCopyRequest request, IReadOnlyList<string> platforms)
     {
-        if (input.ValueKind != JsonValueKind.Object
-            || !input.TryGetProperty("posts", out var posts)
-            || posts.ValueKind != JsonValueKind.Array)
-            return Result<PostCopySuggestion>.Failure("The model's answer has no posts.", SocialFailureCodes.ModelFailed);
+        if (input.ValueKind != JsonValueKind.Object)
+            return Result<PostCopySuggestion>.Failure("The model's answer is not an object.", SocialFailureCodes.ModelFailed);
+
+        var extra = input.EnumerateObject().Select(p => p.Name).FirstOrDefault(name => !platforms.Contains(name));
+        if (extra is not null)
+            return Result<PostCopySuggestion>.Failure($"The model wrote for '{extra}', which was not asked for.", SocialFailureCodes.ModelFailed);
 
         var texts = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var post in posts.EnumerateArray())
+        foreach (var platform in platforms)
         {
-            if (post.ValueKind != JsonValueKind.Object
-                || !post.TryGetProperty("platform", out var platformElement) || platformElement.ValueKind != JsonValueKind.String
-                || !post.TryGetProperty("text", out var textElement) || textElement.ValueKind != JsonValueKind.String)
-                return Result<PostCopySuggestion>.Failure("A post in the model's answer has no platform or no text.", SocialFailureCodes.ModelFailed);
+            if (!input.TryGetProperty(platform, out var textElement))
+                return Result<PostCopySuggestion>.Failure($"The model wrote nothing for {platform}.", SocialFailureCodes.ModelFailed);
+            if (textElement.ValueKind != JsonValueKind.String)
+                return Result<PostCopySuggestion>.Failure($"The model's {platform} post is not text.", SocialFailureCodes.ModelFailed);
 
-            var platform = platformElement.GetString()!;
             var text = textElement.GetString();
-            if (!platforms.Contains(platform))
-                return Result<PostCopySuggestion>.Failure($"The model wrote for '{platform}', which was not asked for.", SocialFailureCodes.ModelFailed);
             if (string.IsNullOrWhiteSpace(text))
                 return Result<PostCopySuggestion>.Failure($"The model's {platform} post is empty.", SocialFailureCodes.ModelFailed);
-            if (!texts.TryAdd(platform, text.Trim()))
-                return Result<PostCopySuggestion>.Failure($"The model wrote {platform} twice.", SocialFailureCodes.ModelFailed);
-        }
 
-        var missing = platforms.Where(p => !texts.ContainsKey(p)).ToList();
-        if (missing.Count > 0)
-            return Result<PostCopySuggestion>.Failure($"The model wrote nothing for {string.Join(", ", missing)}.", SocialFailureCodes.ModelFailed);
+            texts[platform] = text.Trim();
+        }
 
         return Result<PostCopySuggestion>.Success(new PostCopySuggestion
         {

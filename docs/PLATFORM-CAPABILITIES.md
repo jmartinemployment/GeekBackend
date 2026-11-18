@@ -121,18 +121,18 @@ items inside the 30-day window, so a purged item cannot be fetched and drafted a
    "summoned" for the API reply rule; this is treated as satisfied and is proven only by a live test (Phase 6).
    **Still not known, and no one can be asked:** how many customers a self-serve app may have before Enterprise
    ("a limited number of end-users"). It will show up in X's billing and access limits when X is built.
-4. **Sending a tenant's content to Claude. DECIDED (Jeff, 2026-11-16, "agreed").** The AI sees a tenant's content only
+4. **Sending a tenant's content to the AI provider. DECIDED (Jeff, 2026-11-16, "agreed").** The AI sees a tenant's content only
    for that tenant, and only after that tenant has accepted the AI terms (`tenants.ai_consent_accepted_at`). It is
    never mixed with another tenant's content, it is kept 30 days at most (section 1a), and it is never used to train
    a model. Without that acceptance the AI sees nothing and a person writes the replies by hand. No per-platform
    ruling is asked of any platform. Meta's condition (an AI provider must agree in writing to use the data "solely
    for you and at your direction") is met by Anthropic's agreement and must be checked before Meta content is
-   sent; until then `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stays empty for every platform and each comment is held
-   (`blocked_no_clearance`).
+   sent; until then no `provider:platform` pair is named in `GEEK_SOCIAL_AI_CLEARED_PLATFORMS` and each comment is
+   held (`blocked_no_clearance`).
 
-   **Since 2026-11-18 the AI provider is replaceable** (roadmap Phase 0, item 1):
+   **Since 2026-11-18 the AI provider is replaceable** (roadmap Phase 0, item 1, built):
    - The condition is checked against the agreement of whichever provider is in use, not only Anthropic's.
-   - The clearance becomes `GEEK_SOCIAL_AI_CLEARED_PLATFORMS`, a list of `provider:platform` pairs. After a provider switch, comments are held until the new provider is cleared.
+   - The clearance is `GEEK_SOCIAL_AI_CLEARED_PLATFORMS`, a list of `provider:platform` pairs. After a provider switch, comments are held until the new provider is cleared. The retired `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` stops GeekAPI at startup while it is still set.
    - Comment text is never sent to a provider that runs a web search with it.
 5. **Status checks. DECIDED (Jeff, 2026-11-16), the Instagram publishing flow as Jeff specified it:**
    (1) the user clicks Publish; the API controller creates the Instagram media container (`POST /{ig-id}/media`),
@@ -527,9 +527,10 @@ LinkedIn (data storage requirements, doc version 2026-10; "the shortest duration
 Meta (Platform Terms, developer policies; check the current versions):
 - Platform Data may go to a service provider only after that provider agrees in writing to process it
   solely for us and at our direction. The AI provider's commercial terms (Anthropic's, as built today) must be
-  checked against that before Facebook comment text is sent to it (M4), and again for any provider switched to. Until a platform is named in `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS`
-  (a comma list of platform names on GeekAPI), no comment text from it is sent and each comment is held
-  as `blocked_no_clearance`; a name that is not a platform stops GeekAPI from starting.
+  checked against that before Facebook comment text is sent to it (M4), and again for any provider switched to. Until the pair is named in `GEEK_SOCIAL_AI_CLEARED_PLATFORMS`
+  (a comma list of `provider:platform` pairs on GeekAPI, e.g. `anthropic:facebook`), no comment text from that platform
+  is sent to that provider and each comment is held as `blocked_no_clearance`; an entry that is not a pair stops
+  GeekAPI from starting.
 - Delete user data on request or when the user no longer has an account; the Data Protection Assessment
   asks about deletion practices.
 
@@ -554,20 +555,20 @@ platforms are listed at the end of each file in `platform-research-2026-11-16/`.
 | M1 | Does `POST /{comment-id}/comments` create a reply as the Page? The Pages API guide says yes, the Graph reference says create is unsupported | one live reply on the test Page, before Phase 4 |
 | M2 | Which permissions does reading comments actually need (`pages_read_engagement` vs `pages_read_user_content`)? | request both; test with each removed |
 | M3 | Does the `feed` webhook deliver comment and reaction events while the app is in development mode with a role-holding admin? | subscribe the test Page and post a comment |
-| M4 | Is sending Facebook comment text to the AI provider's API (Anthropic's as built; asked again for any provider switched to) permitted under Meta's service-provider terms and that provider's agreement? | read both agreements; Jeff to confirm, then add `facebook` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
+| M4 | Is sending Facebook comment text to the AI provider's API (Anthropic's as built; asked again for any provider switched to) permitted under Meta's service-provider terms and that provider's agreement? | read both agreements; Jeff to confirm, then add `<provider>:facebook` to `GEEK_SOCIAL_AI_CLEARED_PLATFORMS` on GeekAPI |
 | M5 | Does removing a person from a Page role invalidate the Page token? | not documented; handle error 190 either way |
 | L1 | Scope names: `r_organization_social` / `w_organization_social` vs `*_feed` | shown in the developer portal once the product is approved |
 | L2 | Is the webhooks use case approved with Development tier, or only at Standard? | the access request form |
 | L3 | Is `w_member_social` granted by Community Management (Profile Management) or only by Share on LinkedIn, which cannot share an app with Community Management? | the portal after the app is created |
 | L4 | Does our app get programmatic refresh tokens? | the portal and the token response |
-| L5 | May member comment text go to the AI provider's API? (section 1, item 1) | LinkedIn Developer Support Portal, in writing, then add `linkedin_organization` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
+| L5 | May member comment text go to the AI provider's API? (section 1, item 1) | LinkedIn Developer Support Portal, in writing, then add `<provider>:linkedin_organization` to `GEEK_SOCIAL_AI_CLEARED_PLATFORMS` on GeekAPI |
 | L6 | Is the 100-calls-per-member limit per day, and does the planned traffic fit? | the portal rate-limit view |
 | I1 | Which Instagram setup does the connect flow use, and does a Facebook Page have to be linked? The overview says Instagram Login and Unified Login need no Page; the publishing guide says the account must be connected to one | the Instagram product page in the app dashboard; one live publish |
 | I2 | The daily API publishing limit: 100 or 50 posts in 24 hours? | `GET /<IG_ID>/content_publishing_limit` on the connected account |
 | I3 | Which comment and mention webhook fields exist for the chosen setup, and do they fire in development mode? | the webhooks fields page; subscribe the account and comment on a post |
 | I4 | The exact endpoints for reading, replying to and hiding a comment, and for a reply's author | the Instagram comments reference pages; one live reply |
 | I5 | Can one Unified Login connection cover the Facebook Page and the Instagram account together, and how long does the SUAT last? | the login configuration page in the dashboard |
-| I6 | Is sending Instagram comment text to the AI provider's API permitted under Meta's service-provider terms? Same question as M4 | read both agreements; Jeff to confirm, then add `instagram` to `GEEK_SOCIAL_CLAUDE_CLEARED_PLATFORMS` on GeekAPI |
+| I6 | Is sending Instagram comment text to the AI provider's API permitted under Meta's service-provider terms? Same question as M4 | read both agreements; Jeff to confirm, then add `<provider>:instagram` to `GEEK_SOCIAL_AI_CLEARED_PLATFORMS` on GeekAPI |
 
 ## 7. Setup path Jeff must start (longest first)
 

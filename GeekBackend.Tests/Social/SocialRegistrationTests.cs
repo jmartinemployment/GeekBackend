@@ -71,22 +71,22 @@ public class SocialRegistrationTests
     }
 
     [Fact]
-    public void GeekAPI_resolves_the_agents_with_claude_as_the_default_model_client()
+    public void GeekAPI_resolves_the_agents_with_the_model_client_the_setting_names()
     {
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddOptions();
         services.AddSingleton(new LlmConcurrencyGate(1));
-        services.AddSocialAgents();
+        services.AddSocialAgents(name => name == SocialModelSettings.ProviderVariable ? "anthropic" : null);
 
         using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
         using var scope = provider.CreateScope();
 
         Assert.IsType<EngagementTriage>(scope.ServiceProvider.GetRequiredService<IEngagementTriage>());
         Assert.IsType<ReplyDrafter>(scope.ServiceProvider.GetRequiredService<IReplyDrafter>());
-        Assert.IsType<ClaudeSocialModelClient>(scope.ServiceProvider.GetRequiredService<ISocialModelClient>());
+        Assert.IsType<AnthropicSocialModelClient>(scope.ServiceProvider.GetRequiredService<ISocialModelClient>());
         Assert.IsType<OutboundTextReviewer>(provider.GetRequiredService<IOutboundTextReviewer>());
-        Assert.Same(provider.GetRequiredService<SocialClaudeClearance>(), scope.ServiceProvider.GetRequiredService<SocialClaudeClearance>());
+        Assert.Same(provider.GetRequiredService<SocialAiClearance>(), scope.ServiceProvider.GetRequiredService<SocialAiClearance>());
     }
 
     private static IEnumerable<Type> SocialControllers() =>

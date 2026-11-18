@@ -108,7 +108,7 @@ public class SocialResyncAndPostWriterTests
     };
 
     private static string Posts(params (string Platform, string Text)[] posts) =>
-        JsonSerializer.Serialize(new { posts = posts.Select(p => new { platform = p.Platform, text = p.Text }) });
+        JsonSerializer.Serialize(posts.ToDictionary(p => p.Platform, p => p.Text));
 
     [Fact]
     public async Task Each_platform_gets_its_text_in_the_shape_it_takes()
@@ -128,7 +128,11 @@ public class SocialResyncAndPostWriterTests
         Assert.Equal("Bookkeeping for small businesses", linkedIn.LinkTitle);
 
         var sent = Assert.Single(model.Requests);
-        Assert.Equal(PostWriter.ToolName, sent.ToolName);
+        Assert.Equal(PostWriter.AnswerName, sent.AnswerName);
+        using var schema = JsonDocument.Parse(sent.AnswerSchemaJson);
+        Assert.Equal(
+            new[] { SocialPlatforms.Facebook, SocialPlatforms.LinkedInOrganization },
+            schema.RootElement.GetProperty("required").EnumerateArray().Select(e => e.GetString()).ToArray());
         Assert.Contains("Never use an em dash", sent.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains("https://geekatyourspot.com/blog/bookkeeping", sent.SystemPrompt, StringComparison.Ordinal);
         Assert.Contains($"At most {ReviewLimits.PostCharacters} characters", sent.SystemPrompt, StringComparison.Ordinal);
@@ -136,11 +140,12 @@ public class SocialResyncAndPostWriterTests
 
     public static TheoryData<string> UnsoundPosts => new()
     {
-        """{"posts":[]}""",
-        """{"posts":[{"platform":"facebook","text":"   "}]}""",
-        """{"posts":[{"platform":"instagram","text":"Hello"}]}""",
-        """{"posts":[{"platform":"facebook","text":"A"},{"platform":"facebook","text":"B"}]}""",
-        """{"text":"Hello"}""",
+        """{}""",
+        """{"facebook":"   "}""",
+        """{"instagram":"Hello"}""",
+        """{"facebook":"A","instagram":"B"}""",
+        """{"facebook":42}""",
+        """{"posts":[{"platform":"facebook","text":"Hello"}]}""",
     };
 
     [Theory]

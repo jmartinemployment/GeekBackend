@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace GeekApplication.Models.Social;
 
 // What passes between the GeekSocial agents and the orchestrator (plans/geek-social-engagement-agent,
@@ -185,9 +187,11 @@ public sealed class PostCopySuggestion
 
 /// <summary>
 /// One call to the language model behind <see cref="Interfaces.Social.ISocialModelClient"/>: a system
-/// prompt, one user turn, and the single tool the model is made to answer with. The user turn may carry
-/// another person's comment text, so this type is never logged and its <see cref="ToString"/> names only
-/// the purpose.
+/// prompt, one user turn, and the structured answer the model must give, described by a JSON schema.
+/// Each provider's client enforces the schema its own way (Anthropic a forced tool, OpenAI and Groq a
+/// strict response format, Gemini a response schema, Perplexity a response format). The user turn may
+/// carry another person's comment text, so this type is never logged and its <see cref="ToString"/>
+/// names only the purpose.
 /// </summary>
 public sealed class SocialModelRequest
 {
@@ -197,15 +201,85 @@ public sealed class SocialModelRequest
     public string SystemPrompt { get; set; } = string.Empty;
     public string UserMessage { get; set; } = string.Empty;
 
-    /// <summary>The tool the model is forced to call; its input is the answer.</summary>
-    public string ToolName { get; set; } = string.Empty;
+    /// <summary>
+    /// The answer's name, letters and digits only (for example <c>writeReply</c>), because every
+    /// provider accepts that: Anthropic and OpenAI allow more, Perplexity allows only alphanumerics.
+    /// </summary>
+    public string AnswerName { get; set; } = string.Empty;
 
-    public string ToolDescription { get; set; } = string.Empty;
+    public string AnswerDescription { get; set; } = string.Empty;
 
-    /// <summary>The JSON Schema of the tool's input.</summary>
-    public string InputSchemaJson { get; set; } = string.Empty;
+    /// <summary>
+    /// The JSON schema the answer must match. It stays flat and minimal so every provider enforces it
+    /// natively: one object of string, number, integer, boolean and enum fields, every property
+    /// required, no additional properties (<c>SocialAnswerSchemaTests</c> checks each one in use).
+    /// </summary>
+    public string AnswerSchemaJson { get; set; } = string.Empty;
 
     public int MaxOutputTokens { get; set; }
 
     public override string ToString() => $"SocialModelRequest({Purpose})";
+}
+
+/// <summary>
+/// What a model call returned: the structured answer, and who answered and at what size. The token
+/// counts are what the per-reply AI budget and the cost per reply are measured from.
+/// </summary>
+public sealed class SocialModelAnswer
+{
+    public JsonElement Answer { get; init; }
+
+    /// <summary>One of <see cref="SocialModelProviders.All"/>.</summary>
+    public string Provider { get; init; } = string.Empty;
+
+    /// <summary>The model the provider says served the call, or the configured model when it does not say.</summary>
+    public string Model { get; init; } = string.Empty;
+
+    public int InputTokens { get; init; }
+    public int OutputTokens { get; init; }
+}
+
+/// <summary>
+/// The AI providers GeekSocial can call. The provider is chosen by <c>LlmProviders__DefaultProvider</c>
+/// on GeekAPI, the setting Content Creator also reads; GeekSocial accepts every value Content Creator
+/// does (OpenAi, Anthropic, Groq, in any case) plus Gemini and Perplexity. No provider is a default.
+/// </summary>
+public static class SocialModelProviders
+{
+    public const string Anthropic = "anthropic";
+    public const string OpenAi = "openai";
+    public const string Gemini = "gemini";
+    public const string Perplexity = "perplexity";
+    public const string Groq = "groq";
+
+    public static readonly IReadOnlyList<string> All = new[] { Anthropic, OpenAi, Gemini, Perplexity, Groq };
+
+    /// <summary>The provider a setting names, ignoring case, or null when it names none of them.</summary>
+    public static string? Parse(string? value)
+    {
+        var trimmed = value?.Trim().ToLowerInvariant();
+        return trimmed is not null && All.Contains(trimmed) ? trimmed : null;
+    }
+
+    /// <summary>The name a person sees on the screens.</summary>
+    public static string DisplayName(string provider) => provider switch
+    {
+        Anthropic => "Anthropic",
+        OpenAi => "OpenAI",
+        Gemini => "Google Gemini",
+        Perplexity => "Perplexity",
+        Groq => "Groq",
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, "Not an AI provider GeekSocial knows."),
+    };
+
+    /// <summary>The section of <c>LlmProviders__{Section}__*</c> that holds the provider's key and model.</summary>
+    public static string SettingsSection(string provider) => provider switch
+    {
+        Anthropic => "Anthropic",
+        OpenAi => "OpenAi",
+        Gemini => "Gemini",
+        Perplexity => "Perplexity",
+        Groq => "Groq",
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, "Not an AI provider GeekSocial knows."),
+    };
 }

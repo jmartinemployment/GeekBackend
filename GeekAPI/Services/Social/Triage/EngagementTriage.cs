@@ -8,23 +8,25 @@ namespace GeekAPI.Services.Social.Triage;
 
 /// <summary>
 /// Reads one comment and decides what it is: its category, whether it needs a reply, and whether a
-/// person must write that reply instead of the drafter. It asks the language model through a forced
-/// tool and checks the answer in code; an answer that breaks a check is model_failed, never a guess.
+/// person must write that reply instead of the drafter. It asks the language model for a structured
+/// answer and checks it in code; an answer that breaks a check is model_failed, never a guess.
 /// It never writes reply text, never touches the store and never calls a platform.
 /// </summary>
 /// <remarks>
-/// It sends nothing for a platform the operator has not cleared (<see cref="SocialClaudeClearance"/>):
-/// that is clearance_required, logged as a warning naming the setting, and the model is not called.
-/// Every failure it returns is logged here; a log line names the platform and the code, never the
-/// comment, the post or the author.
+/// It sends nothing for a platform the operator has not cleared for the configured provider
+/// (<see cref="SocialAiClearance"/>): that is clearance_required, logged as a warning naming the pair
+/// to add, and the model is not called. Every failure it returns is logged here; a log line names the
+/// platform and the code, never the comment, the post or the author.
 /// </remarks>
 public sealed class EngagementTriage : IEngagementTriage
 {
-    public const string ToolName = "classify_comment";
+    public const string AnswerName = "classifyComment";
     internal const int ReasonMaxCharacters = 300;
     private const int MaxOutputTokens = 400;
 
-    private static readonly string InputSchema = JsonSerializer.Serialize(new
+    // Flat, every property required, no nulls: the reason is an empty string when none is needed, and
+    // its length is checked in Read, so every provider can enforce the schema as written.
+    internal static readonly string AnswerSchema = JsonSerializer.Serialize(new
     {
         type = "object",
         properties = new Dictionary<string, object>
@@ -42,9 +44,8 @@ public sealed class EngagementTriage : IEngagementTriage
             },
             ["needs_human_reason"] = new
             {
-                type = new[] { "string", "null" },
-                maxLength = ReasonMaxCharacters,
-                description = "When a reply is needed and a person must write it, why, in one plain sentence for the page owner. Null otherwise.",
+                type = "string",
+                description = $"When a reply is needed and a person must write it, why, in one plain sentence for the page owner, at most {ReasonMaxCharacters} characters. An empty string otherwise.",
             },
         },
         required = new[] { "needs_reply", "category", "needs_human_reason" },
@@ -67,7 +68,7 @@ public sealed class EngagementTriage : IEngagementTriage
         Praise may get a short thank-you. Spam never needs one.
 
         needs_human_reason: when a reply is needed but the page owner should write it rather than an
-        assistant, say why in one plain sentence; otherwise null. A sensitive comment that needs a reply
+        assistant, say why in one plain sentence; otherwise an empty string. A sensitive comment that needs a reply
         always has a reason. Also give a reason when the answer depends on facts the post does not
         contain, such as a price, availability, or a customer's own account.
 
@@ -76,10 +77,10 @@ public sealed class EngagementTriage : IEngagementTriage
         """;
 
     private readonly ISocialModelClient _model;
-    private readonly SocialClaudeClearance _clearance;
+    private readonly SocialAiClearance _clearance;
     private readonly ILogger<EngagementTriage> _logger;
 
-    public EngagementTriage(ISocialModelClient model, SocialClaudeClearance clearance, ILogger<EngagementTriage> logger)
+    public EngagementTriage(ISocialModelClient model, SocialAiClearance clearance, ILogger<EngagementTriage> logger)
     {
         _model = model;
         _clearance = clearance;
@@ -93,34 +94,32 @@ public sealed class EngagementTriage : IEngagementTriage
         if (!SocialPlatforms.IsKnown(request.Platform))
             return Fail(request.Platform, SocialFailureCodes.InvalidRequest, "The comment's platform is not one GeekSocial serves.");
 
-        if (!_clearance.IsCleared(request.Platform))
+        if (!_clearance.IsCleared(_model.Provider, request.Platform))
         {
-            _logger.LogWarning(
-                "Triage held a {Platform} comment: that platform is not cleared to send comment text to Claude. Nothing was sent. Add it to {Variable} once its terms allow it.",
-                request.Platform, SocialClaudeClearance.Variable);
-            return Result<TriageResult>.Failure(
-                $"{request.Platform} is not cleared to send comment text to Claude ({SocialClaudeClearance.Variable}).",
-                SocialFailureCodes.ClearanceRequired);
+            var reason = SocialAiClearance.HoldReason(_model.Provider, request.Platform);
+            _logger.LogWarning("Triage held a {Platform} comment: {Reason} Add {Pair} to {Variable} once its terms allow it.",
+                request.Platform, reason, $"{_model.Provider ?? "provider"}:{request.Platform}", SocialAiClearance.Variable);
+            return Result<TriageResult>.Failure(reason, SocialFailureCodes.ClearanceRequired);
         }
 
         if (string.IsNullOrWhiteSpace(request.CommentText))
             return Fail(request.Platform, SocialFailureCodes.InvalidRequest, "The comment has no text to classify.");
 
-        var answer = await _model.CallToolAsync(new SocialModelRequest
+        var answer = await _model.AnswerAsync(new SocialModelRequest
         {
             Purpose = "triage",
             SystemPrompt = SystemPrompt,
             UserMessage = UserMessage(request),
-            ToolName = ToolName,
-            ToolDescription = "Record what the comment is and whether it needs a reply.",
-            InputSchemaJson = InputSchema,
+            AnswerName = AnswerName,
+            AnswerDescription = "Record what the comment is and whether it needs a reply.",
+            AnswerSchemaJson = AnswerSchema,
             MaxOutputTokens = MaxOutputTokens,
         }, ct).ConfigureAwait(false);
 
         if (!answer.IsSuccess)
             return Fail(request.Platform, answer.ErrorCode ?? SocialFailureCodes.ModelFailed, answer.Error ?? "The model call failed.");
 
-        var read = Read(answer.Value);
+        var read = Read(answer.Value!.Answer);
         return read.IsSuccess ? read : Fail(request.Platform, SocialFailureCodes.ModelFailed, read.Error!);
     }
 
@@ -141,11 +140,11 @@ public sealed class EngagementTriage : IEngagementTriage
             {request.CommentText.Trim()}
             </comment>
 
-            Classify the comment with the {ToolName} tool.
+            Classify the comment and give your answer in the requested form.
             """;
     }
 
-    /// <summary>Reads the tool's input and checks it. Anything that does not fit is refused with the reason; the caller logs it.</summary>
+    /// <summary>Reads the structured answer and checks it. Anything that does not fit is refused with the reason; the caller logs it.</summary>
     internal static Result<TriageResult> Read(JsonElement input)
     {
         if (input.ValueKind != JsonValueKind.Object)
@@ -161,14 +160,10 @@ public sealed class EngagementTriage : IEngagementTriage
         if (!ReplyCategories.IsKnown(category))
             return Result<TriageResult>.Failure("The model answered a category GeekSocial does not have.", SocialFailureCodes.ModelFailed);
 
-        string? reason = null;
-        if (input.TryGetProperty("needs_human_reason", out var reasonValue))
-        {
-            if (reasonValue.ValueKind == JsonValueKind.String)
-                reason = string.IsNullOrWhiteSpace(reasonValue.GetString()) ? null : reasonValue.GetString()!.Trim();
-            else if (reasonValue.ValueKind != JsonValueKind.Null)
-                return Result<TriageResult>.Failure("The model's needs_human_reason is neither text nor null.", SocialFailureCodes.ModelFailed);
-        }
+        if (!input.TryGetProperty("needs_human_reason", out var reasonValue) || reasonValue.ValueKind != JsonValueKind.String)
+            return Result<TriageResult>.Failure("The model's answer has no needs_human_reason text.", SocialFailureCodes.ModelFailed);
+
+        var reason = string.IsNullOrWhiteSpace(reasonValue.GetString()) ? null : reasonValue.GetString()!.Trim();
 
         var replies = needsReply.GetBoolean();
         if (reason is not null && !replies)

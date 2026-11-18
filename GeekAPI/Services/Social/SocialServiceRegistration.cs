@@ -40,18 +40,49 @@ public static class SocialServiceRegistration
 
     /// <summary>
     /// The agents. The Reviewer is plain code with no state, so one instance serves every caller.
-    /// Triage and the drafter reach the language model through <see cref="ISocialModelClient"/>, whose
-    /// default is Claude (<see cref="ClaudeSocialModelClient"/>); it uses the Anthropic settings and the
-    /// global <see cref="Workflow.Providers.LlmConcurrencyGate"/> that AddWorkflow registers. The
-    /// clearance is read here, once: a platform name in it that does not exist stops the service from
-    /// starting, and an empty one clears nothing.
+    /// Triage, the drafter and the post writer reach the language model through
+    /// <see cref="ISocialModelClient"/>; the one client registered is the provider
+    /// <c>LlmProviders__DefaultProvider</c> names (<see cref="SocialModelSettings"/>), or
+    /// <see cref="UnconfiguredSocialModelClient"/> when it names none. Every client uses the global
+    /// <see cref="Workflow.Providers.LlmConcurrencyGate"/> that AddWorkflow registers. The settings and
+    /// the clearance are read here, once: a provider or a platform name that does not exist stops the
+    /// service from starting, and an empty clearance clears nothing.
     /// </summary>
-    public static IServiceCollection AddSocialAgents(this IServiceCollection services)
+    public static IServiceCollection AddSocialAgents(this IServiceCollection services) =>
+        services.AddSocialAgents(Environment.GetEnvironmentVariable);
+
+    /// <summary>The agents, with GeekAPI's settings read through <paramref name="readEnvironment"/>, so a test chooses the provider.</summary>
+    internal static IServiceCollection AddSocialAgents(this IServiceCollection services, Func<string, string?> readEnvironment)
     {
+        var settings = SocialModelSettings.From(readEnvironment);
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IOutboundTextReviewer, OutboundTextReviewer>();
-        services.AddSingleton(SocialClaudeClearance.FromEnvironment());
-        services.AddHttpClient<ISocialModelClient, ClaudeSocialModelClient>();
+        services.AddSingleton(settings);
+        services.AddSingleton(SocialAiClearance.From(readEnvironment));
+        switch (settings.Provider)
+        {
+            case SocialModelProviders.Anthropic:
+                services.AddHttpClient<ISocialModelClient, AnthropicSocialModelClient>();
+                break;
+            case SocialModelProviders.OpenAi:
+                services.AddHttpClient<ISocialModelClient, OpenAiSocialModelClient>();
+                break;
+            case SocialModelProviders.Gemini:
+                services.AddHttpClient<ISocialModelClient, GeminiSocialModelClient>();
+                break;
+            case SocialModelProviders.Perplexity:
+                services.AddHttpClient<ISocialModelClient, PerplexitySocialModelClient>();
+                break;
+            case SocialModelProviders.Groq:
+                services.AddHttpClient<ISocialModelClient, GroqSocialModelClient>();
+                break;
+            case null:
+                services.AddSingleton<ISocialModelClient, UnconfiguredSocialModelClient>();
+                break;
+            default:
+                throw new InvalidOperationException($"No GeekSocial model client is written for the provider '{settings.Provider}'.");
+        }
+
         services.AddScoped<IEngagementTriage, EngagementTriage>();
         services.AddScoped<IReplyDrafter, ReplyDrafter>();
         services.AddScoped<IPostWriter, PostWriter>();

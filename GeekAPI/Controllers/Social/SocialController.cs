@@ -32,7 +32,8 @@ public sealed class SocialController : ControllerBase
     private readonly SocialOrchestrator _orchestrator;
     private readonly SocialOrchestratorStatus _status;
     private readonly SocialConnectService _connect;
-    private readonly SocialClaudeClearance _clearance;
+    private readonly SocialAiClearance _clearance;
+    private readonly SocialModelSettings _ai;
     private readonly MetaOptions _meta;
 
     public SocialController(
@@ -41,7 +42,8 @@ public sealed class SocialController : ControllerBase
         SocialOrchestrator orchestrator,
         SocialOrchestratorStatus status,
         SocialConnectService connect,
-        SocialClaudeClearance clearance,
+        SocialAiClearance clearance,
+        SocialModelSettings ai,
         MetaOptions meta)
     {
         _store = store;
@@ -50,16 +52,34 @@ public sealed class SocialController : ControllerBase
         _status = status;
         _connect = connect;
         _clearance = clearance;
+        _ai = ai;
         _meta = meta;
     }
 
     // ----- Status -----
 
+    /// <summary>
+    /// What GeekSocial is running with. <c>aiProvider</c> is the provider GeekAPI is set to call, its
+    /// model and whether its key is set (null when no provider is set; the model is null when it is
+    /// not set; the key itself is never returned);
+    /// <c>clearedPlatforms</c> are the platforms cleared to send comment text to that provider, so it
+    /// is empty when no provider is set. The route reads the settings, not the model client: only the
+    /// agents reach the model.
+    /// </summary>
     [HttpGet("status")]
     public IActionResult Status() => Ok(new
     {
         orchestrator = _status.Snapshot(),
-        clearedPlatforms = _clearance.Cleared,
+        aiProvider = _ai.Provider is null
+            ? null
+            : new
+            {
+                id = _ai.Provider,
+                name = SocialModelProviders.DisplayName(_ai.Provider),
+                model = string.IsNullOrWhiteSpace(_ai.Model) ? null : _ai.Model,
+                apiKeySet = !string.IsNullOrWhiteSpace(_ai.ApiKey),
+            },
+        clearedPlatforms = _clearance.ClearedFor(_ai.Provider),
         metaConfigured = _meta.AppId is not null && _meta.AppSecret is not null && _meta.VerifyToken is not null && _meta.LoginConfigId is not null,
         sendLimits = new
         {
