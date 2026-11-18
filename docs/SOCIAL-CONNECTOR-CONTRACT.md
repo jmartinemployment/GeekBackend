@@ -113,8 +113,9 @@ Facebook: **Gap.**
   later reply, post and reaction fails the same way.
 - Permissions are checked only at connect (`MetaAccountConnector.cs:109-117`). `GetTokenStatusAsync`
   (`debug_token`, `:206-243`) exists and nothing calls it.
-- Meta's deauthorize callback, sent when a person removes the app, is not received: no route exists. What Meta
-  requires for it and for data deletion is recorded in the platform access register.
+- Meta's deauthorize callback, sent when a person removes the app, is not received: no route exists. Meta also
+  sends no notice when a Page token is invalidated (`docs/PLATFORM-CAPABILITIES.md:502`); the platform access
+  register (`docs/PLATFORM-ACCESS-REGISTER.md`) records the rest of what Meta requires.
 
 The fix this contract asks for: a platform answer of `token_invalid`, or `forbidden` for a missing permission, on
 any write (reply, publish, react) or read (resync) marks the account `reconnect_required` through the store, audits
@@ -137,7 +138,9 @@ forgets the token, unsubscribes its events where the platform allows, and delete
 
 Facebook: **Gap.** There is no disconnect route, no unsubscribe, and no receiver for Meta's deauthorize or
 data-deletion callbacks. A tenant can pause sends on an account (`PUT accounts/{id}/settings`) but cannot remove it,
-and its token and rows stay until the 30-day purge, which itself is not built for Facebook comments.
+and its token and rows stay until the 30-day purge, which itself is not built for Facebook comments. Meta requires
+either a data deletion instructions URL or an HTTPS Data Deletion Request callback before review, and a failing
+callback can get the app disabled (`docs/platform-research-2026-11-16/meta.md:205-207`).
 
 ## 9. Failures, at every stage
 
