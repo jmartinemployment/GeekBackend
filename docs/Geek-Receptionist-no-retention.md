@@ -123,6 +123,8 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
 
 ### 3.7 CRM (the older v0 path)
 
+**There is no CRM in production (Jeff, 2026-11-18).** What follows is code that exists, not a CRM in use.
+
 - **Today:** `CrmController` accepts a call's summary, transcript and recording link (`GeekAPI/Controllers/Crm/CrmController.cs`), used by
   the older single-tenant receptionist.
 - **Requirement:** no receptionist call for a tenant writes conversation content to the CRM.
