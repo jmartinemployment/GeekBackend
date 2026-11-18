@@ -267,3 +267,30 @@ are there yet". These are questions for the client to answer in the form. None i
 
 Questions 1 to 5 come from the policy in section 1. Questions 6 and 7 have no answers from Jeff yet. Which of the seven belong in
 the form, and in what order, is not decided.
+
+## Vendor retention, read 2026-11-18
+
+Read from each vendor's own pages after the AI went live on the shared `LlmProviders__DefaultProvider` setting (OpenAI,
+`gpt-4.1`). Until each line below says "confirmed", the product may say that **Geek @ Your Spot** keeps no call content,
+not that no one does.
+
+* **OpenAI (the model today).** Not used for training by default: "data sent to the OpenAI API is not used to train or
+  improve OpenAI models." **Kept up to 30 days:** "By default, abuse monitoring logs are generated for all API feature usage
+  and retained for up to 30 days." Zero Data Retention removes customer content from those logs and covers Chat Completions
+  and Responses, but "these controls are subject to prior approval by OpenAI"; it is requested through OpenAI's sales team
+  and switched on under Settings, Organization, Data controls. **Not approved for this account. Not confirmed.**
+  Source: https://developers.openai.com/api/docs/guides/your-data
+* **Twilio ConversationRelay speech services.** Twilio's AI Nutrition Facts for ConversationRelay say customer data is not
+  stored or retained in the base model and the base model is not trained on customer data, for both the Google and the
+  Deepgram speech-to-text configurations; the ElevenLabs voice option is not trained on customer data. Sources:
+  https://www.twilio.com/docs/voice/conversationrelay and https://www.twilio.com/docs/voice/twiml/say/text-speech.
+  **Not confirmed by contract:** these are product labels, not a retention commitment for the account.
+* **Twilio logs.** TwiML logs, including `<Say>` logs, can be reviewed "for up to 30 days", and the text-to-speech page
+  lists 30 days of data retention for Twilio Basic and Google voices. The text the AI speaks to a caller may therefore sit
+  in Twilio's logs for up to 30 days. **Not confirmed whether this can be switched off.**
+* **ElevenLabs.** Its own two-year default applies to its own agents product, not to its use as a voice inside
+  ConversationRelay; what it keeps there is not stated by Twilio or ElevenLabs. **Not confirmed.**
+
+What would close each gap: OpenAI's Zero Data Retention approval for the organization (or a provider that retains nothing
+by default); written confirmation from Twilio of what ConversationRelay, its speech vendors and the TwiML logs keep, and
+whether the logs can be disabled per account.
