@@ -30,6 +30,13 @@ public static class SocialPostRequestValidator
 
             if (capabilities.LinkPostNeedsTitle && string.IsNullOrWhiteSpace(request.LinkTitle))
                 return Result.Failure($"{platform} needs a title on a link post; it does not read one from the page.", SocialFailureCodes.InvalidRequest);
+            if (!capabilities.LinkPostTakesPreview
+                && (!string.IsNullOrWhiteSpace(request.LinkTitle)
+                    || !string.IsNullOrWhiteSpace(request.LinkDescription)
+                    || !string.IsNullOrWhiteSpace(request.ImageUrl)))
+                return Result.Failure(
+                    $"{platform} reads a link's title, description and picture from the linked page; leave them empty.",
+                    SocialFailureCodes.NotSupported);
         }
 
         if (request.Kind == SocialPostKinds.Image || capabilities.PostNeedsImageUrl)

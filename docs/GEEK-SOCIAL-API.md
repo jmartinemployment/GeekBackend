@@ -20,7 +20,7 @@ then it is held as `blocked_no_clearance` and is never sent to the model.
 
 Only Facebook is built, so `platform` is `facebook` in every example below and the connect routes are Meta's. GeekSocial owns the app on each network, and a tenant connects by signing in. Accounts, drafts, comments, posts and audit rows already carry `platform`; each other platform still needs its own connector and connect routes. The scope is in `docs/GEEKSOCIAL-SCOPE.md`; the plan of work is `geek-social/plans/geek-social-roadmap-2026-11-18.md`.
 
-**What this page describes.** This page documents the API as built. The AI provider is replaceable, auto-send is removed, status is per tenant, and every route checks the tenant, `posts/copy` the AI terms too (roadmap Phase 0, items 1 to 4, built).
+**What this page describes.** This page documents the API as built. The AI provider is replaceable, auto-send is removed, status is per tenant, every route checks the tenant, `posts/copy` the AI terms too, and the capability matrix is served to the post form (roadmap Phase 0, items 1 to 5, built).
 
 | Route | What it does |
 |---|---|
@@ -165,6 +165,11 @@ A comment view:
 
 - `GET api/social/posts?accountId=<uuid>&limit=50` returns stored posts (newest first). `accountId` is required:
   `{ "id", "accountId", "platform", "platformPostId", "kind", "text", "linkUrl", "scheduledFor", "publishedAt", "createdAt" }`.
+- `GET api/social/platforms` returns what a post may carry on each platform, from the capability matrix
+  (`SocialPlatformCapabilities`): `[ { "platform": "facebook", "publishKinds": ["link"], "linkPostNeedsTitle": false,
+  "linkPostTakesPreview": false, "postNeedsImageUrl": false, "canSchedulePosts": true }, ... ]`, one row per platform.
+  `linkPostTakesPreview` false means the platform reads a link's title, description and picture from the linked page,
+  and a post that carries any of them is refused 422 `not_supported`. The post form offers only these fields.
 - `POST api/social/posts/copy` with
   `{ "articleUrl": "https://...", "articleTitle": "...", "articleSummary": "...", "platforms": ["facebook"], "imageUrl": null }`
   returns `{ "copies": [ { "platform": "facebook", "post": { "kind": "link", "text": "...", "linkUrl": "...",

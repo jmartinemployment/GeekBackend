@@ -101,6 +101,29 @@ public sealed class SocialController : ControllerBase
             apiKeySet = !string.IsNullOrWhiteSpace(_ai.ApiKey),
         };
 
+    // ----- Platforms -----
+
+    /// <summary>
+    /// What a post may carry on each platform, read from the capability matrix (SocialPlatformCapabilities), so a form
+    /// offers only what the platform accepts and the publisher is never the first to say no.
+    /// </summary>
+    [HttpGet("platforms")]
+    public async Task<IActionResult> Platforms(CancellationToken ct)
+    {
+        var (_, refusal) = await TenantAsync(ct);
+        if (refusal is not null) return refusal;
+
+        return Ok(SocialPlatforms.All.Select(SocialPlatformCapabilities.For).Select(c => new
+        {
+            c.Platform,
+            c.PublishKinds,
+            c.LinkPostNeedsTitle,
+            c.LinkPostTakesPreview,
+            c.PostNeedsImageUrl,
+            c.CanSchedulePosts,
+        }));
+    }
+
     // ----- Tenant -----
 
     public sealed class CreateTenantBody

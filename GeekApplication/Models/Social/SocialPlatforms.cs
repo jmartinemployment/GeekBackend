@@ -136,6 +136,12 @@ public sealed class SocialPlatformCapabilities
     /// <summary>A link post needs a title (LinkedIn's article content has no URL scraping).</summary>
     public bool LinkPostNeedsTitle { get; init; }
 
+    /// <summary>
+    /// A link post may carry its own title, description and picture. False where the platform reads them from the
+    /// linked page and the request must leave them empty (Facebook).
+    /// </summary>
+    public bool LinkPostTakesPreview { get; init; }
+
     /// <summary>A post needs a public image URL (Instagram publishes from a hosted file).</summary>
     public bool PostNeedsImageUrl { get; init; }
 
@@ -176,7 +182,8 @@ public sealed class SocialPlatformCapabilities
         new()
         {
             // PLATFORM-CAPABILITIES.md 2a. Page reactions are LIKE only. Whether a reply to a comment
-            // is created as the Page (open item M1) is settled by one live reply before Phase 4.
+            // is created as the Page (open item M1) is settled by one live reply before Phase 4. A link
+            // post's title, description and picture come from the linked page, never from the request.
             [SocialPlatforms.Facebook] = new()
             {
                 Platform = SocialPlatforms.Facebook,
@@ -209,6 +216,7 @@ public sealed class SocialPlatformCapabilities
                 Platform = SocialPlatforms.LinkedInOrganization,
                 PublishKinds = new[] { SocialPostKinds.Link },
                 LinkPostNeedsTitle = true,
+                LinkPostTakesPreview = true,
                 CanReadComments = true,
                 CanReplyToComments = true,
                 ReactionTypes = LinkedInReactions,
@@ -224,6 +232,7 @@ public sealed class SocialPlatformCapabilities
                 Platform = SocialPlatforms.LinkedInMember,
                 PublishKinds = new[] { SocialPostKinds.Link },
                 LinkPostNeedsTitle = true,
+                LinkPostTakesPreview = true,
                 ReactionTypes = Array.Empty<string>(),
             },
         };

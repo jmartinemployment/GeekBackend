@@ -40,13 +40,6 @@ public sealed class MetaPublisher : ISocialPublisher
         if (!valid.IsSuccess)
             return Result<SocialPostResult>.Failure(valid.Error!, valid.ErrorCode!);
 
-        if (!string.IsNullOrWhiteSpace(request.LinkTitle)
-            || !string.IsNullOrWhiteSpace(request.LinkDescription)
-            || !string.IsNullOrWhiteSpace(request.ImageUrl))
-            return Result<SocialPostResult>.Failure(
-                "Facebook reads a link's title, description and picture from the linked page; leave them empty.",
-                SocialFailureCodes.NotSupported);
-
         if (string.IsNullOrWhiteSpace(request.Text))
             return Result<SocialPostResult>.Failure("A post needs text.", SocialFailureCodes.InvalidRequest);
 

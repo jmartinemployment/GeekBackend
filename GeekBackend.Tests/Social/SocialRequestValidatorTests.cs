@@ -90,6 +90,36 @@ public class SocialRequestValidatorTests
         AssertFails(SocialPostRequestValidator.Validate(SocialPlatforms.LinkedInOrganization, Image(), Now), SocialFailureCodes.NotSupported);
     }
 
+    [Theory]
+    [InlineData("title")]
+    [InlineData("description")]
+    [InlineData("image")]
+    public void Facebook_refuses_a_link_title_description_or_picture_because_it_reads_them_from_the_page(string field)
+    {
+        var request = Link(title: null);
+        switch (field)
+        {
+            case "title": request.LinkTitle = "Bookkeeping"; break;
+            case "description": request.LinkDescription = "A guide."; break;
+            default: request.ImageUrl = "https://geekatyourspot.com/a.png"; break;
+        }
+
+        AssertFails(SocialPostRequestValidator.Validate(SocialPlatforms.Facebook, request, Now), SocialFailureCodes.NotSupported);
+    }
+
+    [Fact]
+    public void Only_the_platforms_whose_link_posts_take_a_preview_say_so_and_each_that_needs_a_title_takes_one()
+    {
+        foreach (var platform in SocialPlatforms.All)
+        {
+            var capabilities = SocialPlatformCapabilities.For(platform);
+            if (capabilities.LinkPostNeedsTitle)
+                Assert.True(capabilities.LinkPostTakesPreview, $"{platform} needs a title, so it must take one");
+        }
+
+        Assert.False(SocialPlatformCapabilities.For(SocialPlatforms.Facebook).LinkPostTakesPreview);
+    }
+
     [Fact]
     public void A_link_post_may_carry_an_optional_thumbnail_but_it_must_be_https()
     {
@@ -115,7 +145,7 @@ public class SocialRequestValidatorTests
     [Fact]
     public void Facebook_schedules_between_ten_minutes_and_thirty_days_in_UTC()
     {
-        var request = Link();
+        var request = Link(title: null);
 
         request.ScheduledFor = Now.AddMinutes(9);
         AssertFails(SocialPostRequestValidator.Validate(SocialPlatforms.Facebook, request, Now), SocialFailureCodes.InvalidRequest);
