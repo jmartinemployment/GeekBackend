@@ -85,13 +85,17 @@ public static partial class ReceptionistDefaults
     };
 
     /// <summary>The greeting and prompt for this tenant, or a failure when the signup record cannot fill them. Nothing is guessed.</summary>
-    public static Result<ReceptionistScript> ScriptFor(VoiceTenant tenant)
+    public static Result<ReceptionistScript> ScriptFor(VoiceTenant tenant) =>
+        ScriptFor(tenant.BusinessName, tenant.StateCode, tenant.IndustryVertical);
+
+    /// <summary>The greeting and prompt for a business by its name, state code and industry, or a failure when one is missing.</summary>
+    public static Result<ReceptionistScript> ScriptFor(string businessName, string? stateCode, string industryVertical)
     {
-        var name = OneLine(tenant.BusinessName);
-        var industry = OneLine(tenant.IndustryVertical);
+        var name = OneLine(businessName);
+        var industry = OneLine(industryVertical);
         if (name.Length == 0 || industry.Length == 0)
             return Result<ReceptionistScript>.Failure("The business name and industry are required.", VoiceFailureCodes.InvalidRequest);
-        if (!StateNames.TryGetValue(tenant.StateCode?.Trim().ToUpperInvariant() ?? "", out var state))
+        if (!StateNames.TryGetValue(stateCode?.Trim().ToUpperInvariant() ?? "", out var state))
             return Result<ReceptionistScript>.Failure("The state code is not a US state.", VoiceFailureCodes.InvalidRequest);
 
         var values = new Dictionary<string, string>(StringComparer.Ordinal)

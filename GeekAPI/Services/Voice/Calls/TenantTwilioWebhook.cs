@@ -87,4 +87,41 @@ public sealed class TenantTwilioWebhook
 
         return telephony;
     }
+
+    /// <summary>
+    /// The tenant's telephony when ConversationRelay's WebSocket handshake for this tenant carries an X-Twilio-Signature made with the
+    /// subaccount's auth token. Twilio's docs say the handshake is signed and do not say over what; it is checked as a webhook is, over
+    /// the full address Twilio requested (<paramref name="wssUrl"/>, with its query) and no parameters, because a handshake has no form.
+    /// A handshake names no AccountSid, so the one-time relay ticket is what ties it to a call this tenant's signed consent post accepted.
+    /// </summary>
+    public async Task<Result<VoiceTelephony>> VerifyHandshakeAsync(Guid tenantId, string wssUrl, string? signature, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(signature))
+        {
+            _logger.LogWarning("A relay connection for tenant {TenantId} was refused: it carries no Twilio signature.", tenantId);
+            return Result<VoiceTelephony>.Failure("The connection is not signed.", TenantCallFailureCodes.SignatureInvalid);
+        }
+
+        var telephony = await _store.GetTelephonyAsync(tenantId, ct).ConfigureAwait(false);
+        if (!telephony.IsSuccess)
+        {
+            _logger.LogWarning("A relay connection for tenant {TenantId} was refused: its telephony could not be read ({Code}).", tenantId, telephony.ErrorCode);
+            return Result<VoiceTelephony>.Failure(telephony.Error!, telephony.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+        }
+
+        var token = _protector.Unprotect(telephony.Value!.TwilioAuthTokenEncrypted, VoiceSecretPurposes.TwilioAuthToken);
+        if (!token.IsSuccess)
+        {
+            _logger.LogError("A relay connection for tenant {TenantId} was refused: its subaccount token could not be opened ({Code}).", tenantId, token.ErrorCode);
+            return Result<VoiceTelephony>.Failure(token.Error!, token.ErrorCode!);
+        }
+
+        if (!new RequestValidator(token.Value!).Validate(wssUrl, new Dictionary<string, string>(), signature))
+        {
+            _logger.LogWarning("A relay connection for tenant {TenantId} was refused: its Twilio signature does not match.", tenantId);
+            return Result<VoiceTelephony>.Failure("The connection's signature does not match.", TenantCallFailureCodes.SignatureInvalid);
+        }
+
+        return telephony;
+    }
 }

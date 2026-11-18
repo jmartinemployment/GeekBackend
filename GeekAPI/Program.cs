@@ -10,6 +10,7 @@ using GeekAPI.Middleware;
 using GeekAPI.Services;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Receptionist;
+using GeekAPI.Services.Receptionist.Relay;
 using GeekAPI.Services.Social;
 using GeekAPI.Services.Visitors;
 using GeekAPI.Services.Voice;
@@ -233,6 +234,8 @@ builder.Services.AddScoped<GeekApplication.Interfaces.Crm.ICrmWorkStore>(sp =>
 // Geek-Receptionist: Twilio missed-call text-back. Off unless TWILIO_ACCOUNT_SID is set; an invalid
 // configuration is logged and leaves it off rather than stopping GeekAPI.
 builder.Services.AddReceptionist(builder.Configuration);
+// The voice AI behind the consent step: GeekAPI's configured default LLM provider (LlmProviders__DefaultProvider), no default.
+builder.Services.AddReceptionistRelay();
 
 // GeekOAuth-issued JWT bearer. Originally added only so the v2 realtime hub could require
 // [Authorize] (ApiKeyMiddleware's header-based auth can't run over a WebSocket upgrade) — routes
@@ -423,6 +426,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseMiddleware<LegacyAuthRetiredMiddleware>();
+// ConversationRelay's WebSocket for Geek-Receptionist's calls (MapReceptionist, TenantCallController).
+app.UseWebSockets();
 app.UseMiddleware<ApiKeyMiddleware>();
 // After ApiKeyMiddleware: the limiter keys on the visitor address the portal forwards, which is believed only once the key is verified.
 // Geek-Receptionist's signup routes and owner sign-in carry the caps (OnboardingRateLimit); nothing else is limited here.

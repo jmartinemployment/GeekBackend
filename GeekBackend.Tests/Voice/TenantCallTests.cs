@@ -2,6 +2,9 @@ using System.Security.Cryptography;
 using System.Text;
 using GeekAPI.Controllers.Voice;
 using GeekAPI.Services.Receptionist;
+using GeekAPI.Services.Receptionist.Relay;
+using GeekAPI.Services.Voice.Onboarding;
+using GeekBackend.Tests.Receptionist;
 using GeekAPI.Services.Voice;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Calls;
@@ -54,7 +57,14 @@ public sealed class TenantCallTests
 
         public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceTenant>> ActivateTenantAsync(Guid tenantId, ActivateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Result<VoiceReceptionistConfig>> GetConfigAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
+        public int ConfigReads { get; private set; }
+
+        public Task<Result<VoiceReceptionistConfig>> GetConfigAsync(Guid tenantId, CancellationToken ct = default)
+        {
+            ConfigReads++;
+            return Task.FromResult(Result<VoiceReceptionistConfig>.Success(ReceptionistDefaults.ConfigFor(ReceptionistDefaults.ScriptFor(Business, "FL", "HVAC").Value!)));
+        }
+
         public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig config, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default) => throw new NotSupportedException();
@@ -277,7 +287,8 @@ public sealed class TenantCallTests
 
     // ----- Routes -----
 
-    private static async Task<(int Status, string Body, FakeVoice Store, FakeBilling Billing)> Post(string route, Dictionary<string, string> form, string? token = SubToken, VoiceBillingStanding? standing = null)
+    private static async Task<(int Status, string Body, FakeVoice Store, FakeBilling Billing)> Post(
+        string route, Dictionary<string, string> form, string? token = SubToken, VoiceBillingStanding? standing = null, FakeReceptionistModel? model = null)
     {
         var store = new FakeVoice();
         var billing = new FakeBilling(standing ?? Standing(VoiceTenantStatuses.Active));
@@ -287,6 +298,9 @@ public sealed class TenantCallTests
             store,
             billing,
             new FakeTimeProvider(Now),
+            model ?? new FakeReceptionistModel(configured: false),
+            new RelayTickets(new FakeTimeProvider(Now)),
+            new TwilioOptions("ACmaster", "master-token", BaseUrl),
             NullLogger<TenantCallController>.Instance);
 
         var path = $"/{TenantCallController.RoutePrefix}/{Tenant}/{route}";
@@ -298,7 +312,12 @@ public sealed class TenantCallTests
         if (token is not null) context.Request.Headers[TenantTwilioWebhook.SignatureHeader] = Sign(BaseUrl + path, form, token);
         controller.ControllerContext = new ControllerContext { HttpContext = context };
 
-        IActionResult result = route == "voice" ? await controller.Voice(Tenant, CancellationToken.None) : await controller.CallStatus(Tenant, CancellationToken.None);
+        IActionResult result = route switch
+        {
+            "voice" => await controller.Voice(Tenant, CancellationToken.None),
+            "consent-result" => await controller.ConsentResult(Tenant, CancellationToken.None),
+            _ => await controller.CallStatus(Tenant, CancellationToken.None),
+        };
         return result switch
         {
             ContentResult c => (c.StatusCode ?? 200, c.Content ?? "", store, billing),
@@ -319,11 +338,14 @@ public sealed class TenantCallTests
     };
 
     [Fact]
-    public async Task A_call_hears_the_closing_message_with_the_business_name_and_is_hung_up()
+    public async Task A_call_the_standing_allows_is_asked_for_consent_and_without_a_key_hears_the_closing_message()
     {
         var (status, body, _, billing) = await Post("voice", Ringing());
 
         Assert.Equal(200, status);
+        Assert.Contains(ReceptionistConsent.ConsentText(Business), body);
+        Assert.Matches("<Gather[^>]*numDigits=\"1\"", body);
+        Assert.Contains($"action=\"{BaseUrl}/{TenantCallController.RoutePrefix}/{Tenant}/consent-result\"", body);
         Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
         Assert.Contains("<Hangup", body);
         Assert.DoesNotContain("<Record", body);
@@ -341,7 +363,69 @@ public sealed class TenantCallTests
 
         Assert.Equal(200, status);
         Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.DoesNotContain("<Gather", body);
         Assert.Equal(1, billing.StandingReads);
+    }
+
+    private static Dictionary<string, string> Pressed(string? digits)
+    {
+        var form = Ringing();
+        form["CallStatus"] = "in-progress";
+        if (digits is not null) form["Digits"] = digits;
+        return form;
+    }
+
+    [Theory]
+    [InlineData("2")]
+    [InlineData(null)]
+    [InlineData("7")]
+    public async Task Consent_declined_or_any_other_key_hears_the_closing_message(string? digits)
+    {
+        var model = new FakeReceptionistModel();
+        var (status, body, store, _) = await Post("consent-result", Pressed(digits), model: model);
+        Assert.Equal(200, status);
+        Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.DoesNotContain("ConversationRelay", body);
+        Assert.Equal(0, store.ConfigReads);
+    }
+
+    [Fact]
+    public async Task Pressing_1_with_no_model_configured_hears_the_closing_message()
+    {
+        var (_, body, _, _) = await Post("consent-result", Pressed("1"));
+        Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.DoesNotContain("ConversationRelay", body);
+    }
+
+    [Fact]
+    public async Task Pressing_1_connects_the_tenants_relay_with_its_greeting_and_records_nothing()
+    {
+        var (status, body, store, billing) = await Post("consent-result", Pressed("1"), model: new FakeReceptionistModel());
+
+        Assert.Equal(200, status);
+        Assert.Matches($"<ConversationRelay[^>]*url=\"wss://api\\.example\\.test/{TenantCallController.RoutePrefix}/{Tenant}/relay\\?ticket=[0-9A-F]{{64}}\"", body);
+        Assert.Contains("welcomeGreeting=\"Thank you for calling Boca Cool HVAC.", body);
+        Assert.DoesNotContain("intelligenceService", body);
+        Assert.Equal(1, billing.StandingReads);
+        Assert.Equal(1, store.ConfigReads);
+        Assert.Empty(store.Calls);
+    }
+
+    [Fact]
+    public async Task Pressing_1_when_the_standing_no_longer_allows_answering_hears_the_closing_message()
+    {
+        var (_, body, _, _) = await Post("consent-result", Pressed("1"), standing: Standing(VoiceTenantStatuses.Cancelled), model: new FakeReceptionistModel());
+        Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.DoesNotContain("ConversationRelay", body);
+    }
+
+    [Fact]
+    public async Task An_unsigned_consent_post_is_refused_403()
+    {
+        var (status, body, _, billing) = await Post("consent-result", Pressed("1"), token: "wrong-token", model: new FakeReceptionistModel());
+        Assert.Equal(403, status);
+        Assert.DoesNotContain("ConversationRelay", body);
+        Assert.Equal(0, billing.StandingReads);
     }
 
     [Fact]

@@ -3,6 +3,8 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using GeekAPI.Services.Receptionist;
+using GeekAPI.Services.Receptionist.Relay;
+using GeekApplication.Interfaces.Receptionist;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
@@ -58,7 +60,7 @@ public sealed class App : IDisposable
     public FakeSms Sms { get; } = new();
     public FakeMediaDeleter Media { get; } = new();
 
-    public App(Dictionary<string, string?>? overrides = null, bool configured = true)
+    public App(Dictionary<string, string?>? overrides = null, bool configured = true, IReceptionistModel? model = null)
     {
         var settings = configured
             ? new Dictionary<string, string?>
@@ -82,10 +84,13 @@ public sealed class App : IDisposable
         builder.Configuration.Sources.Clear();
         builder.Configuration.AddInMemoryCollection(settings);
         builder.Services.AddReceptionist(builder.Configuration);
+        builder.Services.AddReceptionistRelay(_ => null);
+        if (model is not null) builder.Services.Replace(ServiceDescriptor.Singleton(model));
         builder.Services.Replace(ServiceDescriptor.Singleton<ISmsSender>(Sms));
         builder.Services.Replace(ServiceDescriptor.Singleton<IMediaDeleter>(Media));
 
         _app = builder.Build();
+        _app.UseWebSockets();
         _app.MapReceptionist();
         _app.StartAsync().GetAwaiter().GetResult();
     }
@@ -93,6 +98,11 @@ public sealed class App : IDisposable
     public ReceptionistStatus Status => _app.Services.GetRequiredService<ReceptionistStatus>();
 
     public HttpClient CreateClient() => _app.GetTestClient();
+
+    public TestServer Server => _app.GetTestServer();
+
+    /// <summary>Signs an address with no parameters, as a WebSocket handshake is checked.</summary>
+    public static string SignUrl(string url) => Sign(url, new Dictionary<string, string>());
 
     /// <summary>POSTs a form signed exactly the way Twilio signs webhooks.</summary>
     public async Task<(HttpStatusCode Status, string Body)> PostTwilio(string pathAndQuery, Dictionary<string, string> form, bool sign = true)
@@ -140,10 +150,14 @@ public class VoiceWebhookTests
     }
 
     [Fact]
-    public async Task Unanswered_call_hears_a_closing_message_and_ends_with_no_recording_and_no_text()
+    public async Task Unanswered_call_is_asked_for_consent_then_hears_a_closing_message_with_no_recording_and_no_text()
     {
         using var app = new App();
         var (_, xml) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "no-answer"));
+
+        Assert.Contains("<Gather", xml);
+        Assert.Contains($"{Settings.Base}/api/receptionist/twilio/voice/consent-result", xml);
+        Assert.True(xml.IndexOf("<Gather", StringComparison.Ordinal) < xml.IndexOf("We can", StringComparison.Ordinal));
 
         Assert.Contains("Thank you for calling Dag Plumbing. We can&apos;t take your call right now.", xml.Replace("'", "&apos;"));
         Assert.Contains("<Hangup", xml);
