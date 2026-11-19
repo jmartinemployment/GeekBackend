@@ -34,7 +34,9 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         business_hours_json::text AS BusinessHours, qualifying_questions_json::text AS QualifyingQuestions,
         transfer_mode AS TransferMode, transfer_target_number AS TransferTargetNumber,
         transfer_caller_id_mode AS TransferCallerIdMode, emergency_keywords AS EmergencyKeywords,
-        recording_disclosure_enabled AS RecordingDisclosureEnabled
+        recording_disclosure_enabled AS RecordingDisclosureEnabled,
+        message_email_enabled AS MessageEmailEnabled, message_destination_email AS MessageDestinationEmail,
+        include_transcript AS IncludeTranscript, notify_on_abandoned_calls AS NotifyOnAbandonedCalls
         """;
 
     [GeneratedRegex(@"^\+[1-9]\d{6,14}$")]
@@ -323,10 +325,12 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             var row = await conn.QuerySingleAsync<ConfigRow>(new CommandDefinition($"""
                 INSERT INTO geek_voice.receptionist_configs (
                     tenant_id, greeting_message, system_prompt_template, business_hours_json, qualifying_questions_json,
-                    transfer_mode, transfer_target_number, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled)
+                    transfer_mode, transfer_target_number, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled,
+                    message_email_enabled, message_destination_email, include_transcript, notify_on_abandoned_calls)
                 VALUES (
                     @TenantId, @GreetingMessage, @SystemPromptTemplate, @BusinessHours::jsonb, @QualifyingQuestions::jsonb,
-                    @TransferMode, @TransferTargetNumber, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled)
+                    @TransferMode, @TransferTargetNumber, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled,
+                    @MessageEmailEnabled, @MessageDestinationEmail, @IncludeTranscript, @NotifyOnAbandonedCalls)
                 ON CONFLICT (tenant_id) DO UPDATE SET
                     greeting_message = EXCLUDED.greeting_message,
                     system_prompt_template = EXCLUDED.system_prompt_template,
@@ -337,6 +341,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     transfer_caller_id_mode = EXCLUDED.transfer_caller_id_mode,
                     emergency_keywords = EXCLUDED.emergency_keywords,
                     recording_disclosure_enabled = EXCLUDED.recording_disclosure_enabled,
+                    message_email_enabled = EXCLUDED.message_email_enabled,
+                    message_destination_email = EXCLUDED.message_destination_email,
+                    include_transcript = EXCLUDED.include_transcript,
+                    notify_on_abandoned_calls = EXCLUDED.notify_on_abandoned_calls,
                     updated_at = NOW()
                 RETURNING {ConfigColumns};
                 """,
@@ -353,6 +361,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     // Dapper expands an array parameter into a list of parameters, so the keywords travel as JSON and the SQL builds the text[].
                     EmergencyKeywords = JsonSerializer.Serialize(config.EmergencyKeywords),
                     config.RecordingDisclosureEnabled,
+                    config.MessageEmailEnabled,
+                    config.MessageDestinationEmail,
+                    config.IncludeTranscript,
+                    config.NotifyOnAbandonedCalls,
                 },
                 cancellationToken: ct));
             return Result<VoiceReceptionistConfig>.Success(row.ToModel());
@@ -666,8 +678,14 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         if (!VoiceTransferCallerIdModes.All.Contains(c.TransferCallerIdMode, StringComparer.Ordinal)) return $"The caller ID mode must be one of: {string.Join(", ", VoiceTransferCallerIdModes.All)}.";
         if (c.TransferTargetNumber is not null && !E164().IsMatch(c.TransferTargetNumber)) return "The transfer number must be in E.164 form.";
         if (c.EmergencyKeywords is null || c.EmergencyKeywords.Any(Blank)) return "Emergency keywords cannot be blank.";
+        if (c.MessageEmailEnabled && !IsEmailAddress(c.MessageDestinationEmail)) return "Message email needs a valid destination email address.";
         return null;
     }
+
+    private static bool IsEmailAddress(string? value) =>
+        !string.IsNullOrWhiteSpace(value)
+        && System.Net.Mail.MailAddress.TryCreate(value, out var address)
+        && string.Equals(address.Address, value, StringComparison.Ordinal);
 
     private static string? ValidateDocument(CreateVoiceKnowledgeDocumentCommand c)
     {
@@ -796,11 +814,16 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public string TransferCallerIdMode { get; set; } = "";
         public string[] EmergencyKeywords { get; set; } = [];
         public bool RecordingDisclosureEnabled { get; set; }
+        public bool MessageEmailEnabled { get; set; }
+        public string? MessageDestinationEmail { get; set; }
+        public bool IncludeTranscript { get; set; }
+        public bool NotifyOnAbandonedCalls { get; set; }
 
         public VoiceReceptionistConfig ToModel() => new(
             GreetingMessage, SystemPromptTemplate, ParseJson(BusinessHours),
             ParseJson(QualifyingQuestions), TransferMode, TransferTargetNumber, TransferCallerIdMode,
-            EmergencyKeywords, RecordingDisclosureEnabled);
+            EmergencyKeywords, RecordingDisclosureEnabled,
+            MessageEmailEnabled, MessageDestinationEmail, IncludeTranscript, NotifyOnAbandonedCalls);
     }
 
     private sealed class McpRow

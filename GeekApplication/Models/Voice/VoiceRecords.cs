@@ -168,7 +168,11 @@ public sealed record VoiceReceptionistConfig(
     string? TransferTargetNumber,
     string TransferCallerIdMode,
     IReadOnlyList<string> EmergencyKeywords,
-    bool RecordingDisclosureEnabled);
+    bool RecordingDisclosureEnabled,
+    bool MessageEmailEnabled = false,
+    string? MessageDestinationEmail = null,
+    bool IncludeTranscript = false,
+    bool NotifyOnAbandonedCalls = false);
 
 public sealed record VoiceMcpConnection(
     Guid TenantId,

@@ -156,6 +156,15 @@ public sealed class VoiceRepositoryValidationTests
     public async Task A_blank_greeting_is_refused() =>
         await AssertInvalid(Store().SaveConfigAsync(Tenant, GoodConfig() with { GreetingMessage = "" }));
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("no-at-sign")]
+    [InlineData("Owner <owner@b.example>")]
+    public async Task Message_email_enabled_without_a_valid_destination_is_refused(string? destination) =>
+        await AssertInvalid(Store().SaveConfigAsync(Tenant, GoodConfig() with { MessageEmailEnabled = true, MessageDestinationEmail = destination }));
+
     [Fact]
     public async Task An_unknown_calendar_provider_is_refused() =>
         await AssertInvalid(Store().GetMcpConnectionAsync(Tenant, "icloud"));
