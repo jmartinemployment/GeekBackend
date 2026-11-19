@@ -59,40 +59,42 @@ public sealed class LlmReceptionistModel : IReceptionistModel
 
     public bool IsConfigured => _settings.IsConfigured;
 
-    public async Task<ReceptionistReply> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default)
+    public async Task<ReceptionistReply> ReplyAsync(
+        string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, IReadOnlyList<ReceptionistToolDefinition>? tools = null, CancellationToken ct = default)
     {
         var model = _settings.Model
             ?? throw new ReceptionistModelException($"The receptionist's model is not configured: {_settings.Reason}");
         var provider = model.Provider!;
 
         using var request = provider == SocialModelProviders.Anthropic
-            ? AnthropicRequest(model.BaseUrl, model.ApiKey, model.AnthropicVersion, model.Model, systemPrompt, turns)
-            : ChatCompletionsRequest(model.BaseUrl, model.ApiKey, model.Model, systemPrompt, turns);
+            ? AnthropicRequest(model.BaseUrl, model.ApiKey, model.AnthropicVersion, model.Model, systemPrompt, turns, tools)
+            : ChatCompletionsRequest(model.BaseUrl, model.ApiKey, model.Model, systemPrompt, turns, tools);
 
         using var document = await PostAsync(request, provider, model.TimeoutSeconds, ct).ConfigureAwait(false);
 
         var text = provider == SocialModelProviders.Anthropic
             ? AnthropicText(document.RootElement)
             : ChatCompletionsText(document.RootElement);
-        var tools = provider == SocialModelProviders.Anthropic
-            ? AnthropicTools(document.RootElement)
-            : ChatCompletionsTools(document.RootElement);
+        var calls = provider == SocialModelProviders.Anthropic
+            ? AnthropicToolCalls(document.RootElement)
+            : ChatCompletionsToolCalls(document.RootElement);
 
-        var unknown = tools.FirstOrDefault(name => name != EndCallTool);
-        if (unknown is not null)
+        var given = new HashSet<string>(tools?.Select(t => t.Name) ?? [], StringComparer.Ordinal) { EndCallTool };
+        if (calls.Any(call => !given.Contains(call.Name)))
         {
             _logger.LogError("The receptionist's model ({Provider}) called a tool it was not given.", provider);
             throw new ReceptionistModelException($"{provider} called a tool the receptionist does not have.");
         }
 
-        var endCall = tools.Count > 0;
-        if (string.IsNullOrWhiteSpace(text) && !endCall)
+        var endCall = calls.Any(call => call.Name == EndCallTool);
+        var requested = calls.Where(call => call.Name != EndCallTool).ToList();
+        if (string.IsNullOrWhiteSpace(text) && !endCall && requested.Count == 0)
         {
             _logger.LogError("The receptionist's model ({Provider}) answered 200 with no usable reply.", provider);
             throw new ReceptionistModelException($"{provider} answered with no usable reply.");
         }
 
-        return new ReceptionistReply(text?.Trim() ?? "", endCall);
+        return new ReceptionistReply(text?.Trim() ?? "", endCall, requested.Count == 0 ? null : requested);
     }
 
     public async Task<ReceptionistCallSummary> SummarizeAsync(IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default)
@@ -158,20 +160,25 @@ public sealed class LlmReceptionistModel : IReceptionistModel
     }
 
     internal static HttpRequestMessage AnthropicRequest(
-        string url, string key, string version, string model, string systemPrompt, IReadOnlyList<ReceptionistTurn> turns)
+        string url, string key, string version, string model, string systemPrompt, IReadOnlyList<ReceptionistTurn> turns,
+        IReadOnlyList<ReceptionistToolDefinition>? tools = null)
     {
+        var declared = new JsonArray(new JsonObject
+        {
+            ["name"] = EndCallTool,
+            ["description"] = EndCallDescription,
+            ["input_schema"] = NoArguments(),
+        });
+        foreach (var tool in tools ?? [])
+            declared.Add(new JsonObject { ["name"] = tool.Name, ["description"] = tool.Description, ["input_schema"] = Schema(tool) });
+
         var payload = new JsonObject
         {
             ["model"] = model,
             ["system"] = systemPrompt,
             ["max_tokens"] = MaxOutputTokens,
-            ["messages"] = Messages(turns),
-            ["tools"] = new JsonArray(new JsonObject
-            {
-                ["name"] = EndCallTool,
-                ["description"] = EndCallDescription,
-                ["input_schema"] = NoArguments(),
-            }),
+            ["messages"] = AnthropicMessages(turns),
+            ["tools"] = declared,
         };
         var message = new HttpRequestMessage(HttpMethod.Post, url) { Content = Json(payload) };
         message.Headers.Add("x-api-key", key);
@@ -180,27 +187,38 @@ public sealed class LlmReceptionistModel : IReceptionistModel
     }
 
     internal static HttpRequestMessage ChatCompletionsRequest(
-        string url, string key, string model, string systemPrompt, IReadOnlyList<ReceptionistTurn> turns)
+        string url, string key, string model, string systemPrompt, IReadOnlyList<ReceptionistTurn> turns,
+        IReadOnlyList<ReceptionistToolDefinition>? tools = null)
     {
         var messages = new JsonArray(new JsonObject { ["role"] = "system", ["content"] = systemPrompt });
-        foreach (var turn in Messages(turns))
-            messages.Add(turn!.DeepClone());
+        foreach (var turn in ChatCompletionsMessages(turns))
+            messages.Add(turn);
+
+        var declared = new JsonArray(new JsonObject
+        {
+            ["type"] = "function",
+            ["function"] = new JsonObject
+            {
+                ["name"] = EndCallTool,
+                ["description"] = EndCallDescription,
+                ["parameters"] = NoArguments(),
+            },
+        });
+        foreach (var tool in tools ?? [])
+        {
+            declared.Add(new JsonObject
+            {
+                ["type"] = "function",
+                ["function"] = new JsonObject { ["name"] = tool.Name, ["description"] = tool.Description, ["parameters"] = Schema(tool) },
+            });
+        }
 
         var payload = new JsonObject
         {
             ["model"] = model,
             ["messages"] = messages,
             ["max_completion_tokens"] = MaxOutputTokens,
-            ["tools"] = new JsonArray(new JsonObject
-            {
-                ["type"] = "function",
-                ["function"] = new JsonObject
-                {
-                    ["name"] = EndCallTool,
-                    ["description"] = EndCallDescription,
-                    ["parameters"] = NoArguments(),
-                },
-            }),
+            ["tools"] = declared,
         };
         var message = new HttpRequestMessage(HttpMethod.Post, url) { Content = Json(payload) };
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
@@ -248,8 +266,13 @@ public sealed class LlmReceptionistModel : IReceptionistModel
     }
 
     private static string Transcript(IReadOnlyList<ReceptionistTurn> turns) =>
-        "Transcript of the call:\n" + string.Join('\n', turns.Select(turn =>
-            (turn.Speaker == ReceptionistSpeaker.Caller ? "Caller: " : "Receptionist: ") + turn.Text));
+        "Transcript of the call:\n" + string.Join('\n', turns.Select(turn => turn.Speaker switch
+        {
+            ReceptionistSpeaker.Caller => "Caller: " + turn.Text,
+            ReceptionistSpeaker.ToolCall => $"Receptionist used {turn.ToolName}: {turn.Text}",
+            ReceptionistSpeaker.ToolResult => $"{turn.ToolName} answered: {turn.Text}",
+            _ => "Receptionist: " + turn.Text,
+        }));
 
     private static JsonObject SummarySchema()
     {
@@ -356,18 +379,99 @@ public sealed class LlmReceptionistModel : IReceptionistModel
         return texts;
     }
 
-    private static JsonArray Messages(IReadOnlyList<ReceptionistTurn> turns)
+    private static JsonNode Schema(ReceptionistToolDefinition tool) => JsonNode.Parse(tool.InputSchema.GetRawText())!;
+
+    /// <summary>The turns as Anthropic messages: tool calls are tool_use blocks of the assistant's message and their results tool_result blocks of the next user message.</summary>
+    private static JsonArray AnthropicMessages(IReadOnlyList<ReceptionistTurn> turns)
     {
         var messages = new JsonArray();
+        string? role = null;
+        JsonArray? blocks = null;
+        var hasTool = false;
+
+        void Flush()
+        {
+            if (role is null || blocks is null) return;
+            var single = !hasTool && blocks.Count == 1 ? blocks[0]!["text"]!.GetValue<string>() : null;
+            messages.Add(new JsonObject { ["role"] = role, ["content"] = single is not null ? JsonValue.Create(single) : blocks });
+            role = null;
+            blocks = null;
+            hasTool = false;
+        }
+
         foreach (var turn in turns)
         {
-            messages.Add(new JsonObject
+            var tool = turn.Speaker is ReceptionistSpeaker.ToolCall or ReceptionistSpeaker.ToolResult;
+            var turnRole = turn.Speaker is ReceptionistSpeaker.Caller or ReceptionistSpeaker.ToolResult ? "user" : "assistant";
+            if (role != turnRole || (!tool && !hasTool)) Flush();
+            role = turnRole;
+            blocks ??= new JsonArray();
+            hasTool |= tool;
+
+            blocks.Add(turn.Speaker switch
             {
-                ["role"] = turn.Speaker == ReceptionistSpeaker.Caller ? "user" : "assistant",
-                ["content"] = turn.Text,
+                ReceptionistSpeaker.ToolCall => new JsonObject
+                {
+                    ["type"] = "tool_use", ["id"] = turn.ToolCallId, ["name"] = turn.ToolName, ["input"] = ArgumentsObject(turn.Text),
+                },
+                ReceptionistSpeaker.ToolResult => new JsonObject { ["type"] = "tool_result", ["tool_use_id"] = turn.ToolCallId, ["content"] = turn.Text },
+                _ => new JsonObject { ["type"] = "text", ["text"] = turn.Text },
             });
         }
+
+        Flush();
         return messages;
+    }
+
+    /// <summary>The turns as Chat Completions messages: a tool call is a tool_calls entry of an assistant message and its result a message of role tool.</summary>
+    private static List<JsonNode> ChatCompletionsMessages(IReadOnlyList<ReceptionistTurn> turns)
+    {
+        var messages = new List<JsonNode>();
+        foreach (var turn in turns)
+        {
+            switch (turn.Speaker)
+            {
+                case ReceptionistSpeaker.ToolCall:
+                    var call = new JsonObject
+                    {
+                        ["id"] = turn.ToolCallId, ["type"] = "function",
+                        ["function"] = new JsonObject { ["name"] = turn.ToolName, ["arguments"] = turn.Text },
+                    };
+                    if (messages.Count > 0 && messages[^1] is JsonObject last && last["role"]?.GetValue<string>() == "assistant")
+                    {
+                        if (last["tool_calls"] is not JsonArray existing) last["tool_calls"] = existing = new JsonArray();
+                        existing.Add(call);
+                    }
+                    else
+                    {
+                        messages.Add(new JsonObject { ["role"] = "assistant", ["content"] = null, ["tool_calls"] = new JsonArray(call) });
+                    }
+                    break;
+                case ReceptionistSpeaker.ToolResult:
+                    messages.Add(new JsonObject { ["role"] = "tool", ["tool_call_id"] = turn.ToolCallId, ["content"] = turn.Text });
+                    break;
+                default:
+                    messages.Add(new JsonObject
+                    {
+                        ["role"] = turn.Speaker == ReceptionistSpeaker.Caller ? "user" : "assistant",
+                        ["content"] = turn.Text,
+                    });
+                    break;
+            }
+        }
+        return messages;
+    }
+
+    private static JsonNode ArgumentsObject(string json)
+    {
+        try
+        {
+            return JsonNode.Parse(json) is JsonObject arguments ? arguments : new JsonObject();
+        }
+        catch (JsonException)
+        {
+            return new JsonObject();
+        }
     }
 
     private static JsonObject NoArguments() => new() { ["type"] = "object", ["properties"] = new JsonObject() };
@@ -389,18 +493,22 @@ public sealed class LlmReceptionistModel : IReceptionistModel
         return text.Length == 0 ? null : text.ToString();
     }
 
-    /// <summary>The names of the tools an Anthropic reply calls (its tool_use blocks); empty when it calls none.</summary>
-    internal static IReadOnlyList<string> AnthropicTools(JsonElement root)
+    /// <summary>The tools an Anthropic reply calls (its tool_use blocks), with their ids and arguments; empty when it calls none.</summary>
+    internal static List<ReceptionistToolCall> AnthropicToolCalls(JsonElement root)
     {
-        var names = new List<string>();
+        var calls = new List<ReceptionistToolCall>();
         if (!root.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
-            return names;
+            return calls;
         foreach (var block in content.EnumerateArray())
         {
-            if (block.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "tool_use")
-                names.Add(block.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString()! : "");
+            if (!block.TryGetProperty("type", out var type) || type.ValueKind != JsonValueKind.String || type.GetString() != "tool_use")
+                continue;
+            calls.Add(new ReceptionistToolCall(
+                block.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString()! : "",
+                block.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString()! : "",
+                block.TryGetProperty("input", out var input) && input.ValueKind == JsonValueKind.Object ? input.GetRawText() : "{}"));
         }
-        return names;
+        return calls;
     }
 
     /// <summary>The first choice's message content of a Chat Completions reply; null when there is none.</summary>
@@ -412,20 +520,21 @@ public sealed class LlmReceptionistModel : IReceptionistModel
         return content.GetString();
     }
 
-    /// <summary>The names of the functions the first choice's message calls (its tool_calls); empty when it calls none.</summary>
-    internal static IReadOnlyList<string> ChatCompletionsTools(JsonElement root)
+    /// <summary>The functions the first choice's message calls (its tool_calls), with their ids and arguments; empty when it calls none.</summary>
+    internal static List<ReceptionistToolCall> ChatCompletionsToolCalls(JsonElement root)
     {
-        var names = new List<string>();
-        if (FirstMessage(root) is not { } message || !message.TryGetProperty("tool_calls", out var calls) || calls.ValueKind != JsonValueKind.Array)
-            return names;
-        foreach (var call in calls.EnumerateArray())
+        var calls = new List<ReceptionistToolCall>();
+        if (FirstMessage(root) is not { } message || !message.TryGetProperty("tool_calls", out var list) || list.ValueKind != JsonValueKind.Array)
+            return calls;
+        foreach (var call in list.EnumerateArray())
         {
-            names.Add(call.TryGetProperty("function", out var function) && function.TryGetProperty("name", out var name)
-                && name.ValueKind == JsonValueKind.String
-                ? name.GetString()!
-                : "");
+            var function = call.TryGetProperty("function", out var f) && f.ValueKind == JsonValueKind.Object ? f : (JsonElement?)null;
+            calls.Add(new ReceptionistToolCall(
+                call.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString()! : "",
+                function is { } fn && fn.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String ? name.GetString()! : "",
+                function is { } fa && fa.TryGetProperty("arguments", out var args) && args.ValueKind == JsonValueKind.String ? args.GetString()! : "{}"));
         }
-        return names;
+        return calls;
     }
 
     private static JsonElement? FirstMessage(JsonElement root)

@@ -22,15 +22,19 @@ public sealed class FakeReceptionistModel(bool configured = true) : IReceptionis
     public string Reply { get; init; } = "How can I help?";
     public bool EndCall { get; init; }
     public List<(string Prompt, List<ReceptionistTurn> Turns)> Calls { get; } = new();
+    public Queue<ReceptionistReply> Script { get; } = new();
+    public List<IReadOnlyList<ReceptionistToolDefinition>?> ToolsSeen { get; } = new();
     public bool FailSummary { get; init; }
     public ReceptionistCallSummary Summary { get; init; } = new("Message taken", "The caller asked for a callback.", [], [], []);
     public List<List<ReceptionistTurn>> SummaryCalls { get; } = new();
 
-    public Task<ReceptionistReply> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default)
+    public Task<ReceptionistReply> ReplyAsync(
+        string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, IReadOnlyList<ReceptionistToolDefinition>? tools = null, CancellationToken ct = default)
     {
         Calls.Add((systemPrompt, turns.ToList()));
+        ToolsSeen.Add(tools);
         if (Fail) throw new ReceptionistModelException("anthropic answered 500.");
-        return Task.FromResult(new ReceptionistReply(Reply, EndCall));
+        return Task.FromResult(Script.Count > 0 ? Script.Dequeue() : new ReceptionistReply(Reply, EndCall));
     }
 
     public Task<ReceptionistCallSummary> SummarizeAsync(IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default)

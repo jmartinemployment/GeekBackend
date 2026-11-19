@@ -5,16 +5,31 @@ public enum ReceptionistSpeaker
 {
     Caller,
     Receptionist,
+
+    /// <summary>The receptionist asked for a tool; the turn's text is the arguments as JSON.</summary>
+    ToolCall,
+
+    /// <summary>What the tool answered; the turn's text is its result as JSON.</summary>
+    ToolResult,
 }
 
-/// <summary>One turn of a call, held in memory for the life of the call and never stored.</summary>
-public sealed record ReceptionistTurn(ReceptionistSpeaker Speaker, string Text);
+/// <summary>
+/// One turn of a call, held in memory for the life of the call and never stored. A tool call and its result are turns too, paired by
+/// <paramref name="ToolCallId"/>, so the model sees what it did and what came of it.
+/// </summary>
+public sealed record ReceptionistTurn(ReceptionistSpeaker Speaker, string Text, string? ToolCallId = null, string? ToolName = null);
+
+/// <summary>A tool the receptionist may call in a call: its name, what it is for, and the JSON schema of its arguments.</summary>
+public sealed record ReceptionistToolDefinition(string Name, string Description, System.Text.Json.JsonElement InputSchema);
+
+/// <summary>A request from the model to run a tool: the model's id for the call, the tool's name and its arguments as JSON.</summary>
+public sealed record ReceptionistToolCall(string Id, string Name, string ArgumentsJson);
 
 /// <summary>
 /// The receptionist's answer to one turn: what it says, which may be nothing, and whether it called the <c>end_call</c> tool its script
-/// names to hang up.
+/// names to hang up, and any tools it asked for (null when it asked for none).
 /// </summary>
-public sealed record ReceptionistReply(string Text, bool EndCall);
+public sealed record ReceptionistReply(string Text, bool EndCall, IReadOnlyList<ReceptionistToolCall>? ToolCalls = null);
 
 /// <summary>One fact the caller gave, as the model labelled it (a name, a callback number, a reason). The labels are the model's, not a fixed list.</summary>
 public sealed record ReceptionistSummaryField(string Label, string Value);
@@ -51,7 +66,8 @@ public interface IReceptionistModel
     /// The receptionist's next reply, given its system prompt and the turns of this call so far (the last is the caller's).
     /// Throws <see cref="ReceptionistModelException"/> when no usable reply came back: no text and no call to end.
     /// </summary>
-    Task<ReceptionistReply> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default);
+    Task<ReceptionistReply> ReplyAsync(
+        string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, IReadOnlyList<ReceptionistToolDefinition>? tools = null, CancellationToken ct = default);
 
     /// <summary>
     /// The end-of-call record for a finished call, from its turns, in one structured request. Throws <see cref="ReceptionistModelException"/>

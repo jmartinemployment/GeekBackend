@@ -24,6 +24,9 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     /// <summary>What the script tells the model to output, exactly, when the caller asks it to wait.</summary>
     internal const string HoldSignal = "NO_RESPONSE_NEEDED";
 
+    /// <summary>How many times in one turn the model may ask for tools before the call is ended; a model that never stops asking is not a conversation.</summary>
+    internal const int MaxToolRounds = 4;
+
     private readonly List<ReceptionistTurn> _turns = [];
     private readonly DateTimeOffset _startedAt = DateTimeOffset.UtcNow;
     private bool _finished;
@@ -32,6 +35,9 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
     /// <summary>What to do with the finished call; null for a business that has not asked for a record, which then gets none.</summary>
     public CallSummaryPlan? Summary { get; init; }
+
+    /// <summary>The tools this business's receptionist may use; null for a receptionist that can only talk and hang up.</summary>
+    public IReceptionistToolbox? Toolbox { get; init; }
 
     /// <summary>True once the end message has been sent; nothing more is sent after it.</summary>
     public bool Ended { get; private set; }
@@ -97,34 +103,72 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
         _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Caller, said.GetString()!));
 
-        ReceptionistReply reply;
+        var sent = new List<string>();
+        for (var round = 0; ; round++)
+        {
+            ReceptionistReply reply;
+            try
+            {
+                reply = await model.ReplyAsync(systemPrompt, _turns, Toolbox?.Tools, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                logger.LogError("The receptionist's model gave no reply ({Failure}); the call is ended.", ex.GetType().Name);
+                return End();
+            }
+
+            var requested = reply.ToolCalls ?? [];
+            if (string.IsNullOrWhiteSpace(reply.Text) && !reply.EndCall && requested.Count == 0)
+            {
+                logger.LogError("The receptionist's model gave an empty reply; the call is ended.");
+                return End();
+            }
+
+            // The model's own words stay its turn, signal and all, so the next reply sees what it chose. The caller hears only the rest.
+            if (!string.IsNullOrWhiteSpace(reply.Text))
+            {
+                _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, reply.Text));
+                var spoken = Hold().Replace(reply.Text, " ").Trim();
+                if (spoken.Length > 0) sent.Add(Text(spoken));
+            }
+
+            if (requested.Count > 0)
+            {
+                if (Toolbox is null || round >= MaxToolRounds)
+                {
+                    logger.LogError("The receptionist's model asked for tools it may not use in this call (round {Round}); the call is ended.", round);
+                    sent.AddRange(End());
+                    return sent;
+                }
+
+                foreach (var call in requested)
+                {
+                    _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolCall, call.ArgumentsJson, call.Id, call.Name));
+                    _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolResult, await RunToolAsync(Toolbox, call, ct).ConfigureAwait(false), call.Id, call.Name));
+                }
+                if (!reply.EndCall) continue;
+            }
+
+            if (reply.EndCall) sent.AddRange(End());
+            return sent;
+        }
+    }
+
+    /// <summary>What the model is told a tool did: its result, or only the code it failed with. Nothing the tool took or returned is logged.</summary>
+    private async Task<string> RunToolAsync(IReceptionistToolbox toolbox, ReceptionistToolCall call, CancellationToken ct)
+    {
         try
         {
-            reply = await model.ReplyAsync(systemPrompt, _turns, ct).ConfigureAwait(false);
+            var result = await toolbox.RunAsync(call, ct).ConfigureAwait(false);
+            if (result.IsSuccess) return result.Value!;
+            logger.LogError("The receptionist's tool {Tool} failed ({Code}).", call.Name, result.ErrorCode);
+            return new JsonObject { ["error"] = result.ErrorCode }.ToJsonString();
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            logger.LogError("The receptionist's model gave no reply ({Failure}); the call is ended.", ex.GetType().Name);
-            return End();
+            logger.LogError("The receptionist's tool {Tool} failed ({Failure}).", call.Name, ex.GetType().Name);
+            return new JsonObject { ["error"] = "tool_failed" }.ToJsonString();
         }
-
-        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.EndCall)
-        {
-            logger.LogError("The receptionist's model gave an empty reply; the call is ended.");
-            return End();
-        }
-
-        // The model's own words stay its turn, signal and all, so the next reply sees what it chose. The caller hears only the rest.
-        var sent = new List<string>();
-        if (!string.IsNullOrWhiteSpace(reply.Text))
-        {
-            _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, reply.Text));
-            var spoken = Hold().Replace(reply.Text, " ").Trim();
-            if (spoken.Length > 0) sent.Add(Text(spoken));
-        }
-
-        if (reply.EndCall) sent.AddRange(End());
-        return sent;
     }
 
     /// <summary>The hold signal, with the backticks the script prints it in when the model copies them.</summary>
