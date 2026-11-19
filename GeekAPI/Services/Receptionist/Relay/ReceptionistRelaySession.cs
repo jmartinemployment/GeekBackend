@@ -25,8 +25,13 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     internal const string HoldSignal = "NO_RESPONSE_NEEDED";
 
     private readonly List<ReceptionistTurn> _turns = [];
+    private readonly DateTimeOffset _startedAt = DateTimeOffset.UtcNow;
+    private bool _finished;
 
     public IReadOnlyList<ReceptionistTurn> Turns => _turns;
+
+    /// <summary>What to do with the finished call; null for a business that has not asked for a record, which then gets none.</summary>
+    public CallSummaryPlan? Summary { get; init; }
 
     /// <summary>True once the end message has been sent; nothing more is sent after it.</summary>
     public bool Ended { get; private set; }
@@ -134,8 +139,24 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
     internal static string Text(string reply) => new JsonObject { ["type"] = "text", ["token"] = reply, ["last"] = true }.ToJsonString();
 
-    /// <summary>Reads Twilio's messages until the socket closes or the call is ended, answering each.</summary>
+    /// <summary>
+    /// Reads Twilio's messages until the socket closes or the call is ended, answering each, then, once, hands the finished call to
+    /// <see cref="Summary"/>'s delivery when the business has one. Every way a call ends passes through here, including a caller who
+    /// simply hangs up.
+    /// </summary>
     public async Task RunAsync(WebSocket socket, CancellationToken ct)
+    {
+        try
+        {
+            await RunLoopAsync(socket, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            await FinishAsync().ConfigureAwait(false);
+        }
+    }
+
+    private async Task RunLoopAsync(WebSocket socket, CancellationToken ct)
     {
         var buffer = new byte[8 * 1024];
         using var message = new MemoryStream();
@@ -167,6 +188,63 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
                 await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, ct).ConfigureAwait(false);
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Builds the finished call's record from the turns, in memory, hands it to delivery, and empties the turns. Runs on a call's end,
+    /// so it uses no token the hang-up could cancel and is bounded instead. It never throws: a failure is logged by its code, without
+    /// content, and the record is dropped, not kept.
+    /// </summary>
+    private async Task FinishAsync()
+    {
+        var plan = Summary;
+        if (plan is null || _finished) return;
+        _finished = true;
+
+        try
+        {
+            var callerWords = _turns.Where(t => t.Speaker == ReceptionistSpeaker.Caller)
+                .Sum(t => t.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length);
+            if (callerWords < CallSummaryPlan.MinimumCallerWords && !plan.NotifyOnAbandonedCalls) return;
+
+            var kind = FinishedCallKind.NoCallerSpeech;
+            ReceptionistCallSummary? summary = null;
+            if (callerWords >= CallSummaryPlan.MinimumCallerWords)
+            {
+                using var bound = new CancellationTokenSource(CallSummaryPlan.SummarizeBound);
+                try
+                {
+                    summary = await model.SummarizeAsync(_turns, bound.Token).ConfigureAwait(false);
+                    kind = FinishedCallKind.Summarized;
+                }
+                catch (Exception ex) when (ex is ReceptionistModelException || ex is OperationCanceledException)
+                {
+                    logger.LogError("The call's summary could not be written ({Failure}); the owner is told so.", ex.GetType().Name);
+                    kind = FinishedCallKind.SummaryUnavailable;
+                }
+            }
+
+            var ended = DateTimeOffset.UtcNow;
+            var call = new FinishedCall(kind, summary, plan.IncludeTranscript ? _turns.ToList() : null, ended, ended - _startedAt);
+
+            using var deliveryBound = new CancellationTokenSource(CallSummaryPlan.DeliverBound);
+            for (var attempt = 1; attempt <= 2; attempt++)
+            {
+                var delivered = await plan.Delivery.DeliverAsync(call, deliveryBound.Token).ConfigureAwait(false);
+                if (delivered.IsSuccess) return;
+                logger.LogError("Delivering the call's record failed on attempt {Attempt} ({Code}).", attempt, delivered.ErrorCode);
+            }
+
+            logger.LogError("The call's record was not delivered after two attempts and is dropped.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Finishing the call's record failed ({Failure}); it is dropped.", ex.GetType().Name);
+        }
+        finally
+        {
+            _turns.Clear();
         }
     }
 

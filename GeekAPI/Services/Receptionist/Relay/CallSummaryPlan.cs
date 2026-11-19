@@ -1,0 +1,19 @@
+using GeekApplication.Interfaces.Receptionist;
+
+namespace GeekAPI.Services.Receptionist.Relay;
+
+/// <summary>
+/// What a business has asked for when its call ends: who delivers the record, whether the transcript goes with it, and whether a call
+/// where the caller said next to nothing still sends one. Built per call from the business's own configuration.
+/// </summary>
+public sealed record CallSummaryPlan(ICallSummaryDelivery Delivery, bool IncludeTranscript, bool NotifyOnAbandonedCalls)
+{
+    /// <summary>A caller who said fewer words than this across the whole call (dead air, noise, a dropped consent) did not make a call worth a record.</summary>
+    public const int MinimumCallerWords = 3;
+
+    /// <summary>The longest the summary request may take once the caller has hung up.</summary>
+    public static readonly TimeSpan SummarizeBound = TimeSpan.FromSeconds(10);
+
+    /// <summary>The longest delivery, with its retry, may take.</summary>
+    public static readonly TimeSpan DeliverBound = TimeSpan.FromSeconds(20);
+}
