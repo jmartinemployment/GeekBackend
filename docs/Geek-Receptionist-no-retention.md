@@ -37,19 +37,21 @@ So this document removes retention. It does not remove the contracts that proces
 
 Each row: what the vendor touches today, what the requirement is, how it is enforced, and whether anyone has checked.
 
-### 3.1 The voice AI (Twilio ConversationRelay, not built)
+### 3.1 The voice AI (Twilio ConversationRelay, built 2026-11-18)
 
-- **Today:** no AI hears a tenant's call. Twilio posts each call to the tenant's number to
-  `POST /api/receptionist/tenant/{tenantId}/voice`, which checks `X-Twilio-Signature` with the tenant's subaccount auth token and that
-  `AccountSid` is that subaccount, and reads the tenant's billing standing on every call. Every call, whatever the standing, hears
-  "Thank you for calling {business}. We can't take your call right now. Please call again later. Goodbye." and is hung up: no
-  `<Record>`, no voicemail, no texts. Nothing of the call is recorded by us or by Twilio.
+- **Today:** Twilio posts each call to the tenant's number to `POST /api/receptionist/tenant/{tenantId}/voice`, which checks
+  `X-Twilio-Signature` with the tenant's subaccount auth token and that `AccountSid` is that subaccount, and reads the tenant's billing
+  standing on every call. A call the standing does not allow hears "Thank you for calling {business}. We can't take your call right
+  now. Please call again later. Goodbye." and is hung up. A call it allows hears the keypad consent step, and a 1 is handed to the AI.
+  No `<Record>`, no voicemail, no texts; we record nothing of the call. The company line 865-6990 does the same.
 - **History:** Retell AI was the voice agent until Jeff dropped it on 2026-11-18 ("Retell is dropped"), because it held each call's
   recording, transcript and logs for about 10 minutes with no setting to close that window. Its code, variables and columns were
   removed (migration `0070`).
-- **Planned:** Twilio ConversationRelay with our own model and voice. **Not built.** It does not by itself give Zero Data Retention:
+- **Built and configured 2026-11-18:** Twilio ConversationRelay with GeekAPI's configured model (OpenAI, `gpt-4.1`), before any
+  layer's retention was confirmed in writing. No call has reached it by 2026-11-19. It does not by itself give Zero Data Retention:
   Twilio says transcripts are not stored unless its intelligence service is turned on; OpenAI keeps API data up to 30 days unless it
-  has approved zero retention for the account, which is not in hand; the speech-to-text and voice vendors behind Twilio were not checked.
+  has approved zero retention for the account, which is not in hand; the speech-to-text and voice vendors behind Twilio are not
+  confirmed (`docs/Geek-Receptionist-zero-data-retention.md`, "Vendor retention").
 - **Attorney:** the voice vendors' data processing terms, and a business associate agreement if healthcare is ever served.
 
 ### 3.2 GeekAPI and GeekRepository (our own code and database)
@@ -105,8 +107,8 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
 
 ### 3.6 Integrations: Google Calendar, Outlook, Cal.com, HubSpot (through GeekMcpGateway)
 
-- **Today:** the gateway is stateless by rule and passes calendar calls to the business's own account. No voice AI is
-  built, so no call books anything yet.
+- **Today:** the gateway is stateless by rule and passes calendar calls to the business's own account. The voice AI has
+  no booking tool, so no call books anything yet.
 - **Requirement:** an event or record written to the business's own calendar is the delivery. The gateway and GeekAPI keep no copy
   of what was written. The gateway logs no request or response body.
 - **Not verified:** what the gateway logs today.
@@ -145,7 +147,8 @@ merged with nine more, so there is one list.
 
 ## 6. Order of work
 
-1. Build the voice AI on Twilio ConversationRelay (not built), and get each layer's retention in writing first (section 3.1).
+1. Build the voice AI on Twilio ConversationRelay (built and configured 2026-11-18, before any layer's retention was in writing),
+   and get each layer's retention in writing (section 3.1).
 2. Stop storing content in GeekAPI (changed in the code 2026-11-17); drop the columns; delete what is stored.
 3. The greeting and the checkbox stay as they are (2026-11-18, section 4). The addendum was removed by Jeff the same day.
 4. Clean the logs, then get the vendors' answers in section 3 in writing.

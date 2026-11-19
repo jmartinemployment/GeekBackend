@@ -45,17 +45,19 @@ us, and in the client's own storage when the client has connected one. Jeff conf
 "this call may be recorded" back in to the greeting. It had been taken out the day before on the wrong reading that ZDR means no
 call is ever recorded. His preference, stated the same day, is not to save any client call data.
 
-**What a tenant's call does today (code changed 2026-11-18).** No AI hears it. Twilio posts the call to
+**What a tenant's call does today (code changed 2026-11-18).** Twilio posts the call to
 `POST /api/receptionist/tenant/{tenantId}/voice`, which checks `X-Twilio-Signature` with the tenant's subaccount auth token and
-that `AccountSid` is that subaccount, and reads the tenant's billing standing. Every call, whatever the standing, hears "Thank you
-for calling {business}. We can't take your call right now. Please call again later. Goodbye." and is hung up: no `<Record>`, no
-voicemail, no texts. No recording is turned on at Twilio (not checked on a real tenant number). So nothing of the call is recorded
-by us or by Twilio.
+that `AccountSid` is that subaccount, and reads the tenant's billing standing. A call the standing does not allow hears "Thank you
+for calling {business}. We can't take your call right now. Please call again later. Goodbye." and is hung up. A call it allows hears
+the keypad consent step; a 1, with the AI configured and the standing still allowing it, is handed to the AI, and anything else
+hears the closing message. No `<Record>`, no voicemail, no texts. No recording is turned on at Twilio (not checked on a real tenant
+number). We record nothing of the call; what the AI's vendors keep is below.
 
-**The voice AI to come: Twilio ConversationRelay, with our own model and voice. Not built.** It does not by itself give ZDR. Twilio
+**The voice AI: Twilio ConversationRelay with GeekAPI's configured model, built 2026-11-18 and configured the same day
+(OpenAI, `gpt-4.1`). No call has reached it by 2026-11-19.** It does not by itself give ZDR. Twilio
 says transcripts are not stored unless its intelligence service is turned on; OpenAI keeps API data up to 30 days unless it has
-approved zero retention for the account, which is not in hand; the speech-to-text and voice vendors behind Twilio were not checked.
-"Zero Data Retention", unqualified, is not claimed (Jeff: "at launch I can't claim ZDR"). The detail is in
+approved zero retention for the account, which is not in hand; the speech-to-text and voice vendors behind Twilio are not
+confirmed ("Vendor retention", below). "Zero Data Retention", unqualified, is not claimed (Jeff: "at launch I can't claim ZDR"). The detail is in
 `docs/Geek-Receptionist.md` section 5, item 6.
 
 **History (2026-11-18).** Retell AI was the voice layer until Jeff dropped it on 2026-11-18 ("Retell is dropped"). It recorded
@@ -73,10 +75,10 @@ tenant receives.
 | Data | Kept by us with ZDR on | Built today |
 |---|---|---|
 | Recording | No | None is made: the tenant route's TwiML has no `<Record>` and no recording is turned on at Twilio. No recording column is written (migration `0067`). |
-| Transcript and messages | No | None exists: no AI hears the call. No transcript column is written (migration `0067`). |
+| Transcript and messages | No | None is kept by us: the AI's turns live in the relay's memory for the call and go when it ends, and ConversationRelay is given no `intelligenceService`. No transcript column is written (migration `0067`). OpenAI may keep what it is sent up to 30 days ("Vendor retention", below). |
 | Summary | No | None exists, and none is written to the call row. |
 | Detailed call logs | No | We write none. |
-| Structured outputs | No by default | No voice AI is built, so a call produces none. `geek_voice.appointments` has columns for a caller's name, phone, email, address and issue and would be one. |
+| Structured outputs | No by default | The AI's only tool is `end_call`, so a call produces none. `geek_voice.appointments` has columns for a caller's name, phone, email, address and issue and would be one. |
 | Call history | Yes | One row per ended call in `geek_voice.call_logs`, written by `TwilioCallStatusRecorder` from Twilio's status callback and keyed by `CallSid`: status, start, end, length from `CallDuration` in seconds. The caller's number (`From`) is never read. |
 | Billing and usage | Yes | Billable minutes per call in the same row, rounded up per started minute; overage billing reads it. |
 | Cost | Yes | Not recorded. |
@@ -214,9 +216,9 @@ changes any of it.
 
 ## 7. What this means in our code (facts, not decisions)
 
-- **No voice AI answers a tenant's call** (section 1). The earlier voice vendor and its code are gone (history in
-  section 1).
-- **Twilio ConversationRelay is the planned voice AI. Not built.** Whether any of its layers can send recordings or transcripts to
+- **The voice AI answers after the caller presses 1**, on the company line and on a tenant number whose standing allows it
+  (section 1). The earlier voice vendor and its code are gone (history in section 1).
+- **Twilio ConversationRelay is the voice AI.** Whether any of its layers can send recordings or transcripts to
   a customer's bucket was not checked. If not, the write to the client's bucket is ours to do. How is not decided.
 - **Twilio's status callback** (`POST /api/receptionist/tenant/{tenantId}/call-status`) is what writes the call row today. It
   carries no call content and its handler reads none.

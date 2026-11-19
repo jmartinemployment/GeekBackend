@@ -10,6 +10,12 @@ public enum ReceptionistSpeaker
 /// <summary>One turn of a call, held in memory for the life of the call and never stored.</summary>
 public sealed record ReceptionistTurn(ReceptionistSpeaker Speaker, string Text);
 
+/// <summary>
+/// The receptionist's answer to one turn: what it says, which may be nothing, and whether it called the <c>end_call</c> tool its script
+/// names to hang up.
+/// </summary>
+public sealed record ReceptionistReply(string Text, bool EndCall);
+
 /// <summary>Why the model gave no reply. The message names the provider and the HTTP status only, never what anyone said.</summary>
 public sealed class ReceptionistModelException : Exception
 {
@@ -29,7 +35,7 @@ public interface IReceptionistModel
 
     /// <summary>
     /// The receptionist's next reply, given its system prompt and the turns of this call so far (the last is the caller's).
-    /// Throws <see cref="ReceptionistModelException"/> when no usable reply came back.
+    /// Throws <see cref="ReceptionistModelException"/> when no usable reply came back: no text and no call to end.
     /// </summary>
-    Task<string> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default);
+    Task<ReceptionistReply> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default);
 }

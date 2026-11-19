@@ -11,8 +11,9 @@ One list, merged 2026-11-18 at Jeff's instruction. It joins four sources:
 The AI questions are kept in that AI's wording. The full answers are saved in `docs/Geek-Receptionist-retention-ai-responses.md`
 under the same numbers. Nothing in them was checked by us, so this document holds their questions and none of their conclusions.
 
-**Retell AI was dropped on 2026-11-18** (Jeff: "Retell is dropped") and its code removed. The planned voice AI is Twilio
-ConversationRelay with our own model and voice, not built; today no AI hears a tenant's call. The AI questions that name Retell
+**Retell AI was dropped on 2026-11-18** (Jeff: "Retell is dropped") and its code removed. The voice AI is Twilio
+ConversationRelay with GeekAPI's configured model (OpenAI, `gpt-4.1` since 2026-11-18), reached only after the caller presses 1 at
+the keypad consent step; no call had reached it by 2026-11-19. The AI questions that name Retell
 (1, 2, 13, 14, 24) are kept as they were asked; read Retell there as the voice vendor. Our own questions now name the voice vendor.
 
 No question was dropped. Where two overlap they sit next to each other. The policy is

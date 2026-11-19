@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using GeekAPI.Services.Receptionist;
 using GeekAPI.Services.Receptionist.Relay;
+using GeekAPI.Services.Voice.Onboarding;
 using GeekApplication.Interfaces.Receptionist;
 using GeekApplication.Interfaces.Voice;
 using Microsoft.Extensions.Logging;
@@ -19,13 +20,14 @@ public sealed class FakeReceptionistModel(bool configured = true) : IReceptionis
     public bool IsConfigured => configured;
     public bool Fail { get; init; }
     public string Reply { get; init; } = "How can I help?";
+    public bool EndCall { get; init; }
     public List<(string Prompt, List<ReceptionistTurn> Turns)> Calls { get; } = new();
 
-    public Task<string> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default)
+    public Task<ReceptionistReply> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default)
     {
         Calls.Add((systemPrompt, turns.ToList()));
         if (Fail) throw new ReceptionistModelException("anthropic answered 500.");
-        return Task.FromResult(Reply);
+        return Task.FromResult(new ReceptionistReply(Reply, EndCall));
     }
 }
 
@@ -305,6 +307,61 @@ public sealed class ConsentAndRelayTests
     }
 
     [Fact]
+    public void The_script_names_the_two_signals_the_relay_acts_on()
+    {
+        Assert.Contains("`" + LlmReceptionistModel.EndCallTool + "`", ReceptionistDefaults.ScriptText, StringComparison.Ordinal);
+        Assert.Contains("`" + ReceptionistRelaySession.HoldSignal + "`", ReceptionistDefaults.ScriptText, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("NO_RESPONSE_NEEDED")]
+    [InlineData("`NO_RESPONSE_NEEDED`")]
+    [InlineData("  NO_RESPONSE_NEEDED\n")]
+    public async Task The_hold_signal_is_never_spoken_and_stays_the_models_turn(string reply)
+    {
+        var model = new FakeReceptionistModel { Reply = reply };
+        var session = Session(model);
+
+        Assert.Empty(await session.HandleAsync("""{"type":"prompt","voicePrompt":"Hold on a second.","last":true}""", default));
+        Assert.Equal(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, reply), session.Turns[^1]);
+        Assert.False(session.Ended);
+    }
+
+    [Fact]
+    public async Task Words_said_with_the_hold_signal_are_spoken_without_it()
+    {
+        var session = Session(new FakeReceptionistModel { Reply = "Take your time. `NO_RESPONSE_NEEDED`" });
+
+        var sent = Assert.Single(await session.HandleAsync("""{"type":"prompt","voicePrompt":"One moment.","last":true}""", default));
+        Assert.Equal("""{"type":"text","token":"Take your time.","last":true}""", sent);
+    }
+
+    [Fact]
+    public async Task End_call_speaks_the_reply_then_ends_the_call()
+    {
+        var session = Session(new FakeReceptionistModel { Reply = "Thanks for calling.", EndCall = true });
+
+        var sent = await session.HandleAsync("""{"type":"prompt","voicePrompt":"That's all.","last":true}""", default);
+
+        Assert.Equal(["""{"type":"text","token":"Thanks for calling.","last":true}""", """{"type":"end"}"""], sent);
+        Assert.True(session.Ended);
+        Assert.Empty(await session.HandleAsync("""{"type":"prompt","voicePrompt":"Bye.","last":true}""", default));
+    }
+
+    [Fact]
+    public async Task End_call_with_nothing_to_say_only_ends_the_call_and_logs_no_error()
+    {
+        var log = new CapturingLogger();
+        var session = Session(new FakeReceptionistModel { Reply = "", EndCall = true }, log);
+
+        var sent = Assert.Single(await session.HandleAsync("""{"type":"prompt","voicePrompt":"Bye.","last":true}""", default));
+        Assert.Equal("""{"type":"end"}""", sent);
+        Assert.True(session.Ended);
+        Assert.Equal(ReceptionistSpeaker.Caller, session.Turns[^1].Speaker);
+        Assert.DoesNotContain(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_model_failure_ends_the_call_and_logs_no_content()
     {
         var log = new CapturingLogger();
@@ -370,9 +427,12 @@ public sealed class ConsentAndRelayTests
         var handler = new Handler(HttpStatusCode.OK, """{"content":[{"type":"text","text":"Hi! "}],"stop_reason":"end_turn"}""");
         var model = new LlmReceptionistModel(new HttpClient(handler), Configured("Anthropic", "Anthropic"), NullLogger<LlmReceptionistModel>.Instance);
 
-        Assert.Equal("Hi!", await model.ReplyAsync("be brief", Turns));
+        Assert.Equal(new ReceptionistReply("Hi!", false), await model.ReplyAsync("be brief", Turns));
         using var sent = JsonDocument.Parse(handler.Sent!);
         Assert.Equal("model-1", sent.RootElement.GetProperty("model").GetString());
+        var tool = Assert.Single(sent.RootElement.GetProperty("tools").EnumerateArray());
+        Assert.Equal("end_call", tool.GetProperty("name").GetString());
+        Assert.Equal("object", tool.GetProperty("input_schema").GetProperty("type").GetString());
         Assert.Equal("be brief", sent.RootElement.GetProperty("system").GetString());
         Assert.Equal("user", sent.RootElement.GetProperty("messages")[0].GetProperty("role").GetString());
         Assert.Equal("key-1", handler.Request!.Headers.GetValues("x-api-key").Single());
@@ -384,11 +444,44 @@ public sealed class ConsentAndRelayTests
         var handler = new Handler(HttpStatusCode.OK, """{"choices":[{"message":{"role":"assistant","content":"Hello."}}]}""");
         var model = new LlmReceptionistModel(new HttpClient(handler), Configured("OpenAi", "OpenAi"), NullLogger<LlmReceptionistModel>.Instance);
 
-        Assert.Equal("Hello.", await model.ReplyAsync("be brief", Turns));
+        Assert.Equal(new ReceptionistReply("Hello.", false), await model.ReplyAsync("be brief", Turns));
         using var sent = JsonDocument.Parse(handler.Sent!);
         Assert.Equal("system", sent.RootElement.GetProperty("messages")[0].GetProperty("role").GetString());
+        var tool = Assert.Single(sent.RootElement.GetProperty("tools").EnumerateArray());
+        Assert.Equal("function", tool.GetProperty("type").GetString());
+        Assert.Equal("end_call", tool.GetProperty("function").GetProperty("name").GetString());
         Assert.Equal("Hello there", sent.RootElement.GetProperty("messages")[1].GetProperty("content").GetString());
         Assert.Equal("Bearer", handler.Request!.Headers.Authorization!.Scheme);
+    }
+
+    [Fact]
+    public async Task Anthropic_calling_end_call_ends_the_call_with_its_text()
+    {
+        var handler = new Handler(HttpStatusCode.OK, """{"content":[{"type":"text","text":"Goodbye."},{"type":"tool_use","id":"t1","name":"end_call","input":{}}],"stop_reason":"tool_use"}""");
+        var model = new LlmReceptionistModel(new HttpClient(handler), Configured("Anthropic", "Anthropic"), NullLogger<LlmReceptionistModel>.Instance);
+
+        Assert.Equal(new ReceptionistReply("Goodbye.", true), await model.ReplyAsync("be brief", Turns));
+    }
+
+    [Fact]
+    public async Task OpenAi_calling_end_call_with_no_content_ends_the_call_with_nothing_to_say()
+    {
+        var handler = new Handler(HttpStatusCode.OK, """{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"end_call","arguments":"{}"}}]}}]}""");
+        var model = new LlmReceptionistModel(new HttpClient(handler), Configured("OpenAi", "OpenAi"), NullLogger<LlmReceptionistModel>.Instance);
+
+        Assert.Equal(new ReceptionistReply("", true), await model.ReplyAsync("be brief", Turns));
+    }
+
+    [Fact]
+    public async Task A_tool_the_receptionist_was_not_given_throws_and_logs_no_content()
+    {
+        var log = new CapturingLogger();
+        var handler = new Handler(HttpStatusCode.OK, """{"choices":[{"message":{"role":"assistant","content":"Booked for Hello there.","tool_calls":[{"id":"c1","type":"function","function":{"name":"book","arguments":"{}"}}]}}]}""");
+        var model = new LlmReceptionistModel(new HttpClient(handler), Configured("Groq", "Groq"), new LoggerAdapter(log));
+
+        var ex = await Assert.ThrowsAsync<ReceptionistModelException>(() => model.ReplyAsync("be brief", Turns));
+        Assert.DoesNotContain("Hello there", ex.Message);
+        Assert.DoesNotContain(log.Lines, l => l.Contains("Hello there", StringComparison.Ordinal) || l.Contains("book", StringComparison.Ordinal));
     }
 
     [Fact]

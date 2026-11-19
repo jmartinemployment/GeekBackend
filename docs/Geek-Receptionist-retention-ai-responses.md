@@ -5,8 +5,8 @@ said. **Nothing here was checked by us and nothing here is a decision.** The que
 `docs/Geek-Receptionist-attorney-questions.md`.
 
 **Retell AI was dropped on 2026-11-18** (Jeff: "Retell is dropped"), after these answers were saved, and all Retell code was
-removed. The answers that name Retell are kept as given. Nothing in them describes the system now: today no AI hears a tenant's
-call, and the planned voice AI, Twilio ConversationRelay with our own model and voice, is not built
+removed. The answers that name Retell are kept as given. Nothing in them describes the system now: the voice AI is Twilio
+ConversationRelay with GeekAPI's configured model, built and configured 2026-11-18
 (`docs/Geek-Receptionist.md` section 5, item 4).
 
 What was changed in copying: the tools' source badges, a sponsored advertisement and page buttons were left out; tables that arrived

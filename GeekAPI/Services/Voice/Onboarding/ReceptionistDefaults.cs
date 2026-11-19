@@ -12,7 +12,7 @@ public sealed record ReceptionistScript(string Greeting, string Prompt);
 /// What a new tenant's receptionist starts with, until the tenant saves its own settings. The script is the one Jeff supplied, word for
 /// word, except that the Role paragraph names the tenant's business, state and industry, all taken from the signup record. The
 /// greeting carries the recording notice because recording_disclosure_enabled starts TRUE (Fla. Stat. 934.03, plan section 5, item 3).
-/// No voice is chosen: the voice AI is not built. The settings the signup cannot supply start empty: no hours, no qualifying questions, no
+/// No voice is chosen: ConversationRelay speaks with Twilio's default voice. The settings the signup cannot supply start empty: no hours, no qualifying questions, no
 /// emergency keywords, and voicemail only, because a transfer needs a number the tenant has not given.
 /// </summary>
 public static partial class ReceptionistDefaults

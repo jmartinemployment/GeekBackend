@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using GeekApplication.Interfaces.Receptionist;
 
 namespace GeekAPI.Services.Receptionist.Relay;
@@ -12,11 +13,16 @@ namespace GeekAPI.Services.Receptionist.Relay;
 /// the model with this call's turns and its reply is sent as one text message. The turns live in this object only and go when the
 /// socket closes: nothing of the conversation is stored or logged, not the caller's number from setup, not a prompt, not a reply.
 /// When the model fails the call is ended with Twilio's end message and the failure is logged without content.
+/// The script's two signals are acted on, never spoken: <see cref="HoldSignal"/> (the caller asked the receptionist to wait) sends
+/// nothing, and a call to the end_call tool sends whatever the reply says and then the end message.
 /// </summary>
-public sealed class ReceptionistRelaySession(IReceptionistModel model, string systemPrompt, ILogger logger)
+public sealed partial class ReceptionistRelaySession(IReceptionistModel model, string systemPrompt, ILogger logger)
 {
     /// <summary>Larger than any documented message; a bigger one ends the call rather than growing memory without bound.</summary>
     internal const int MaxMessageBytes = 64 * 1024;
+
+    /// <summary>What the script tells the model to output, exactly, when the caller asks it to wait.</summary>
+    internal const string HoldSignal = "NO_RESPONSE_NEEDED";
 
     private readonly List<ReceptionistTurn> _turns = [];
 
@@ -86,7 +92,7 @@ public sealed class ReceptionistRelaySession(IReceptionistModel model, string sy
 
         _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Caller, said.GetString()!));
 
-        string reply;
+        ReceptionistReply reply;
         try
         {
             reply = await model.ReplyAsync(systemPrompt, _turns, ct).ConfigureAwait(false);
@@ -97,15 +103,28 @@ public sealed class ReceptionistRelaySession(IReceptionistModel model, string sy
             return End();
         }
 
-        if (string.IsNullOrWhiteSpace(reply))
+        if (string.IsNullOrWhiteSpace(reply.Text) && !reply.EndCall)
         {
             logger.LogError("The receptionist's model gave an empty reply; the call is ended.");
             return End();
         }
 
-        _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, reply));
-        return [Text(reply)];
+        // The model's own words stay its turn, signal and all, so the next reply sees what it chose. The caller hears only the rest.
+        var sent = new List<string>();
+        if (!string.IsNullOrWhiteSpace(reply.Text))
+        {
+            _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, reply.Text));
+            var spoken = Hold().Replace(reply.Text, " ").Trim();
+            if (spoken.Length > 0) sent.Add(Text(spoken));
+        }
+
+        if (reply.EndCall) sent.AddRange(End());
+        return sent;
     }
+
+    /// <summary>The hold signal, with the backticks the script prints it in when the model copies them.</summary>
+    [GeneratedRegex("`?" + HoldSignal + "`?", RegexOptions.CultureInvariant)]
+    private static partial Regex Hold();
 
     private IReadOnlyList<string> End()
     {
