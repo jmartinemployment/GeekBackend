@@ -44,6 +44,8 @@ builder.Services.Configure<HostOptions>(options =>
 {
     options.BackgroundServiceExceptionBehavior =
         BackgroundServiceExceptionBehavior.Ignore;
+    if (GeekAPI.Services.ShutdownWindow.From(Environment.GetEnvironmentVariable) is { } window)
+        options.ShutdownTimeout = window;
 });
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
