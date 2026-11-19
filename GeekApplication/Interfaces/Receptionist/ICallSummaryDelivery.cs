@@ -19,7 +19,10 @@ public sealed record FinishedCall(
     ReceptionistCallSummary? Summary,
     IReadOnlyList<ReceptionistTurn>? Transcript,
     DateTimeOffset EndedAt,
-    TimeSpan Duration);
+    TimeSpan Duration,
+    string Destination,
+    string BusinessName,
+    string? CallerNumber);
 
 /// <summary>
 /// Gets a finished call's record to the business that owns the receptionist. The channel is the implementation's business. A failure is a

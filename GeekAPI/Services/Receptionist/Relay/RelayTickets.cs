@@ -5,7 +5,8 @@ namespace GeekAPI.Services.Receptionist.Relay;
 
 /// <summary>What a relay connection needs, issued when a caller pressed 1 on a signed consent post.</summary>
 /// <param name="Line">"company" for the company line, or the tenant's id.</param>
-public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffset ExpiresAt);
+/// <param name="Summary">What the call's end-of-call record needs; null when the business has not asked for one.</param>
+public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffset ExpiresAt, CallSummaryRequest? Summary = null);
 
 /// <summary>
 /// One-time tickets for ConversationRelay's WebSocket. A ticket is issued only from a consent post Twilio signed, travels in the relay
@@ -18,18 +19,18 @@ public sealed class RelayTickets(TimeProvider clock)
     public const string CompanyLine = "company";
 
     /// <summary>Twilio opens the WebSocket as soon as it reads the TwiML; this only has to cover that.</summary>
-    public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(2);
+    public static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(60);
 
     private readonly ConcurrentDictionary<string, RelayTicket> _tickets = new(StringComparer.Ordinal);
 
-    public string Issue(string line, string systemPrompt)
+    public string Issue(string line, string systemPrompt, CallSummaryRequest? summary = null)
     {
         var now = clock.GetUtcNow();
         foreach (var (key, ticket) in _tickets)
             if (ticket.ExpiresAt <= now) _tickets.TryRemove(key, out _);
 
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        _tickets[token] = new RelayTicket(line, systemPrompt, now + Lifetime);
+        _tickets[token] = new RelayTicket(line, systemPrompt, now + Lifetime, summary);
         return token;
     }
 

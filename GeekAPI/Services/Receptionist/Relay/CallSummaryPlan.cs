@@ -3,10 +3,15 @@ using GeekApplication.Interfaces.Receptionist;
 namespace GeekAPI.Services.Receptionist.Relay;
 
 /// <summary>
-/// What a business has asked for when its call ends: who delivers the record, whether the transcript goes with it, and whether a call
-/// where the caller said next to nothing still sends one. Built per call from the business's own configuration.
+/// What one call's record needs, from the business's own configuration and the call's setup: where it goes, whose call it was, the
+/// caller's number as Twilio gave it, whether the transcript goes with it, and whether a call where the caller said next to nothing
+/// still sends one. It lives in memory, on the relay ticket, for the length of the call and is never stored.
 /// </summary>
-public sealed record CallSummaryPlan(ICallSummaryDelivery Delivery, bool IncludeTranscript, bool NotifyOnAbandonedCalls)
+public sealed record CallSummaryRequest(
+    string Destination, string BusinessName, string? CallerNumber, bool IncludeTranscript, bool NotifyOnAbandonedCalls);
+
+/// <summary>A call's request together with whatever delivers its record.</summary>
+public sealed record CallSummaryPlan(ICallSummaryDelivery Delivery, CallSummaryRequest Request)
 {
     /// <summary>A caller who said fewer words than this across the whole call (dead air, noise, a dropped consent) did not make a call worth a record.</summary>
     public const int MinimumCallerWords = 3;

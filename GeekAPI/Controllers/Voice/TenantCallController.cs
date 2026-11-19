@@ -138,7 +138,13 @@ public sealed class TenantCallController : ControllerBase
             return closing;
         }
 
-        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!);
+        form.TryGetValue("From", out var callerNumber);
+        var request = config.Value!.MessageEmailEnabled && !string.IsNullOrWhiteSpace(config.Value.MessageDestinationEmail)
+            ? new CallSummaryRequest(
+                config.Value.MessageDestinationEmail, tenant.Value!.BusinessName, callerNumber,
+                config.Value.IncludeTranscript, config.Value.NotifyOnAbandonedCalls)
+            : null;
+        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request);
         _logger.LogInformation("Tenant {TenantId}: call {CallSid} consented; it is handed to the AI.", tenantId, callSid);
         return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), config.Value!.GreetingMessage));
     }
@@ -171,7 +177,17 @@ public sealed class TenantCallController : ControllerBase
         }
 
         using var socket = await HttpContext.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger).RunAsync(socket, ct).ConfigureAwait(false);
+        CallSummaryPlan? plan = null;
+        if (ticket.Summary is { } request)
+        {
+            var delivery = HttpContext.RequestServices.GetService<ICallSummaryDelivery>();
+            if (delivery is null)
+                _logger.LogError("Tenant {TenantId} asked for an end-of-call record and nothing is registered to deliver it; this call will send none.", tenantId);
+            else
+                plan = new CallSummaryPlan(delivery, request);
+        }
+
+        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan }.RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }
 

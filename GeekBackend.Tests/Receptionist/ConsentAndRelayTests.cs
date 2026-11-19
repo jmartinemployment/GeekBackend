@@ -234,6 +234,33 @@ public sealed class ConsentAndRelayTests
         Assert.Null(tickets.Redeem(ok, "tenant-a"));
     }
 
+    [Fact]
+    public void A_ticket_lives_for_a_minute_so_what_it_carries_does_not_linger_in_memory()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(60), RelayTickets.Lifetime);
+
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 18, 15, 0, 0, TimeSpan.Zero));
+        var tickets = new RelayTickets(clock);
+        var token = tickets.Issue("tenant-a", "p", new CallSummaryRequest("owner@example.test", "Dag Plumbing", "+15615550100", false, false));
+
+        clock.Advance(TimeSpan.FromSeconds(59));
+        Assert.NotNull(tickets.Redeem(token, "tenant-a"));
+
+        var late = tickets.Issue("tenant-a", "p", new CallSummaryRequest("owner@example.test", "Dag Plumbing", null, false, false));
+        clock.Advance(RelayTickets.Lifetime);
+        Assert.Null(tickets.Redeem(late, "tenant-a"));
+    }
+
+    [Fact]
+    public void A_ticket_hands_back_the_summary_request_it_was_issued_with_and_a_plain_one_carries_none()
+    {
+        var tickets = new RelayTickets(new FakeTimeProvider(new DateTimeOffset(2026, 11, 18, 15, 0, 0, TimeSpan.Zero)));
+        var request = new CallSummaryRequest("owner@example.test", "Dag Plumbing", "+15615550100", true, false);
+
+        Assert.Equal(request, tickets.Redeem(tickets.Issue("tenant-a", "p", request), "tenant-a")!.Summary);
+        Assert.Null(tickets.Redeem(tickets.Issue("tenant-a", "p"), "tenant-a")!.Summary);
+    }
+
     // ----- Model settings -----
 
     private static ReceptionistModelSettings Settings_(Dictionary<string, string> env) => ReceptionistModelSettings.From(k => env.GetValueOrDefault(k));

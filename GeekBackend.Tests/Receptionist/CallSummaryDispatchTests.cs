@@ -79,7 +79,7 @@ public sealed class CallSummaryDispatchTests
         var log = new CapturingLogger();
         var session = new ReceptionistRelaySession(model, "prompt", log)
         {
-            Summary = withPlan ? new CallSummaryPlan(delivery, includeTranscript, notifyAbandoned) : null,
+            Summary = withPlan ? new CallSummaryPlan(delivery, new CallSummaryRequest("owner@example.test", "Dag Plumbing", "+15615550100", includeTranscript, notifyAbandoned)) : null,
         };
         return (session, delivery, model, log);
     }

@@ -206,7 +206,7 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
         {
             var callerWords = _turns.Where(t => t.Speaker == ReceptionistSpeaker.Caller)
                 .Sum(t => t.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length);
-            if (callerWords < CallSummaryPlan.MinimumCallerWords && !plan.NotifyOnAbandonedCalls) return;
+            if (callerWords < CallSummaryPlan.MinimumCallerWords && !plan.Request.NotifyOnAbandonedCalls) return;
 
             var kind = FinishedCallKind.NoCallerSpeech;
             ReceptionistCallSummary? summary = null;
@@ -226,7 +226,9 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
             }
 
             var ended = DateTimeOffset.UtcNow;
-            var call = new FinishedCall(kind, summary, plan.IncludeTranscript ? _turns.ToList() : null, ended, ended - _startedAt);
+            var call = new FinishedCall(
+                kind, summary, plan.Request.IncludeTranscript ? _turns.ToList() : null, ended, ended - _startedAt,
+                plan.Request.Destination, plan.Request.BusinessName, plan.Request.CallerNumber);
 
             using var deliveryBound = new CancellationTokenSource(CallSummaryPlan.DeliverBound);
             for (var attempt = 1; attempt <= 2; attempt++)
