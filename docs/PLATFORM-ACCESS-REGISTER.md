@@ -44,16 +44,96 @@ Every network in this register asks for a privacy policy before review. What eac
 | LinkedIn | A website and a privacy policy for the Development tier; a "Valid privacy policy" for Standard. | `linkedin:107`, `linkedin:115` |
 | X | The app's website shows as the source label on every post. | `x:59` |
 
-**robots.txt and the noindex header.** None of the research states a rule about crawling or indexing these pages;
-the only reachability rule is Pinterest's "not accessible". So the pages must open without signing in, which the
-draft on geek-social's `legal-pages` branch does; nothing in the research requires them to be indexed, so the
-site-wide `noindex` can stay. A reviewer reads the page in a browser, which `noindex` does not stop.
+The research was silent on the homepage, the terms, domain verification and crawling. On 2026-11-19 each platform's
+own current pages were read for those (sources by letter below this section). What they add:
+
+**A public homepage that describes the app is required, and GeekSocial has none.**
+- Google, for any app needing OAuth verification (YouTube's sensitive scopes; Google Business Profile if
+  `business.manage` is sensitive, still UNVERIFIED): "Your home page must be publicly accessible, and not just
+  accessible to your site's logged-in users." [GB]; "Your homepage can not be only a login page" and "must describe
+  your app's functionality to its users" [GR]; "your app homepage URL must be static and cannot redirect to a
+  different URL or domain" [GH]; the homepage links the privacy policy with the same URL as the consent screen, and
+  "The Privacy Policy should be hosted within the domain that hosts your homepage" [GR]. "Your homepage is behind a
+  login page" is a listed reviewer finding [GH].
+- TikTok: "Your website URL cannot be a landing page or login page. You must have an externally facing fully
+  developed website."; "Your Privacy Policy and Terms of Service links must be visible on the website URL without
+  having to open a menu to view them" [TR].
+- Meta, LinkedIn, Pinterest, X: no homepage rule found. Meta's crawler rule (below) covers the Site URL.
+- Today `https://geek-social.geekatyourspot.com/` answers a signed-out visitor with 307 to `/api/auth/login`, and
+  geekatyourspot.com has no page that describes GeekSocial (geekatyourspot `32d62961`). Checked 2026-11-19. Neither
+  can be entered as the website for Google or TikTok. Which address becomes the homepage is a decision (geek-social
+  `HANDOFF.md`).
+
+**Terms of service.** Meta: "This field is required to switch your app to Live mode." [MB]. TikTok: required, and
+verified (below). YouTube: "must display a link to YouTube's Terms of Service" and state in the app's own terms that
+users "are agreeing to be bound by the YouTube Terms of Service" [YP]. Google's brand verification calls them
+"optional" [GB]. Pinterest, LinkedIn, X: not found.
+
+**Crawling, robots.txt and noindex.**
+- Meta is the only platform with a crawler rule. The privacy policy URL must be "easily accessible (including by our
+  crawlers)", and "developers allow our crawler to access URLs specified in apps' settings. This includes any
+  developer-controlled URLs, including the privacy policy URL, connect URL, and other product-specific URLs." [MP].
+  "Broken privacy policy links are considered violations and are subject to enforcement." [MP]. Meta's crawler
+  "might bypass robots.txt when performing security or integrity checks" [MC]; whether the URL check is one is not
+  stated, so robots.txt must allow every URL entered in the Meta app's settings. The draft's robots.txt allows only
+  `/privacy` and `/terms`, so a Site URL of `/` is disallowed.
+- Meta's crawler requirement "Your server must use gzip and deflate encodings." [MC] is met: on 2026-11-19 the live
+  site answered `facebookexternalhit/1.1` and `meta-externalagent/1.1` with 200 and `content-encoding: gzip`, so no
+  firewall stops them before robots.txt.
+- TikTok, for URL-prefix verification: "Redirections are not followed. URLs that return HTTP 3xx are considered
+  invalid." [TM].
+- No platform states a rule about `noindex`. It can stay.
+
+**Domain verification.**
+- Google verifies the "top private domain": a homepage on `https://sub.example.com/product` "asks the account holder
+  to verify ownership of the example.com domain" [GB]. So geekatyourspot.com is verified once, in Search Console.
+- TikTok: "you must verify URL properties for all URLs in your app configuration"; for apps created after
+  2024-09-09 that is the terms, privacy policy and web URLs, "by Domain or URL prefix" [TC]. A DNS signature on a
+  domain covers "all paths under that domain or its subdomains" [TM].
+- LinkedIn reviews a "Verified organization website and domain address", and the app is verified by the LinkedIn
+  Page's super admin [LR].
+- Pinterest: the privacy policy "is hosted on a domain that is clearly associated with your company or app" [PT].
+
+**Reviewer access.** Every review needs a way in for the reviewer, and so a GeekSocial account that is not anyone's
+personal one.
+- Meta: "Your app must be publicly available or you must provide instructions on how to access it."; "Do not include
+  your _personal_ Meta Technologies app account's credentials." [MS].
+- LinkedIn Standard: "test credentials for our reviewers" and a screencast of each use case [LR].
+- TikTok: a demo video of "the complete end-to-end flow" [TR].
+- Pinterest Standard: a demo video that includes "the user authentication flow" [PT].
+
+**The privacy policy at sign-up.** X: "You must display your service's privacy policy to people before they are
+permitted to download, install, or sign up to your service." [XP]. The draft links the policy and terms from
+`/signed-out` and from `/welcome`, where the tenant is created. GeekOAuth's Login and Register pages, where a
+visitor is sent first, link neither (GeekOAuth `d47edfe`). Whether `/welcome` is "before ... sign up" for X is not
+settled.
+
+**Added when the Google connectors are built.** YouTube: users agree to a privacy policy before using the features,
+and the policy notifies them that GeekSocial "uses YouTube API Services", links the Google Privacy Policy, says how to
+revoke access, and says how to reach the owner [YP]. Google: the Limited Use statement, "{App's} use of information
+received from Google APIs will adhere to Google API Services User Data Policy, including the Limited Use
+requirements" [GL].
+
+Sources (read 2026-11-19; only [TR] shows a date, "Last updated August 4, 2026"):
+[MP] https://developers.facebook.com/docs/development/terms-and-policies/privacy-policy/ ·
+[MC] https://developers.facebook.com/docs/sharing/webmasters/web-crawlers ·
+[MB] https://developers.facebook.com/docs/development/create-an-app/app-dashboard/basic-settings ·
+[MS] https://developers.facebook.com/docs/resp-plat-initiatives/individual-processes/app-review/submission-guide ·
+[GB] https://developers.google.com/identity/protocols/oauth2/production-readiness/brand-verification ·
+[GR] https://support.google.com/cloud/answer/13464321 · [GH] https://support.google.com/cloud/answer/13807376 ·
+[GL] https://support.google.com/cloud/answer/13463817 ·
+[YP] https://developers.google.com/youtube/terms/developer-policies ·
+[TR] https://developers.tiktok.com/doc/app-review-guidelines ·
+[TC] https://developers.tiktok.com/doc/getting-started-create-an-app ·
+[TM] https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide ·
+[PT] https://developers.pinterest.com/docs/key-concepts/access-tiers/ ·
+[LR] https://learn.microsoft.com/en-us/linkedin/marketing/community-management-app-review ·
+[XP] https://docs.x.com/developer-terms/policy
 
 **For the draft privacy policy:** its deletion section, `https://geek-social.geekatyourspot.com/privacy#delete` once
 published (section 6 of the draft on geek-social's `legal-pages` branch), can serve as Meta's data deletion
 instructions URL (`meta:207` accepts an instructions URL in place of a callback). Its promise that a comment's
-drafts are deleted with it is not yet true in code (geek-social `HANDOFF.md`, "Legal pages"). The YouTube and Google wording above is added when
-those connectors are built.
+drafts are deleted with it is not yet true in code (geek-social `HANDOFF.md`, "Legal pages").
 
 ## At a glance
 
@@ -91,7 +171,7 @@ so no Page can be connected yet.
 | Approval time | App Review decision "within a week"; resubmission times not documented. Business Verification time: not in the research. | `meta:172` |
 | Suspension | Not in the research. A failing data-deletion callback can mean "the app disabled", and a missed Data Protection Assessment risks "losing platform access". | `meta:206`, `meta:179` |
 | Recovery | Not in the research (reapplication rules were not read). | `meta:182` |
-| Public pages | App settings need a privacy policy URL, a 1024x1024 icon, a category and a business email. The app needs either a data deletion instructions URL or an HTTPS Data Deletion Request callback returning `{ url, confirmation_code }`, and the privacy policy must describe deletion. Terms URL and crawlability: not in the research. | `meta:171`, `meta:205-207`, `PC:544` |
+| Public pages | App settings need a privacy policy URL, a 1024x1024 icon, a category and a business email. The app needs either a data deletion instructions URL or an HTTPS Data Deletion Request callback returning `{ url, confirmation_code }`, and the privacy policy must describe deletion. A terms URL is required for Live mode, and robots.txt must let Meta's crawler reach every URL in the app's settings (read 2026-11-19, "What the applications require of the public pages"). | `meta:171`, `meta:205-207`, `PC:544`, [MB], [MP] |
 | Inbound events | Verification `GET` with `hub.verify_token`; each event signed in `X-Hub-Signature-256` with the app secret; retries over 36 hours, so deduplicate. Installed per Page with `POST /{page-id}/subscribed_apps?subscribed_fields=feed`. Delivery to customers needs Live mode. | `PC:480-485`, `PC:461`, `meta:154` |
 | Maintenance | Graph API v27.0, read 2026-11-16 (section 2a sources 2026-11-08 and 2026-11-09); Platform Terms and Developer Policies updated 2026-02-03. LIKE is the only reaction; an app updates only posts it created. Tech Provider Access Verification retired 2026-10-09. v27.0's end date: not in the research. | `meta:3`, `PC:598`, `meta:188`, `PC:178-179`, `meta:153`, `meta:168` |
 
@@ -138,7 +218,7 @@ Instagram-login customers (`meta:209`).
 | Approval time | None stated for Basic API Access. | `gbp:202`, `PC:283` |
 | Suspension | Google "may deactivate your API project ID if your project is not adhering to Google's API policies", and may review use "at any time and for any reason". One project serves every customer. | `gbp:215`, `gbp:233`, `gbp:208` |
 | Recovery | Not in the research. | |
-| Public pages | A published privacy policy that fully documents how the app handles user data; the research advises it say review text goes to an AI provider. Terms, homepage, domain verification and crawlability: not in the research. | `gbp:187`, `gbp:231` |
+| Public pages | A published privacy policy that fully documents how the app handles user data; the research advises it say review text goes to an AI provider. If OAuth verification applies: a public homepage that is not a login page and does not redirect, linking the privacy policy on the same domain, and geekatyourspot.com verified in Search Console (read 2026-11-19, "What the applications require of the public pages"). Crawlability: no rule found. | `gbp:187`, `gbp:231`, [GB], [GR], [GH] |
 | Inbound events | Pub/Sub topic in our project with Publish granted to `mybusiness-api-pubsub@system.gserviceaccount.com`; one `notificationSetting` per customer account; the payload names the review and location only, so a `reviews.get` follows; push endpoints check an OIDC JWT; at-least-once, unordered. | `gbp:136-163`, `PC:268-271`, `PC:491` |
 | Maintenance | v1 for accounts, business information, notifications, verifications and performance; v4 `mybusiness.googleapis.com` for reviews, posts and media. Read 2026-11-16. Reply at most 4096 bytes; stored content kept at most 30 days. Q&A discontinued 2025-11-03; `plus.business.manage` deprecated. | `gbp:25-34`, `gbp:3`, `gbp:67`, `gbp:177`, `gbp:228` |
 
@@ -161,7 +241,7 @@ time, whether review text may go to an AI provider).
 | Approval time | Not in the research. | |
 | Suspension | Not described. If "Your API access is terminated", all X data is deleted within 10 business days. Reaching the spending limit blocks requests until the next cycle. | `x:175`, `x:32` |
 | Recovery | Not in the research. | |
-| Public pages | The app name and website show as the source label on posts. Privacy policy and terms: not in the research. | `x:59` |
+| Public pages | The app name and website show as the source label on posts. The privacy policy is displayed before people sign up (read 2026-11-19). Terms: not found. | `x:59`, [XP] |
 | Inbound events | The X Activity API delivers mentions and replies to a webhook: HTTPS, public, no port, 200 within 10 seconds; CRC and per-event signature are HMAC-SHA256 with the OAuth 2.0 client secret in `X-Twitter-Webhooks-Signature-OAuth2`. The Account Activity API is being deprecated. | `x:80-104`, `PC:492` |
 | Maintenance | Read 2026-11-16; agreements last updated 2026-04-27. OAuth 1.0a apps must move by 2027-01-31. Replies only when summoned; AI replies need approval. | `x:3-5`, `x:10`, `x:102`, `x:148` |
 
@@ -185,7 +265,7 @@ the two need reconciling.
 | Approval time | Sensitive-scope verification up to 10 days; the audit has no stated time. | `youtube:113`, `youtube:118`, `youtube:132` |
 | Suspension | Not in the research. | |
 | Recovery | Not in the research (the Appeals Form covers failed audits only). | `youtube:113` |
-| Public pages | A published privacy policy describing what is accessed, collected, stored, used and shared, linking to `https://security.google.com/settings/security/permissions`; the delete mechanism must say deleting our data does not affect YouTube's. Other pages: not in the research. | `youtube:165-166`, `youtube:174` |
+| Public pages | A published privacy policy describing what is accessed, collected, stored, used and shared, linking to `https://security.google.com/settings/security/permissions`; the delete mechanism must say deleting our data does not affect YouTube's. A public homepage that is not a login page, terms that link YouTube's, and agreement to the privacy policy before use (read 2026-11-19, "What the applications require of the public pages"). | `youtube:165-166`, `youtube:174`, [GB], [GR], [YP] |
 | Inbound events | WebSub for uploads and title or description changes only; no push for comments, which need a `commentThreads.list` read. | `youtube:74-79`, `PC:332` |
 | Maintenance | Data API v3; read 2026-11-16 (pages stamped 2026-11-12). No Community-post API; replies to top-level comments only. Upload cost fell to about 100 units on 2025-12-04. | `youtube:1-11`, `youtube:26`, `youtube:45`, `youtube:110-111` |
 
@@ -211,7 +291,7 @@ Kit and the Content Posting API), whose scopes do not cover comments (`tiktok:10
 | Approval time | Registration 3 business days; Business app review 2 to 3 business days; developers.tiktok.com review "several days to two weeks". The Accounts API form and the audit: UNVERIFIED. | `tiktok:200-205` |
 | Suspension | TikTok "may suspend or terminate some or all TikTok Developer Services at any time with or without notice", and may revoke access "without prior notice". Webhooks are per app. | `tiktok:233`, `tiktok:204`, `tiktok:130` |
 | Recovery | Not in the research; violations "will likely lead to immediate revocation ... and a permanent ban". | `tiktok:211` |
-| Public pages | developers.tiktok.com review: the privacy policy and terms "visible on the website URL" and a demo video of the full flow. Media URLs on a verified domain (DNS TXT or signature file). Business API page requirements: not in the research. | `tiktok:206`, `tiktok:35-36`, `tiktok:53` |
+| Public pages | developers.tiktok.com review: the privacy policy and terms "visible on the website URL" and a demo video of the full flow. Media URLs on a verified domain (DNS TXT or signature file). The website URL "cannot be a landing page or login page", and the terms, privacy policy and web URLs are verified (read 2026-11-19). Business API page requirements: not in the research. | `tiktok:206`, `tiktok:35-36`, `tiktok:53`, [TR], [TC] |
 | Inbound events | Business API: one `callback_url` per app, `TikTok-Signature` HMAC-SHA256 with the app secret; `comment.update` "within five minutes"; retries undocumented. | `tiktok:120-130`, `PC:493` |
 | Maintenance | Business API v1.3; Content Posting `/v2/`; read 2026-11-16. Unverified video URLs can no longer publish. | `tiktok:1`, `tiktok:21`, `tiktok:46`, `tiktok:53` |
 
@@ -257,7 +337,7 @@ invalidation, how a disconnect invalidates a user's token).
 | Approval time | None stated; an unopened unofficial snippet reports about 40 business days at Standard "stage 1". | `linkedin:117`, `PC:450-451` |
 | Suspension | Not in the research; LinkedIn "reserves the right to revoke" tokens at any time. | `linkedin:152` |
 | Recovery | Not in the research; after a Standard rejection a new app and a new Development request are needed. | `linkedin:116` |
-| Public pages | A website and a privacy policy for Development; a "Valid privacy policy" is a Standard criterion. Terms and reachability: not in the research. | `linkedin:107`, `linkedin:115`, `PC:589-590` |
+| Public pages | A website and a privacy policy for Development; a "Valid privacy policy" is a Standard criterion; Standard also needs test credentials for the reviewers (read 2026-11-19). Terms and reachability: not found. | `linkedin:107`, `linkedin:115`, `PC:589-590`, [LR] |
 | Inbound events | Standard tier only; one subscription per app, member, organization and event type; HTTPS, an HMAC challenge within 3 seconds, re-validated every 2 hours; `X-LI-Signature`; retries every 5 minutes for 8 hours. | `linkedin:164-174`, `PC:480-485` |
 | Maintenance | `Linkedin-Version: 202610` (sunsets 2027-10-15), `X-Restli-Protocol-Version: 2.0.0`; each monthly version supported at least a year; read 2026-11-16. Media uploaded as files only. | `PC:188`, `linkedin:21-27`, `PC:433` |
 
