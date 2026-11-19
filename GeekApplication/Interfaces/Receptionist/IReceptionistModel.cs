@@ -16,6 +16,20 @@ public sealed record ReceptionistTurn(ReceptionistSpeaker Speaker, string Text);
 /// </summary>
 public sealed record ReceptionistReply(string Text, bool EndCall);
 
+/// <summary>One fact the caller gave, as the model labelled it (a name, a callback number, a reason). The labels are the model's, not a fixed list.</summary>
+public sealed record ReceptionistSummaryField(string Label, string Value);
+
+/// <summary>
+/// The end-of-call record the model writes from one call's turns: a short outcome label, a plain summary, the facts the caller gave, what
+/// the receptionist promised or did, and the questions it could not answer. Held in memory for as long as it takes to deliver it.
+/// </summary>
+public sealed record ReceptionistCallSummary(
+    string Outcome,
+    string Summary,
+    IReadOnlyList<ReceptionistSummaryField> Fields,
+    IReadOnlyList<string> Actions,
+    IReadOnlyList<string> Unanswered);
+
 /// <summary>Why the model gave no reply. The message names the provider and the HTTP status only, never what anyone said.</summary>
 public sealed class ReceptionistModelException : Exception
 {
@@ -38,4 +52,10 @@ public interface IReceptionistModel
     /// Throws <see cref="ReceptionistModelException"/> when no usable reply came back: no text and no call to end.
     /// </summary>
     Task<ReceptionistReply> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default);
+
+    /// <summary>
+    /// The end-of-call record for a finished call, from its turns, in one structured request. Throws <see cref="ReceptionistModelException"/>
+    /// when the provider fails or answers with no usable summary; the caller decides what to do then, this never invents one.
+    /// </summary>
+    Task<ReceptionistCallSummary> SummarizeAsync(IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default);
 }

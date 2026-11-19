@@ -22,12 +22,22 @@ public sealed class FakeReceptionistModel(bool configured = true) : IReceptionis
     public string Reply { get; init; } = "How can I help?";
     public bool EndCall { get; init; }
     public List<(string Prompt, List<ReceptionistTurn> Turns)> Calls { get; } = new();
+    public bool FailSummary { get; init; }
+    public ReceptionistCallSummary Summary { get; init; } = new("Message taken", "The caller asked for a callback.", [], [], []);
+    public List<List<ReceptionistTurn>> SummaryCalls { get; } = new();
 
     public Task<ReceptionistReply> ReplyAsync(string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default)
     {
         Calls.Add((systemPrompt, turns.ToList()));
         if (Fail) throw new ReceptionistModelException("anthropic answered 500.");
         return Task.FromResult(new ReceptionistReply(Reply, EndCall));
+    }
+
+    public Task<ReceptionistCallSummary> SummarizeAsync(IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default)
+    {
+        SummaryCalls.Add(turns.ToList());
+        if (FailSummary) throw new ReceptionistModelException("anthropic answered 500.");
+        return Task.FromResult(Summary);
     }
 }
 
@@ -503,6 +513,95 @@ public sealed class ConsentAndRelayTests
         var model = new LlmReceptionistModel(new HttpClient(new Handler(HttpStatusCode.OK, "{}")), Settings_(new()), NullLogger<LlmReceptionistModel>.Instance);
         Assert.False(model.IsConfigured);
         await Assert.ThrowsAsync<ReceptionistModelException>(() => model.ReplyAsync("p", Turns));
+    }
+
+    private static readonly IReadOnlyList<ReceptionistTurn> CallTurns =
+    [
+        new(ReceptionistSpeaker.Caller, "My water heater is leaking, call Jane back on 561-555-0199"),
+        new(ReceptionistSpeaker.Receptionist, "I will pass that on."),
+    ];
+
+    private const string SummaryJson =
+        """{"outcome":"Callback requested","summary":"Jane has a leaking water heater and wants a call back.","fields":[{"label":"Name","value":"Jane"},{"label":"Callback number","value":"561-555-0199"},{"label":"","value":"dropped"},{"label":"Reason","value":" "}],"actions":["Promised to pass on the message"],"unanswered":[]}""";
+
+    private static void AssertJanesSummary(ReceptionistCallSummary summary)
+    {
+        Assert.Equal("Callback requested", summary.Outcome);
+        Assert.Equal("Jane has a leaking water heater and wants a call back.", summary.Summary);
+        Assert.Equal([new ReceptionistSummaryField("Name", "Jane"), new ReceptionistSummaryField("Callback number", "561-555-0199")], summary.Fields);
+        Assert.Equal(["Promised to pass on the message"], summary.Actions);
+        Assert.Empty(summary.Unanswered);
+    }
+
+    [Fact]
+    public async Task Anthropic_is_forced_to_call_the_summary_tool_and_its_input_is_the_summary()
+    {
+        var handler = new Handler(HttpStatusCode.OK, $$"""{"content":[{"type":"tool_use","id":"t1","name":"submit_call_summary","input":{{SummaryJson}}}],"stop_reason":"tool_use"}""");
+        var model = new LlmReceptionistModel(new HttpClient(handler), Configured("Anthropic", "Anthropic"), NullLogger<LlmReceptionistModel>.Instance);
+
+        AssertJanesSummary(await model.SummarizeAsync(CallTurns));
+
+        using var sent = JsonDocument.Parse(handler.Sent!);
+        Assert.Equal("tool", sent.RootElement.GetProperty("tool_choice").GetProperty("type").GetString());
+        Assert.Equal("submit_call_summary", sent.RootElement.GetProperty("tool_choice").GetProperty("name").GetString());
+        Assert.Equal("submit_call_summary", Assert.Single(sent.RootElement.GetProperty("tools").EnumerateArray()).GetProperty("name").GetString());
+        var transcript = sent.RootElement.GetProperty("messages")[0].GetProperty("content").GetString()!;
+        Assert.Contains("Caller: My water heater is leaking", transcript, StringComparison.Ordinal);
+        Assert.Contains("Receptionist: I will pass that on.", transcript, StringComparison.Ordinal);
+        Assert.Equal("key-1", handler.Request!.Headers.GetValues("x-api-key").Single());
+    }
+
+    [Fact]
+    public async Task OpenAi_is_asked_for_a_json_object_and_a_code_fenced_answer_is_still_read()
+    {
+        var content = "Here is the record:\n```json\n" + SummaryJson + "\n```";
+        var handler = new Handler(HttpStatusCode.OK, JsonSerializer.Serialize(new { choices = new[] { new { message = new { role = "assistant", content } } } }));
+        var model = new LlmReceptionistModel(new HttpClient(handler), Configured("OpenAi", "OpenAi"), NullLogger<LlmReceptionistModel>.Instance);
+
+        AssertJanesSummary(await model.SummarizeAsync(CallTurns));
+
+        using var sent = JsonDocument.Parse(handler.Sent!);
+        Assert.Equal("json_object", sent.RootElement.GetProperty("response_format").GetProperty("type").GetString());
+        Assert.Equal("system", sent.RootElement.GetProperty("messages")[0].GetProperty("role").GetString());
+        Assert.False(sent.RootElement.TryGetProperty("tools", out _));
+        Assert.Equal("Bearer", handler.Request!.Headers.Authorization!.Scheme);
+    }
+
+    [Theory]
+    [InlineData("""{"choices":[{"message":{"role":"assistant","content":"I could not summarize that."}}]}""")]
+    [InlineData("""{"choices":[{"message":{"role":"assistant","content":"{\"outcome\":\"Message taken\"}"}}]}""")]
+    [InlineData("""{"choices":[{"message":{"role":"assistant","content":"{\"outcome\":\"Message taken\",\"summary\":\"  \"}"}}]}""")]
+    [InlineData("""{"choices":[{"message":{"role":"assistant","content":"{not json}"}}]}""")]
+    [InlineData("""{"choices":[{"message":{"role":"assistant","content":null}}]}""")]
+    public async Task An_answer_with_no_usable_summary_throws_and_logs_no_content(string body)
+    {
+        var log = new CapturingLogger();
+        var model = new LlmReceptionistModel(new HttpClient(new Handler(HttpStatusCode.OK, body)), Configured("OpenAi", "OpenAi"), new LoggerAdapter(log));
+
+        var ex = await Assert.ThrowsAsync<ReceptionistModelException>(() => model.SummarizeAsync(CallTurns));
+        Assert.DoesNotContain("water heater", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(log.Lines, l => l.Contains("no usable call summary", StringComparison.Ordinal));
+        Assert.DoesNotContain(log.Lines, l => l.Contains("water heater", StringComparison.Ordinal) || l.Contains("561-555-0199", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_summary_provider_failure_throws_and_logs_the_status_but_never_the_call()
+    {
+        var log = new CapturingLogger();
+        var handler = new Handler(HttpStatusCode.ServiceUnavailable, """{"error":"echo: water heater"}""");
+        var model = new LlmReceptionistModel(new HttpClient(handler), Configured("Anthropic", "Anthropic"), new LoggerAdapter(log));
+
+        var ex = await Assert.ThrowsAsync<ReceptionistModelException>(() => model.SummarizeAsync(CallTurns));
+        Assert.DoesNotContain("water heater", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(log.Lines, l => l.Contains("503", StringComparison.Ordinal));
+        Assert.DoesNotContain(log.Lines, l => l.Contains("water heater", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_unconfigured_model_refuses_to_summarize()
+    {
+        var model = new LlmReceptionistModel(new HttpClient(new Handler(HttpStatusCode.OK, "{}")), Settings_(new()), NullLogger<LlmReceptionistModel>.Instance);
+        await Assert.ThrowsAsync<ReceptionistModelException>(() => model.SummarizeAsync(CallTurns));
     }
 
     private sealed class LoggerAdapter(CapturingLogger inner) : ILogger<LlmReceptionistModel>
