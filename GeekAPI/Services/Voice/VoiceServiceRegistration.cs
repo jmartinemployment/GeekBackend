@@ -1,6 +1,7 @@
 using GeekAPI.HttpClients;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Calls;
+using GeekAPI.Services.Voice.Email;
 using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.OwnerAuth;
@@ -57,6 +58,8 @@ public static class VoiceServiceRegistration
         services.AddScoped<TenantTwilioWebhook>();
         services.AddSingleton(TwilioOptions.FromEnvironment());
         services.AddHttpClient<TwilioProvisioner>(client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddSingleton(EmailOptions.FromEnvironment());
+        services.AddHttpClient<IEmailSender, ResendEmailSender>(client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddScoped<SubscriptionActivation>();
         services.AddSingleton(GoogleCalendarOptions.FromEnvironment());
         services.AddSingleton<McpOAuthState>();
