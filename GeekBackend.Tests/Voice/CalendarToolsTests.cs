@@ -6,6 +6,7 @@ using System.Text.Json;
 using GeekAPI.Controllers.Voice;
 using GeekAPI.Services.Voice;
 using GeekAPI.Services.Voice.Mcp;
+using GeekApplication.Interfaces.Receptionist;
 using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
 using GeekApplication.Results;
@@ -105,6 +106,7 @@ public sealed class CalendarToolsTests
         public CapturingLogger<McpGatewayClient> GatewayLog { get; } = new();
         public VoiceCredentialProtector Protector { get; }
         public CalendarTools Tools { get; }
+        public McpGatewayClient Client { get; }
         public string AccessCipher { get; }
         public string RefreshCipher { get; }
 
@@ -126,6 +128,7 @@ public sealed class CalendarToolsTests
             var googleOptions = options ?? new GoogleCalendarOptions("client-id.apps.googleusercontent.com", ClientSecret, "https://receptionist.geekatyourspot.com");
             var oauth = new GoogleCalendarOAuth(new HttpClient(Google), googleOptions, clock, GoogleLog);
             var gatewayClient = new McpGatewayClient(new HttpClient(Gateway), gatewayOptions ?? new McpGatewayOptions("http://geek-mcp-gateway.railway.internal:3000", GatewayKey), GatewayLog);
+            Client = gatewayClient;
             Tools = new CalendarTools(Store, Protector, googleOptions, oauth, gatewayClient, clock, ToolsLog);
         }
 
@@ -459,4 +462,133 @@ public sealed class CalendarToolsTests
     [InlineData(VoiceFailureCodes.StoreUnavailable, 503)]
     [InlineData(null, 503)]
     public void Each_code_has_its_status(string? code, int status) => Assert.Equal(status, CalendarController.StatusFor(code));
+    // ----- The receptionist's calendar toolbox -----
+
+    private const string ToolsJson = """
+        {"tools":[
+          {"name":"list_events","description":"List events.","inputSchema":{"type":"object","properties":{"calendarId":{"type":"string"}}}},
+          {"name":"suggest_time","description":"Suggest a time.","inputSchema":{"type":"object","properties":{"timeZone":{"type":"string"}}}},
+          {"name":"get_event","description":"Get one event.","inputSchema":{"type":"object"}},
+          {"name":"list_calendars","description":"List calendars.","inputSchema":{"type":"object"}},
+          {"name":"create_event","description":"Create an event.","inputSchema":{"type":"object"}},
+          {"description":"No name at all.","inputSchema":{"type":"object"}},
+          {"name":"schemaless","description":"No schema."}
+        ]}
+        """;
+
+    private static Rig ToolRig(string? toolsBody = ToolsJson, HttpStatusCode toolsStatus = HttpStatusCode.OK) => new(gateway: request =>
+        request.RequestUri!.AbsolutePath.EndsWith("/tools", StringComparison.Ordinal)
+            ? (toolsBody is null ? new HttpResponseMessage(toolsStatus) : Json(toolsBody, toolsStatus))
+            : GatewayOk());
+
+    private static Task<CalendarToolbox?> BoxAsync(Rig rig) =>
+        CalendarToolbox.CreateAsync(Tenant, rig.Tools, rig.Client, rig.GatewayLog);
+
+    [Fact]
+    public async Task The_gateway_tool_list_is_read_with_googles_own_schemas_and_sends_no_token()
+    {
+        var rig = ToolRig();
+
+        var tools = await rig.Client.ListToolsAsync(GoogleCalendarOptions.Provider);
+
+        Assert.True(tools.IsSuccess);
+        // The two without a name or a schema are left out rather than guessed at.
+        Assert.Equal(["list_events", "suggest_time", "get_event", "list_calendars", "create_event"], tools.Value!.Select(t => t.Name));
+        Assert.Equal("object", tools.Value![0].InputSchema.GetProperty("type").GetString());
+        Assert.True(tools.Value![0].InputSchema.GetProperty("properties").TryGetProperty("calendarId", out _));
+
+        var (url, body, key) = Assert.Single(rig.Gateway.Seen);
+        Assert.EndsWith("/v1/mcp/tools", url, StringComparison.Ordinal);
+        Assert.Equal(GatewayKey, key);
+        Assert.DoesNotContain(AccessToken, body, StringComparison.Ordinal);
+        Assert.DoesNotContain("accessToken", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_receptionist_is_offered_the_reading_tools_only_and_never_booking()
+    {
+        var box = await BoxAsync(ToolRig());
+
+        Assert.NotNull(box);
+        Assert.Equal(["list_events", "suggest_time", "get_event", "list_calendars"], box.Tools.Select(t => t.Name));
+        Assert.DoesNotContain(box.Tools, t => t.Name == "create_event");
+        Assert.Equal("List events.", box.Tools[0].Description);
+    }
+
+    [Theory]
+    [InlineData(null, HttpStatusCode.ServiceUnavailable)]
+    [InlineData("not json", HttpStatusCode.OK)]
+    [InlineData("""{"tools":[{"name":"create_event","description":"c","inputSchema":{"type":"object"}}]}""", HttpStatusCode.OK)]
+    public async Task A_gateway_that_cannot_be_asked_or_offers_no_reading_tools_leaves_the_call_without_any(string? body, HttpStatusCode status)
+    {
+        var rig = ToolRig(body, status);
+
+        Assert.Null(await BoxAsync(rig));
+        Assert.Contains(rig.GatewayLog.Lines.Concat(rig.ToolsLog.Lines), l => l.Contains("this call has none", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_reading_tool_runs_for_the_tenant_and_its_structured_answer_goes_back_to_the_model()
+    {
+        var rig = ToolRig();
+        var box = await BoxAsync(rig);
+
+        var result = await box!.RunAsync(new ReceptionistToolCall("c1", "list_events", """{"calendarId":"primary"}"""));
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("""{"calendars":[{"id":"primary"}]}""", result.Value);
+
+        var call = rig.Gateway.Seen.Last();
+        Assert.EndsWith("/v1/mcp/call", call.Url, StringComparison.Ordinal);
+        using var sent = JsonDocument.Parse(call.Body);
+        Assert.Equal("list_events", sent.RootElement.GetProperty("tool").GetString());
+        Assert.Equal("primary", sent.RootElement.GetProperty("arguments").GetProperty("calendarId").GetString());
+        Assert.Equal(AccessToken, sent.RootElement.GetProperty("accessToken").GetString());
+    }
+
+    [Fact]
+    public async Task Booking_is_refused_in_the_toolbox_itself_and_never_reaches_the_gateway()
+    {
+        var rig = ToolRig();
+        var box = await BoxAsync(rig);
+        var before = rig.Gateway.Seen.Count;
+
+        var result = await box!.RunAsync(new ReceptionistToolCall("c1", "create_event", $$"""{"summary":"{{Secret}}"}"""));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpFailureCodes.ToolNotAllowed, result.ErrorCode);
+        Assert.Equal(before, rig.Gateway.Seen.Count);
+        Assert.DoesNotContain(rig.AllLogLines, l => l.Contains(Secret, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[1,2]")]
+    public async Task Arguments_that_are_not_an_object_are_refused_without_calling_the_gateway(string arguments)
+    {
+        var rig = ToolRig();
+        var box = await BoxAsync(rig);
+        var before = rig.Gateway.Seen.Count;
+
+        var result = await box!.RunAsync(new ReceptionistToolCall("c1", "list_events", arguments));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(VoiceFailureCodes.InvalidRequest, result.ErrorCode);
+        Assert.Equal(before, rig.Gateway.Seen.Count);
+    }
+
+    [Fact]
+    public async Task A_tool_that_fails_gives_its_code_and_no_log_line_carries_what_the_caller_wanted()
+    {
+        var rig = new Rig(active: false, gateway: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/tools", StringComparison.Ordinal) ? Json(ToolsJson) : GatewayOk());
+        var box = await BoxAsync(rig);
+
+        var result = await box!.RunAsync(new ReceptionistToolCall("c1", "list_events", $$"""{"q":"{{Secret}}"}"""));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpFailureCodes.CalendarNotConnected, result.ErrorCode);
+        Assert.DoesNotContain(rig.AllLogLines, l => l.Contains(Secret, StringComparison.Ordinal));
+    }
+
 }

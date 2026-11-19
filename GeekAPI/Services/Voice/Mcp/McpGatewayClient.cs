@@ -29,6 +29,9 @@ public sealed record McpGatewayOptions(string? BaseUrl, string? ApiKey)
 /// <summary>What a calendar tool returned: its content and, when it sent one, its structured content.</summary>
 public sealed record McpToolResult(JsonElement Content, JsonElement? StructuredContent);
 
+/// <summary>One tool the gateway offers, exactly as the provider describes it: nothing here is written by us.</summary>
+public sealed record McpToolDefinition(string Name, string Description, JsonElement InputSchema);
+
 /// <summary>
 /// GeekAPI's side of GeekMcpGateway (docs/Geek-Receptionist.md section 8, B1). The tenant's decrypted access token goes in the body of
 /// one call and nowhere else; nothing here logs a token, an argument or a tool's content. Asked once, never retried. The gateway's own
@@ -119,6 +122,90 @@ public sealed class McpGatewayClient(HttpClient http, McpGatewayOptions options,
             }
         }
     }
+
+    /// <summary>
+    /// The tools the gateway offers for a provider, with the provider's own descriptions and argument schemas, so nothing here invents a
+    /// contract Google owns. No token is needed and none is sent: this says what may be called, not what any tenant has.
+    /// </summary>
+    public async Task<Result<IReadOnlyList<McpToolDefinition>>> ListToolsAsync(string provider, CancellationToken ct = default)
+    {
+        var missing = options.Missing();
+        if (missing.Count > 0)
+        {
+            logger.LogError("The calendar tools cannot be listed: {Variables} not set.", string.Join(", ", missing));
+            return Result<IReadOnlyList<McpToolDefinition>>.Failure("The calendar gateway is not configured.", McpFailureCodes.GatewayNotConfigured);
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{options.BaseUrl}/v1/mcp/tools")
+        {
+            Content = JsonContent.Create(new { provider }),
+        };
+        request.Headers.Add("X-Internal-Api-Key", options.ApiKey);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await http.SendAsync(request, ct).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "The calendar gateway is unreachable.");
+            return UnavailableTools("The calendar gateway could not be reached.");
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            logger.LogError("The calendar gateway timed out listing its tools.");
+            return UnavailableTools("The calendar gateway did not answer in time.");
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("The calendar gateway refused to list its tools with {Status}.", (int)response.StatusCode);
+                return UnavailableTools("The calendar gateway would not list its tools.");
+            }
+
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+            }
+            catch (JsonException)
+            {
+                logger.LogError("The calendar gateway listed its tools with something that is not JSON.");
+                return UnavailableTools("The calendar gateway answered something unexpected.");
+            }
+
+            using (document)
+            {
+                if (!document.RootElement.TryGetProperty("tools", out var list) || list.ValueKind != JsonValueKind.Array)
+                {
+                    logger.LogError("The calendar gateway's tool list carries no tools.");
+                    return UnavailableTools("The calendar gateway answered something unexpected.");
+                }
+
+                var tools = new List<McpToolDefinition>();
+                foreach (var tool in list.EnumerateArray())
+                {
+                    // A tool without a name or a schema cannot be offered to a model; it is left out rather than guessed at.
+                    if (!tool.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(name.GetString())
+                        || !tool.TryGetProperty("inputSchema", out var schema) || schema.ValueKind != JsonValueKind.Object)
+                        continue;
+                    tools.Add(new McpToolDefinition(
+                        name.GetString()!,
+                        tool.TryGetProperty("description", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString()! : "",
+                        schema.Clone()));
+                }
+
+                logger.LogInformation("The calendar gateway offers {Count} tools for {Provider}.", tools.Count, provider);
+                return Result<IReadOnlyList<McpToolDefinition>>.Success(tools);
+            }
+        }
+    }
+
+    private static Result<IReadOnlyList<McpToolDefinition>> UnavailableTools(string message) =>
+        Result<IReadOnlyList<McpToolDefinition>>.Failure(message, McpFailureCodes.GatewayUnavailable);
 
     private static Result<McpToolResult> Unavailable(string message) =>
         Result<McpToolResult>.Failure(message, McpFailureCodes.GatewayUnavailable);
