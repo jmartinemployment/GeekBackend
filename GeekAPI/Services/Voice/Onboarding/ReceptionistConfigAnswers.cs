@@ -45,8 +45,11 @@ public sealed record ReceptionistKnowledgeAnswers(
 /// </para>
 ///
 /// <para>
-/// <c>KnowledgeRunId</c> is deliberately not here. It is a crawl, not an answer: the knowledge flow sets it when a business's website
-/// has been indexed, and a form field that let anyone write any run id would point a receptionist at another business's pages.
+/// <c>KnowledgeRunId</c> is deliberately not here. It is a crawl, not an answer, and a form field that let anyone write any run id
+/// would point one business's receptionist at another business's pages. An earlier version of this paragraph said "the knowledge flow
+/// sets it", which is not true of any code: the id is read when a call is answered (<c>TenantCallController</c>) and written only as
+/// part of a whole config, and nothing in this product starts a crawl for a tenant. So no business has one, and the question "should
+/// your receptionist answer from your website?" is not asked on the form, because nothing would act on a yes.
 /// </para>
 /// </summary>
 public sealed record ReceptionistConfigAnswers(
