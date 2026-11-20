@@ -36,7 +36,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         recording_disclosure_enabled AS RecordingDisclosureEnabled,
         message_email_enabled AS MessageEmailEnabled, message_destination_email AS MessageDestinationEmail,
         include_transcript AS IncludeTranscript, notify_on_abandoned_calls AS NotifyOnAbandonedCalls,
-        booking_enabled AS BookingEnabled, consent_mode AS ConsentMode
+        booking_enabled AS BookingEnabled, consent_mode AS ConsentMode,
+        knowledge_run_id AS KnowledgeRunId
         """;
 
     [GeneratedRegex(@"^\+[1-9]\d{6,14}$")]
@@ -326,11 +327,11 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 INSERT INTO geek_voice.receptionist_configs (
                     tenant_id, greeting_message, system_prompt_template, business_hours_json, qualifying_questions_json,
                     transfer_mode, transfer_target_number, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled,
-                    message_email_enabled, message_destination_email, include_transcript, notify_on_abandoned_calls, booking_enabled, consent_mode)
+                    message_email_enabled, message_destination_email, include_transcript, notify_on_abandoned_calls, booking_enabled, consent_mode, knowledge_run_id)
                 VALUES (
                     @TenantId, @GreetingMessage, @SystemPromptTemplate, @BusinessHours::jsonb, @QualifyingQuestions::jsonb,
                     @TransferMode, @TransferTargetNumber, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled,
-                    @MessageEmailEnabled, @MessageDestinationEmail, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled, @ConsentMode)
+                    @MessageEmailEnabled, @MessageDestinationEmail, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled, @ConsentMode, @KnowledgeRunId)
                 ON CONFLICT (tenant_id) DO UPDATE SET
                     greeting_message = EXCLUDED.greeting_message,
                     system_prompt_template = EXCLUDED.system_prompt_template,
@@ -347,6 +348,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     notify_on_abandoned_calls = EXCLUDED.notify_on_abandoned_calls,
                     booking_enabled = EXCLUDED.booking_enabled,
                     consent_mode = EXCLUDED.consent_mode,
+                    knowledge_run_id = EXCLUDED.knowledge_run_id,
                     updated_at = NOW()
                 RETURNING {ConfigColumns};
                 """,
@@ -369,6 +371,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     config.NotifyOnAbandonedCalls,
                     config.BookingEnabled,
                     config.ConsentMode,
+                    config.KnowledgeRunId,
                 },
                 cancellationToken: ct));
             return Result<VoiceReceptionistConfig>.Success(row.ToModel());
@@ -811,12 +814,14 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public bool NotifyOnAbandonedCalls { get; set; }
         public bool BookingEnabled { get; set; }
         public string ConsentMode { get; set; } = VoiceConsentModes.PassiveDisclosure;
+        public Guid? KnowledgeRunId { get; set; }
 
         public VoiceReceptionistConfig ToModel() => new(
             GreetingMessage, SystemPromptTemplate, ParseJson(BusinessHours),
             ParseJson(QualifyingQuestions), TransferMode, TransferTargetNumber, TransferCallerIdMode,
             EmergencyKeywords, RecordingDisclosureEnabled,
-            MessageEmailEnabled, MessageDestinationEmail, IncludeTranscript, NotifyOnAbandonedCalls, BookingEnabled, ConsentMode);
+            MessageEmailEnabled, MessageDestinationEmail, IncludeTranscript, NotifyOnAbandonedCalls, BookingEnabled, ConsentMode,
+            KnowledgeRunId);
     }
 
     private sealed class McpRow

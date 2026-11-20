@@ -94,6 +94,15 @@ public static class ReceptionistConsent
             ? "\n\nThis business has not given its opening hours. If a caller asks when it is open, say you do not have the hours and offer to take a message. Never guess them."
             : "\n\nOpening hours, which are the only hours you may give a caller. Never guess beyond them:" + hours.Value);
 
+        // The rule that makes a wrong answer impossible rather than unlikely, and it is deliberately not conditional on the business
+        // having an indexed site. A receptionist that may be given a lookup tool, or may not, must behave the same either way: a prompt
+        // that announced a tool the toolbox did not offer would be a claim the call could not honour, and the business's own information
+        // is the only thing standing between a caller and an invented price. This is the same instruction the missing-hours branch gives,
+        // widened to everything about the business.
+        prompt.Append("\n\nNever state a fact about this business - a price, a service, an availability, a policy - that you have not been "
+            + "given here or found with a tool. If you have not been given it, say you will take a message and have someone call back. "
+            + "Guessing is worse than taking a message.");
+
         var questions = config.QualifyingQuestions;
         if (questions.ValueKind == JsonValueKind.Array && questions.GetArrayLength() == 0)
             return Result<string>.Success(prompt.ToString());

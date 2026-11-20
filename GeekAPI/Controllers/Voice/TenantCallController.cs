@@ -1,4 +1,6 @@
 using GeekAPI.Services.Receptionist;
+using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.Receptionist.Knowledge;
 using GeekAPI.Services.Receptionist.Relay;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Calls;
@@ -183,7 +185,7 @@ public sealed class TenantCallController : ControllerBase
             : null;
         // A business with somebody to hand a failing call to hears the plan's transfer line rather than the take-a-message one.
         var transferConfigured = config.TransferMode != VoiceTransferModes.VoicemailOnly && !string.IsNullOrWhiteSpace(config.TransferTargetNumber);
-        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured, deliverAlways);
+        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured, deliverAlways, config.KnowledgeRunId);
         return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting));
     }
 
@@ -230,9 +232,16 @@ public sealed class TenantCallController : ControllerBase
                 };
         }
 
-        var toolbox = await CalendarToolbox.CreateAsync(
+        var calendar = await CalendarToolbox.CreateAsync(
             tenantId, _store, HttpContext.RequestServices.GetRequiredService<CalendarTools>(), _catalog,
             HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ticket.BookingEnabled, ct).ConfigureAwait(false);
+
+        // What the business has published about itself, searched through the Library that already holds it. A business with no indexed
+        // site gets no lookup tool, which is the ordinary case before its signup crawl has run.
+        var knowledge = KnowledgeToolbox.Create(
+            tenantId, ticket.KnowledgeRunId, HttpContext.RequestServices.GetRequiredService<IGeekCrawlerRagClient>(), _logger);
+
+        var toolbox = CompositeToolbox.Of(calendar, knowledge);
 
         await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes, TenantId = tenantId }
             .RunAsync(socket, ct).ConfigureAwait(false);

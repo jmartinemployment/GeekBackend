@@ -9,7 +9,8 @@ namespace GeekAPI.Services.Receptionist.Relay;
 /// <param name="BookingEnabled">Whether this business lets its receptionist put an appointment on its calendar.</param>
 /// <param name="TransferConfigured">Whether this business has somebody a failing call can be handed to.</param>
 /// <param name="DeliverSummaryAlways">True when the business asked for a record of every call; false when one is kept only for a failed booking.</param>
-public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffset ExpiresAt, CallSummaryRequest? Summary = null, bool BookingEnabled = false, bool TransferConfigured = false, bool DeliverSummaryAlways = true);
+/// <param name="KnowledgeRunId">The business's own indexed site, which its receptionist answers questions from; null when it has none.</param>
+public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffset ExpiresAt, CallSummaryRequest? Summary = null, bool BookingEnabled = false, bool TransferConfigured = false, bool DeliverSummaryAlways = true, Guid? KnowledgeRunId = null);
 
 /// <summary>
 /// One-time tickets for ConversationRelay's WebSocket. A ticket is issued only from a consent post Twilio signed, travels in the relay
@@ -28,14 +29,14 @@ public sealed class RelayTickets(TimeProvider clock)
 
     public string Issue(
         string line, string systemPrompt, CallSummaryRequest? summary = null, bool bookingEnabled = false, bool transferConfigured = false,
-        bool deliverSummaryAlways = true)
+        bool deliverSummaryAlways = true, Guid? knowledgeRunId = null)
     {
         var now = clock.GetUtcNow();
         foreach (var (key, ticket) in _tickets)
             if (ticket.ExpiresAt <= now) _tickets.TryRemove(key, out _);
 
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        _tickets[token] = new RelayTicket(line, systemPrompt, now + Lifetime, summary, bookingEnabled, transferConfigured, deliverSummaryAlways);
+        _tickets[token] = new RelayTicket(line, systemPrompt, now + Lifetime, summary, bookingEnabled, transferConfigured, deliverSummaryAlways, knowledgeRunId);
         return token;
     }
 

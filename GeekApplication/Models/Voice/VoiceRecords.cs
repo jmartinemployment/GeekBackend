@@ -195,7 +195,12 @@ public sealed record VoiceReceptionistConfig(
     bool IncludeTranscript = false,
     bool NotifyOnAbandonedCalls = false,
     bool BookingEnabled = false,
-    string ConsentMode = VoiceConsentModes.PassiveDisclosure);
+    string ConsentMode = VoiceConsentModes.PassiveDisclosure,
+    /// <summary>
+    /// The business's own crawled, indexed website, which its receptionist answers questions from. Null when it has none, which gives the
+    /// receptionist no lookup tool rather than one that finds nothing. A scope, not a store: the Library holds the vectors.
+    /// </summary>
+    Guid? KnowledgeRunId = null);
 
 public sealed record VoiceMcpConnection(
     Guid TenantId,

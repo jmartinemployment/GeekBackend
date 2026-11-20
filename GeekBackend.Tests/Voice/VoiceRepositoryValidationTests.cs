@@ -231,11 +231,32 @@ public sealed class VoiceRepositoryValidationTests
 
     private static readonly string SqlPath = Path.Combine(SqlDirectory, "0060_geek_voice.sql");
 
+    private static readonly string RepositoryDirectory = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory, "..", "..", "..", "..", "GeekRepository", "Repositories", "Voice"));
+
     private static string Sql => Regex.Replace(File.ReadAllText(SqlPath), @"--[^\n]*", string.Empty);
 
     /// <summary>One migration's statements, for a list the baseline no longer has the last word on.</summary>
     private static string SqlOf(string migration) =>
         Regex.Replace(File.ReadAllText(Path.Combine(SqlDirectory, migration)), @"--[^\n]*", string.Empty);
+
+    /// <summary>
+    /// The business's indexed site is a scope the receptionist retrieves by, so the column the migration adds and the column the
+    /// repository reads have to be the same one. They were written in different files, and a knowledge tool that silently reads nothing
+    /// is indistinguishable from a business that has published nothing.
+    /// </summary>
+    [Fact]
+    public void The_knowledge_scope_column_the_migration_adds_is_the_one_the_repository_reads()
+    {
+        var migration = SqlOf("0081_geek_voice_knowledge_run.sql");
+
+        Assert.Contains("geek_voice.receptionist_configs", migration, StringComparison.Ordinal);
+        Assert.Contains("knowledge_run_id UUID", migration, StringComparison.Ordinal);
+
+        var repository = File.ReadAllText(Path.Combine(RepositoryDirectory, "VoiceRepository.cs"));
+        Assert.Contains("knowledge_run_id AS KnowledgeRunId", repository, StringComparison.Ordinal);
+        Assert.Contains("knowledge_run_id = EXCLUDED.knowledge_run_id", repository, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void Every_vocabulary_value_is_in_the_script_and_the_script_has_no_other_value()
