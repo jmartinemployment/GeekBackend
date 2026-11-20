@@ -78,7 +78,7 @@ tenant receives.
 | Transcript and messages | No | None is kept by us: the AI's turns live in the relay's memory for the call and go when it ends, and ConversationRelay is given no `intelligenceService`. No transcript column is written (migration `0067`). OpenAI may keep what it is sent up to 30 days ("Vendor retention", below). |
 | Summary | No | None exists, and none is written to the call row. |
 | Detailed call logs | No | We write none. |
-| Structured outputs | No by default | The AI's only tool is `end_call`, so a call produces none. `geek_voice.appointments` has columns for a caller's name, phone, email, address and issue and would be one. |
+| Structured outputs | No by default | A receptionist may be given calendar tools, and a business that asked for it may let one book, so a call can now produce an appointment. What is stored of it is metadata only: which tenant, which call, when it is, which provider and the provider's event id. `geek_voice.appointments` lost its caller name, phone, email, address and issue columns in migration `0076` (2026-11-19), so a caller's details cannot be written there at all. Who the appointment is with and what it is about live in the owner's own calendar. |
 | Call history | Yes | One row per ended call in `geek_voice.call_logs`, written by `TwilioCallStatusRecorder` from Twilio's status callback and keyed by `CallSid`: status, start, end, length from `CallDuration` in seconds. The caller's number (`From`) is never read. |
 | Billing and usage | Yes | Billable minutes per call in the same row, rounded up per started minute; overage billing reads it. |
 | Cost | Yes | Not recorded. |

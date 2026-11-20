@@ -573,22 +573,15 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
             var appointmentId = await conn.QuerySingleAsync<Guid>(new CommandDefinition("""
                 INSERT INTO geek_voice.appointments (
-                    tenant_id, call_log_id, customer_name, customer_phone, customer_email, service_address, issue_description,
-                    scheduled_start, scheduled_end, external_event_id, mcp_provider)
+                    tenant_id, call_log_id, scheduled_start, scheduled_end, external_event_id, mcp_provider)
                 VALUES (
-                    @TenantId, @CallLogId, @CustomerName, @CustomerPhone, @CustomerEmail, @ServiceAddress, @IssueDescription,
-                    @ScheduledStart, @ScheduledEnd, @ExternalEventId, @McpProvider)
+                    @TenantId, @CallLogId, @ScheduledStart, @ScheduledEnd, @ExternalEventId, @McpProvider)
                 RETURNING id;
                 """,
                 new
                 {
                     TenantId = tenantId,
                     command.CallLogId,
-                    command.CustomerName,
-                    command.CustomerPhone,
-                    command.CustomerEmail,
-                    command.ServiceAddress,
-                    command.IssueDescription,
                     ScheduledStart = command.ScheduledStart.UtcDateTime,
                     ScheduledEnd = command.ScheduledEnd.UtcDateTime,
                     command.ExternalEventId,
@@ -731,7 +724,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
     private static string? ValidateAppointment(CreateVoiceAppointmentCommand c)
     {
-        if (Blank(c.CustomerName) || Blank(c.CustomerPhone) || Blank(c.ServiceAddress) || Blank(c.IssueDescription)) return "The customer, phone, address and issue are required.";
         if (c.ScheduledEnd <= c.ScheduledStart) return "An appointment must end after it starts.";
         if (!VoiceMcpProviders.All.Contains(c.McpProvider, StringComparer.Ordinal)) return $"The calendar provider must be one of: {string.Join(", ", VoiceMcpProviders.All)}.";
         return null;

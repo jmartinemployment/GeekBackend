@@ -61,8 +61,11 @@ Each row: what the vendor touches today, what the requirement is, how it is enfo
   status, its length from `CallDuration` in seconds, and billable minutes rounded up per started minute. The caller's number (`From`)
   is never read. No transcript, summary or recording column is written (since migration `0067`). What earlier calls stored in
   `caller_number`, `transcript_json`, `call_summary` and `recording_url` is still there. Nothing deletes a row. Overage billing reads
-  the minutes from the same table. `geek_voice.appointments` has columns for the customer's name, phone, email, address and
-  issue, and a store route that writes them. No route gives an owner call content.
+  the minutes from the same table. `geek_voice.appointments` **no longer has** columns for the customer's name, phone,
+  email, address or issue: migration `0076` dropped all five on 2026-11-19, and `CreateVoiceAppointmentCommand` no longer has the
+  fields, so the store route that writes an appointment can only write metadata. Until then this section claimed the requirement was
+  enforced by "the columns not existing" while they existed and the route wrote them, which is the asserted-not-enforced mistake this
+  project treats as a defect. No route gives an owner call content.
 - **Requirement:** the status callback records the call's metadata and nothing of what was said. The transcript, the summary, the
   recording link and the caller's number are never kept, and their columns are dropped, as are the appointment columns that copy
   what the caller said. No route, hub or dashboard screen returns conversation content.

@@ -245,7 +245,7 @@ public sealed class VoiceRepositoryValidationTests
         await AssertInvalid(Store().UpsertCallAsync(Tenant, GoodCall() with { DurationSeconds = -1 }));
 
     private static CreateVoiceAppointmentCommand GoodAppointment() => new(
-        null, "Pat Jones", "+15615550112", null, "12 Ocean Ave", "No cooling", Now.AddDays(1), Now.AddDays(1).AddHours(1), null, VoiceMcpProviders.GoogleCalendar);
+        null, Now.AddDays(1), Now.AddDays(1).AddHours(1), null, VoiceMcpProviders.GoogleCalendar);
 
     [Fact]
     public async Task An_appointment_that_ends_before_it_starts_is_refused() =>
@@ -256,8 +256,13 @@ public sealed class VoiceRepositoryValidationTests
         await AssertInvalid(Store().CreateAppointmentAsync(Tenant, GoodAppointment() with { McpProvider = "icloud" }));
 
     [Fact]
-    public async Task An_appointment_with_no_address_is_refused() =>
-        await AssertInvalid(Store().CreateAppointmentAsync(Tenant, GoodAppointment() with { ServiceAddress = "" }));
+    public void An_appointment_cannot_carry_a_caller_name_number_address_or_problem()
+    {
+        // Zero Data Retention is enforced by the record having nowhere to put call content, not by a rule that asks it not to.
+        var fields = typeof(CreateVoiceAppointmentCommand).GetProperties().Select(p => p.Name).ToArray();
+
+        Assert.Equal(["CallLogId", "ScheduledStart", "ScheduledEnd", "ExternalEventId", "McpProvider"], fields);
+    }
 
     // ----- The script and the vocabularies agree -----
 

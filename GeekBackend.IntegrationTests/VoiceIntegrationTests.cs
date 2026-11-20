@@ -200,7 +200,7 @@ public sealed class VoiceIntegrationTests
         Assert.Equal(VoiceFailureCodes.Conflict, overwrite.ErrorCode);
 
         var appointment = new CreateVoiceAppointmentCommand(
-            call.Value!.CallId, "Pat Jones", "+15615550112", null, "12 Ocean Ave", "No cooling", Now.AddDays(1), Now.AddDays(1).AddHours(1), null, VoiceMcpProviders.GoogleCalendar);
+            call.Value!.CallId, Now.AddDays(1), Now.AddDays(1).AddHours(1), null, VoiceMcpProviders.GoogleCalendar);
         var crossed = await store.CreateAppointmentAsync(tenantB, appointment);
         Assert.Equal(VoiceFailureCodes.InvalidRequest, crossed.ErrorCode);
 

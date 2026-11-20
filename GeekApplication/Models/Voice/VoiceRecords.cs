@@ -232,13 +232,12 @@ public sealed record UpsertVoiceCallCommand(
 
 public sealed record VoiceCallStored(Guid CallId);
 
+/// <summary>
+/// An appointment as this platform records it: metadata only. Who it is with and what it is about are call content, are never stored
+/// here, and live in the owner's own calendar, which the provider's event id points at.
+/// </summary>
 public sealed record CreateVoiceAppointmentCommand(
     Guid? CallLogId,
-    string CustomerName,
-    string CustomerPhone,
-    string? CustomerEmail,
-    string ServiceAddress,
-    string IssueDescription,
     DateTimeOffset ScheduledStart,
     DateTimeOffset ScheduledEnd,
     string? ExternalEventId,
