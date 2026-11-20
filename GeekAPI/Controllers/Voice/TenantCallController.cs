@@ -171,7 +171,9 @@ public sealed class TenantCallController : ControllerBase
             ? new CallSummaryRequest(
                 config.MessageDestinationEmail, tenant.BusinessName, callerNumber, config.IncludeTranscript, config.NotifyOnAbandonedCalls)
             : null;
-        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled);
+        // A business with somebody to hand a failing call to hears the plan's transfer line rather than the take-a-message one.
+        var transferConfigured = config.TransferMode != VoiceTransferModes.VoicemailOnly && !string.IsNullOrWhiteSpace(config.TransferTargetNumber);
+        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured);
         return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting));
     }
 
@@ -217,7 +219,7 @@ public sealed class TenantCallController : ControllerBase
             tenantId, _store, HttpContext.RequestServices.GetRequiredService<CalendarTools>(), _catalog,
             HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ticket.BookingEnabled, ct).ConfigureAwait(false);
 
-        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox }
+        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured }
             .RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }

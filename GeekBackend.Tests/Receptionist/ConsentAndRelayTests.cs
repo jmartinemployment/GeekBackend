@@ -428,14 +428,17 @@ public sealed class ConsentAndRelayTests
     }
 
     [Fact]
-    public async Task A_model_failure_ends_the_call_and_logs_no_content()
+    public async Task A_model_failure_tells_the_caller_ends_the_call_and_logs_no_content()
     {
         var log = new CapturingLogger();
         var session = Session(new FakeReceptionistModel { Fail = true }, log);
 
-        var sent = Assert.Single(await session.HandleAsync("""{"type":"prompt","voicePrompt":"my card is 4111","last":true}""", default));
+        var sent = await session.HandleAsync("""{"type":"prompt","voicePrompt":"my card is 4111","last":true}""", default);
 
-        Assert.Equal("""{"type":"end"}""", sent);
+        // The plan's fallback: the caller is told, rather than the call going quiet and dropping.
+        Assert.Equal(
+            [ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), """{"type":"end"}"""],
+            sent);
         Assert.True(session.Ended);
         Assert.Empty(await session.HandleAsync("""{"type":"prompt","voicePrompt":"hello?","last":true}""", default));
         Assert.Contains(log.Lines, l => l.StartsWith("Error", StringComparison.Ordinal));

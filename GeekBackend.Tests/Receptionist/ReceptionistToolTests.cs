@@ -180,14 +180,16 @@ public sealed class ReceptionistToolTests
     }
 
     [Fact]
-    public async Task A_model_that_asks_for_tools_the_business_has_none_of_has_its_call_ended()
+    public async Task A_model_that_asks_for_tools_the_business_has_none_of_is_told_so_and_the_call_ends()
     {
         var (session, model, log) = Make(null, new ReceptionistReply("", false, [Ask]));
 
         var sent = await session.HandleAsync(Prompt, CancellationToken.None);
 
         Assert.True(session.Ended);
-        Assert.Equal("""{"type":"end"}""", Assert.Single(sent));
+        Assert.Equal(
+            [ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), """{"type":"end"}"""],
+            sent);
         Assert.Single(model.Calls);
         Assert.Contains(log.Lines, l => l.Contains("may not use", StringComparison.Ordinal));
     }
@@ -218,4 +220,53 @@ public sealed class ReceptionistToolTests
         Assert.True(session.Ended);
         Assert.Equal([ReceptionistRelaySession.Text("Goodbye."), """{"type":"end"}"""], sent);
     }
+
+    // ----- The plan's spoken mid-call failure fallbacks -----
+
+    [Fact]
+    public async Task A_model_failure_tells_a_caller_who_can_be_transferred_to_hold_rather_than_dropping_the_call()
+    {
+        var model = new FakeReceptionistModel { Fail = true };
+        var session = new ReceptionistRelaySession(model, "p", new CapturingLogger()) { TransferConfigured = true };
+
+        var sent = await session.HandleAsync(Prompt, CancellationToken.None);
+
+        Assert.Equal([ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithTransfer), """{"type":"end"}"""], sent);
+        Assert.True(session.Ended);
+    }
+
+    [Fact]
+    public async Task A_model_failure_asks_a_caller_with_nobody_to_transfer_to_for_a_message()
+    {
+        var model = new FakeReceptionistModel { Fail = true };
+        var session = new ReceptionistRelaySession(model, "p", new CapturingLogger());
+
+        var sent = await session.HandleAsync(Prompt, CancellationToken.None);
+
+        Assert.Equal([ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), """{"type":"end"}"""], sent);
+    }
+
+    [Fact]
+    public async Task An_empty_reply_and_a_runaway_tool_loop_both_say_the_failure_line_too()
+    {
+        var empty = new ReceptionistRelaySession(new FakeReceptionistModel { Reply = "" }, "p", new CapturingLogger());
+        var sentEmpty = await empty.HandleAsync(Prompt, CancellationToken.None);
+        Assert.Contains(ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), sentEmpty);
+
+        var toolbox = new Toolbox(_ => Task.FromResult(Result<string>.Success("{}")));
+        var (runaway, _, _) = Make(toolbox, Enumerable.Repeat(new ReceptionistReply("", false, [Ask]), 10).ToArray());
+        var sentRunaway = await runaway.HandleAsync(Prompt, CancellationToken.None);
+        Assert.Contains(ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), sentRunaway);
+    }
+
+    [Fact]
+    public async Task What_the_caller_was_told_is_part_of_the_call_so_the_record_says_the_receptionist_failed()
+    {
+        var session = new ReceptionistRelaySession(new FakeReceptionistModel { Fail = true }, "p", new CapturingLogger());
+
+        await session.HandleAsync(Prompt, CancellationToken.None);
+
+        Assert.Equal(ReceptionistRelaySession.FailureWithoutTransfer, session.Turns[^1].Text);
+    }
+
 }

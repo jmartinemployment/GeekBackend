@@ -216,7 +216,7 @@ public static class ReceptionistEndpoints
             }
 
             using var socket = await context.WebSockets.AcceptWebSocketAsync();
-            await new ReceptionistRelaySession(model, ticket.SystemPrompt, log).RunAsync(socket, ct);
+            await new ReceptionistRelaySession(model, ticket.SystemPrompt, log) { TransferConfigured = ticket.TransferConfigured }.RunAsync(socket, ct);
         });
 
         // 5. A text arrives at the business number.

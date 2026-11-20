@@ -7,7 +7,8 @@ namespace GeekAPI.Services.Receptionist.Relay;
 /// <param name="Line">"company" for the company line, or the tenant's id.</param>
 /// <param name="Summary">What the call's end-of-call record needs; null when the business has not asked for one.</param>
 /// <param name="BookingEnabled">Whether this business lets its receptionist put an appointment on its calendar.</param>
-public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffset ExpiresAt, CallSummaryRequest? Summary = null, bool BookingEnabled = false);
+/// <param name="TransferConfigured">Whether this business has somebody a failing call can be handed to.</param>
+public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffset ExpiresAt, CallSummaryRequest? Summary = null, bool BookingEnabled = false, bool TransferConfigured = false);
 
 /// <summary>
 /// One-time tickets for ConversationRelay's WebSocket. A ticket is issued only from a consent post Twilio signed, travels in the relay
@@ -24,14 +25,14 @@ public sealed class RelayTickets(TimeProvider clock)
 
     private readonly ConcurrentDictionary<string, RelayTicket> _tickets = new(StringComparer.Ordinal);
 
-    public string Issue(string line, string systemPrompt, CallSummaryRequest? summary = null, bool bookingEnabled = false)
+    public string Issue(string line, string systemPrompt, CallSummaryRequest? summary = null, bool bookingEnabled = false, bool transferConfigured = false)
     {
         var now = clock.GetUtcNow();
         foreach (var (key, ticket) in _tickets)
             if (ticket.ExpiresAt <= now) _tickets.TryRemove(key, out _);
 
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        _tickets[token] = new RelayTicket(line, systemPrompt, now + Lifetime, summary, bookingEnabled);
+        _tickets[token] = new RelayTicket(line, systemPrompt, now + Lifetime, summary, bookingEnabled, transferConfigured);
         return token;
     }
 

@@ -27,6 +27,17 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     /// <summary>How many times in one turn the model may ask for tools before the call is ended; a model that never stops asking is not a conversation.</summary>
     internal const int MaxToolRounds = 4;
 
+    /// <summary>
+    /// What a caller hears when the receptionist fails mid-call and a person can be reached, word for word from the plan
+    /// (plans/client-and-app-plan.md, "Spoken Mid-Call Failure Fallbacks"). The call is not dropped on them in silence.
+    /// </summary>
+    internal const string FailureWithTransfer =
+        "I'm having a quick connection issue on my end-please hold for just a moment while I connect you directly with our team.";
+
+    /// <summary>The same, for a business with no one to transfer to, word for word from the plan.</summary>
+    internal const string FailureWithoutTransfer =
+        "I'm having trouble completing that request right now. Please leave your name, phone number, and a brief message after the tone, and our team will call you right back.";
+
     private readonly List<ReceptionistTurn> _turns = [];
     private readonly DateTimeOffset _startedAt = DateTimeOffset.UtcNow;
     private bool _finished;
@@ -38,6 +49,9 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
     /// <summary>The tools this business's receptionist may use; null for a receptionist that can only talk and hang up.</summary>
     public IReceptionistToolbox? Toolbox { get; init; }
+
+    /// <summary>Whether this business has somebody a failing call can be handed to, which decides which failure line the caller hears.</summary>
+    public bool TransferConfigured { get; init; }
 
     /// <summary>True once the end message has been sent; nothing more is sent after it.</summary>
     public bool Ended { get; private set; }
@@ -113,15 +127,15 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                logger.LogError("The receptionist's model gave no reply ({Failure}); the call is ended.", ex.GetType().Name);
-                return End();
+                logger.LogError("The receptionist's model gave no reply ({Failure}); the caller is told so.", ex.GetType().Name);
+                return Failed(sent);
             }
 
             var requested = reply.ToolCalls ?? [];
             if (string.IsNullOrWhiteSpace(reply.Text) && !reply.EndCall && requested.Count == 0)
             {
-                logger.LogError("The receptionist's model gave an empty reply; the call is ended.");
-                return End();
+                logger.LogError("The receptionist's model gave an empty reply; the caller is told so.");
+                return Failed(sent);
             }
 
             // The model's own words stay its turn, signal and all, so the next reply sees what it chose. The caller hears only the rest.
@@ -136,9 +150,8 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
             {
                 if (Toolbox is null || round >= MaxToolRounds)
                 {
-                    logger.LogError("The receptionist's model asked for tools it may not use in this call (round {Round}); the call is ended.", round);
-                    sent.AddRange(End());
-                    return sent;
+                    logger.LogError("The receptionist's model asked for tools it may not use in this call (round {Round}); the caller is told so.", round);
+                    return Failed(sent);
                 }
 
                 foreach (var call in requested)
@@ -174,6 +187,19 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     /// <summary>The hold signal, with the backticks the script prints it in when the model copies them.</summary>
     [GeneratedRegex("`?" + HoldSignal + "`?", RegexOptions.CultureInvariant)]
     private static partial Regex Hold();
+
+    /// <summary>
+    /// The receptionist could not go on. The caller hears the plan's failure line for this business rather than silence and a dropped
+    /// call, and the call then ends; the end-of-call record is still built and delivered, so the lead is not lost either way.
+    /// </summary>
+    private IReadOnlyList<string> Failed(List<string> sent)
+    {
+        var spoken = TransferConfigured ? FailureWithTransfer : FailureWithoutTransfer;
+        _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, spoken));
+        sent.Add(Text(spoken));
+        sent.AddRange(End());
+        return sent;
+    }
 
     private IReadOnlyList<string> End()
     {
