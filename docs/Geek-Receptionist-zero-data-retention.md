@@ -267,8 +267,21 @@ are there yet". These are questions for the client to answer in the form. None i
 7. **How should your receptionist answer?** Greeting, business hours, questions to ask callers, the number to transfer to,
    emergency keywords.
 
-Questions 1 to 5 come from the policy in section 1. Questions 6 and 7 have no answers from Jeff yet. Which of the seven belong in
-the form, and in what order, is not decided.
+8. **Should your receptionist book appointments on your calendar?** No, only tell callers when you are free / Yes, let it book.
+   Separate from connecting a calendar on purpose: reading it to say when the business is free is not the same as writing to it.
+9. **What must a caller give before an appointment is made?** Name / Callback number / Email / The address the work is at /
+   What the job is, each its own tick box. The receptionist books with what it was given; nothing here is assumed.
+10. **How long is an appointment?** The answer choices are not known.
+11. **What should the appointment be called on your calendar?** The answer choices are not known.
+12. **Which calendar should it be put on?** Asked only after a calendar is connected, from the calendars that connection offers.
+
+Questions 1 to 5 come from the policy in section 1. Questions 6 to 12 have no answers from Jeff yet; the wording and the answer
+choices offered for 8 to 12 are a proposal for him to change or throw out, not a decision. Which of the twelve belong in the form,
+and in what order, is not decided.
+
+Questions 8 to 12 are the ones booking needs. The mechanism for 8 exists in code as the per-business `BookingEnabled` setting
+(migration `0075`), off for every business, and no form or dashboard sets it; 9 to 12 are not built at all, and the receptionist
+books with whatever it was given rather than a set of fields chosen here.
 
 ## Vendor retention, read 2026-11-18
 
