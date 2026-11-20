@@ -188,7 +188,7 @@ public sealed class ReceptionistToolTests
 
         Assert.True(session.Ended);
         Assert.Equal(
-            [ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), """{"type":"end"}"""],
+            [ReceptionistRelaySession.Text(ReceptionistLanguages.DefaultLanguage.Failure), """{"type":"end"}"""],
             sent);
         Assert.Single(model.Calls);
         Assert.Contains(log.Lines, l => l.Contains("may not use", StringComparison.Ordinal));
@@ -241,7 +241,7 @@ public sealed class ReceptionistToolTests
 
         var sent = await session.HandleAsync(Prompt, CancellationToken.None);
 
-        Assert.Equal([ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), """{"type":"end"}"""], sent);
+        Assert.Equal([ReceptionistRelaySession.Text(ReceptionistLanguages.DefaultLanguage.Failure), """{"type":"end"}"""], sent);
         Assert.DoesNotContain("connect you", string.Join(" ", sent), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("hold", string.Join(" ", sent), StringComparison.OrdinalIgnoreCase);
         Assert.True(session.Ended);
@@ -255,7 +255,7 @@ public sealed class ReceptionistToolTests
 
         var sent = await session.HandleAsync(Prompt, CancellationToken.None);
 
-        Assert.Equal([ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), """{"type":"end"}"""], sent);
+        Assert.Equal([ReceptionistRelaySession.Text(ReceptionistLanguages.DefaultLanguage.Failure), """{"type":"end"}"""], sent);
     }
 
     [Fact]
@@ -263,12 +263,12 @@ public sealed class ReceptionistToolTests
     {
         var empty = new ReceptionistRelaySession(new FakeReceptionistModel { Reply = "" }, "p", new CapturingLogger());
         var sentEmpty = await empty.HandleAsync(Prompt, CancellationToken.None);
-        Assert.Contains(ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), sentEmpty);
+        Assert.Contains(ReceptionistRelaySession.Text(ReceptionistLanguages.DefaultLanguage.Failure), sentEmpty);
 
         var toolbox = new Toolbox(_ => Task.FromResult(Result<string>.Success("{}")));
         var (runaway, _, _) = Make(toolbox, Enumerable.Repeat(new ReceptionistReply("", false, [Ask]), 10).ToArray());
         var sentRunaway = await runaway.HandleAsync(Prompt, CancellationToken.None);
-        Assert.Contains(ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), sentRunaway);
+        Assert.Contains(ReceptionistRelaySession.Text(ReceptionistLanguages.DefaultLanguage.Failure), sentRunaway);
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public sealed class ReceptionistToolTests
 
         await session.HandleAsync(Prompt, CancellationToken.None);
 
-        Assert.Equal(ReceptionistRelaySession.FailureWithoutTransfer, session.Turns[^1].Text);
+        Assert.Equal(ReceptionistLanguages.DefaultLanguage.Failure, session.Turns[^1].Text);
     }
 
 }

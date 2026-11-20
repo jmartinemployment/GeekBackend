@@ -69,7 +69,7 @@ public sealed class ConsentAndRelayTests
     [Fact]
     public void Strict_mode_still_asks_for_a_key_with_the_approved_wording_and_takes_no_speech()
     {
-        var xml = ReceptionistConsent.Ask("Dag Plumbing", new Uri("https://example.test/voice/consent-result")).ToString();
+        var xml = ReceptionistConsent.Ask("Dag Plumbing", new Uri("https://example.test/voice/consent-result"), ReceptionistLanguages.DefaultLanguage).ToString();
 
         Assert.Contains(Consent, xml.Replace("&apos;", "'"), StringComparison.Ordinal);
         Assert.Matches("<Gather[^>]*input=\"dtmf\"", xml);
@@ -274,7 +274,7 @@ public sealed class ConsentAndRelayTests
 
         // The plan's fallback: the caller is told, rather than the call going quiet and dropping.
         Assert.Equal(
-            [ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), """{"type":"end"}"""],
+            [ReceptionistRelaySession.Text(ReceptionistLanguages.DefaultLanguage.Failure), """{"type":"end"}"""],
             sent);
         Assert.True(session.Ended);
         Assert.Empty(await session.HandleAsync("""{"type":"prompt","voicePrompt":"hello?","last":true}""", default));

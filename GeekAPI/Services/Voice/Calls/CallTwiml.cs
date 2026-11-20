@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using GeekAPI.Services.Receptionist.Relay;
 using Twilio.TwiML;
 
 namespace GeekAPI.Services.Voice.Calls;
@@ -19,16 +20,15 @@ public static class CallTwiml
     /// No <c>&lt;Record&gt;</c>: this product keeps no call content (Zero Data Retention), so a caller who cannot be served is told to
     /// call again rather than offered voicemail.
     /// </summary>
-    public static VoiceResponse Unanswered(string business)
+    public static VoiceResponse Unanswered(string business, ReceptionistLanguages.Language language)
     {
         var response = new VoiceResponse();
-        response.Say(UnansweredText(business));
+        response.Say(UnansweredText(business, language), language: language.Code);
         response.Hangup();
         return response;
     }
 
-    public static string UnansweredText(string business) =>
-        $"Thank you for calling {business}. We can't take your call right now. Please call again later. Goodbye.";
+    public static string UnansweredText(string business, ReceptionistLanguages.Language language) => language.Unanswered(business);
 
     /// <summary>
     /// The address a ConversationRelay WebSocket handshake is signed over. Twilio's docs say the handshake carries

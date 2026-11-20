@@ -1,3 +1,4 @@
+using GeekAPI.Services.Receptionist.Relay;
 using GeekAPI.Services.Voice.Mcp;
 using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
@@ -48,6 +49,9 @@ public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialP
     /// <see cref="BookingSettingController"/> reads it from here so the two cannot answer with different codes.
     /// </summary>
     public const string CalendarRequired = "calendar_required";
+
+    /// <summary>A language with no reviewed caller-facing wording. Its own code, because the portal says something specific about it.</summary>
+    public const string LanguageNotOffered = "language_not_offered";
 
     /// <summary>A step of the signup form. Refused once the business is live, whatever the portal sends.</summary>
     public async Task<Result<VoiceReceptionistConfig>> ApplyDuringSignupAsync(
@@ -112,6 +116,15 @@ public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialP
             if (!prompt.IsSuccess) return Fail(prompt.Error ?? "The prompt could not be written.", prompt.ErrorCode);
             answers = answers with { SystemPromptTemplate = prompt.Value, Knowledge = null };
         }
+
+        // A language is refused here rather than at the repository, because the repository knows the codes and this knows whether the
+        // words exist. ReceptionistLanguages holds every sentence a caller hears in a language - two of them reviewed under
+        // Fla. Stat. 934.03 - so a code without an entry is a receptionist that could be set to a language it cannot speak, and the
+        // disclosure it would then give is the one nobody understood. Jeff, 2026-11-20: "one could claim one didn't understand."
+        if (answers.Language is not null && !ReceptionistLanguages.IsOffered(answers.Language))
+            return Fail(
+                $"The receptionist cannot be set to {answers.Language}. The languages it can speak are: {string.Join(", ", ReceptionistLanguages.Codes)}.",
+                LanguageNotOffered);
 
         // Turning booking on is the one answer that is refused for a reason outside the answer itself, and only in that direction:
         // turning it off is the business withdrawing permission and nothing may stand in the way of it. The check runs the same call a

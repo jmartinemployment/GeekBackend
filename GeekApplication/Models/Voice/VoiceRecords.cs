@@ -84,6 +84,24 @@ public static class VoiceConsentModes
     public static readonly IReadOnlyList<string> All = [PassiveDisclosure, StrictKeypress];
 }
 
+/// <summary>
+/// The languages a receptionist may speak, as Twilio's BCP-47 locales. Codes only: every sentence a caller hears in each of them lives
+/// in GeekAPI's <c>ReceptionistLanguages</c>, and a test asserts this list and that one hold exactly the same codes, so adding a code
+/// here without its reviewed wording fails the build rather than reaching a caller.
+///
+/// <para>
+/// A language is offerable only once its caller-facing wording - including the consent disclosure, which is reviewed under
+/// Fla. Stat. 934.03 rather than translated - exists. <c>en-US</c> is also ConversationRelay's documented default for an unset
+/// <c>language</c> attribute, so it is both the default and the only entry today.
+/// </para>
+/// </summary>
+public static class VoiceLanguages
+{
+    public const string EnglishUnitedStates = "en-US";
+    public const string Default = EnglishUnitedStates;
+    public static readonly IReadOnlyList<string> All = [EnglishUnitedStates];
+}
+
 public static class VoiceTransferCallerIdModes
 {
     public const string OriginalCaller = "original_caller";
@@ -241,7 +259,14 @@ public sealed record VoiceReceptionistConfig(
     /// The business's own crawled, indexed website, which its receptionist answers questions from. Null when it has none, which gives the
     /// receptionist no lookup tool rather than one that finds nothing. A scope, not a store: the Library holds the vectors.
     /// </summary>
-    Guid? KnowledgeRunId = null);
+    Guid? KnowledgeRunId = null,
+    /// <summary>
+    /// The language the receptionist speaks to a caller in, as Twilio's BCP-47 locale. Its only legal values are the codes in
+    /// <c>ReceptionistLanguages</c>, which holds every sentence a caller hears in that language - including the consent disclosure,
+    /// which is reviewed wording rather than a translatable string. Defaults to ConversationRelay's own default, so a config written
+    /// before this column existed is unchanged rather than unset.
+    /// </summary>
+    string Language = VoiceLanguages.Default);
 
 public sealed record VoiceMcpConnection(
     Guid TenantId,

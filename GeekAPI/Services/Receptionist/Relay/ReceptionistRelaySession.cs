@@ -43,8 +43,11 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     /// rather than left for the next reader to assume transfer works. It comes back with the code that dials.
     /// </para>
     /// </summary>
-    internal const string FailureWithoutTransfer =
-        "I'm having trouble completing that request right now. Please leave your name, phone number, and a brief message after the tone, and our team will call you right back.";
+    /// <summary>
+    /// What the caller is told when the model fails, in the receptionist's language. Set from the language the call was answered in, so
+    /// a failure on a Spanish call is not the one moment the call reverts to English.
+    /// </summary>
+    internal string FailureWithoutTransfer { get; init; } = ReceptionistLanguages.All[0].Failure;
 
     private readonly List<ReceptionistTurn> _turns = [];
     private readonly DateTimeOffset _startedAt = DateTimeOffset.UtcNow;

@@ -38,7 +38,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         message_email_enabled AS MessageEmailEnabled, message_destination_email_encrypted AS MessageDestinationEmailEncrypted,
         include_transcript AS IncludeTranscript, notify_on_abandoned_calls AS NotifyOnAbandonedCalls, booking_requested AS BookingRequested,
         booking_enabled AS BookingEnabled, consent_mode AS ConsentMode,
-        knowledge_run_id AS KnowledgeRunId
+        knowledge_run_id AS KnowledgeRunId, language AS Language
         """;
 
     [GeneratedRegex(@"^\+[1-9]\d{6,14}$")]
@@ -285,11 +285,11 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 INSERT INTO geek_voice.receptionist_configs (
                     tenant_id, greeting_message, system_prompt_template, business_hours_json, qualifying_questions_json,
                     transfer_mode, transfer_target_number_encrypted, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled,
-                    message_email_enabled, message_destination_email_encrypted, include_transcript, notify_on_abandoned_calls, booking_enabled, booking_requested, consent_mode, knowledge_run_id)
+                    message_email_enabled, message_destination_email_encrypted, include_transcript, notify_on_abandoned_calls, booking_enabled, booking_requested, consent_mode, knowledge_run_id, language)
                 VALUES (
                     @TenantId, @GreetingMessage, @SystemPromptTemplate, @BusinessHours::jsonb, @QualifyingQuestions::jsonb,
                     @TransferMode, @TransferTargetNumberEncrypted, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled,
-                    @MessageEmailEnabled, @MessageDestinationEmailEncrypted, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled, @BookingRequested, @ConsentMode, @KnowledgeRunId)
+                    @MessageEmailEnabled, @MessageDestinationEmailEncrypted, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled, @BookingRequested, @ConsentMode, @KnowledgeRunId, @Language)
                 ON CONFLICT (tenant_id) DO UPDATE SET
                     greeting_message = EXCLUDED.greeting_message,
                     system_prompt_template = EXCLUDED.system_prompt_template,
@@ -308,6 +308,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     booking_requested = EXCLUDED.booking_requested,
                     consent_mode = EXCLUDED.consent_mode,
                     knowledge_run_id = EXCLUDED.knowledge_run_id,
+                    language = EXCLUDED.language,
                     updated_at = NOW()
                 RETURNING {ConfigColumns};
                 """,
@@ -332,6 +333,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     config.BookingEnabled,
                     config.ConsentMode,
                     config.KnowledgeRunId,
+                    config.Language,
                 },
                 cancellationToken: ct));
             return Result<VoiceReceptionistConfig>.Success(row.ToModel());
@@ -687,6 +689,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         // Ciphertext: E.164 is checked in GeekAPI before sealing. A number stored here is opaque by design.
         if (c.EmergencyKeywords is null || c.EmergencyKeywords.Any(Blank)) return "Emergency keywords cannot be blank.";
         if (c.MessageEmailEnabled && Blank(c.MessageDestinationEmailEncrypted)) return "Message email needs a destination email address.";
+        if (!VoiceLanguages.All.Contains(c.Language, StringComparer.OrdinalIgnoreCase)) return $"The language must be one of: {string.Join(", ", VoiceLanguages.All)}.";
         if (!VoiceConsentModes.All.Contains(c.ConsentMode, StringComparer.Ordinal)) return $"The consent mode must be one of: {string.Join(", ", VoiceConsentModes.All)}.";
         return null;
     }
@@ -829,12 +832,17 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public string ConsentMode { get; set; } = "";
         public Guid? KnowledgeRunId { get; set; }
 
+        // No initializer, for ConsentMode's reason above: a row read without the column would otherwise become en-US silently, and a
+        // business expecting Spanish would be given the English disclosure - the one nobody understood. An empty string is refused by
+        // ReceptionistLanguages.Find when the call is answered.
+        public string Language { get; set; } = "";
+
         public VoiceReceptionistConfig ToModel() => new(
             GreetingMessage, SystemPromptTemplate, ParseJson(BusinessHours),
             ParseJson(QualifyingQuestions), TransferMode, TransferTargetNumberEncrypted, TransferCallerIdMode,
             EmergencyKeywords, RecordingDisclosureEnabled,
             MessageEmailEnabled, MessageDestinationEmailEncrypted, IncludeTranscript, NotifyOnAbandonedCalls, BookingEnabled, BookingRequested, ConsentMode,
-            KnowledgeRunId);
+            KnowledgeRunId, Language);
     }
 
     private sealed class McpRow

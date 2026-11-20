@@ -69,6 +69,12 @@ public sealed record ReceptionistConfigAnswers(
     bool? BookingEnabled = null,
     bool? BookingRequested = null,
     string? ConsentMode = null,
+    /// <summary>
+    /// The language the receptionist speaks, as one of <c>ReceptionistLanguages.Codes</c>. A code with no reviewed caller-facing wording
+    /// is refused rather than stored: the two sentences of consent are reviewed under Fla. Stat. 934.03, so a language is offerable only
+    /// once it has them, and nothing here may write a code the call could not then speak.
+    /// </summary>
+    string? Language = null,
     ReceptionistKnowledgeAnswers? Knowledge = null)
 {
     /// <summary>
@@ -102,6 +108,7 @@ public sealed record ReceptionistConfigAnswers(
             if (BookingEnabled is not null) answered.Add(nameof(BookingEnabled));
             if (BookingRequested is not null) answered.Add(nameof(BookingRequested));
             if (ConsentMode is not null) answered.Add(nameof(ConsentMode));
+            if (Language is not null) answered.Add(nameof(Language));
             // Named as the setting it becomes, because that is the setting this answer changes.
             if (Knowledge is not null && SystemPromptTemplate is null) answered.Add(nameof(SystemPromptTemplate));
             return answered;
@@ -189,5 +196,6 @@ public sealed record SealedReceptionistConfigAnswers(
         BookingEnabled = Answered.BookingEnabled ?? config.BookingEnabled,
         BookingRequested = Answered.BookingRequested ?? config.BookingRequested,
         ConsentMode = Answered.ConsentMode ?? config.ConsentMode,
+        Language = Answered.Language ?? config.Language,
     };
 }

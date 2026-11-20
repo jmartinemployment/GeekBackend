@@ -101,22 +101,27 @@ public sealed class TenantCallController : ControllerBase
         {
             _logger.LogInformation("Tenant {TenantId}: call {CallSid} is not answered, the tenant is {Status}; it hears the closing message.",
                 tenantId, callSid, standing.Value!.TenantStatus);
-            return Twiml(CallTwiml.Unanswered(tenant.Value!.BusinessName));
+            // The receptionist's language lives on its config, which is not read on this path: a lapsed tenant is turned away before its
+            // settings are fetched, so the closing message is in ConversationRelay's default language rather than the business's own.
+            return Twiml(CallTwiml.Unanswered(tenant.Value!.BusinessName, ReceptionistLanguages.DefaultLanguage));
         }
 
         var settings = await _store.GetConfigAsync(tenantId, ct).ConfigureAwait(false);
         if (!settings.IsSuccess) return Failed(tenantId, "its receptionist settings", settings.Error, settings.ErrorCode);
 
+        var language = ReceptionistLanguages.Find(settings.Value!.Language);
+        if (!language.IsSuccess) return Failed(tenantId, "its receptionist language", language.Error, language.ErrorCode);
+
         if (settings.Value!.ConsentMode == VoiceConsentModes.StrictKeypress)
         {
-            _logger.LogInformation("Tenant {TenantId}: call {CallSid} may be answered; it is asked for consent.", tenantId, callSid);
-            return Twiml(ReceptionistConsent.Ask(tenant.Value!.BusinessName, new Uri(_twilio.PublicBaseUrl + ConsentResultPath(tenantId))));
+            _logger.LogInformation("Tenant {TenantId}: call {CallSid} may be answered; it is asked for consent in {Language}.", tenantId, callSid, language.Value!.Code);
+            return Twiml(ReceptionistConsent.Ask(tenant.Value!.BusinessName, new Uri(_twilio.PublicBaseUrl + ConsentResultPath(tenantId)), language.Value!));
         }
 
         // Passive disclosure, which an owner has chosen over the keypress default: the caller is told as the call connects and is not
         // asked to press anything.
         _logger.LogInformation("Tenant {TenantId}: call {CallSid} may be answered; it hears the disclosure and is handed to the AI.", tenantId, callSid);
-        return HandToAi(tenantId, tenant.Value!, settings.Value, callSid, ReceptionistConsent.DisclosureText(tenant.Value!.BusinessName), form);
+        return HandToAi(tenantId, tenant.Value!, settings.Value, callSid, ReceptionistConsent.DisclosureText(tenant.Value!.BusinessName, language.Value!), form);
     }
 
     [HttpPost("consent-result")]
@@ -130,7 +135,8 @@ public sealed class TenantCallController : ControllerBase
 
         var tenant = await _store.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
         if (!tenant.IsSuccess) return Failed(tenantId, "its tenant", tenant.Error, tenant.ErrorCode);
-        var closing = Twiml(CallTwiml.Unanswered(tenant.Value!.BusinessName));
+        // Same as the lapsed-tenant path: the config, and so the language, has not been read at the point this closing message is built.
+        var closing = Twiml(CallTwiml.Unanswered(tenant.Value!.BusinessName, ReceptionistLanguages.DefaultLanguage));
 
         form.TryGetValue("CallSid", out var callSid);
         form.TryGetValue("Digits", out var digits);
@@ -175,7 +181,17 @@ public sealed class TenantCallController : ControllerBase
         {
             _logger.LogError("Tenant {TenantId}: call {CallSid} cannot be answered, its receptionist settings cannot be used ({Error}); it hears the closing message.",
                 tenantId, callSid, prompt.Error);
-            return Twiml(CallTwiml.Unanswered(tenant.BusinessName));
+            return Twiml(CallTwiml.Unanswered(tenant.BusinessName, ReceptionistLanguages.DefaultLanguage));
+        }
+
+        // SystemPrompt above has already refused an unreadable language, so this cannot fail here; it is resolved again rather than
+        // threaded through, because a second Find is cheaper than a parameter that could be passed the wrong language.
+        var language = ReceptionistLanguages.Find(config.Language);
+        if (!language.IsSuccess)
+        {
+            _logger.LogError("Tenant {TenantId}: call {CallSid} cannot be answered, its receptionist language cannot be used ({Error}); it hears the closing message.",
+                tenantId, callSid, language.Error);
+            return Twiml(CallTwiml.Unanswered(tenant.BusinessName, ReceptionistLanguages.DefaultLanguage));
         }
 
         form.TryGetValue("From", out var callerNumber);
@@ -207,7 +223,7 @@ public sealed class TenantCallController : ControllerBase
         }
 
         var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, deliverAlways, config.KnowledgeRunId, config, spokenGreeting);
-        return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting));
+        return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting, language.Value!));
     }
 
     [HttpGet("relay")]
@@ -298,7 +314,14 @@ public sealed class TenantCallController : ControllerBase
                 _logger.LogError("Tenant {TenantId}: its reception roles could not be built ({Error}); the call is answered by one receptionist.", tenantId, roles.Error);
         }
 
-        session = new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, Outcomes = _outcomes, TenantId = tenantId, Agents = agents, Dispatcher = HttpContext.RequestServices.GetRequiredService<ReceptionistDispatcher>() };
+        // The language the call was answered in, so a mid-call failure is spoken in it rather than reverting to English. The ticket's
+        // config is the same one the call was set up from; with no config on the ticket there is nothing to read a language from, and the
+        // default is ConversationRelay's own.
+        var failureLanguage = ticket.Config is { } ticketConfig && ReceptionistLanguages.Find(ticketConfig.Language) is { IsSuccess: true } found
+            ? found.Value!
+            : ReceptionistLanguages.DefaultLanguage;
+
+        session = new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, Outcomes = _outcomes, TenantId = tenantId, Agents = agents, Dispatcher = HttpContext.RequestServices.GetRequiredService<ReceptionistDispatcher>(), FailureWithoutTransfer = failureLanguage.Failure };
         await session.RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }

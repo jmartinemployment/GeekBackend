@@ -24,21 +24,20 @@ public static class ReceptionistConsent
     public const string ConsentDigit = "1";
 
     /// <summary>
-    /// The plan's passive disclosure, word for word, with the business name. It ends by asking what the caller wants, so it is both the
-    /// disclosure and the greeting: ConversationRelay speaks it and the AI takes the call from there without greeting twice.
+    /// The plan's passive disclosure, word for word, with the business name, in the receptionist's language. It ends by asking what the
+    /// caller wants, so it is both the disclosure and the greeting: ConversationRelay speaks it and the AI takes the call from there
+    /// without greeting twice.
     /// </summary>
-    public static string DisclosureText(string business) =>
-        $"Hi, you've reached {business}'s AI assistant. Calls are processed in real time and not recorded. How can I help you today?";
+    public static string DisclosureText(string business, ReceptionistLanguages.Language language) => language.Disclosure(business);
 
-    /// <summary>Jeff's approved wording, word for word, with the business name.</summary>
-    public static string ConsentText(string business) =>
-        $"Thank you for calling {business}. You will be interacting with our AI receptionist. Your audio will be temporarily recorded and processed to provide this service, but we do not retain call recordings or transcripts. To consent and continue, press 1. To decline, press 2.";
+    /// <summary>Jeff's approved wording, word for word, with the business name, in the receptionist's language.</summary>
+    public static string ConsentText(string business, ReceptionistLanguages.Language language) => language.Consent(business);
 
     /// <summary>
     /// Asks for consent and posts the key to <paramref name="action"/>. With no key, Twilio does not post and goes on to the next verb:
     /// the closing message and a hang-up.
     /// </summary>
-    public static VoiceResponse Ask(string business, Uri action)
+    public static VoiceResponse Ask(string business, Uri action, ReceptionistLanguages.Language language)
     {
         var response = new VoiceResponse();
         var gather = new Gather(
@@ -46,9 +45,11 @@ public static class ReceptionistConsent
             numDigits: 1,
             action: action,
             method: HttpMethod.Post);
-        gather.Say(ConsentText(business));
+        // <Say> is a different TTS path from ConversationRelay and carries its own language: leaving it unset would ask for consent in
+        // English and then converse in the stored language, which is the half-translated call this registry exists to prevent.
+        gather.Say(ConsentText(business, language), language: language.Code);
         response.Append(gather);
-        response.Say(CallTwiml.UnansweredText(business));
+        response.Say(CallTwiml.UnansweredText(business, language), language: language.Code);
         response.Hangup();
         return response;
     }
@@ -60,11 +61,18 @@ public static class ReceptionistConsent
     /// Hands the call to ConversationRelay at <paramref name="relayUrl"/>, which speaks <paramref name="greeting"/> first. Only the
     /// documented url and welcomeGreeting are set: no intelligenceService, the one attribute Twilio documents for persisting transcripts.
     /// </summary>
-    public static VoiceResponse Connect(string relayUrl, string greeting)
+    public static VoiceResponse Connect(string relayUrl, string greeting, ReceptionistLanguages.Language language)
     {
         var response = new VoiceResponse();
         var connect = new Connect();
-        connect.Append(new ConversationRelay(url: relayUrl, welcomeGreeting: greeting));
+        // Both halves are set rather than the single `language` attribute they would both inherit from, because Twilio documents them as
+        // independent and overridable: naming each one leaves nothing to infer about which language is recognised and which is spoken.
+        // Unset, ConversationRelay documents its default as en-US, so this makes explicit what every call has been running on inherited.
+        connect.Append(new ConversationRelay(
+            url: relayUrl,
+            welcomeGreeting: greeting,
+            ttsLanguage: language.Code,
+            transcriptionLanguage: language.Code));
         response.Append(connect);
         return response;
     }
@@ -103,6 +111,14 @@ public static class ReceptionistConsent
         prompt.Append("\n\nNever state a fact about this business - a price, a service, an availability, a policy - that you have not been "
             + "given here or found with a tool. If you have not been given it, say you will take a message and have someone call back. "
             + "Guessing is worse than taking a message.");
+
+        // The model is instructed in English and answers in the caller's language. This line is the only thing that makes that true, and
+        // it is not conditional on the language being non-English: naming en-US explicitly costs nothing and means a prompt read by an
+        // operator says which language the call runs in rather than leaving it to be inferred from the absence of an instruction.
+        var language = ReceptionistLanguages.Find(config.Language);
+        if (!language.IsSuccess) return Result<string>.Failure(language.Error!, language.ErrorCode!);
+        prompt.Append("\n\nConduct this entire call in ").Append(language.Value!.EnglishName)
+            .Append(". Every reply you speak must be in that language, whatever language the caller uses. Do not offer to switch languages.");
 
         var questions = config.QualifyingQuestions;
         if (questions.ValueKind == JsonValueKind.Array && questions.GetArrayLength() == 0)

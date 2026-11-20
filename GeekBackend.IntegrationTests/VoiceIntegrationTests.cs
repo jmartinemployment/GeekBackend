@@ -104,7 +104,7 @@ public sealed class VoiceIntegrationTests
         Assert.True(saved.IsSuccess, saved.Error);
         Assert.Equal(["flood", "no ac"], saved.Value!.EmergencyKeywords);
 
-        var changed = await store.SaveConfigAsync(tenantA, config with { TransferMode = VoiceTransferModes.VoicemailOnly, TransferTargetNumber = null });
+        var changed = await store.SaveConfigAsync(tenantA, config with { TransferMode = VoiceTransferModes.VoicemailOnly, TransferTargetNumberEncrypted = null });
         Assert.Equal(VoiceTransferModes.VoicemailOnly, changed.Value!.TransferMode);
 
         Assert.Equal(VoiceFailureCodes.NotFound, (await store.GetConfigAsync(tenantB)).ErrorCode);
