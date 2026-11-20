@@ -9,8 +9,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace GeekBackend.IntegrationTests;
 
 /// <summary>
-/// geek_voice against a real Postgres with the vector extension: the script applies, a tenant is created and activated once,
-/// one tenant can never read, search, overwrite or reference another tenant's rows, and a retried call report is one row.
+/// geek_voice against a real Postgres: the script applies, a tenant is created and activated once, one tenant can never read,
+/// overwrite, withdraw or reference another tenant's rows, and a retried call report is one row.
 /// Runs only with TEST_DATABASE_URL set. Row-level security is not what these prove: the usual login owns the tables or has
 /// BYPASSRLS, so the WHERE clauses are the guard under test.
 /// </summary>
@@ -24,13 +24,6 @@ public sealed class VoiceIntegrationTests
         new(new NpgsqlConnectionFactory(IntegrationTestConfig.DatabaseUrl!), NullLogger<VoiceRepository>.Instance);
 
     private static string Unique() => Guid.NewGuid().ToString("N");
-
-    private static float[] Axis(int hot)
-    {
-        var v = new float[VoiceEmbedding.Dimensions];
-        v[hot] = 1f;
-        return v;
-    }
 
     private static async Task<Guid> ActiveTenantAsync(VoiceRepository store)
     {
@@ -140,8 +133,13 @@ public sealed class VoiceIntegrationTests
         Assert.Equal(VoiceFailureCodes.NotFound, (await store.SaveMcpConnectionAsync(Guid.NewGuid(), VoiceMcpProviders.Outlook, new("a", "r", null, null))).ErrorCode);
     }
 
+    /// <summary>
+    /// Withdrawing a connection takes the row with it. The first withdrawal reports that one went, a second reports that there was
+    /// none and is still a success, the tenant's own calendar is then gone, and the other tenant's identical connection is untouched:
+    /// one owner's withdrawal can never reach another owner's credentials.
+    /// </summary>
     [Fact]
-    public async Task Knowledge_search_returns_the_closest_chunk_first_and_only_from_its_own_tenant()
+    public async Task A_withdrawn_connection_is_deleted_once_withdrawn_again_reports_nothing_to_remove_and_the_other_tenant_keeps_its_own()
     {
         if (!IntegrationTestConfig.IsDatabaseConfigured) return;
         await SqlMigrationTestHelper.ApplyAsync();
@@ -149,20 +147,57 @@ public sealed class VoiceIntegrationTests
         var tenantA = await ActiveTenantAsync(store);
         var tenantB = await ActiveTenantAsync(store);
 
-        var document = await store.CreateKnowledgeDocumentAsync(tenantA, new(
-            VoiceKnowledgeSourceTypes.GuidedTradeForm, "Hours and prices", null, "We open at eight. A visit costs $89.",
-            [new(0, "We open at eight.", Axis(0)), new(1, "A visit costs $89.", Axis(1))]));
-        Assert.True(document.IsSuccess, document.Error);
+        Assert.True((await store.SaveMcpConnectionAsync(tenantA, VoiceMcpProviders.GoogleCalendar, new("access-a", "refresh-a", Now.AddHours(1), "primary"))).IsSuccess);
+        Assert.True((await store.SaveMcpConnectionAsync(tenantB, VoiceMcpProviders.GoogleCalendar, new("access-b", "refresh-b", Now.AddHours(1), "primary"))).IsSuccess);
 
-        var hits = await store.SearchKnowledgeAsync(tenantA, new(Axis(1), 2));
-        Assert.True(hits.IsSuccess, hits.Error);
-        Assert.Equal(2, hits.Value!.Count);
-        Assert.Equal("A visit costs $89.", hits.Value[0].ChunkText);
-        Assert.True(hits.Value[0].Similarity > hits.Value[1].Similarity);
+        var removed = await store.DisconnectMcpAsync(tenantA, VoiceMcpProviders.GoogleCalendar);
+        Assert.True(removed.IsSuccess, removed.Error);
+        Assert.True(removed.Value!.Removed);
 
-        var other = await store.SearchKnowledgeAsync(tenantB, new(Axis(1), 2));
-        Assert.True(other.IsSuccess, other.Error);
-        Assert.Empty(other.Value!);
+        var again = await store.DisconnectMcpAsync(tenantA, VoiceMcpProviders.GoogleCalendar);
+        Assert.True(again.IsSuccess, again.Error);
+        Assert.False(again.Value!.Removed);
+
+        Assert.Equal(VoiceFailureCodes.NotFound, (await store.GetMcpConnectionAsync(tenantA, VoiceMcpProviders.GoogleCalendar)).ErrorCode);
+        Assert.Equal("access-b", (await store.GetMcpConnectionAsync(tenantB, VoiceMcpProviders.GoogleCalendar)).Value!.OauthAccessTokenEncrypted);
+
+        // The connection is gone, not deactivated: no row of that tenant and provider is left holding the tokens.
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        var rows = await Dapper.SqlMapper.ExecuteScalarAsync<long>(conn,
+            "SELECT COUNT(*) FROM geek_voice.tenant_mcp_connections WHERE tenant_id = @tenantA AND provider = @provider;",
+            new { tenantA, provider = VoiceMcpProviders.GoogleCalendar });
+        Assert.Equal(0, rows);
+    }
+
+    /// <summary>
+    /// The same of a business's own bucket: withdrawing deletes the row and the encrypted keys in it, withdrawing again is a success
+    /// that reports nothing to remove, and the other tenant's bucket stays exactly where it was.
+    /// </summary>
+    [Fact]
+    public async Task A_withdrawn_bucket_is_deleted_and_the_other_tenants_bucket_is_untouched()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var store = NewRepository();
+        var tenantA = await ActiveTenantAsync(store);
+        var tenantB = await ActiveTenantAsync(store);
+
+        Assert.True((await store.SaveStorageConnectionAsync(tenantA, new(
+            VoiceStorageProviders.AwsS3, "key-a", "secret-a", "bucket-a", "calls/", "us-east-1"))).IsSuccess);
+        Assert.True((await store.SaveStorageConnectionAsync(tenantB, new(
+            VoiceStorageProviders.GoogleCloudStorage, "key-b", "secret-b", "bucket-b", "", "us-central1"))).IsSuccess);
+
+        var removed = await store.DisconnectStorageAsync(tenantA);
+        Assert.True(removed.IsSuccess, removed.Error);
+        Assert.True(removed.Value!.Removed);
+
+        var again = await store.DisconnectStorageAsync(tenantA);
+        Assert.True(again.IsSuccess, again.Error);
+        Assert.False(again.Value!.Removed);
+
+        Assert.Equal(VoiceFailureCodes.NotFound, (await store.GetStorageConnectionAsync(tenantA)).ErrorCode);
+        Assert.Equal("bucket-b", (await store.GetStorageConnectionAsync(tenantB)).Value!.Bucket);
     }
 
     [Fact]

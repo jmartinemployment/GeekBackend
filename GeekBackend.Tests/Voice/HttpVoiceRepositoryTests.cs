@@ -100,6 +100,31 @@ public sealed class HttpVoiceRepositoryTests
             handler.Requests.Select(r => (r.Method, r.Path)));
     }
 
+    /// <summary>
+    /// Withdrawing a connection is a DELETE on that connection's own route, sent with no body, and the store's answer is read as it
+    /// comes: "there was nothing to remove" is a success that says so, never a failure and never a claim that something was removed.
+    /// </summary>
+    [Fact]
+    public async Task A_withdrawal_is_a_delete_on_the_connections_route_and_reports_what_the_store_answered()
+    {
+        var (repo, handler, _) = Build(request => Json(new { removed = request.RequestUri!.AbsolutePath.EndsWith("/storage", StringComparison.Ordinal) }));
+
+        var mcp = await repo.DisconnectMcpAsync(Tenant, VoiceMcpProviders.GoogleCalendar);
+        var storage = await repo.DisconnectStorageAsync(Tenant);
+
+        Assert.True(mcp.IsSuccess, mcp.Error);
+        Assert.False(mcp.Value!.Removed);
+        Assert.True(storage.IsSuccess, storage.Error);
+        Assert.True(storage.Value!.Removed);
+        Assert.Equal(
+            [
+                (HttpMethod.Delete, $"/internal/v1/tenants/{Tenant}/mcp/google_calendar"),
+                (HttpMethod.Delete, $"/internal/v1/tenants/{Tenant}/storage"),
+            ],
+            handler.Requests.Select(r => (r.Method, r.Path)));
+        Assert.All(handler.Requests, r => Assert.Null(r.Body));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.NotFound, "no such tenant", VoiceFailureCodes.NotFound)]
     [InlineData(HttpStatusCode.BadRequest, "A business name is required.", VoiceFailureCodes.InvalidRequest)]

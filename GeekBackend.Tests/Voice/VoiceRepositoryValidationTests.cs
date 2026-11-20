@@ -180,6 +180,15 @@ public sealed class VoiceRepositoryValidationTests
     public async Task Saving_a_connection_without_both_tokens_is_refused(string access, string refresh) =>
         await AssertInvalid(Store().SaveMcpConnectionAsync(Tenant, VoiceMcpProviders.GoogleCalendar, new(access, refresh, null, null)));
 
+    /// <summary>
+    /// Withdrawing a connection for a provider this platform has no such thing as is the caller's mistake, refused the same way saving
+    /// one is. Answering "there was nothing to remove" instead would report a withdrawal that never happened, and the owner's real
+    /// connection would still be there holding their tokens.
+    /// </summary>
+    [Fact]
+    public async Task Disconnecting_an_unknown_provider_is_refused() =>
+        await AssertInvalid(Store().DisconnectMcpAsync(Tenant, "icloud"));
+
     [Fact]
     public async Task Saving_a_missing_connection_is_refused() =>
         await AssertInvalid(Store().SaveMcpConnectionAsync(Tenant, VoiceMcpProviders.GoogleCalendar, null!));
@@ -256,6 +265,29 @@ public sealed class VoiceRepositoryValidationTests
         var repository = File.ReadAllText(Path.Combine(RepositoryDirectory, "VoiceRepository.cs"));
         Assert.Contains("knowledge_run_id AS KnowledgeRunId", repository, StringComparison.Ordinal);
         Assert.Contains("knowledge_run_id = EXCLUDED.knowledge_run_id", repository, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A withdrawal deletes the row and names its tenant while doing it. Both halves are read off the statements themselves because
+    /// both are what the owner was promised: the credential goes rather than being left behind under a flag, and the WHERE clause —
+    /// not row-level security, which the owning login bypasses — is what keeps one owner's withdrawal off another owner's row.
+    /// </summary>
+    [Fact]
+    public void A_withdrawal_deletes_the_row_and_names_its_tenant()
+    {
+        // Comment lines go first: what a doc comment says about a flag is not what the code does with one.
+        var repository = Regex.Replace(File.ReadAllText(Path.Combine(RepositoryDirectory, "VoiceRepository.cs")), @"^\s*//.*$", string.Empty, RegexOptions.Multiline);
+
+        var deletes = Regex.Matches(repository, @"DELETE FROM geek_voice\.(\w+)\s+WHERE ([^;]+);");
+        Assert.Equal(2, deletes.Count);
+        Assert.Equal(
+            ["storage_connections", "tenant_mcp_connections"],
+            deletes.Select(d => d.Groups[1].Value).OrderBy(t => t, StringComparer.Ordinal));
+        Assert.All(deletes, d => Assert.Contains("tenant_id = @TenantId", d.Groups[2].Value, StringComparison.Ordinal));
+        Assert.Contains("provider = @Provider", deletes.Single(d => d.Groups[1].Value == "tenant_mcp_connections").Groups[2].Value, StringComparison.Ordinal);
+
+        // Nothing is deactivated in a withdrawal's place: a credential the owner withdrew is gone, not kept with a flag turned off.
+        Assert.DoesNotContain("is_active = FALSE", repository, StringComparison.Ordinal);
     }
 
     [Fact]

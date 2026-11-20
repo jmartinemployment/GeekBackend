@@ -38,6 +38,10 @@ public sealed class VoiceTenantController(IVoiceStore voice) : VoiceStoreControl
     public async Task<IActionResult> SaveMcpConnection(Guid tenantId, string provider, [FromBody] SaveVoiceMcpConnectionCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A connection is required.") : ToAction(await voice.SaveMcpConnectionAsync(tenantId, provider, command, ct));
 
+    [HttpDelete("mcp/{provider}")]
+    public async Task<IActionResult> DisconnectMcp(Guid tenantId, string provider, CancellationToken ct) =>
+        ToAction(await voice.DisconnectMcpAsync(tenantId, provider, ct));
+
     [HttpGet("storage")]
     public async Task<IActionResult> GetStorageConnection(Guid tenantId, CancellationToken ct) =>
         ToAction(await voice.GetStorageConnectionAsync(tenantId, ct));
@@ -45,6 +49,10 @@ public sealed class VoiceTenantController(IVoiceStore voice) : VoiceStoreControl
     [HttpPut("storage")]
     public async Task<IActionResult> SaveStorageConnection(Guid tenantId, [FromBody] SaveVoiceStorageConnectionCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A storage connection is required.") : ToAction(await voice.SaveStorageConnectionAsync(tenantId, command, ct));
+
+    [HttpDelete("storage")]
+    public async Task<IActionResult> DisconnectStorage(Guid tenantId, CancellationToken ct) =>
+        ToAction(await voice.DisconnectStorageAsync(tenantId, ct));
 
 
 

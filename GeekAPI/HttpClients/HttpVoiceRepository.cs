@@ -53,11 +53,17 @@ public sealed class HttpVoiceRepository : IVoiceStore, IVoiceSignupAnswerStore, 
     public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default) =>
         _transport.SendAsync<VoiceMcpConnection>(HttpMethod.Put, $"internal/v1/tenants/{tenantId}/mcp/{Uri.EscapeDataString(provider)}", command, ct);
 
+    public Task<Result<VoiceConnectionRemoved>> DisconnectMcpAsync(Guid tenantId, string provider, CancellationToken ct = default) =>
+        _transport.SendAsync<VoiceConnectionRemoved>(HttpMethod.Delete, $"internal/v1/tenants/{tenantId}/mcp/{Uri.EscapeDataString(provider)}", null, ct);
+
     public Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default) =>
         _transport.SendAsync<VoiceStorageConnection>(HttpMethod.Get, $"internal/v1/tenants/{tenantId}/storage", null, ct);
 
     public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) =>
         _transport.SendAsync<VoiceStorageConnection>(HttpMethod.Put, $"internal/v1/tenants/{tenantId}/storage", command, ct);
+
+    public Task<Result<VoiceConnectionRemoved>> DisconnectStorageAsync(Guid tenantId, CancellationToken ct = default) =>
+        _transport.SendAsync<VoiceConnectionRemoved>(HttpMethod.Delete, $"internal/v1/tenants/{tenantId}/storage", null, ct);
 
     // ----- Calls and appointments -----
 

@@ -442,6 +442,30 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         }
     }
 
+    /// <summary>
+    /// The owner withdraws a calendar, CRM or Drive connection. The row is <b>deleted</b>, not left with <c>is_active = FALSE</c>: it
+    /// holds the owner's encrypted OAuth tokens, and keeping a credential after its owner withdrew permission is retaining something
+    /// they revoked. Deleting is the fail-safe reading, so it is what this does, and there is nothing left to reactivate. A connection
+    /// that is already gone answers <c>Removed: false</c> and is not a failure — an owner withdrawing permission twice has still
+    /// withdrawn it. An unknown provider is refused, as saving one is. Only this tenant's row can go: the tenant is named in the WHERE
+    /// clause and in the connection's own session setting.
+    /// </summary>
+    public async Task<Result<VoiceConnectionRemoved>> DisconnectMcpAsync(Guid tenantId, string provider, CancellationToken ct = default)
+    {
+        if (!VoiceMcpProviders.All.Contains(provider, StringComparer.Ordinal))
+            return Invalid<VoiceConnectionRemoved>($"The provider must be one of: {string.Join(", ", VoiceMcpProviders.All)}.");
+
+        await using var conn = await OpenForTenantAsync(tenantId, ct);
+        // Inactive rows go too: a withdrawn connection leaves no ciphertext behind, whatever state it was in.
+        var removed = await conn.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM geek_voice.tenant_mcp_connections
+            WHERE tenant_id = @TenantId AND provider = @Provider;
+            """,
+            new { TenantId = tenantId, Provider = provider },
+            cancellationToken: ct));
+        return Result<VoiceConnectionRemoved>.Success(new VoiceConnectionRemoved(removed > 0));
+    }
+
     // ----- Bring-your-own-storage -----
 
     private const string StorageColumns = """
@@ -505,6 +529,26 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         {
             return Refused<VoiceStorageConnection>(ex, "The storage connection was refused by the database.");
         }
+    }
+
+    /// <summary>
+    /// The owner withdraws the bucket their call records were written to. The row is <b>deleted</b>, not left with
+    /// <c>is_active = FALSE</c>: it holds the owner's encrypted access key and secret, and keeping a credential after its owner
+    /// withdrew permission is retaining something they revoked. Deleting is the fail-safe reading, so it is what this does. A
+    /// connection that is already gone answers <c>Removed: false</c> and is not a failure — an owner withdrawing permission twice has
+    /// still withdrawn it. One tenant per row and the tenant named in the WHERE clause: another tenant's bucket can never go with it.
+    /// </summary>
+    public async Task<Result<VoiceConnectionRemoved>> DisconnectStorageAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenForTenantAsync(tenantId, ct);
+        // Inactive rows go too: a withdrawn bucket leaves no ciphertext behind, whatever state it was in.
+        var removed = await conn.ExecuteAsync(new CommandDefinition("""
+            DELETE FROM geek_voice.storage_connections
+            WHERE tenant_id = @TenantId;
+            """,
+            new { TenantId = tenantId },
+            cancellationToken: ct));
+        return Result<VoiceConnectionRemoved>.Success(new VoiceConnectionRemoved(removed > 0));
     }
 
     // ----- Calls and appointments -----

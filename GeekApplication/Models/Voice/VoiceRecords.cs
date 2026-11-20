@@ -250,6 +250,11 @@ public sealed record SaveVoiceStorageConnectionCommand(
     string KeyPrefix,
     string Region);
 
+// ----- Withdrawing a connection -----
+
+/// <summary>Whether there was a connection to remove. Removing one that is already gone is not a failure: an owner withdrawing permission twice has still withdrawn it.</summary>
+public sealed record VoiceConnectionRemoved(bool Removed);
+
 // ----- Calls and appointments -----
 
 /// <summary>
