@@ -59,19 +59,6 @@ public sealed class HttpVoiceRepository : IVoiceStore, IVoiceSignupAnswerStore, 
     public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) =>
         _transport.SendAsync<VoiceStorageConnection>(HttpMethod.Put, $"internal/v1/tenants/{tenantId}/storage", command, ct);
 
-    // ----- Knowledge -----
-
-    public Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default) =>
-        _transport.SendAsync<VoiceKnowledgeDocumentCreated>(HttpMethod.Post, $"internal/v1/tenants/{tenantId}/knowledge/documents", command, ct);
-
-    public async Task<Result<IReadOnlyList<VoiceKnowledgeHit>>> SearchKnowledgeAsync(Guid tenantId, SearchVoiceKnowledgeCommand command, CancellationToken ct = default)
-    {
-        var result = await _transport.SendAsync<List<VoiceKnowledgeHit>>(HttpMethod.Post, $"internal/v1/tenants/{tenantId}/knowledge/search", command, ct).ConfigureAwait(false);
-        return result.IsSuccess
-            ? Result<IReadOnlyList<VoiceKnowledgeHit>>.Success(result.Value!)
-            : Result<IReadOnlyList<VoiceKnowledgeHit>>.Failure(result.Error ?? "The search failed.", result.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
-    }
-
     // ----- Calls and appointments -----
 
     public Task<Result<VoiceCallStored>> UpsertCallAsync(Guid tenantId, UpsertVoiceCallCommand command, CancellationToken ct = default) =>

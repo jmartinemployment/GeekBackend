@@ -28,7 +28,6 @@ public sealed class VoiceRepositoryValidationTests
 
     private static VoiceRepository Store() => new(new NoDatabase(), NullLogger<VoiceRepository>.Instance);
 
-    private static IReadOnlyList<float> Embedding(int length = VoiceEmbedding.Dimensions) => Enumerable.Repeat(0.5f, length).ToList();
 
     private static CreateVoiceTenantCommand GoodTenant() => new(
         "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) };
@@ -185,45 +184,6 @@ public sealed class VoiceRepositoryValidationTests
     public async Task Saving_a_missing_connection_is_refused() =>
         await AssertInvalid(Store().SaveMcpConnectionAsync(Tenant, VoiceMcpProviders.GoogleCalendar, null!));
 
-    // ----- Knowledge -----
-
-    private static CreateVoiceKnowledgeDocumentCommand GoodDocument(params VoiceKnowledgeChunk[] chunks) =>
-        new(VoiceKnowledgeSourceTypes.GuidedTradeForm, "Hours and prices", null, "We open at eight.", chunks);
-
-    [Fact]
-    public async Task A_document_with_no_chunks_is_refused() =>
-        await AssertInvalid(Store().CreateKnowledgeDocumentAsync(Tenant, GoodDocument()));
-
-    [Fact]
-    public async Task An_embedding_of_the_wrong_length_is_refused() =>
-        await AssertInvalid(Store().CreateKnowledgeDocumentAsync(Tenant, GoodDocument(new VoiceKnowledgeChunk(0, "text", Embedding(383)))));
-
-    [Fact]
-    public async Task An_embedding_with_a_value_that_is_not_a_number_is_refused()
-    {
-        var bad = Embedding().ToArray();
-        bad[10] = float.NaN;
-        await AssertInvalid(Store().CreateKnowledgeDocumentAsync(Tenant, GoodDocument(new VoiceKnowledgeChunk(0, "text", bad))));
-    }
-
-    [Fact]
-    public async Task Two_chunks_with_the_same_number_are_refused() =>
-        await AssertInvalid(Store().CreateKnowledgeDocumentAsync(Tenant, GoodDocument(new VoiceKnowledgeChunk(0, "a", Embedding()), new VoiceKnowledgeChunk(0, "b", Embedding()))));
-
-    [Fact]
-    public async Task An_unknown_source_type_is_refused() =>
-        await AssertInvalid(Store().CreateKnowledgeDocumentAsync(Tenant, GoodDocument(new VoiceKnowledgeChunk(0, "a", Embedding())) with { SourceType = "markdown_blob" }));
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(51)]
-    public async Task A_search_limit_outside_the_range_is_refused(int limit) =>
-        await AssertInvalid(Store().SearchKnowledgeAsync(Tenant, new(Embedding(), limit)));
-
-    [Fact]
-    public async Task A_search_embedding_of_the_wrong_length_is_refused() =>
-        await AssertInvalid(Store().SearchKnowledgeAsync(Tenant, new(Embedding(10), 4)));
-
     // ----- Calls and appointments -----
 
     private static UpsertVoiceCallCommand GoodCall() => new("CAtest", "completed", Now, Now.AddMinutes(3), 180, 3, null);
@@ -287,20 +247,17 @@ public sealed class VoiceRepositoryValidationTests
         // Widened when Drive joined the providers a tenant can connect, so the baseline is no longer where this list lives.
         AssertCheckList("provider", VoiceMcpProviders.All, "0078_geek_voice_google_drive_provider.sql");
         AssertCheckList("mcp_provider", VoiceMcpProviders.Calendars);
-        AssertCheckList("source_type", VoiceKnowledgeSourceTypes.All);
     }
 
-    [Fact]
-    public void The_embedding_column_has_the_dimensions_the_code_checks()
-    {
-        Assert.Contains($"embedding     vector({VoiceEmbedding.Dimensions})", Sql, StringComparison.Ordinal);
-    }
 
     [Fact]
     public void Every_table_has_row_level_security_forced_and_a_policy()
     {
-        var tables = Regex.Matches(Sql, @"CREATE TABLE IF NOT EXISTS geek_voice\.(\w+)").Select(m => m.Groups[1].Value).ToList();
-        Assert.Equal(9, tables.Count);
+        var dropped = Regex.Matches(SqlOf("0080_geek_voice_drop_knowledge.sql"), @"DROP TABLE IF EXISTS geek_voice\.(\w+)")
+            .Select(m => m.Groups[1].Value).ToHashSet(StringComparer.Ordinal);
+        var tables = Regex.Matches(Sql, @"CREATE TABLE IF NOT EXISTS geek_voice\.(\w+)")
+            .Select(m => m.Groups[1].Value).Where(t => !dropped.Contains(t)).ToList();
+        Assert.Equal(7, tables.Count);
         foreach (var table in tables)
         {
             Assert.Contains($"ALTER TABLE geek_voice.{table}", Sql, StringComparison.Ordinal);

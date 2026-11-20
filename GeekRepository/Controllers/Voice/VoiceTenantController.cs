@@ -9,7 +9,7 @@ namespace GeekRepository.Controllers.Voice;
 
 /// <summary>
 /// /internal/v1/tenants/{tenantId}/* (docs/Geek-Receptionist.md section 6): one tenant's telephony, settings, calendar connection,
-/// knowledge, calls and appointments. Every route names its tenant and the store never reads across tenants. Behind
+/// storage connections, calls and appointments. Every route names its tenant and the store never reads across tenants. Behind
 /// X-Internal-Api-Key. GeekAPI takes the tenant from the signed-in user's token before it calls here; this service trusts the id
 /// it is given because only GeekAPI holds the key.
 /// </summary>
@@ -46,14 +46,7 @@ public sealed class VoiceTenantController(IVoiceStore voice) : VoiceStoreControl
     public async Task<IActionResult> SaveStorageConnection(Guid tenantId, [FromBody] SaveVoiceStorageConnectionCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A storage connection is required.") : ToAction(await voice.SaveStorageConnectionAsync(tenantId, command, ct));
 
-    [HttpPost("knowledge/documents")]
-    [RequestSizeLimit(20_000_000)]
-    public async Task<IActionResult> CreateKnowledgeDocument(Guid tenantId, [FromBody] CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct) =>
-        command is null ? BadRequest("A document is required.") : ToAction(await voice.CreateKnowledgeDocumentAsync(tenantId, command, ct));
 
-    [HttpPost("knowledge/search")]
-    public async Task<IActionResult> SearchKnowledge(Guid tenantId, [FromBody] SearchVoiceKnowledgeCommand command, CancellationToken ct) =>
-        command is null ? BadRequest("A search is required.") : ToAction(await voice.SearchKnowledgeAsync(tenantId, command, ct));
 
     [HttpPost("calls")]
     public async Task<IActionResult> UpsertCall(Guid tenantId, [FromBody] UpsertVoiceCallCommand command, CancellationToken ct) =>

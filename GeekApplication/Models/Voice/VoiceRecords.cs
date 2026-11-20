@@ -86,14 +86,6 @@ public static class VoiceMcpProviders
     public static readonly IReadOnlyList<string> Calendars = [GoogleCalendar, Outlook, CalCom, HubSpot];
 }
 
-public static class VoiceKnowledgeSourceTypes
-{
-    public const string GuidedTradeForm = "guided_trade_form";
-    public const string PdfUpload = "pdf_upload";
-    public const string GeekCrawlerUrl = "geek_crawler_url";
-    public static readonly IReadOnlyList<string> All = [GuidedTradeForm, PdfUpload, GeekCrawlerUrl];
-}
-
 /// <summary>
 /// The object stores a business can have its call records written to (plans/client-and-app-plan.md, "AWS S3 / Google Cloud Storage").
 /// Both speak the S3 API and are signed the same way; only the endpoint differs.
@@ -103,12 +95,6 @@ public static class VoiceStorageProviders
     public const string AwsS3 = "aws_s3";
     public const string GoogleCloudStorage = "google_cloud_storage";
     public static readonly IReadOnlyList<string> All = [AwsS3, GoogleCloudStorage];
-}
-
-/// <summary>The size of an embedding: BAAI/bge-small-en-v1.5.</summary>
-public static class VoiceEmbedding
-{
-    public const int Dimensions = 384;
 }
 
 // ----- Tenants -----
@@ -230,25 +216,6 @@ public sealed record SaveVoiceMcpConnectionCommand(
     string OauthRefreshTokenEncrypted,
     DateTimeOffset? TokenExpiresAt,
     string? ExternalCalendarId);
-
-// ----- Knowledge -----
-
-public sealed record VoiceKnowledgeChunk(int ChunkIndex, string ChunkText, IReadOnlyList<float> Embedding);
-
-/// <summary>A document and all of its chunks, stored together or not at all.</summary>
-public sealed record CreateVoiceKnowledgeDocumentCommand(
-    string SourceType,
-    string Title,
-    string? SourceUrl,
-    string RawContent,
-    IReadOnlyList<VoiceKnowledgeChunk> Chunks);
-
-public sealed record VoiceKnowledgeDocumentCreated(Guid DocumentId);
-
-public sealed record SearchVoiceKnowledgeCommand(IReadOnlyList<float> QueryEmbedding, int Limit);
-
-/// <summary>Cosine similarity, 1 for the same direction and lower the further apart.</summary>
-public sealed record VoiceKnowledgeHit(Guid DocumentId, int ChunkIndex, string ChunkText, double Similarity);
 
 // ----- Bring-your-own-storage -----
 

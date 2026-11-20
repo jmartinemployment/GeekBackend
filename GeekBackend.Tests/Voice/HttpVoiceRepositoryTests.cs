@@ -88,7 +88,6 @@ public sealed class HttpVoiceRepositoryTests
         await repo.GetConfigAsync(Tenant);
         await repo.GetMcpConnectionAsync(Tenant, VoiceMcpProviders.GoogleCalendar);
         await repo.SaveMcpConnectionAsync(Tenant, VoiceMcpProviders.GoogleCalendar, new SaveVoiceMcpConnectionCommand("a", "r", null, null));
-        await repo.SearchKnowledgeAsync(Tenant, new SearchVoiceKnowledgeCommand([0.1f], 3));
 
         Assert.Equal(
             [
@@ -97,7 +96,6 @@ public sealed class HttpVoiceRepositoryTests
                 (HttpMethod.Get, $"/internal/v1/tenants/{Tenant}/config"),
                 (HttpMethod.Get, $"/internal/v1/tenants/{Tenant}/mcp/google_calendar"),
                 (HttpMethod.Put, $"/internal/v1/tenants/{Tenant}/mcp/google_calendar"),
-                (HttpMethod.Post, $"/internal/v1/tenants/{Tenant}/knowledge/search"),
             ],
             handler.Requests.Select(r => (r.Method, r.Path)));
     }
@@ -144,20 +142,6 @@ public sealed class HttpVoiceRepositoryTests
         Assert.NotEmpty(log.Lines);
     }
 
-    [Fact]
-    public async Task An_empty_search_is_a_list_and_a_failed_search_is_never_one()
-    {
-        var (ok, _, _) = Build(_ => Json(Array.Empty<object>()));
-        var (down, _, _) = Build(_ => Text(HttpStatusCode.ServiceUnavailable, "database down"));
-
-        var empty = await ok.SearchKnowledgeAsync(Tenant, new SearchVoiceKnowledgeCommand([0.1f], 3));
-        var failed = await down.SearchKnowledgeAsync(Tenant, new SearchVoiceKnowledgeCommand([0.1f], 3));
-
-        Assert.True(empty.IsSuccess);
-        Assert.Empty(empty.Value!);
-        Assert.False(failed.IsSuccess);
-        Assert.Equal(VoiceFailureCodes.StoreUnavailable, failed.ErrorCode);
-    }
 
     [Fact]
     public async Task A_body_that_does_not_parse_is_unavailable()

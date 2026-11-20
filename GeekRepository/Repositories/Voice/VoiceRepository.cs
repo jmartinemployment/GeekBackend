@@ -23,7 +23,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 {
     private readonly ILogger<VoiceRepository> _logger = logger;
 
-    private const int MaxSearchResults = 50;
     private const string TenantColumns = """
         id AS Id, business_name AS BusinessName, industry_vertical AS IndustryVertical,
         compliance_attested_at AS ComplianceAttestedAt, country_code AS CountryCode, state_code AS StateCode,
@@ -505,69 +504,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         }
     }
 
-    // ----- Knowledge -----
-
-    public async Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default)
-    {
-        var problem = ValidateDocument(command);
-        if (problem is not null) return Invalid<VoiceKnowledgeDocumentCreated>(problem);
-
-        try
-        {
-            await using var conn = await OpenForTenantAsync(tenantId, ct);
-            await using var tx = await conn.BeginTransactionAsync(ct);
-
-            var documentId = await conn.QuerySingleAsync<Guid>(new CommandDefinition("""
-                INSERT INTO geek_voice.knowledge_documents (tenant_id, source_type, title, source_url, raw_content, status)
-                VALUES (@TenantId, @SourceType, @Title, @SourceUrl, @RawContent, 'indexed')
-                RETURNING id;
-                """,
-                new { TenantId = tenantId, command.SourceType, command.Title, command.SourceUrl, command.RawContent },
-                transaction: tx,
-                cancellationToken: ct));
-
-            foreach (var chunk in command.Chunks)
-            {
-                await conn.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO geek_voice.knowledge_chunks (tenant_id, document_id, chunk_index, chunk_text, embedding)
-                    VALUES (@TenantId, @DocumentId, @ChunkIndex, @ChunkText, @Embedding::vector);
-                    """,
-                    new { TenantId = tenantId, DocumentId = documentId, chunk.ChunkIndex, chunk.ChunkText, Embedding = VectorLiteral(chunk.Embedding) },
-                    transaction: tx,
-                    cancellationToken: ct));
-            }
-
-            await tx.CommitAsync(ct);
-            return Result<VoiceKnowledgeDocumentCreated>.Success(new VoiceKnowledgeDocumentCreated(documentId));
-        }
-        catch (PostgresException ex) when (IsRefusal(ex))
-        {
-            return Refused<VoiceKnowledgeDocumentCreated>(ex, "The document was refused by the database.");
-        }
-    }
-
-    public async Task<Result<IReadOnlyList<VoiceKnowledgeHit>>> SearchKnowledgeAsync(Guid tenantId, SearchVoiceKnowledgeCommand command, CancellationToken ct = default)
-    {
-        if (command.Limit < 1 || command.Limit > MaxSearchResults)
-            return Invalid<IReadOnlyList<VoiceKnowledgeHit>>($"The limit must be from 1 to {MaxSearchResults}.");
-        var embeddingProblem = ValidateEmbedding(command.QueryEmbedding);
-        if (embeddingProblem is not null) return Invalid<IReadOnlyList<VoiceKnowledgeHit>>(embeddingProblem);
-
-        await using var conn = await OpenForTenantAsync(tenantId, ct);
-        var hits = (await conn.QueryAsync<HitRow>(new CommandDefinition("""
-            SELECT
-                document_id AS DocumentId, chunk_index AS ChunkIndex, chunk_text AS ChunkText,
-                1 - (embedding <=> @QueryEmbedding::vector) AS Similarity
-            FROM geek_voice.knowledge_chunks
-            WHERE tenant_id = @TenantId
-            ORDER BY embedding <=> @QueryEmbedding::vector
-            LIMIT @Limit;
-            """,
-            new { TenantId = tenantId, QueryEmbedding = VectorLiteral(command.QueryEmbedding), command.Limit },
-            cancellationToken: ct))).Select(h => new VoiceKnowledgeHit(h.DocumentId, h.ChunkIndex, h.ChunkText, h.Similarity)).ToList();
-        return Result<IReadOnlyList<VoiceKnowledgeHit>>.Success(hits);
-    }
-
     // ----- Calls and appointments -----
 
     public async Task<Result<VoiceCallStored>> UpsertCallAsync(Guid tenantId, UpsertVoiceCallCommand command, CancellationToken ct = default)
@@ -751,22 +687,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         && System.Net.Mail.MailAddress.TryCreate(value, out var address)
         && string.Equals(address.Address, value, StringComparison.Ordinal);
 
-    private static string? ValidateDocument(CreateVoiceKnowledgeDocumentCommand c)
-    {
-        if (!VoiceKnowledgeSourceTypes.All.Contains(c.SourceType, StringComparer.Ordinal)) return $"The source type must be one of: {string.Join(", ", VoiceKnowledgeSourceTypes.All)}.";
-        if (Blank(c.Title) || Blank(c.RawContent)) return "A title and content are required.";
-        if (c.Chunks is null || c.Chunks.Count == 0) return "A document needs at least one chunk.";
-        if (c.Chunks.Select(x => x.ChunkIndex).Distinct().Count() != c.Chunks.Count) return "Chunk numbers must be different.";
-        foreach (var chunk in c.Chunks)
-        {
-            if (chunk.ChunkIndex < 0) return "Chunk numbers cannot be negative.";
-            if (Blank(chunk.ChunkText)) return "A chunk needs text.";
-            var embeddingProblem = ValidateEmbedding(chunk.Embedding);
-            if (embeddingProblem is not null) return embeddingProblem;
-        }
-
-        return null;
-    }
 
     private static string? ValidateMcpConnection(string provider, SaveVoiceMcpConnectionCommand? c)
     {
@@ -789,11 +709,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         return null;
     }
 
-    private static string? ValidateEmbedding(IReadOnlyList<float>? embedding)
-    {
-        if (embedding is null || embedding.Count != VoiceEmbedding.Dimensions) return $"An embedding has exactly {VoiceEmbedding.Dimensions} numbers.";
-        return embedding.All(float.IsFinite) ? null : "An embedding cannot hold NaN or infinity.";
-    }
 
     private static string? ValidateCall(UpsertVoiceCallCommand c)
     {
@@ -919,11 +834,4 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             TokenExpiresAt is null ? null : Utc(TokenExpiresAt.Value), ExternalCalendarId, IsActive);
     }
 
-    private sealed class HitRow
-    {
-        public Guid DocumentId { get; set; }
-        public int ChunkIndex { get; set; }
-        public string ChunkText { get; set; } = "";
-        public double Similarity { get; set; }
-    }
 }
