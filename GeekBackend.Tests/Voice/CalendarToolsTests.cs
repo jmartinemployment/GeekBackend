@@ -481,8 +481,8 @@ public sealed class CalendarToolsTests
             ? (toolsBody is null ? new HttpResponseMessage(toolsStatus) : Json(toolsBody, toolsStatus))
             : GatewayOk());
 
-    private static Task<CalendarToolbox?> BoxAsync(Rig rig) =>
-        CalendarToolbox.CreateAsync(Tenant, rig.Tools, rig.Client, rig.GatewayLog);
+    private static Task<CalendarToolbox?> BoxAsync(Rig rig, CalendarToolCatalog? catalog = null) =>
+        CalendarToolbox.CreateAsync(Tenant, rig.Store, rig.Tools, catalog ?? new CalendarToolCatalog(new Clock(Now)), rig.Client, rig.GatewayLog);
 
     [Fact]
     public async Task The_gateway_tool_list_is_read_with_googles_own_schemas_and_sends_no_token()
@@ -580,15 +580,63 @@ public sealed class CalendarToolsTests
     [Fact]
     public async Task A_tool_that_fails_gives_its_code_and_no_log_line_carries_what_the_caller_wanted()
     {
-        var rig = new Rig(active: false, gateway: request =>
-            request.RequestUri!.AbsolutePath.EndsWith("/tools", StringComparison.Ordinal) ? Json(ToolsJson) : GatewayOk());
+        var rig = ToolRig();
         var box = await BoxAsync(rig);
+        // The connection goes away between building the toolbox and the caller asking, which is the tool failing, not the toolbox.
+        rig.Store.Connection = Result<VoiceMcpConnection>.Failure("gone", VoiceFailureCodes.NotFound);
 
         var result = await box!.RunAsync(new ReceptionistToolCall("c1", "list_events", $$"""{"q":"{{Secret}}"}"""));
 
         Assert.False(result.IsSuccess);
         Assert.Equal(McpFailureCodes.CalendarNotConnected, result.ErrorCode);
         Assert.DoesNotContain(rig.AllLogLines, l => l.Contains(Secret, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_business_that_connected_no_calendar_gets_no_tools_and_no_error()
+    {
+        var rig = ToolRig();
+        rig.Store.Connection = Result<VoiceMcpConnection>.Failure("none", VoiceFailureCodes.NotFound);
+
+        Assert.Null(await BoxAsync(rig));
+        Assert.Contains(rig.GatewayLog.Lines, l => l.Contains("no calendar is connected", StringComparison.Ordinal));
+        // Nothing is asked of the gateway for a business that has not connected one.
+        Assert.Empty(rig.Gateway.Seen);
+    }
+
+    [Fact]
+    public async Task A_connection_the_owner_turned_off_gets_no_tools()
+    {
+        var rig = new Rig(active: false, gateway: request =>
+            request.RequestUri!.AbsolutePath.EndsWith("/tools", StringComparison.Ordinal) ? Json(ToolsJson) : GatewayOk());
+
+        Assert.Null(await BoxAsync(rig));
+        Assert.Empty(rig.Gateway.Seen);
+    }
+
+    [Fact]
+    public async Task The_tool_list_is_read_once_and_then_kept_so_a_call_does_not_wait_for_it()
+    {
+        var rig = ToolRig();
+        var catalog = new CalendarToolCatalog(new Clock(Now));
+
+        Assert.NotNull(await BoxAsync(rig, catalog));
+        Assert.NotNull(await BoxAsync(rig, catalog));
+        Assert.NotNull(await BoxAsync(rig, catalog));
+
+        Assert.Single(rig.Gateway.Seen, seen => seen.Url.EndsWith("/v1/mcp/tools", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_tool_list_that_could_not_be_read_is_not_kept_so_the_next_call_tries_again()
+    {
+        var rig = ToolRig(null, HttpStatusCode.ServiceUnavailable);
+        var catalog = new CalendarToolCatalog(new Clock(Now));
+
+        Assert.Null(await BoxAsync(rig, catalog));
+        Assert.Null(await BoxAsync(rig, catalog));
+
+        Assert.Equal(2, rig.Gateway.Seen.Count(seen => seen.Url.EndsWith("/v1/mcp/tools", StringComparison.Ordinal)));
     }
 
 }

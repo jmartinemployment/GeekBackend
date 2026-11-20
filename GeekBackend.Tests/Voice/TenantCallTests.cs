@@ -8,6 +8,7 @@ using GeekBackend.Tests.Receptionist;
 using GeekAPI.Services.Voice;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Calls;
+using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Telephony;
 using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
@@ -301,6 +302,7 @@ public sealed class TenantCallTests
             model ?? new FakeReceptionistModel(configured: false),
             new RelayTickets(new FakeTimeProvider(Now)),
             new TwilioOptions("ACmaster", "master-token", BaseUrl),
+            new CalendarToolCatalog(new FakeTimeProvider(Now)),
             NullLogger<TenantCallController>.Instance);
 
         var path = $"/{TenantCallController.RoutePrefix}/{Tenant}/{route}";

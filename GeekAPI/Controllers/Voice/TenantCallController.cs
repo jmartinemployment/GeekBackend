@@ -2,6 +2,7 @@ using GeekAPI.Services.Receptionist;
 using GeekAPI.Services.Receptionist.Relay;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Calls;
+using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Telephony;
 using GeekApplication.Interfaces.Receptionist;
 using GeekApplication.Interfaces.Voice;
@@ -42,6 +43,7 @@ public sealed class TenantCallController : ControllerBase
     private readonly IReceptionistModel _model;
     private readonly RelayTickets _tickets;
     private readonly TwilioOptions _twilio;
+    private readonly CalendarToolCatalog _catalog;
     private readonly ILogger<TenantCallController> _logger;
 
     public TenantCallController(
@@ -53,11 +55,13 @@ public sealed class TenantCallController : ControllerBase
         IReceptionistModel model,
         RelayTickets tickets,
         TwilioOptions twilio,
+        CalendarToolCatalog catalog,
         ILogger<TenantCallController> logger)
     {
         _model = model;
         _tickets = tickets;
         _twilio = twilio;
+        _catalog = catalog;
         _webhook = webhook;
         _recorder = recorder;
         _store = store;
@@ -187,7 +191,12 @@ public sealed class TenantCallController : ControllerBase
                 plan = new CallSummaryPlan(delivery, request);
         }
 
-        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan }.RunAsync(socket, ct).ConfigureAwait(false);
+        var toolbox = await CalendarToolbox.CreateAsync(
+            tenantId, _store, HttpContext.RequestServices.GetRequiredService<CalendarTools>(), _catalog,
+            HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ct).ConfigureAwait(false);
+
+        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox }
+            .RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }
 

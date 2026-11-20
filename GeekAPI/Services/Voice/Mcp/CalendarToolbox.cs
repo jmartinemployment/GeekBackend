@@ -1,5 +1,7 @@
 using System.Text.Json;
 using GeekApplication.Interfaces.Receptionist;
+using GeekApplication.Interfaces.Voice;
+using GeekApplication.Models.Voice;
 using GeekApplication.Results;
 
 namespace GeekAPI.Services.Voice.Mcp;
@@ -37,27 +39,29 @@ public sealed class CalendarToolbox : IReceptionistToolbox
     public IReadOnlyList<ReceptionistToolDefinition> Tools { get; }
 
     /// <summary>
-    /// A toolbox for this tenant, or null when the receptionist should simply have no calendar tools: the gateway could not be asked, or it
-    /// offers none that only read. A null is not a failure of the call; the caller still answers the phone, without the calendar.
+    /// A toolbox for this tenant, or null when the receptionist should simply have no calendar tools: the owner has not connected a
+    /// calendar, or the gateway could not be asked. A null is not a failure of the call; the caller still answers the phone, without the
+    /// calendar. A business that has connected no calendar is the ordinary case, not an error, and is not logged as one.
     /// </summary>
     public static async Task<CalendarToolbox?> CreateAsync(
-        Guid tenantId, CalendarTools calendar, McpGatewayClient gateway, ILogger logger, CancellationToken ct = default)
+        Guid tenantId, IVoiceStore store, CalendarTools calendar, CalendarToolCatalog catalog, McpGatewayClient gateway, ILogger logger,
+        CancellationToken ct = default)
     {
-        var offered = await gateway.ListToolsAsync(GoogleCalendarOptions.Provider, ct).ConfigureAwait(false);
-        if (!offered.IsSuccess)
+        // The owner connecting their calendar is what asks for this; without it every tool would only ever answer calendar_not_connected.
+        var connection = await store.GetMcpConnectionAsync(tenantId, GoogleCalendarOptions.Provider, ct).ConfigureAwait(false);
+        if (!connection.IsSuccess || !connection.Value!.IsActive)
         {
-            logger.LogError("Tenant {TenantId}: the calendar tools could not be listed ({Code}); this call has none.", tenantId, offered.ErrorCode);
+            if (connection.IsSuccess || connection.ErrorCode == VoiceFailureCodes.NotFound)
+                logger.LogInformation("Tenant {TenantId}: no calendar is connected, so this call has no calendar tools.", tenantId);
+            else
+                logger.LogError("Tenant {TenantId}: the calendar connection could not be read ({Code}); this call has no calendar tools.", tenantId, connection.ErrorCode);
             return null;
         }
 
-        var tools = offered.Value!
-            .Where(tool => ReadOnlyTools.Contains(tool.Name))
-            .Select(tool => new ReceptionistToolDefinition(tool.Name, tool.Description, tool.InputSchema))
-            .ToList();
-
-        if (tools.Count == 0)
+        var tools = await catalog.ReadOnlyToolsAsync(gateway, logger, ct).ConfigureAwait(false);
+        if (tools is null)
         {
-            logger.LogError("Tenant {TenantId}: the calendar gateway offers no read-only tools; this call has none.", tenantId);
+            logger.LogError("Tenant {TenantId}: the calendar tools are not available, so this call has none.", tenantId);
             return null;
         }
 
@@ -80,14 +84,14 @@ public sealed class CalendarToolbox : IReceptionistToolbox
             if (parsed.RootElement.ValueKind != JsonValueKind.Object)
             {
                 _logger.LogError("Tenant {TenantId}: the receptionist's arguments for {Tool} are not an object.", _tenantId, call.Name);
-                return Result<string>.Failure("The calendar tool's arguments are not an object.", GeekApplication.Models.Voice.VoiceFailureCodes.InvalidRequest);
+                return Result<string>.Failure("The calendar tool's arguments are not an object.", VoiceFailureCodes.InvalidRequest);
             }
             arguments = parsed.RootElement.Clone();
         }
         catch (JsonException)
         {
             _logger.LogError("Tenant {TenantId}: the receptionist's arguments for {Tool} are not JSON.", _tenantId, call.Name);
-            return Result<string>.Failure("The calendar tool's arguments are not JSON.", GeekApplication.Models.Voice.VoiceFailureCodes.InvalidRequest);
+            return Result<string>.Failure("The calendar tool's arguments are not JSON.", VoiceFailureCodes.InvalidRequest);
         }
 
         var result = await _calendar.CallAsync(_tenantId, GoogleCalendarOptions.Provider, call.Name, arguments, ct).ConfigureAwait(false);
