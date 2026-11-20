@@ -1,3 +1,5 @@
+using GeekAPI.Services.Receptionist.Knowledge;
+using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Receptionist.Relay;
 using GeekApplication.Interfaces.Receptionist;
 using GeekApplication.Models.Voice;
@@ -53,8 +55,14 @@ public static class ReceptionistRoleScripts
     public const string MessageTakerPurpose = "takes a name, a callback number and what the call is about, for someone to call back";
 
     /// <summary>
-    /// The greeter's own paragraph. It is given no toolbox, so what it is told it cannot do is also what it has no way to do: the
+    /// The greeter's own paragraph. It is given no toolbox here, so what it is told it cannot do is also what it has no way to do: the
     /// instruction and the capability agree, and a greeter that tried anyway would be refused by a toolbox that was never offered.
+    ///
+    /// <para>
+    /// The one tool it is told to use - the handoff - is not in this file's gift. <see cref="ReceptionistAgents.Of"/> adds it to every
+    /// role that has somewhere to go, because only the whole roster knows where that is. A roster from <see cref="For"/> is therefore not
+    /// self-consistent until it has been through <c>Of</c>, which is the only way it is ever used.
+    /// </para>
     /// </summary>
     internal const string GreeterScript = """
         Your part of this call is the opening. The caller has already heard the greeting above, so do not greet them again. Find out in one
@@ -141,17 +149,18 @@ public static class ReceptionistRoleScripts
 
         var roles = new List<ReceptionistAgent>(ReceptionistRoles.All.Count)
         {
-            new(ReceptionistRoles.Greeter, GreeterPurpose, PromptFor(business, GreeterScript), null),
+            new(ReceptionistRoles.Greeter, GreeterPurpose, PromptFor(business, GreeterScript), null, ClaimsTheTurn: false),
         };
 
-        // A toolbox with nothing in it is the same as no toolbox: a role told it has a lookup tool that is not offered would be a role
-        // whose first instruction is a claim the call cannot honour.
-        if (Offers(knowledge))
+        // The answerer's script names look_up_business_info in its first line, so the role exists only when that exact tool is offered.
+        // Checking merely that the toolbox has something in it was not enough: a toolbox holding one unrelated tool still earned the
+        // role, whose opening instruction then named a tool the call could not run.
+        if (Offers(knowledge, KnowledgeToolbox.LookupTool))
             roles.Add(new ReceptionistAgent(ReceptionistRoles.Answerer, AnswererPurpose, PromptFor(business, AnswererScript), knowledge));
 
         // Booking is the one thing a receptionist does that spends the owner's calendar, so it takes both the business asking for it and
-        // a calendar to do it in. Either one missing is a business whose callers are offered a message instead.
-        if (config.BookingEnabled && Offers(calendar))
+        // a calendar that can actually put something in it. Either one missing is a business whose callers are offered a message instead.
+        if (config.BookingEnabled && Offers(calendar, CalendarToolbox.BookingTool))
             roles.Add(new ReceptionistAgent(ReceptionistRoles.Booker, BookerPurpose, PromptFor(business, BookerScript), calendar));
 
         roles.Add(new ReceptionistAgent(ReceptionistRoles.MessageTaker, MessageTakerPurpose, PromptFor(business, MessageTakerScript), null));
@@ -159,12 +168,16 @@ public static class ReceptionistRoleScripts
         return Result<IReadOnlyList<ReceptionistAgent>>.Success(roles);
     }
 
-    /// <summary>Whether a toolbox is worth giving a role: present, and offering at least one tool.</summary>
-    private static bool Offers(IReceptionistToolbox? toolbox) => toolbox is { Tools.Count: > 0 };
+    /// <summary>
+    /// Whether a toolbox can do the thing a role's script says it will: present, and offering that exact tool by name. The role's first
+    /// instruction names the tool, so anything looser lets a role open with a claim the call cannot honour.
+    /// </summary>
+    private static bool Offers(IReceptionistToolbox? toolbox, string tool) =>
+        toolbox is not null && toolbox.Tools.Any(t => string.Equals(t.Name, tool, StringComparison.Ordinal));
 
     /// <summary>
     /// One role's whole prompt: everything the business said, then the one paragraph saying which part of the call this role is handling.
     /// The business's own text comes first so that a role's part is read as the job inside that business, not as a replacement for it.
     /// </summary>
-    private static string PromptFor(string business, string role) => $"{business}\n\n{role}";
+    private static string PromptFor(string business, string role) => $"{business.TrimEnd()}\n\n{role}";
 }

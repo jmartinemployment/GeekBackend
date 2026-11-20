@@ -87,6 +87,11 @@ public sealed class ReceptionistDispatcher(IReceptionistModel model, ILogger<Rec
             return null;
         }
 
+        // The role with a job to finish keeps the caller until it hands them on itself. Without this the director asked a model on every
+        // caller turn of every call - two round trips in series before the receptionist began replying, on a telephone line - while this
+        // class's own documentation said an ordinary conversation cost nothing. The documentation was the design; this is it enforced.
+        if (current.ClaimsTheTurn) return null;
+
         var others = roles.Where(r => !string.Equals(r.Name, current.Name, StringComparison.Ordinal)).ToList();
         if (others.Count == 0) return null;
 

@@ -160,17 +160,8 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
         _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Caller, said.GetString()!));
 
-        // Who should take this turn, decided once, before anybody answers. A role that asked to hand over on its last turn is asking
-        // here; the director honours that without a round trip, and otherwise only asks a model when the speaking role has no claim on
-        // what was just said. Nothing is moved on a failed decision.
-        if (Agents is { } agents && Dispatcher is { } dispatcher)
-        {
-            var to = await dispatcher.RouteAsync(agents.Current, agents.Roles, _turns, agents.TakeRequest(), ct).ConfigureAwait(false);
-            // The director has already checked that this role exists and is not the one speaking, so a refusal here means the two
-            // disagree about the roster. The caller stays put either way; what must not happen is it reaching nobody.
-            if (to is not null && !agents.MoveTo(to))
-                logger.LogError("The director sent a caller to {Role}, which the roster would not move them to.", to);
-        }
+        // Who should take this turn, decided before anybody answers.
+        await RouteAsync(ct).ConfigureAwait(false);
 
         var sent = new List<string>();
         for (var round = 0; ; round++)
@@ -215,12 +206,35 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
                     _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolCall, call.ArgumentsJson, call.Id, call.Name));
                     _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolResult, await RunToolAsync(toolbox, call, ct).ConfigureAwait(false), call.Id, call.Name));
                 }
+
+                // A role that just asked to hand the caller on is moved now, inside this turn, so the role arriving is the one that
+                // speaks next. Waiting for the caller's following turn left the departing role to answer with a handoff already made and
+                // its own instructions telling it to do nothing - which produced an empty reply, and an empty reply ends the call with
+                // the failure line. A successful handoff hung up on the caller.
+                await RouteAsync(ct).ConfigureAwait(false);
+
                 if (!reply.EndCall) continue;
             }
 
             if (reply.EndCall) sent.AddRange(End());
             return sent;
         }
+    }
+
+    /// <summary>
+    /// Puts the caller with whoever should have them, as the director decides: at the start of a caller's turn, and again the moment a
+    /// role asks to hand them on. A role that asked is honoured without a model call; otherwise only a role with no claim on the turn
+    /// costs a round trip. Nothing moves on a failed decision.
+    /// </summary>
+    private async Task RouteAsync(CancellationToken ct)
+    {
+        if (Agents is not { } agents || Dispatcher is not { } dispatcher) return;
+
+        var to = await dispatcher.RouteAsync(agents.Current, agents.Roles, _turns, agents.TakeRequest(), ct).ConfigureAwait(false);
+        // The director has already checked that this role exists and is not the one speaking, so a refusal here means the two disagree
+        // about the roster. The caller stays put either way; what must not happen is it reaching nobody.
+        if (to is not null && !agents.MoveTo(to))
+            logger.LogError("The director sent a caller to {Role}, which the roster would not move them to.", to);
     }
 
     /// <summary>What the model is told a tool did: its result, or only the code it failed with. Nothing the tool took or returned is logged.</summary>

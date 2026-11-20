@@ -186,7 +186,7 @@ public sealed class TenantCallController : ControllerBase
             : null;
         // A business with somebody to hand a failing call to hears the plan's transfer line rather than the take-a-message one.
         var transferConfigured = config.TransferMode != VoiceTransferModes.VoicemailOnly && !string.IsNullOrWhiteSpace(config.TransferTargetNumber);
-        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured, deliverAlways, config.KnowledgeRunId);
+        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured, deliverAlways, config.KnowledgeRunId, config, spokenGreeting);
         return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting));
     }
 
@@ -252,7 +252,33 @@ public sealed class TenantCallController : ControllerBase
 
         var toolbox = CompositeToolbox.Of(calendar, knowledge);
 
-        session = new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes, TenantId = tenantId, Dispatcher = HttpContext.RequestServices.GetRequiredService<ReceptionistDispatcher>() };
+        // The parts of reception this business actually has, each with its own instructions and only its own tools. A role exists
+        // because the business has the thing that role needs, so the roster is short for a business that has little and nobody is handed
+        // to a part of reception that cannot do anything.
+        //
+        // Building the roles can only fail where assembling the business's prompt fails, and this ticket exists because that same
+        // assembly already succeeded on the same settings when the call was answered (HandToAi) - a call whose settings cannot be used
+        // never reaches here, it hears the closing message. So this is a broken invariant rather than a condition to handle, and it is
+        // logged as one. The caller is already connected and has heard a greeting, so it is answered with the prompt the ticket carries,
+        // which is that same assembled prompt without the roles - not a degraded one.
+        ReceptionistAgents? agents = null;
+        if (ticket.Config is { } settings)
+        {
+            var roles = ReceptionistRoleScripts.For(settings, knowledge, calendar, ticket.SpokenGreeting);
+            if (roles.IsSuccess)
+            {
+                agents = ReceptionistAgents.Of(roles.Value!, _logger);
+                // Of returns null for a roster with nothing in it, which its own doc calls the caller's problem to be told about rather
+                // than something to paper over. For cannot return an empty roster today, so this is unreachable - but an unreachable
+                // branch that exits silently stops being unreachable without anyone noticing.
+                if (agents is null)
+                    _logger.LogError("Tenant {TenantId}: its reception has no roles at all; the call is answered by one receptionist.", tenantId);
+            }
+            else
+                _logger.LogError("Tenant {TenantId}: its reception roles could not be built ({Error}); the call is answered by one receptionist.", tenantId, roles.Error);
+        }
+
+        session = new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes, TenantId = tenantId, Agents = agents, Dispatcher = HttpContext.RequestServices.GetRequiredService<ReceptionistDispatcher>() };
         await session.RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }

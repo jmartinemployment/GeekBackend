@@ -27,11 +27,18 @@ namespace GeekAPI.Services.Receptionist.Agents;
 /// <param name="Purpose">What this role is for, in one line, as the other roles are told it when deciding where to hand off.</param>
 /// <param name="SystemPrompt">Everything this role is told, including the business's own script. It never sees another role's rules.</param>
 /// <param name="Toolbox">What this role may do. Null is a role that can only talk, which is the right toolbox for a greeter.</param>
+/// <param name="ClaimsTheTurn">
+/// Whether this role keeps the caller until it hands them on itself. True for a role with a job to finish: a caller mid-booking who asks
+/// "and what does that cost?" is still booking, and the director spending a model call each turn to rediscover that is a second round
+/// trip on a line where somebody is waiting. False for a role whose whole job is working out where the caller should go, which is the
+/// greeter - there the director does ask, because that is the turn where it is genuinely in doubt.
+/// </param>
 public sealed record ReceptionistAgent(
     string Name,
     string Purpose,
     string SystemPrompt,
-    IReceptionistToolbox? Toolbox);
+    IReceptionistToolbox? Toolbox,
+    bool ClaimsTheTurn = true);
 
 /// <summary>The roles this product knows how to play. A business is given some of them; the names are fixed so a handoff cannot name a role that does not exist.</summary>
 public static class ReceptionistRoles

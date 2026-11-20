@@ -55,7 +55,7 @@ public sealed class ReceptionistDispatcherTests
     }
 
     private static readonly ReceptionistAgent Greeter =
-        new(ReceptionistRoles.Greeter, "Opens the call and works out what the caller wants.", "You greet.", null);
+        new(ReceptionistRoles.Greeter, "Opens the call and works out what the caller wants.", "You greet.", null, ClaimsTheTurn: false);
 
     private static readonly ReceptionistAgent Booker =
         new(ReceptionistRoles.Booker, "Qualifies and books an appointment in the calendar.", "You book.", null);
@@ -289,5 +289,34 @@ public sealed class ReceptionistDispatcherTests
                 Assert.DoesNotContain("how can I help", line, StringComparison.OrdinalIgnoreCase);
             }
         }
+    }
+
+    /// <summary>
+    /// A role with something to finish keeps the caller, and the director does not spend a model call rediscovering that. This is the
+    /// difference between one round trip per turn and two, in series, while somebody is holding a telephone. Without it the director
+    /// asked a model on every caller turn of every call, while its own documentation said an ordinary conversation cost nothing.
+    /// </summary>
+    [Fact]
+    public async Task A_role_with_a_job_to_finish_keeps_the_caller_without_asking_anybody()
+    {
+        var model = Answering($$"""{"role": "{{ReceptionistRoles.Answerer}}"}""");
+        var (director, _) = Director(model);
+
+        Assert.Null(await director.RouteAsync(Booker, Roles, Turns, requested: null));
+        Assert.Equal(0, model.Calls);
+    }
+
+    /// <summary>
+    /// The greeter is the exception, because routing is its whole job: it has no claim on the turn, so the director does ask. The cost
+    /// is paid on the turn where the answer is genuinely in doubt and nowhere else.
+    /// </summary>
+    [Fact]
+    public async Task The_role_whose_job_is_routing_does_cost_a_decision()
+    {
+        var model = Answering($$"""{"role": "{{ReceptionistRoles.Answerer}}"}""");
+        var (director, _) = Director(model);
+
+        Assert.Equal(ReceptionistRoles.Answerer, await director.RouteAsync(Greeter, Roles, Turns, requested: null));
+        Assert.Equal(1, model.Calls);
     }
 }
