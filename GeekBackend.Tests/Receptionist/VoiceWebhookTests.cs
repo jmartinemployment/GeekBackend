@@ -150,14 +150,14 @@ public class VoiceWebhookTests
     }
 
     [Fact]
-    public async Task Unanswered_call_hears_the_disclosure_and_is_handed_to_the_ai_with_no_recording_and_no_text()
+    public async Task Unanswered_call_is_asked_for_a_key_before_the_ai_with_no_recording_and_no_text()
     {
         using var app = new App(model: new FakeReceptionistModel());
         var (_, xml) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "no-answer"));
 
-        Assert.Contains("Calls are processed in real time and not recorded.", xml, StringComparison.Ordinal);
-        Assert.Contains("<ConversationRelay", xml);
-        Assert.DoesNotContain("<Gather", xml);
+        // Nobody picked up, so the AI takes it - after the caller presses a key, which is the starting consent mode.
+        Assert.Contains("<Gather", xml);
+        Assert.DoesNotContain("<ConversationRelay", xml);
         Assert.DoesNotContain("<Record", xml);
         Assert.Empty(app.Sms.Sent);
     }

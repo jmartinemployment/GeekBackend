@@ -59,7 +59,9 @@ public static class VoiceTransferModes
 /// <para>
 /// <b>Which one a business uses is the business's own choice</b> - Jeff, 2026-11-20: "Client configurable. I don't feel comfortable
 /// making that decision for others." The value here is only what a tenant starts with before it has been asked, and it is not a
-/// recommendation.
+/// recommendation. It is strict keypress, because a business that has not been asked yet should start at the mode that asks something
+/// of a caller rather than the one that asks nothing and deters nothing; a dashboard switch does not help a business that never opens
+/// the dashboard.
 /// </para>
 ///
 /// <para>
@@ -214,7 +216,7 @@ public sealed record VoiceReceptionistConfig(
     bool IncludeTranscript = false,
     bool NotifyOnAbandonedCalls = false,
     bool BookingEnabled = false,
-    string ConsentMode = VoiceConsentModes.PassiveDisclosure,
+    string ConsentMode = VoiceConsentModes.StrictKeypress,
     /// <summary>
     /// The business's own crawled, indexed website, which its receptionist answers questions from. Null when it has none, which gives the
     /// receptionist no lookup tool rather than one that finds nothing. A scope, not a store: the Library holds the vectors.

@@ -73,18 +73,24 @@ public sealed class ConsentAndRelayTests
 
     // ----- Consent TwiML -----
 
+    /// <summary>
+    /// The company line takes the starting mode like any other business, and that mode is now strict keypress (Jeff, 2026-11-20), so a
+    /// forwarded caller is asked for a key rather than carried straight on. Geek @ Your Spot is tenant one here, not a special case.
+    /// </summary>
     [Fact]
-    public async Task A_forwarded_call_hears_the_disclosure_and_is_handed_to_the_ai_without_a_key()
+    public async Task A_forwarded_call_is_asked_for_a_key_like_any_other_business()
     {
-        // The plan's default mode, which the company line takes like any other business.
         using var app = new App(new() { ["CALL_MODE"] = "Forwarded" }, model: new FakeReceptionistModel());
         var (status, xml) = await app.PostTwilio("/voice/incoming", Pressed(null));
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Contains("Calls are processed in real time and not recorded.", xml, StringComparison.Ordinal);
-        Assert.Contains("AI assistant", xml, StringComparison.Ordinal);
-        Assert.Contains("<ConversationRelay", xml);
-        Assert.DoesNotContain("<Gather", xml);
+        // The keypress wording, which is Jeff's own, not the passive disclosure line.
+        Assert.Contains("AI receptionist", xml, StringComparison.Ordinal);
+        Assert.Contains("press 1", xml, StringComparison.Ordinal);
+        Assert.Contains("we do not retain call recordings or transcripts", xml, StringComparison.Ordinal);
+        Assert.Contains("<Gather", xml);
+        // Asked, not yet connected: the relay opens only once a key has been pressed.
+        Assert.DoesNotContain("<ConversationRelay", xml);
         Assert.DoesNotContain("speech", xml);
         Assert.DoesNotContain("<Record", xml);
     }
