@@ -1,5 +1,16 @@
 # Geek-Receptionist — Engineering Specification
 
+
+> **Architecture decision, Jeff, 2026-11-19.** Geek-Receptionist is its own application and owns its
+> own stack: its own service, its own database tables, its own Qdrant collection and embeddings, with
+> **GeekAPI out of the path**. Qdrant v1.13.4 and the `BAAI/bge-small-en-v1.5` embedder are already
+> deployed on the Hostinger VPS (`Geek-Crawler-Rag/docker-compose.yml`); nothing about embeddings or
+> vector search needs building. The voice code in `GeekAPI/Services/Receptionist/*`,
+> `GeekAPI/Services/Voice/*`, `GeekAPI/Controllers/Voice/*` and the `geek_voice` schema is the thing
+> to move, not to extend. `geek_voice.knowledge_documents` and `geek_voice.knowledge_chunks` are a
+> second vector store with no embedder and are to be deleted. Full note and handoff:
+> `Geek-Receptionist/plans/receptionist-owns-its-stack.md` and `Geek-Receptionist/HANDOFF.md`.
+
 **Status:** Multi-Tenant v1 SaaS Implementation (Non-live v0 missed-call text-back code in `GeekAPI/Services/Receptionist/` is being refactored into v1; all single-tenant v0 assumptions are deprecated).
 **v1 Target Customer & Call Flow:** Phase 1 targets home service trades (HVAC, plumbing, electrical, roofing) in Southeastern Florida (Broward, Miami-Dade, and Palm Beach counties). **The AI Receptionist answers every inbound call first**, qualifies the job, answers FAQs from the grounded knowledge base, books appointments via MCP, and transfers calls to the business owner/technician only when configured `emergency_keywords` or escalation rules trigger.
 
