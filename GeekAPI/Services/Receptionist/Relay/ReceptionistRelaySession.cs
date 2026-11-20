@@ -5,6 +5,8 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using GeekApplication.Interfaces.Receptionist;
 
+using GeekAPI.Services.Voice.Calls;
+
 namespace GeekAPI.Services.Receptionist.Relay;
 
 /// <summary>
@@ -53,6 +55,17 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     /// <summary>Whether this business has somebody a failing call can be handed to, which decides which failure line the caller hears.</summary>
     public bool TransferConfigured { get; init; }
 
+    /// <summary>
+    /// Where this call's outcome flags are left for Twilio's status callback to write with the call row; null for a line that keeps no
+    /// call rows. Flags only: the plan stores timestamp, duration, billable minutes and tool outcomes, and nothing of what was said.
+    /// </summary>
+    public CallOutcomes? Outcomes { get; init; }
+
+    private string? _callSid;
+    private bool _booked;
+    private bool _recordDelivered;
+    private bool _failed;
+
     /// <summary>True once the end message has been sent; nothing more is sent after it.</summary>
     public bool Ended { get; private set; }
 
@@ -98,6 +111,10 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
                 return [];
 
             case "setup":
+                // The only place the call's Twilio id reaches this code, and the one thing taken from the message.
+                if (root.TryGetProperty("callSid", out var sid) && sid.ValueKind == JsonValueKind.String) _callSid = sid.GetString();
+                return [];
+
             case "dtmf":
             case "info":
                 return [];
@@ -173,7 +190,12 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
         try
         {
             var result = await toolbox.RunAsync(call, ct).ConfigureAwait(false);
-            if (result.IsSuccess) return result.Value!;
+            if (result.IsSuccess)
+            {
+                // A booking that went through is the one tool outcome the call row keeps, as a flag and nothing more.
+                if (toolbox.IsBooking(call.Name)) _booked = true;
+                return result.Value!;
+            }
             logger.LogError("The receptionist's tool {Tool} failed ({Code}).", call.Name, result.ErrorCode);
             return new JsonObject { ["error"] = result.ErrorCode }.ToJsonString();
         }
@@ -194,6 +216,7 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     /// </summary>
     private IReadOnlyList<string> Failed(List<string> sent)
     {
+        _failed = true;
         var spoken = TransferConfigured ? FailureWithTransfer : FailureWithoutTransfer;
         _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, spoken));
         sent.Add(Text(spoken));
@@ -223,6 +246,7 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
         finally
         {
             await FinishAsync().ConfigureAwait(false);
+            RecordOutcome();
         }
     }
 
@@ -304,7 +328,11 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
             for (var attempt = 1; attempt <= 2; attempt++)
             {
                 var delivered = await plan.Delivery.DeliverAsync(call, deliveryBound.Token).ConfigureAwait(false);
-                if (delivered.IsSuccess) return;
+                if (delivered.IsSuccess)
+                {
+                    _recordDelivered = true;
+                    return;
+                }
                 logger.LogError("Delivering the call's record failed on attempt {Attempt} ({Code}).", attempt, delivered.ErrorCode);
             }
 
@@ -318,6 +346,16 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
         {
             _turns.Clear();
         }
+    }
+
+    /// <summary>
+    /// Leaves this call's flags for the status callback, which writes the call row and arrives separately. An entry here is what marks
+    /// the call as answered by the AI, and so as billable: a caller who hung up during the disclosure leaves none.
+    /// </summary>
+    private void RecordOutcome()
+    {
+        if (Outcomes is null || string.IsNullOrWhiteSpace(_callSid)) return;
+        Outcomes.Record(_callSid, new CallOutcome(Answered: true, _booked, _recordDelivered, _failed));
     }
 
     private static async Task SendAsync(WebSocket socket, IReadOnlyList<string> messages, CancellationToken ct)

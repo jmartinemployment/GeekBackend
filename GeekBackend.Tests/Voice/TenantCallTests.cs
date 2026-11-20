@@ -139,16 +139,54 @@ public sealed class TenantCallTests
     public void Every_started_minute_is_billable(long seconds, int minutes) =>
         Assert.Equal(minutes, TwilioCallStatusRecorder.BillableMinutes(seconds));
 
-    private static async Task<(Result<TwilioCallRecorded> Result, FakeVoice Store)> Record(Dictionary<string, string> form)
+    /// <summary>A call the AI answered and nothing more, which is what makes a call billable.</summary>
+    private static readonly CallOutcome Answered = new(Answered: true, Booked: false, RecordDelivered: false, Failed: false);
+
+    [Fact]
+    public async Task A_call_the_ai_never_answered_is_not_billed_and_has_no_flags()
+    {
+        // The plan's metering rule: a caller who hung up during the disclosure, or declined at the keypad, leaves no outcome behind.
+        var (result, store) = await Record(Completed("61"));
+
+        Assert.True(result.IsSuccess, result.Error);
+        var call = Assert.Single(store.Calls);
+        Assert.Equal(61, call.DurationSeconds);
+        Assert.Equal(0, call.BillableMinutes);
+        Assert.Null(call.Disposition);
+    }
+
+    [Fact]
+    public async Task The_calls_row_keeps_the_ais_outcome_flags_and_no_word_of_the_call()
+    {
+        var (_, store) = await Record(Completed("61"), new CallOutcome(Answered: true, Booked: true, RecordDelivered: true, Failed: false));
+
+        Assert.Equal("answered,booked,record_delivered", Assert.Single(store.Calls).Disposition);
+    }
+
+    [Fact]
+    public async Task A_calls_flags_are_taken_once_so_a_repeated_status_post_does_not_bill_it_twice()
+    {
+        var outcomes = new CallOutcomes(new FakeTimeProvider(Now));
+        outcomes.Record("CA5d0d", Answered);
+
+        Assert.NotNull(outcomes.Take("CA5d0d"));
+        Assert.Null(outcomes.Take("CA5d0d"));
+    }
+
+    private static async Task<(Result<TwilioCallRecorded> Result, FakeVoice Store)> Record(
+        Dictionary<string, string> form, CallOutcome? answered = null)
     {
         var store = new FakeVoice();
-        return (await new TwilioCallStatusRecorder(store, NullLogger<TwilioCallStatusRecorder>.Instance).RecordAsync(Tenant, form, Now), store);
+        var outcomes = new CallOutcomes(new FakeTimeProvider(Now));
+        if (answered is not null) outcomes.Record(form["CallSid"], answered);
+        var recorder = new TwilioCallStatusRecorder(store, outcomes, NullLogger<TwilioCallStatusRecorder>.Instance);
+        return (await recorder.RecordAsync(Tenant, form, Now), store);
     }
 
     [Fact]
     public async Task A_completed_call_is_recorded_by_its_twilio_sid_with_its_minutes_rounded_up_and_no_caller_number()
     {
-        var (result, store) = await Record(Completed("61"));
+        var (result, store) = await Record(Completed("61"), Answered);
         Assert.True(result.IsSuccess, result.Error);
 
         var call = Assert.Single(store.Calls);
@@ -166,7 +204,7 @@ public sealed class TenantCallTests
     {
         var form = Completed("30");
         form.Remove("Timestamp");
-        var (_, store) = await Record(form);
+        var (_, store) = await Record(form, Answered);
         var call = Assert.Single(store.Calls);
         Assert.Equal(Now, call.EndedAt);
         Assert.Equal(1, call.BillableMinutes);
@@ -293,14 +331,16 @@ public sealed class TenantCallTests
 
     private static async Task<(int Status, string Body, FakeVoice Store, FakeBilling Billing)> Post(
         string route, Dictionary<string, string> form, string? token = SubToken, VoiceBillingStanding? standing = null, FakeReceptionistModel? model = null,
-        Action<FakeVoice>? configure = null)
+        Action<FakeVoice>? configure = null, CallOutcome? answered = null)
     {
         var store = new FakeVoice();
         configure?.Invoke(store);
+        var outcomes = new CallOutcomes(new FakeTimeProvider(Now));
+        if (answered is not null && form.TryGetValue("CallSid", out var answeredSid)) outcomes.Record(answeredSid, answered);
         var billing = new FakeBilling(standing ?? Standing(VoiceTenantStatuses.Active));
         var controller = new TenantCallController(
             Webhook(store),
-            new TwilioCallStatusRecorder(store, NullLogger<TwilioCallStatusRecorder>.Instance),
+            new TwilioCallStatusRecorder(store, outcomes, NullLogger<TwilioCallStatusRecorder>.Instance),
             store,
             billing,
             new FakeTimeProvider(Now),
@@ -308,6 +348,7 @@ public sealed class TenantCallTests
             new RelayTickets(new FakeTimeProvider(Now)),
             new TwilioOptions("ACmaster", "master-token", BaseUrl),
             new CalendarToolCatalog(new FakeTimeProvider(Now)),
+            outcomes,
             NullLogger<TenantCallController>.Instance);
 
         var path = $"/{TenantCallController.RoutePrefix}/{Tenant}/{route}";
@@ -459,7 +500,7 @@ public sealed class TenantCallTests
     [Fact]
     public async Task The_status_route_records_a_signed_completed_call_and_answers_204()
     {
-        var (status, _, store, _) = await Post("call-status", Completed("61"));
+        var (status, _, store, _) = await Post("call-status", Completed("61"), answered: Answered);
         Assert.Equal(204, status);
         Assert.Equal(2, Assert.Single(store.Calls).BillableMinutes);
     }

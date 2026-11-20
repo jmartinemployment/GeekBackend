@@ -44,6 +44,7 @@ public sealed class TenantCallController : ControllerBase
     private readonly RelayTickets _tickets;
     private readonly TwilioOptions _twilio;
     private readonly CalendarToolCatalog _catalog;
+    private readonly CallOutcomes _outcomes;
     private readonly ILogger<TenantCallController> _logger;
 
     public TenantCallController(
@@ -56,12 +57,14 @@ public sealed class TenantCallController : ControllerBase
         RelayTickets tickets,
         TwilioOptions twilio,
         CalendarToolCatalog catalog,
+        CallOutcomes outcomes,
         ILogger<TenantCallController> logger)
     {
         _model = model;
         _tickets = tickets;
         _twilio = twilio;
         _catalog = catalog;
+        _outcomes = outcomes;
         _webhook = webhook;
         _recorder = recorder;
         _store = store;
@@ -219,7 +222,7 @@ public sealed class TenantCallController : ControllerBase
             tenantId, _store, HttpContext.RequestServices.GetRequiredService<CalendarTools>(), _catalog,
             HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ticket.BookingEnabled, ct).ConfigureAwait(false);
 
-        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured }
+        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes }
             .RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }

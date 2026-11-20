@@ -25,11 +25,13 @@ public sealed class TwilioCallStatusRecorder
     public const string Completed = "completed";
 
     private readonly IVoiceStore _store;
+    private readonly CallOutcomes _outcomes;
     private readonly ILogger<TwilioCallStatusRecorder> _logger;
 
-    public TwilioCallStatusRecorder(IVoiceStore store, ILogger<TwilioCallStatusRecorder> logger)
+    public TwilioCallStatusRecorder(IVoiceStore store, CallOutcomes outcomes, ILogger<TwilioCallStatusRecorder> logger)
     {
         _store = store;
+        _outcomes = outcomes;
         _logger = logger;
     }
 
@@ -42,6 +44,10 @@ public sealed class TwilioCallStatusRecorder
         var status = Text(form, "CallStatus");
         if (callSid is null || status is null) return Invalid("The post is missing its CallSid or CallStatus.");
         if (!FinalStatuses.Contains(status)) return Result<TwilioCallRecorded>.Success(new TwilioCallRecorded(status, null));
+
+        // What the AI did on this call, left by the relay. Nothing left means the AI never answered it: a caller who hung up during the
+        // disclosure or declined at the keypad, which the plan says is not billed to the business.
+        var outcome = _outcomes.Take(callSid);
 
         long duration = 0;
         var durationText = Text(form, "CallDuration");
@@ -65,8 +71,8 @@ public sealed class TwilioCallStatusRecorder
             StartedAt: ended.AddSeconds(-duration),
             EndedAt: ended,
             DurationSeconds: (int)Math.Min(duration, int.MaxValue),
-            BillableMinutes: BillableMinutes(duration),
-            Disposition: null);
+            BillableMinutes: outcome is null ? 0 : BillableMinutes(duration),
+            Disposition: outcome?.Disposition());
 
         var stored = await _store.UpsertCallAsync(tenantId, command, ct).ConfigureAwait(false);
         if (!stored.IsSuccess) return Result<TwilioCallRecorded>.Failure(stored.Error!, stored.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);

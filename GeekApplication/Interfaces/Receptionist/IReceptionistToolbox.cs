@@ -13,4 +13,10 @@ public interface IReceptionistToolbox
 
     /// <summary>The tool's result as JSON, or a coded failure.</summary>
     Task<Result<string>> RunAsync(ReceptionistToolCall call, CancellationToken ct = default);
+
+    /// <summary>
+    /// Whether this tool is the one that puts an appointment in the business's calendar, so a call that used it can be flagged as
+    /// booked. A toolbox with nothing that books says no to everything, which is the default.
+    /// </summary>
+    bool IsBooking(string toolName) => false;
 }

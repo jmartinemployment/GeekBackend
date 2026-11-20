@@ -55,6 +55,7 @@ public static class VoiceServiceRegistration
         services.AddScoped<OverageBilling>();
         services.AddScoped<OverageCollection>();
         services.AddHostedService<OverageBillingHostedService>();
+        services.AddSingleton<CallOutcomes>();
         services.AddScoped<TwilioCallStatusRecorder>();
         services.AddScoped<TenantTwilioWebhook>();
         services.AddSingleton(TwilioOptions.FromEnvironment());

@@ -1,4 +1,6 @@
 using System.Net.WebSockets;
+using GeekAPI.Services.Voice.Calls;
+using Microsoft.Extensions.Time.Testing;
 using System.Text;
 using GeekAPI.Services.Receptionist.Relay;
 using GeekApplication.Interfaces.Receptionist;
@@ -72,7 +74,8 @@ public sealed class CallSummaryDispatchTests
     private static string Prompt(string text) => $$"""{"type":"prompt","voicePrompt":"{{text}}","last":true}""";
 
     private static (ReceptionistRelaySession Session, FakeDelivery Delivery, FakeReceptionistModel Model, CapturingLogger Log) Make(
-        FakeDelivery? delivery = null, FakeReceptionistModel? model = null, bool includeTranscript = false, bool notifyAbandoned = false, bool withPlan = true)
+        FakeDelivery? delivery = null, FakeReceptionistModel? model = null, bool includeTranscript = false, bool notifyAbandoned = false, bool withPlan = true,
+        CallOutcomes? outcomes = null)
     {
         delivery ??= new FakeDelivery();
         model ??= new FakeReceptionistModel();
@@ -80,6 +83,7 @@ public sealed class CallSummaryDispatchTests
         var session = new ReceptionistRelaySession(model, "prompt", log)
         {
             Summary = withPlan ? new CallSummaryPlan(delivery, new CallSummaryRequest("owner@example.test", "Dag Plumbing", "+15615550100", includeTranscript, notifyAbandoned)) : null,
+            Outcomes = outcomes,
         };
         return (session, delivery, model, log);
     }
@@ -236,4 +240,63 @@ public sealed class CallSummaryDispatchTests
         public override Task<Result<string>> DeliverAsync(FinishedCall call, CancellationToken ct = default) =>
             throw new InvalidOperationException("boom");
     }
+    private static string Setup(string callSid) => $$"""{"type":"setup","callSid":"{{callSid}}"}""";
+
+    // ----- The flags the call row keeps, for billing and for what the AI did -----
+
+    [Fact]
+    public async Task A_call_the_ai_answered_leaves_its_flags_under_the_call_sid_from_setup()
+    {
+        var outcomes = new CallOutcomes(new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var (session, _, _, _) = Make(outcomes: outcomes);
+
+        await session.RunAsync(new ScriptedSocket([Setup("CAtest1"), Prompt(Said)]), CancellationToken.None);
+
+        var outcome = outcomes.Take("CAtest1");
+        Assert.NotNull(outcome);
+        Assert.True(outcome!.Answered);
+        Assert.True(outcome.RecordDelivered);
+        Assert.False(outcome.Booked);
+        Assert.False(outcome.Failed);
+        Assert.Equal("answered,record_delivered", outcome.Disposition());
+    }
+
+    [Fact]
+    public async Task A_call_whose_setup_never_named_it_leaves_no_flags_so_no_other_row_is_billed()
+    {
+        var outcomes = new CallOutcomes(new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var (session, _, _, _) = Make(outcomes: outcomes);
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Null(outcomes.Take("CAtest1"));
+    }
+
+    [Fact]
+    public async Task A_receptionist_that_had_to_fall_back_says_so_in_the_flags()
+    {
+        var outcomes = new CallOutcomes(new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var (session, _, _, _) = Make(model: new FakeReceptionistModel { Fail = true }, outcomes: outcomes);
+
+        await session.RunAsync(new ScriptedSocket([Setup("CAtest2"), Prompt(Said)]), CancellationToken.None);
+
+        var outcome = outcomes.Take("CAtest2");
+        Assert.NotNull(outcome);
+        Assert.True(outcome!.Failed);
+        Assert.Contains("failed", outcome.Disposition()!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task No_word_of_the_call_is_in_the_flags()
+    {
+        var outcomes = new CallOutcomes(new FakeTimeProvider(DateTimeOffset.UtcNow));
+        var (session, _, _, _) = Make(outcomes: outcomes);
+
+        await session.RunAsync(new ScriptedSocket([Setup("CAtest3"), Prompt(Said)]), CancellationToken.None);
+
+        var flags = outcomes.Take("CAtest3")!.Disposition()!;
+        Assert.DoesNotContain(Said, flags, StringComparison.OrdinalIgnoreCase);
+        Assert.All(flags.Split(','), f => Assert.Contains(f, new[] { "answered", "booked", "record_delivered", "failed" }));
+    }
+
 }

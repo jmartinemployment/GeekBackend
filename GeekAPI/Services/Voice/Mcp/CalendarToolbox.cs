@@ -46,6 +46,8 @@ public sealed class CalendarToolbox : IReceptionistToolbox
 
     public IReadOnlyList<ReceptionistToolDefinition> Tools { get; }
 
+    public bool IsBooking(string toolName) => string.Equals(toolName, BookingTool, StringComparison.Ordinal);
+
     /// <summary>
     /// A toolbox for this tenant, or null when the receptionist should simply have no calendar tools: the owner has not connected a
     /// calendar, or the gateway could not be asked. A null is not a failure of the call; the caller still answers the phone, without the
