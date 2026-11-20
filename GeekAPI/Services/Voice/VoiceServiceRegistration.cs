@@ -36,12 +36,6 @@ public static class VoiceServiceRegistration
             new HttpVoiceRepository(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),
                 sp.GetRequiredService<ILogger<HttpVoiceRepository>>()));
-        services.AddScoped<IVoiceBillingExemption>(sp =>
-            new HttpVoiceRepository(
-                sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),
-                sp.GetRequiredService<ILogger<HttpVoiceRepository>>()));
-        services.AddSingleton(BillingExemptionOptions.FromEnvironment());
-        services.AddScoped<BillingExemption>();
         services.AddScoped<OnboardingEligibility>();
         services.AddScoped<IndustryRefusals>();
         // The only writer of a whole receptionist config: the signup form's steps, and the owner's own changes afterwards.

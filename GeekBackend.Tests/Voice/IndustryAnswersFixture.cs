@@ -36,13 +36,3 @@ internal sealed class RecordingSignupAnswerStore(Func<Result<VoiceIndustryAnswer
 }
 
 /// <summary>A billing exemption that records which tenants it activated, or answers with the failure a test gives it.</summary>
-internal sealed class RecordingBillingExemption(Func<Guid, Result<VoiceTenant>>? answer = null) : IVoiceBillingExemption
-{
-    public List<Guid> Activated { get; } = new();
-
-    public Task<Result<VoiceTenant>> ActivateWithoutBillingAsync(Guid tenantId, CancellationToken ct = default)
-    {
-        Activated.Add(tenantId);
-        return Task.FromResult(answer is not null ? answer(tenantId) : Result<VoiceTenant>.Failure("No answer was given.", VoiceFailureCodes.StoreUnavailable));
-    }
-}

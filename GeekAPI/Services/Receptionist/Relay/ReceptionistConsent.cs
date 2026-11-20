@@ -180,8 +180,8 @@ public static class ReceptionistConsent
     }
 
     /// <summary>
-    /// The company line's receptionist settings, built in code as <see cref="BillingExemption"/> builds the company tenant's: the
-    /// starting script with <see cref="CompanyCallerQuestions"/>. 865-6990 has no tenant id to read stored settings by.
+    /// The company line's receptionist settings, built in code rather than read from a tenant: the starting script with
+    /// <see cref="CompanyCallerQuestions"/>. 865-6990 has no tenant id to read stored settings by.
     /// </summary>
     public static Result<VoiceReceptionistConfig> CompanyConfig(string companyName)
     {

@@ -19,7 +19,7 @@ namespace GeekRepository.Repositories.Voice;
 /// tenant in a WHERE clause. Each call runs once: a database fault that is not a refusal below is raised, not retried, not
 /// defaulted. Logs carry ids and codes, never a name, number, address, transcript or token.
 /// </summary>
-public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<VoiceRepository> logger) : IVoiceStore, IVoiceSignupAnswerStore, IVoiceBillingExemption
+public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<VoiceRepository> logger) : IVoiceStore, IVoiceSignupAnswerStore
 {
     private readonly ILogger<VoiceRepository> _logger = logger;
 
@@ -149,49 +149,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             new { TenantId = tenantId },
             cancellationToken: ct));
         return row is null ? NotFound<VoiceTenant>("The tenant was not found.") : Result<VoiceTenant>.Success(row.ToModel());
-    }
-
-    public async Task<Result<VoiceTenant>> ActivateWithoutBillingAsync(Guid tenantId, CancellationToken ct = default)
-    {
-        try
-        {
-            await using var conn = await OpenForTenantAsync(tenantId, ct);
-            await using var tx = await conn.BeginTransactionAsync(ct);
-
-            var status = await conn.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
-                "SELECT status FROM geek_voice.tenants WHERE id = @TenantId FOR UPDATE;",
-                new { TenantId = tenantId },
-                transaction: tx,
-                cancellationToken: ct));
-            if (status is null)
-            {
-                await tx.RollbackAsync(ct);
-                return NotFound<VoiceTenant>("The tenant was not found.");
-            }
-
-            if (!string.Equals(status, VoiceTenantStatuses.PendingPayment, StringComparison.Ordinal))
-            {
-                await tx.RollbackAsync(ct);
-                return Result<VoiceTenant>.Failure("The tenant is not waiting for payment, so it cannot be activated.", VoiceFailureCodes.Conflict);
-            }
-
-            // No tenant_subscriptions row and no tenant_telephony row: an exempt tenant is billed by nobody and owns no Twilio subaccount.
-            var row = await conn.QuerySingleAsync<TenantRow>(new CommandDefinition($"""
-                UPDATE geek_voice.tenants SET status = 'active', updated_at = NOW()
-                WHERE id = @TenantId
-                RETURNING {TenantColumns};
-                """,
-                new { TenantId = tenantId },
-                transaction: tx,
-                cancellationToken: ct));
-
-            await tx.CommitAsync(ct);
-            return Result<VoiceTenant>.Success(row.ToModel());
-        }
-        catch (PostgresException ex) when (IsRefusal(ex))
-        {
-            return Refused<VoiceTenant>(ex, "The activation was refused by the database.");
-        }
     }
 
     public async Task<Result<VoiceTenant>> ActivateTenantAsync(Guid tenantId, ActivateVoiceTenantCommand command, CancellationToken ct = default)

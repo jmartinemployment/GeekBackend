@@ -9,9 +9,11 @@ public sealed record CallerQuestionArea(string Name, IReadOnlyList<string> Quest
 /// The caller questions Geek @ Your Spot LLC's own receptionist asks, as Jeff approved them on 2026-11-18, in his words (only the
 /// capitalisation of "invoices" and "which" mid-sentence and a missing closing "?" were fixed). The receptionist asks the opening
 /// question, then the three questions of the area the caller chose, then books the consultation. The answers go only into the
-/// owner's calendar event; nothing here stores them. Written into the company tenant's qualifying questions at exempt activation
-/// (<see cref="BillingExemption"/>). A paying client's qualifying questions start empty (<see cref="ReceptionistDefaults.ConfigFor"/>).
-/// The opening question also offers a phone receptionist; Jeff gave no questions for it, so it has no area here.
+/// owner's calendar event; nothing here stores them. A client's qualifying questions start empty
+/// (<see cref="ReceptionistDefaults.ConfigFor"/>) until it answers the signup form's question about them, and this set is what Geek @
+/// Your Spot will answer there when it signs up like any other client. The only code that still reads it is the company line's
+/// in-code config (ReceptionistConsent.CompanyConfig). The opening question also offers a phone receptionist; Jeff gave no questions
+/// for it, so it has no area here.
 /// </summary>
 public static class CompanyCallerQuestions
 {
