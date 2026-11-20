@@ -224,8 +224,9 @@ public sealed class TenantCallController : ControllerBase
             else
                 plan = new CallSummaryPlan(delivery, request, ticket.DeliverSummaryAlways)
                 {
-                    // A business that connected its own Drive has its records written there, and only a failed write falls back to email.
-                    Storage = HttpContext.RequestServices.GetService<ICallRecordStorage>(),
+                    // A business that connected its own bucket or Drive folder has its records written there, and only a failed write
+                    // falls back to email.
+                    Storage = await HttpContext.RequestServices.GetRequiredService<CallRecordStorages>().ForAsync(tenantId, ct).ConfigureAwait(false),
                 };
         }
 

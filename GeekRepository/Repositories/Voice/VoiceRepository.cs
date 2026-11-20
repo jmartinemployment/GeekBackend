@@ -440,6 +440,71 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         }
     }
 
+    // ----- Bring-your-own-storage -----
+
+    private const string StorageColumns = """
+        tenant_id AS TenantId, provider AS Provider, access_key_id_encrypted AS AccessKeyIdEncrypted,
+        secret_access_key_encrypted AS SecretAccessKeyEncrypted, bucket AS Bucket, key_prefix AS KeyPrefix,
+        region AS Region, is_active AS IsActive
+        """;
+
+    public async Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenForTenantAsync(tenantId, ct);
+        var row = await conn.QuerySingleOrDefaultAsync<VoiceStorageConnection>(new CommandDefinition($"""
+            SELECT {StorageColumns}
+            FROM geek_voice.storage_connections
+            WHERE tenant_id = @TenantId AND is_active = TRUE;
+            """,
+            new { TenantId = tenantId },
+            cancellationToken: ct));
+        return row is null
+            ? NotFound<VoiceStorageConnection>("The tenant has no active storage connection.")
+            : Result<VoiceStorageConnection>.Success(row);
+    }
+
+    public async Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default)
+    {
+        var problem = ValidateStorageConnection(command);
+        if (problem is not null) return Invalid<VoiceStorageConnection>(problem);
+
+        try
+        {
+            await using var conn = await OpenForTenantAsync(tenantId, ct);
+            var row = await conn.QuerySingleAsync<VoiceStorageConnection>(new CommandDefinition($"""
+                INSERT INTO geek_voice.storage_connections (
+                    tenant_id, provider, access_key_id_encrypted, secret_access_key_encrypted, bucket, key_prefix, region, is_active)
+                VALUES (@TenantId, @Provider, @AccessKeyIdEncrypted, @SecretAccessKeyEncrypted, @Bucket, @KeyPrefix, @Region, TRUE)
+                ON CONFLICT (tenant_id) DO UPDATE SET
+                    provider = EXCLUDED.provider,
+                    access_key_id_encrypted = EXCLUDED.access_key_id_encrypted,
+                    secret_access_key_encrypted = EXCLUDED.secret_access_key_encrypted,
+                    bucket = EXCLUDED.bucket,
+                    key_prefix = EXCLUDED.key_prefix,
+                    region = EXCLUDED.region,
+                    is_active = TRUE,
+                    updated_at = NOW()
+                RETURNING {StorageColumns};
+                """,
+                new
+                {
+                    TenantId = tenantId,
+                    command.Provider,
+                    command.AccessKeyIdEncrypted,
+                    command.SecretAccessKeyEncrypted,
+                    command.Bucket,
+                    command.KeyPrefix,
+                    command.Region,
+                },
+                cancellationToken: ct));
+            return Result<VoiceStorageConnection>.Success(row);
+        }
+        catch (PostgresException ex) when (IsRefusal(ex))
+        {
+            return Refused<VoiceStorageConnection>(ex, "The storage connection was refused by the database.");
+        }
+    }
+
     // ----- Knowledge -----
 
     public async Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default)
@@ -708,6 +773,19 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         if (!VoiceMcpProviders.All.Contains(provider, StringComparer.Ordinal)) return $"The provider must be one of: {string.Join(", ", VoiceMcpProviders.All)}.";
         if (c is null) return "A connection is required.";
         if (Blank(c.OauthAccessTokenEncrypted) || Blank(c.OauthRefreshTokenEncrypted)) return "Both the access token and the refresh token are required.";
+        return null;
+    }
+
+    private static string? ValidateStorageConnection(SaveVoiceStorageConnectionCommand? c)
+    {
+        if (c is null) return "A storage connection is required.";
+        if (!VoiceStorageProviders.All.Contains(c.Provider, StringComparer.Ordinal))
+            return $"The provider must be one of: {string.Join(", ", VoiceStorageProviders.All)}.";
+        if (Blank(c.AccessKeyIdEncrypted) || Blank(c.SecretAccessKeyEncrypted)) return "Both the access key and the secret are required.";
+        if (Blank(c.Bucket)) return "A bucket is required.";
+        if (Blank(c.Region)) return "A region is required.";
+        if (c.KeyPrefix is null) return "A key prefix is required, and may be empty.";
+        if (c.KeyPrefix.StartsWith('/')) return "A key prefix does not begin with a slash.";
         return null;
     }
 

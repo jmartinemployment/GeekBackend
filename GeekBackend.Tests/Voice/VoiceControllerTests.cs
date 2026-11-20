@@ -28,6 +28,13 @@ public sealed class VoiceControllerTests
         public List<VoiceReceptionistConfig> Saved { get; } = new();
 
         public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig c, CancellationToken ct = default) { Calls++; Saved.Add(c); return Task.FromResult(config is not null ? config() : Result<VoiceReceptionistConfig>.Success(c)); }
+        // Bring-your-own-storage is not what this test is about; a fake that is asked says there is none.
+        public Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default) =>
+            Task.FromResult(Result<VoiceStorageConnection>.Failure("No storage connection.", VoiceFailureCodes.NotFound));
+
+        public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
         public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default) { Calls++; return Task.FromResult(mcp!()); }
         public Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default) => throw new NotSupportedException();

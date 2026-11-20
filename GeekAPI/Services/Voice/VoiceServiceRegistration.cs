@@ -73,7 +73,10 @@ public static class VoiceServiceRegistration
         services.AddHttpClient<McpGatewayClient>(client => client.Timeout = TimeSpan.FromSeconds(45));
         services.AddScoped<GoogleAccessTokens>();
         services.AddHttpClient(GoogleDriveCallRecordStorage.HttpClientName);
-        services.AddScoped<ICallRecordStorage, GoogleDriveCallRecordStorage>();
+        services.AddHttpClient(S3CompatibleCallRecordStorage.HttpClientName);
+        services.AddScoped<GoogleDriveCallRecordStorage>();
+        services.AddScoped<S3CompatibleCallRecordStorage>();
+        services.AddScoped<CallRecordStorages>();
         services.AddScoped<CalendarTools>();
         services.AddSingleton<CalendarToolCatalog>();
         services.AddScoped<IVoiceOwnerStore>(sp =>

@@ -65,6 +65,13 @@ public sealed class CalendarToolsTests
         public Func<Result<VoiceMcpConnection>>? Save { get; set; }
         public List<SaveVoiceMcpConnectionCommand> Saved { get; } = new();
 
+        // Bring-your-own-storage is not what this test is about; a fake that is asked says there is none.
+        public Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default) =>
+            Task.FromResult(Result<VoiceStorageConnection>.Failure("No storage connection.", VoiceFailureCodes.NotFound));
+
+        public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
         public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) => Task.FromResult(Connection);
 
         public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default)

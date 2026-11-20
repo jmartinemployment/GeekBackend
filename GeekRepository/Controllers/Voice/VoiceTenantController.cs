@@ -38,6 +38,14 @@ public sealed class VoiceTenantController(IVoiceStore voice) : VoiceStoreControl
     public async Task<IActionResult> SaveMcpConnection(Guid tenantId, string provider, [FromBody] SaveVoiceMcpConnectionCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A connection is required.") : ToAction(await voice.SaveMcpConnectionAsync(tenantId, provider, command, ct));
 
+    [HttpGet("storage")]
+    public async Task<IActionResult> GetStorageConnection(Guid tenantId, CancellationToken ct) =>
+        ToAction(await voice.GetStorageConnectionAsync(tenantId, ct));
+
+    [HttpPut("storage")]
+    public async Task<IActionResult> SaveStorageConnection(Guid tenantId, [FromBody] SaveVoiceStorageConnectionCommand command, CancellationToken ct) =>
+        command is null ? BadRequest("A storage connection is required.") : ToAction(await voice.SaveStorageConnectionAsync(tenantId, command, ct));
+
     [HttpPost("knowledge/documents")]
     [RequestSizeLimit(20_000_000)]
     public async Task<IActionResult> CreateKnowledgeDocument(Guid tenantId, [FromBody] CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct) =>

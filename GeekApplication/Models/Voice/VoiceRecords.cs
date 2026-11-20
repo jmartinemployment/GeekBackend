@@ -88,6 +88,17 @@ public static class VoiceKnowledgeSourceTypes
     public static readonly IReadOnlyList<string> All = [GuidedTradeForm, PdfUpload, GeekCrawlerUrl];
 }
 
+/// <summary>
+/// The object stores a business can have its call records written to (plans/client-and-app-plan.md, "AWS S3 / Google Cloud Storage").
+/// Both speak the S3 API and are signed the same way; only the endpoint differs.
+/// </summary>
+public static class VoiceStorageProviders
+{
+    public const string AwsS3 = "aws_s3";
+    public const string GoogleCloudStorage = "google_cloud_storage";
+    public static readonly IReadOnlyList<string> All = [AwsS3, GoogleCloudStorage];
+}
+
 /// <summary>The size of an embedding: BAAI/bge-small-en-v1.5.</summary>
 public static class VoiceEmbedding
 {
@@ -232,6 +243,34 @@ public sealed record SearchVoiceKnowledgeCommand(IReadOnlyList<float> QueryEmbed
 
 /// <summary>Cosine similarity, 1 for the same direction and lower the further apart.</summary>
 public sealed record VoiceKnowledgeHit(Guid DocumentId, int ChunkIndex, string ChunkText, double Similarity);
+
+// ----- Bring-your-own-storage -----
+
+/// <summary>
+/// Where a business has its call records written, and the keys to write them with. Both keys are ciphertext GeekAPI produced and
+/// GeekRepository never decrypts. One connection per tenant: a business writes its records to one place.
+/// </summary>
+public sealed record VoiceStorageConnection(
+    Guid TenantId,
+    string Provider,
+    string AccessKeyIdEncrypted,
+    string SecretAccessKeyEncrypted,
+    string Bucket,
+    string KeyPrefix,
+    string Region,
+    bool IsActive);
+
+/// <summary>
+/// A business's bucket as the owner gave it. Saving again replaces the whole connection and makes it active, as the calendar's does.
+/// The credentials are expected to carry nothing but the right to put an object, which is what the setup instructions grant.
+/// </summary>
+public sealed record SaveVoiceStorageConnectionCommand(
+    string Provider,
+    string AccessKeyIdEncrypted,
+    string SecretAccessKeyEncrypted,
+    string Bucket,
+    string KeyPrefix,
+    string Region);
 
 // ----- Calls and appointments -----
 

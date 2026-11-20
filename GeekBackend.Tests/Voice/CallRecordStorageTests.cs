@@ -144,6 +144,9 @@ public sealed class CallRecordStorageTests
         public Task<Result<VoiceTelephony>> GetTelephonyAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceReceptionistConfig>> GetConfigAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig config, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default) =>
+            Task.FromResult(Result<VoiceStorageConnection>.Failure("No storage connection.", VoiceFailureCodes.NotFound));
+        public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<IReadOnlyList<VoiceKnowledgeHit>>> SearchKnowledgeAsync(Guid tenantId, SearchVoiceKnowledgeCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceCallStored>> UpsertCallAsync(Guid tenantId, UpsertVoiceCallCommand command, CancellationToken ct = default) => throw new NotSupportedException();
@@ -336,6 +339,147 @@ public sealed class CallRecordStorageTests
         Assert.Equal("https://portal.example.test/oauth/mcp/google_calendar/callback", options.RedirectUriFor(GoogleCalendarOptions.Provider));
         Assert.Equal("https://portal.example.test/oauth/mcp/google_drive/callback", options.RedirectUriFor(GoogleDriveOptions.Provider));
         Assert.Equal(options.RedirectUri, options.RedirectUriFor(GoogleCalendarOptions.Provider));
+    }
+
+    // ----- The bucket writer, which serves Amazon S3 and Google Cloud Storage alike -----
+
+    private static VoiceStorageConnection Bucket(string provider, string prefix = "") => new(
+        Guid.NewGuid(), provider, "key-cipher", "secret-cipher", "dag-plumbing-records", prefix, "us-east-1", IsActive: true);
+
+    [Fact]
+    public void Amazon_is_written_to_its_regional_host_with_the_bucket_in_the_name()
+    {
+        var connection = Bucket(VoiceStorageProviders.AwsS3);
+
+        Assert.Equal("dag-plumbing-records.s3.us-east-1.amazonaws.com", S3CompatibleCallRecordStorage.HostFor(connection));
+        Assert.Equal("/2026/11/19/call-1.md", S3CompatibleCallRecordStorage.PathFor(connection, "2026/11/19/call-1.md"));
+    }
+
+    [Fact]
+    public void Google_is_written_to_its_s3_endpoint_with_the_bucket_in_the_path()
+    {
+        var connection = Bucket(VoiceStorageProviders.GoogleCloudStorage);
+
+        Assert.Equal("storage.googleapis.com", S3CompatibleCallRecordStorage.HostFor(connection));
+        Assert.Equal("/dag-plumbing-records/2026/11/19/call-1.md", S3CompatibleCallRecordStorage.PathFor(connection, "2026/11/19/call-1.md"));
+    }
+
+    [Fact]
+    public void A_businesss_own_prefix_is_kept_and_never_doubled_with_slashes()
+    {
+        Assert.Equal(
+            "/receptionist/2026/11/19/call-1.md",
+            S3CompatibleCallRecordStorage.PathFor(Bucket(VoiceStorageProviders.AwsS3, "receptionist"), "2026/11/19/call-1.md"));
+        Assert.Equal(
+            "/receptionist/2026/11/19/call-1.md",
+            S3CompatibleCallRecordStorage.PathFor(Bucket(VoiceStorageProviders.AwsS3, "/receptionist/"), "2026/11/19/call-1.md"));
+        Assert.Equal(
+            "/dag-plumbing-records/logs/2026/11/19/call-1.md",
+            S3CompatibleCallRecordStorage.PathFor(Bucket(VoiceStorageProviders.GoogleCloudStorage, "logs"), "2026/11/19/call-1.md"));
+    }
+
+    private sealed class OneBucket(VoiceStorageConnection? connection) : IVoiceStore
+    {
+        public Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default) =>
+            Task.FromResult(connection is null
+                ? Result<VoiceStorageConnection>.Failure("No storage connection.", VoiceFailureCodes.NotFound)
+                : Result<VoiceStorageConnection>.Success(connection));
+
+        public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceTenant>> ActivateTenantAsync(Guid tenantId, ActivateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceTelephony>> GetTelephonyAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceReceptionistConfig>> GetConfigAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig config, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceKnowledgeDocumentCreated>> CreateKnowledgeDocumentAsync(Guid tenantId, CreateVoiceKnowledgeDocumentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<IReadOnlyList<VoiceKnowledgeHit>>> SearchKnowledgeAsync(Guid tenantId, SearchVoiceKnowledgeCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceCallStored>> UpsertCallAsync(Guid tenantId, UpsertVoiceCallCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task<Result<VoiceAppointmentCreated>> CreateAppointmentAsync(Guid tenantId, CreateVoiceAppointmentCommand command, CancellationToken ct = default) => throw new NotSupportedException();
+    }
+
+    private static (S3CompatibleCallRecordStorage Storage, StubHandler Handler, CapturingLogger<S3CompatibleCallRecordStorage> Log) Buckets(
+        string provider, HttpStatusCode status)
+    {
+        var protector = new VoiceCredentialProtector(() => Key);
+        var connection = new VoiceStorageConnection(
+            Guid.NewGuid(), provider,
+            protector.Protect("AKIDEXAMPLE", VoiceSecretPurposes.McpAccessToken).Value!,
+            protector.Protect("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", VoiceSecretPurposes.McpRefreshToken).Value!,
+            "dag-plumbing-records", "", "us-east-1", IsActive: true);
+
+        var handler = new StubHandler((status, ""));
+        var log = new CapturingLogger<S3CompatibleCallRecordStorage>();
+        return (new S3CompatibleCallRecordStorage(new OneBucket(connection), protector, new OneClient(handler), new FakeTimeProvider(Ended), log), handler, log);
+    }
+
+    [Fact]
+    public async Task A_record_is_put_once_signed_with_the_businesss_own_key()
+    {
+        var (storage, handler, _) = Buckets(VoiceStorageProviders.AwsS3, HttpStatusCode.OK);
+
+        var written = await storage.WriteAsync(Guid.NewGuid(), CallRecordObjects.Markdown(Call()));
+
+        Assert.True(written.IsSuccess, written.Error);
+        var request = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Put, request.Method);
+        Assert.Equal($"https://dag-plumbing-records.s3.us-east-1.amazonaws.com/2026/11/19/call-{Ended.ToUnixTimeSeconds()}-0133.md", request.RequestUri!.ToString());
+        Assert.True(request.Headers.Contains("Authorization"));
+        Assert.True(request.Headers.Contains("x-amz-content-sha256"));
+        Assert.True(request.Headers.Contains("x-amz-date"));
+        Assert.StartsWith("AWS4-HMAC-SHA256 ", request.Headers.GetValues("Authorization").Single(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_secret_never_leaves_in_a_header_or_a_log()
+    {
+        var (storage, handler, log) = Buckets(VoiceStorageProviders.AwsS3, HttpStatusCode.OK);
+
+        await storage.WriteAsync(Guid.NewGuid(), CallRecordObjects.Markdown(Call()));
+
+        var headers = string.Join('\n', handler.Requests[0].Headers.Select(h => $"{h.Key}: {string.Join(',', h.Value)}"));
+        Assert.DoesNotContain("wJalrXUtnFEMI", headers, StringComparison.Ordinal);
+        Assert.DoesNotContain(log.Lines, l => l.Contains("wJalrXUtnFEMI", StringComparison.Ordinal) || l.Contains("Dana Reed", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_bucket_that_refuses_the_key_asks_for_it_to_be_replaced_and_does_not_retry()
+    {
+        var (storage, handler, _) = Buckets(VoiceStorageProviders.AwsS3, HttpStatusCode.Forbidden);
+
+        var written = await storage.WriteAsync(Guid.NewGuid(), CallRecordObjects.Markdown(Call()));
+
+        Assert.False(written.IsSuccess);
+        Assert.Equal(McpFailureCodes.ReauthorizationRequired, written.ErrorCode);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task A_bucket_that_is_full_fails_with_its_code_so_the_record_goes_to_email()
+    {
+        var (storage, _, _) = Buckets(VoiceStorageProviders.GoogleCloudStorage, HttpStatusCode.InsufficientStorage);
+
+        var written = await storage.WriteAsync(Guid.NewGuid(), CallRecordObjects.Markdown(Call()));
+
+        Assert.False(written.IsSuccess);
+        Assert.Equal(McpFailureCodes.StorageWriteFailed, written.ErrorCode);
+    }
+
+    [Fact]
+    public async Task A_business_with_no_bucket_is_told_so_and_nothing_is_called()
+    {
+        var handler = new StubHandler((HttpStatusCode.OK, ""));
+        var storage = new S3CompatibleCallRecordStorage(
+            new OneBucket(null), new VoiceCredentialProtector(() => Key), new OneClient(handler),
+            new FakeTimeProvider(Ended), NullLogger<S3CompatibleCallRecordStorage>.Instance);
+
+        var written = await storage.WriteAsync(Guid.NewGuid(), CallRecordObjects.Markdown(Call()));
+
+        Assert.False(written.IsSuccess);
+        Assert.Equal(McpFailureCodes.StorageNotConnected, written.ErrorCode);
+        Assert.Empty(handler.Requests);
     }
 
 }
