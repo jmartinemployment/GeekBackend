@@ -382,4 +382,97 @@ public sealed class CallSummaryDispatchTests
         Assert.Single(delivery.Calls);
     }
 
+    // ----- The plan's dead-letter fallback -----
+
+    private sealed class FakeStorage(Result<string> result) : ICallRecordStorage
+    {
+        public List<CallRecordObject> Written { get; } = new();
+        public string Provider => "google_drive";
+
+        public Task<Result<string>> WriteAsync(Guid tenantId, CallRecordObject record, CancellationToken ct = default)
+        {
+            Written.Add(record);
+            return Task.FromResult(result);
+        }
+    }
+
+    private sealed class ThrowingStorage : ICallRecordStorage
+    {
+        public string Provider => "google_drive";
+
+        public Task<Result<string>> WriteAsync(Guid tenantId, CallRecordObject record, CancellationToken ct = default) =>
+            throw new InvalidOperationException("the network went away");
+    }
+
+    private static (ReceptionistRelaySession Session, FakeDelivery Delivery) WithStorage(
+        ICallRecordStorage? storage, bool includeTranscript = false)
+    {
+        var delivery = new FakeDelivery();
+        var session = new ReceptionistRelaySession(new FakeReceptionistModel(), "prompt", new CapturingLogger())
+        {
+            Summary = new CallSummaryPlan(
+                delivery,
+                new CallSummaryRequest("owner@example.test", "Dag Plumbing", "+15615550133", includeTranscript, false))
+            {
+                Storage = storage,
+            },
+        };
+        return (session, delivery);
+    }
+
+    [Fact]
+    public async Task A_record_written_to_the_businesss_own_storage_is_not_also_emailed()
+    {
+        var storage = new FakeStorage(Result<string>.Success("file-1"));
+        var (session, delivery) = WithStorage(storage);
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Single(storage.Written);
+        Assert.Empty(delivery.Calls);
+    }
+
+    [Fact]
+    public async Task A_storage_write_that_fails_routes_the_record_to_the_owners_email_instead()
+    {
+        var storage = new FakeStorage(Result<string>.Failure("The quota is full.", "storage_write_failed"));
+        var (session, delivery) = WithStorage(storage);
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Single(storage.Written);
+        Assert.Single(delivery.Calls);
+    }
+
+    [Fact]
+    public async Task A_storage_that_throws_loses_nothing_either()
+    {
+        var (session, delivery) = WithStorage(new ThrowingStorage());
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Single(delivery.Calls);
+    }
+
+    [Fact]
+    public async Task A_business_that_asked_for_transcripts_has_them_written_as_json()
+    {
+        var storage = new FakeStorage(Result<string>.Success("file-1"));
+        var (session, _) = WithStorage(storage, includeTranscript: true);
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.EndsWith(".json", Assert.Single(storage.Written).Path, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_business_with_no_storage_connected_is_emailed_as_before()
+    {
+        var (session, delivery) = WithStorage(null);
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Single(delivery.Calls);
+    }
+
 }

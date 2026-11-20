@@ -20,6 +20,15 @@ public sealed record CallSummaryRequest(
 /// </summary>
 public sealed record CallSummaryPlan(ICallSummaryDelivery Delivery, CallSummaryRequest Request, bool DeliverAlways = true)
 {
+    /// <summary>
+    /// The business's own storage, when it connected some, and whether it asked for the whole transcript there. A write that fails
+    /// does not lose the call: the record goes to the owner's email instead, which is the plan's dead-letter fallback.
+    /// </summary>
+    public ICallRecordStorage? Storage { get; init; }
+
+    /// <summary>The longest a write to the business's storage may take before the record goes to email instead.</summary>
+    public static readonly TimeSpan StoreBound = TimeSpan.FromSeconds(15);
+
     /// <summary>A caller who said fewer words than this across the whole call (dead air, noise, a dropped consent) did not make a call worth a record.</summary>
     public const int MinimumCallerWords = 3;
 

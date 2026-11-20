@@ -3,6 +3,7 @@ using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Calls;
 using GeekAPI.Services.Voice.Email;
 using GeekAPI.Services.Voice.Mcp;
+using GeekAPI.Services.Voice.Storage;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.OwnerAuth;
 using GeekAPI.Services.Voice.Telephony;
@@ -71,6 +72,8 @@ public static class VoiceServiceRegistration
         services.AddSingleton(McpGatewayOptions.FromEnvironment());
         services.AddHttpClient<McpGatewayClient>(client => client.Timeout = TimeSpan.FromSeconds(45));
         services.AddScoped<GoogleAccessTokens>();
+        services.AddHttpClient(GoogleDriveCallRecordStorage.HttpClientName);
+        services.AddScoped<ICallRecordStorage, GoogleDriveCallRecordStorage>();
         services.AddScoped<CalendarTools>();
         services.AddSingleton<CalendarToolCatalog>();
         services.AddScoped<IVoiceOwnerStore>(sp =>

@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using GeekApplication.Interfaces.Receptionist;
 
 using GeekAPI.Services.Voice.Calls;
+using GeekAPI.Services.Voice.Storage;
 
 namespace GeekAPI.Services.Receptionist.Relay;
 
@@ -61,7 +62,11 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     /// </summary>
     public CallOutcomes? Outcomes { get; init; }
 
+    /// <summary>Whose call this is, which the business's own storage needs to know whose connection to write through.</summary>
+    public Guid TenantId { get; init; }
+
     private string? _callSid;
+
     private bool _booked;
     private bool _recordDelivered;
     private bool _failed;
@@ -330,6 +335,10 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
                 kind, summary, plan.Request.IncludeTranscript ? _turns.ToList() : null, ended, ended - _startedAt,
                 plan.Request.Destination, plan.Request.BusinessName, plan.Request.CallerNumber);
 
+            // The business's own storage first, when it has some. Only a write that fails falls through to email.
+            var stored = await StoreAsync(plan, call).ConfigureAwait(false);
+            if (stored) return;
+
             using var deliveryBound = new CancellationTokenSource(CallSummaryPlan.DeliverBound);
             for (var attempt = 1; attempt <= 2; attempt++)
             {
@@ -352,6 +361,36 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
         {
             _turns.Clear();
         }
+    }
+
+    /// <summary>
+    /// Writes the call into the business's own storage, and says whether that is where it ended up. False sends it on to the owner's
+    /// email: the plan's dead-letter fallback, "the payload routes immediately to the owner's contact email before RAM is cleared".
+    /// A business that connected no storage is not a failure and falls straight through.
+    /// </summary>
+    private async Task<bool> StoreAsync(CallSummaryPlan plan, FinishedCall call)
+    {
+        if (plan.Storage is null) return false;
+
+        var record = plan.Request.IncludeTranscript ? CallRecordObjects.Json(call) : CallRecordObjects.Markdown(call);
+        using var bound = new CancellationTokenSource(CallSummaryPlan.StoreBound);
+        try
+        {
+            var written = await plan.Storage.WriteAsync(TenantId, record, bound.Token).ConfigureAwait(false);
+            if (written.IsSuccess)
+            {
+                _recordDelivered = true;
+                return true;
+            }
+
+            logger.LogError("Writing the call's record to {Provider} failed ({Code}); it goes to the owner's email instead.", plan.Storage.Provider, written.ErrorCode);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Writing the call's record to {Provider} failed ({Failure}); it goes to the owner's email instead.", plan.Storage.Provider, ex.GetType().Name);
+        }
+
+        return false;
     }
 
     /// <summary>

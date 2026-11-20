@@ -3,6 +3,7 @@ using GeekAPI.Services.Receptionist.Relay;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Calls;
 using GeekAPI.Services.Voice.Mcp;
+using GeekAPI.Services.Voice.Storage;
 using GeekAPI.Services.Voice.Telephony;
 using GeekApplication.Interfaces.Receptionist;
 using GeekApplication.Interfaces.Voice;
@@ -221,14 +222,18 @@ public sealed class TenantCallController : ControllerBase
             if (delivery is null)
                 _logger.LogError("Tenant {TenantId} asked for an end-of-call record and nothing is registered to deliver it; this call will send none.", tenantId);
             else
-                plan = new CallSummaryPlan(delivery, request, ticket.DeliverSummaryAlways);
+                plan = new CallSummaryPlan(delivery, request, ticket.DeliverSummaryAlways)
+                {
+                    // A business that connected its own Drive has its records written there, and only a failed write falls back to email.
+                    Storage = HttpContext.RequestServices.GetService<ICallRecordStorage>(),
+                };
         }
 
         var toolbox = await CalendarToolbox.CreateAsync(
             tenantId, _store, HttpContext.RequestServices.GetRequiredService<CalendarTools>(), _catalog,
             HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ticket.BookingEnabled, ct).ConfigureAwait(false);
 
-        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes }
+        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes, TenantId = tenantId }
             .RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }
