@@ -21,6 +21,9 @@ public static class McpFailureCodes
     public const string GatewayUnavailable = "gateway_unavailable";
     public const string ToolNotAllowed = "tool_not_allowed";
     public const string ToolError = "tool_error";
+
+    /// <summary>A booking was sent and the answer was lost, and looking for it afterwards did not settle whether it took. Never retried.</summary>
+    public const string BookingOutcomeUnknown = "booking_outcome_unknown";
 }
 
 /// <summary>

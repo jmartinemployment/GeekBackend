@@ -16,8 +16,8 @@ public sealed class CalendarToolCatalog(TimeProvider clock)
     private IReadOnlyList<ReceptionistToolDefinition>? _tools;
     private DateTimeOffset _freshUntil;
 
-    /// <summary>The gateway's read-only tools, or null when it could not be asked or offers none.</summary>
-    public async Task<IReadOnlyList<ReceptionistToolDefinition>?> ReadOnlyToolsAsync(McpGatewayClient gateway, ILogger logger, CancellationToken ct = default)
+    /// <summary>Every tool the gateway offers, or null when it could not be asked or offers none. Which of them a business may use is not decided here.</summary>
+    public async Task<IReadOnlyList<ReceptionistToolDefinition>?> ToolsAsync(McpGatewayClient gateway, ILogger logger, CancellationToken ct = default)
     {
         if (_tools is { } cached && clock.GetUtcNow() < _freshUntil) return cached;
 
@@ -34,12 +34,11 @@ public sealed class CalendarToolCatalog(TimeProvider clock)
             }
 
             var tools = offered.Value!
-                .Where(tool => CalendarToolbox.ReadOnlyTools.Contains(tool.Name))
                 .Select(tool => new ReceptionistToolDefinition(tool.Name, tool.Description, tool.InputSchema))
                 .ToList();
             if (tools.Count == 0)
             {
-                logger.LogError("The calendar gateway offers no tools that only read a calendar.");
+                logger.LogError("The calendar gateway offers no tools.");
                 return null;
             }
 

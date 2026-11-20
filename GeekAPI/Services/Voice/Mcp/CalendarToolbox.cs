@@ -20,19 +20,27 @@ namespace GeekAPI.Services.Voice.Mcp;
 /// </summary>
 public sealed class CalendarToolbox : IReceptionistToolbox
 {
-    /// <summary>The gateway's tools that only read a calendar. Anything not named here is never offered, whatever the gateway lists.</summary>
+    /// <summary>The gateway's tools that only read a calendar. Anything not named here or <see cref="BookingTool"/> is never offered, whatever the gateway lists.</summary>
     public static readonly IReadOnlySet<string> ReadOnlyTools =
         new HashSet<string>(StringComparer.Ordinal) { "list_calendars", "list_events", "get_event", "suggest_time" };
 
+    /// <summary>The one tool that writes to the owner's calendar. Offered only to a business that asked for booking.</summary>
+    public const string BookingTool = "create_event";
+
+    /// <summary>The tool a booking whose answer was lost is looked for with; it is never booked a second time.</summary>
+    public const string ListTool = "list_events";
+
     private readonly Guid _tenantId;
     private readonly CalendarTools _calendar;
+    private readonly bool _mayBook;
     private readonly ILogger _logger;
 
-    private CalendarToolbox(Guid tenantId, IReadOnlyList<ReceptionistToolDefinition> tools, CalendarTools calendar, ILogger logger)
+    private CalendarToolbox(Guid tenantId, IReadOnlyList<ReceptionistToolDefinition> tools, CalendarTools calendar, bool mayBook, ILogger logger)
     {
         _tenantId = tenantId;
         Tools = tools;
         _calendar = calendar;
+        _mayBook = mayBook;
         _logger = logger;
     }
 
@@ -45,7 +53,7 @@ public sealed class CalendarToolbox : IReceptionistToolbox
     /// </summary>
     public static async Task<CalendarToolbox?> CreateAsync(
         Guid tenantId, IVoiceStore store, CalendarTools calendar, CalendarToolCatalog catalog, McpGatewayClient gateway, ILogger logger,
-        CancellationToken ct = default)
+        bool mayBook = false, CancellationToken ct = default)
     {
         // The owner connecting their calendar is what asks for this; without it every tool would only ever answer calendar_not_connected.
         var connection = await store.GetMcpConnectionAsync(tenantId, GoogleCalendarOptions.Provider, ct).ConfigureAwait(false);
@@ -58,20 +66,33 @@ public sealed class CalendarToolbox : IReceptionistToolbox
             return null;
         }
 
-        var tools = await catalog.ReadOnlyToolsAsync(gateway, logger, ct).ConfigureAwait(false);
-        if (tools is null)
+        var offered = await catalog.ToolsAsync(gateway, logger, ct).ConfigureAwait(false);
+        if (offered is null)
         {
-            logger.LogError("Tenant {TenantId}: the calendar tools are not available, so this call has none.", tenantId);
+            logger.LogError("Tenant {TenantId}: the calendar tools are not available, so this call has no calendar tools.", tenantId);
             return null;
         }
 
-        return new CalendarToolbox(tenantId, tools, calendar, logger);
+        var tools = offered.Where(tool => ReadOnlyTools.Contains(tool.Name) || (mayBook && tool.Name == BookingTool)).ToList();
+        if (tools.Count == 0)
+        {
+            logger.LogError("Tenant {TenantId}: the calendar gateway offers nothing this receptionist may use; this call has no calendar tools.", tenantId);
+            return null;
+        }
+
+        return new CalendarToolbox(tenantId, tools, calendar, mayBook && tools.Any(tool => tool.Name == BookingTool), logger);
     }
 
     public async Task<Result<string>> RunAsync(ReceptionistToolCall call, CancellationToken ct = default)
     {
-        // The model is given only the read-only tools, so anything else is a model that went outside what it was offered.
-        if (!ReadOnlyTools.Contains(call.Name))
+        if (call.Name == BookingTool && !_mayBook)
+        {
+            _logger.LogError("Tenant {TenantId}: the receptionist asked to book, which this business has not turned on.", _tenantId);
+            return Result<string>.Failure("This business's receptionist does not book appointments.", McpFailureCodes.ToolNotAllowed);
+        }
+
+        // The model is given only the tools above, so anything else is a model that went outside what it was offered.
+        if (!ReadOnlyTools.Contains(call.Name) && call.Name != BookingTool)
         {
             _logger.LogError("Tenant {TenantId}: the receptionist asked for the calendar tool {Tool}, which it was not offered.", _tenantId, call.Name);
             return Result<string>.Failure("That calendar tool is not offered.", McpFailureCodes.ToolNotAllowed);
@@ -95,14 +116,104 @@ public sealed class CalendarToolbox : IReceptionistToolbox
         }
 
         var result = await _calendar.CallAsync(_tenantId, GoogleCalendarOptions.Provider, call.Name, arguments, ct).ConfigureAwait(false);
-        if (!result.IsSuccess)
+        if (result.IsSuccess) return Answer(result.Value!);
+
+        // A booking whose answer was lost may still have been made, so it is looked for rather than sent again.
+        if (call.Name == BookingTool && result.ErrorCode == McpFailureCodes.GatewayUnavailable)
+            return await ReconcileAsync(arguments!.Value, result, ct).ConfigureAwait(false);
+
+        _logger.LogError("Tenant {TenantId}: the calendar tool {Tool} failed ({Code}).", _tenantId, call.Name, result.ErrorCode);
+        return Result<string>.Failure(result.Error!, result.ErrorCode!);
+    }
+
+    /// <summary>Structured content when the tool sent it, because it is the shape a model reads best; otherwise what it did send.</summary>
+    private static Result<string> Answer(McpToolResult result) =>
+        Result<string>.Success((result.StructuredContent ?? result.Content).GetRawText());
+
+    /// <summary>
+    /// What became of a booking whose answer never arrived. Google's tool takes no event id, so sending it again could book the caller
+    /// twice; instead the calendar is read over the time that was asked for and the event is looked for by its summary. Found, the booking
+    /// stands. Not found, the model is told the booking failed, and may book again. Unreadable, the outcome is
+    /// <see cref="McpFailureCodes.BookingOutcomeUnknown"/>: nobody may say it was booked and nobody may book it again here.
+    /// </summary>
+    private async Task<Result<string>> ReconcileAsync(JsonElement booking, Result<McpToolResult> failure, CancellationToken ct)
+    {
+        var summary = Text(booking, "summary");
+        var query = ListArguments(booking);
+        if (summary is null || query is null)
         {
-            _logger.LogError("Tenant {TenantId}: the calendar tool {Tool} failed ({Code}).", _tenantId, call.Name, result.ErrorCode);
-            return Result<string>.Failure(result.Error!, result.ErrorCode!);
+            _logger.LogError("Tenant {TenantId}: a booking's answer was lost and it cannot be looked for, so its outcome is unknown.", _tenantId);
+            return Unknown();
         }
 
-        // Structured content when the tool sent it, because it is the shape a model reads best; otherwise what it did send.
-        var answer = result.Value!.StructuredContent ?? result.Value.Content;
-        return Result<string>.Success(answer.GetRawText());
+        _logger.LogWarning("Tenant {TenantId}: a booking's answer was lost; the calendar is being read to see whether it was made.", _tenantId);
+
+        var listed = await _calendar.CallAsync(_tenantId, GoogleCalendarOptions.Provider, ListTool, query, ct).ConfigureAwait(false);
+        if (!listed.IsSuccess)
+        {
+            _logger.LogError("Tenant {TenantId}: a booking's answer was lost and the calendar could not be read ({Code}), so its outcome is unknown.",
+                _tenantId, listed.ErrorCode);
+            return Unknown();
+        }
+
+        if (Mentions(listed.Value!.StructuredContent ?? listed.Value.Content, summary))
+        {
+            _logger.LogWarning("Tenant {TenantId}: a booking whose answer was lost was found on the calendar and stands.", _tenantId);
+            return Answer(listed.Value);
+        }
+
+        _logger.LogError("Tenant {TenantId}: a booking's answer was lost and it is not on the calendar, so it was not made ({Code}).",
+            _tenantId, failure.ErrorCode);
+        return Result<string>.Failure(failure.Error!, failure.ErrorCode!);
+    }
+
+    private static Result<string> Unknown() =>
+        Result<string>.Failure("Whether the appointment was booked could not be established.", McpFailureCodes.BookingOutcomeUnknown);
+
+    /// <summary>The arguments to read the calendar over the time a booking asked for; null when it named no time.</summary>
+    private static JsonElement? ListArguments(JsonElement booking)
+    {
+        var start = Text(booking, "startTime");
+        var end = Text(booking, "endTime");
+        if (start is null || end is null) return null;
+
+        var query = new Dictionary<string, string> { ["startTime"] = start, ["endTime"] = end };
+        if (Text(booking, "calendarId") is { } calendarId) query["calendarId"] = calendarId;
+        if (Text(booking, "timeZone") is { } timeZone) query["timeZone"] = timeZone;
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(query));
+        return document.RootElement.Clone();
+    }
+
+    private static string? Text(JsonElement obj, string name) =>
+        obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString())
+            ? value.GetString()
+            : null;
+
+    /// <summary>
+    /// Whether anything the calendar returned is summarised exactly as the booking was. The shape of Google's answer is Google's, so every
+    /// "summary" in it is looked at wherever it sits, rather than a path being assumed and quietly missing the event.
+    /// </summary>
+    private static bool Mentions(JsonElement element, string summary)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                {
+                    if (property.NameEquals("summary") && property.Value.ValueKind == JsonValueKind.String
+                        && string.Equals(property.Value.GetString(), summary, StringComparison.Ordinal))
+                        return true;
+                    if (Mentions(property.Value, summary)) return true;
+                }
+                return false;
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                    if (Mentions(item, summary)) return true;
+                return false;
+            default:
+                return false;
+        }
     }
 }

@@ -148,7 +148,7 @@ public sealed class TenantCallController : ControllerBase
                 config.Value.MessageDestinationEmail, tenant.Value!.BusinessName, callerNumber,
                 config.Value.IncludeTranscript, config.Value.NotifyOnAbandonedCalls)
             : null;
-        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request);
+        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.Value.BookingEnabled);
         _logger.LogInformation("Tenant {TenantId}: call {CallSid} consented; it is handed to the AI.", tenantId, callSid);
         return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), config.Value!.GreetingMessage));
     }
@@ -193,7 +193,7 @@ public sealed class TenantCallController : ControllerBase
 
         var toolbox = await CalendarToolbox.CreateAsync(
             tenantId, _store, HttpContext.RequestServices.GetRequiredService<CalendarTools>(), _catalog,
-            HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ct).ConfigureAwait(false);
+            HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ticket.BookingEnabled, ct).ConfigureAwait(false);
 
         await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox }
             .RunAsync(socket, ct).ConfigureAwait(false);

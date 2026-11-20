@@ -172,7 +172,8 @@ public sealed record VoiceReceptionistConfig(
     bool MessageEmailEnabled = false,
     string? MessageDestinationEmail = null,
     bool IncludeTranscript = false,
-    bool NotifyOnAbandonedCalls = false);
+    bool NotifyOnAbandonedCalls = false,
+    bool BookingEnabled = false);
 
 public sealed record VoiceMcpConnection(
     Guid TenantId,

@@ -481,8 +481,8 @@ public sealed class CalendarToolsTests
             ? (toolsBody is null ? new HttpResponseMessage(toolsStatus) : Json(toolsBody, toolsStatus))
             : GatewayOk());
 
-    private static Task<CalendarToolbox?> BoxAsync(Rig rig, CalendarToolCatalog? catalog = null) =>
-        CalendarToolbox.CreateAsync(Tenant, rig.Store, rig.Tools, catalog ?? new CalendarToolCatalog(new Clock(Now)), rig.Client, rig.GatewayLog);
+    private static Task<CalendarToolbox?> BoxAsync(Rig rig, CalendarToolCatalog? catalog = null, bool mayBook = false) =>
+        CalendarToolbox.CreateAsync(Tenant, rig.Store, rig.Tools, catalog ?? new CalendarToolCatalog(new Clock(Now)), rig.Client, rig.GatewayLog, mayBook);
 
     [Fact]
     public async Task The_gateway_tool_list_is_read_with_googles_own_schemas_and_sends_no_token()
@@ -524,7 +524,7 @@ public sealed class CalendarToolsTests
         var rig = ToolRig(body, status);
 
         Assert.Null(await BoxAsync(rig));
-        Assert.Contains(rig.GatewayLog.Lines.Concat(rig.ToolsLog.Lines), l => l.Contains("this call has none", StringComparison.Ordinal));
+        Assert.Contains(rig.GatewayLog.Lines.Concat(rig.ToolsLog.Lines), l => l.Contains("no calendar tools", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -553,12 +553,123 @@ public sealed class CalendarToolsTests
         var box = await BoxAsync(rig);
         var before = rig.Gateway.Seen.Count;
 
-        var result = await box!.RunAsync(new ReceptionistToolCall("c1", "create_event", $$"""{"summary":"{{Secret}}"}"""));
+        Assert.DoesNotContain(box!.Tools, t => t.Name == "create_event");
+        var result = await box.RunAsync(new ReceptionistToolCall("c1", "create_event", $$"""{"summary":"{{Secret}}"}"""));
 
         Assert.False(result.IsSuccess);
         Assert.Equal(McpFailureCodes.ToolNotAllowed, result.ErrorCode);
         Assert.Equal(before, rig.Gateway.Seen.Count);
         Assert.DoesNotContain(rig.AllLogLines, l => l.Contains(Secret, StringComparison.Ordinal));
+    }
+
+    // ----- Booking, for a business that asked for it -----
+
+    private const string Booking = """{"calendarId":"primary","summary":"Water heater repair for Dana","startTime":"2026-11-20T14:00:00","endTime":"2026-11-20T15:00:00","timeZone":"America/New_York"}""";
+
+    private static readonly ReceptionistToolCall Book = new("c1", "create_event", Booking);
+
+    /// <summary>A gateway that lists its tools, books as told, and reads the calendar as told.</summary>
+    private static Rig BookingRig(Func<HttpRequestMessage, string, HttpResponseMessage> call) => new(gateway: request =>
+    {
+        if (request.RequestUri!.AbsolutePath.EndsWith("/tools", StringComparison.Ordinal)) return Json(ToolsJson);
+        var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+        using var sent = JsonDocument.Parse(body);
+        return call(request, sent.RootElement.GetProperty("tool").GetString()!);
+    });
+
+    private static HttpResponseMessage Booked() =>
+        Json("""{"tool":"create_event","content":[{"type":"text","text":"ok"}],"structuredContent":{"event":{"id":"e1","summary":"Water heater repair for Dana"}}}""");
+
+    private static HttpResponseMessage Listed(bool withTheBooking) =>
+        Json(withTheBooking
+            ? """{"tool":"list_events","content":[],"structuredContent":{"events":[{"id":"e1","summary":"Water heater repair for Dana"}]}}"""
+            : """{"tool":"list_events","content":[],"structuredContent":{"events":[{"id":"e9","summary":"Someone else"}]}}""");
+
+    [Fact]
+    public async Task A_business_that_asked_for_booking_is_offered_it_and_a_booking_is_made()
+    {
+        var rig = BookingRig((_, tool) => tool == "create_event" ? Booked() : Listed(false));
+        var box = await BoxAsync(rig, mayBook: true);
+
+        Assert.Contains(box!.Tools, t => t.Name == "create_event");
+        var result = await box.RunAsync(Book);
+
+        Assert.True(result.IsSuccess);
+        Assert.Contains("e1", result.Value!, StringComparison.Ordinal);
+        Assert.Single(rig.Gateway.Seen, seen => seen.Body.Contains("create_event", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_booking_whose_answer_is_lost_is_looked_for_and_stands_when_it_is_there()
+    {
+        var sent = 0;
+        var rig = BookingRig((_, tool) => tool == "create_event"
+            ? (++sent == 1 ? new HttpResponseMessage(HttpStatusCode.BadGateway) : Booked())
+            : Listed(withTheBooking: true));
+        var box = await BoxAsync(rig, mayBook: true);
+
+        var result = await box!.RunAsync(Book);
+
+        Assert.True(result.IsSuccess);
+        // It is never booked a second time: one create, then one read to see what became of it.
+        Assert.Equal(1, sent);
+        Assert.Single(rig.Gateway.Seen, seen => seen.Body.Contains("list_events", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_booking_whose_answer_is_lost_and_is_not_on_the_calendar_is_reported_as_not_made()
+    {
+        var sent = 0;
+        var rig = BookingRig((_, tool) => tool == "create_event"
+            ? (++sent == 1 ? new HttpResponseMessage(HttpStatusCode.BadGateway) : Booked())
+            : Listed(withTheBooking: false));
+        var box = await BoxAsync(rig, mayBook: true);
+
+        var result = await box!.RunAsync(Book);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpFailureCodes.GatewayUnavailable, result.ErrorCode);
+        Assert.Equal(1, sent);
+    }
+
+    [Fact]
+    public async Task A_booking_whose_answer_is_lost_and_cannot_be_looked_for_has_an_unknown_outcome()
+    {
+        var rig = BookingRig((_, _) => new HttpResponseMessage(HttpStatusCode.BadGateway));
+        var box = await BoxAsync(rig, mayBook: true);
+
+        var result = await box!.RunAsync(Book);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpFailureCodes.BookingOutcomeUnknown, result.ErrorCode);
+        Assert.Contains(rig.AllLogLines, l => l.Contains("outcome is unknown", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_booking_that_named_no_time_cannot_be_looked_for_so_its_outcome_is_unknown()
+    {
+        var rig = BookingRig((_, _) => new HttpResponseMessage(HttpStatusCode.BadGateway));
+        var box = await BoxAsync(rig, mayBook: true);
+
+        var result = await box!.RunAsync(new ReceptionistToolCall("c1", "create_event", """{"summary":"No time given"}"""));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpFailureCodes.BookingOutcomeUnknown, result.ErrorCode);
+        Assert.DoesNotContain(rig.Gateway.Seen, seen => seen.Body.Contains("list_events", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_booking_the_calendar_refuses_is_a_plain_failure_and_is_never_looked_for()
+    {
+        var rig = BookingRig((_, _) => Json("""{"code":"tool_error"}""", HttpStatusCode.UnprocessableEntity));
+        var box = await BoxAsync(rig, mayBook: true);
+
+        var result = await box!.RunAsync(Book);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(McpFailureCodes.ToolError, result.ErrorCode);
+        // The booking never reached the calendar, so there is nothing to look for.
+        Assert.DoesNotContain(rig.Gateway.Seen, seen => seen.Body.Contains("list_events", StringComparison.Ordinal));
     }
 
     [Theory]

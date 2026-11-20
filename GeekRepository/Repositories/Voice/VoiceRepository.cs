@@ -36,7 +36,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         transfer_caller_id_mode AS TransferCallerIdMode, emergency_keywords AS EmergencyKeywords,
         recording_disclosure_enabled AS RecordingDisclosureEnabled,
         message_email_enabled AS MessageEmailEnabled, message_destination_email AS MessageDestinationEmail,
-        include_transcript AS IncludeTranscript, notify_on_abandoned_calls AS NotifyOnAbandonedCalls
+        include_transcript AS IncludeTranscript, notify_on_abandoned_calls AS NotifyOnAbandonedCalls,
+        booking_enabled AS BookingEnabled
         """;
 
     [GeneratedRegex(@"^\+[1-9]\d{6,14}$")]
@@ -326,11 +327,11 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 INSERT INTO geek_voice.receptionist_configs (
                     tenant_id, greeting_message, system_prompt_template, business_hours_json, qualifying_questions_json,
                     transfer_mode, transfer_target_number, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled,
-                    message_email_enabled, message_destination_email, include_transcript, notify_on_abandoned_calls)
+                    message_email_enabled, message_destination_email, include_transcript, notify_on_abandoned_calls, booking_enabled)
                 VALUES (
                     @TenantId, @GreetingMessage, @SystemPromptTemplate, @BusinessHours::jsonb, @QualifyingQuestions::jsonb,
                     @TransferMode, @TransferTargetNumber, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled,
-                    @MessageEmailEnabled, @MessageDestinationEmail, @IncludeTranscript, @NotifyOnAbandonedCalls)
+                    @MessageEmailEnabled, @MessageDestinationEmail, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled)
                 ON CONFLICT (tenant_id) DO UPDATE SET
                     greeting_message = EXCLUDED.greeting_message,
                     system_prompt_template = EXCLUDED.system_prompt_template,
@@ -345,6 +346,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     message_destination_email = EXCLUDED.message_destination_email,
                     include_transcript = EXCLUDED.include_transcript,
                     notify_on_abandoned_calls = EXCLUDED.notify_on_abandoned_calls,
+                    booking_enabled = EXCLUDED.booking_enabled,
                     updated_at = NOW()
                 RETURNING {ConfigColumns};
                 """,
@@ -365,6 +367,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     config.MessageDestinationEmail,
                     config.IncludeTranscript,
                     config.NotifyOnAbandonedCalls,
+                    config.BookingEnabled,
                 },
                 cancellationToken: ct));
             return Result<VoiceReceptionistConfig>.Success(row.ToModel());
@@ -818,12 +821,13 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public string? MessageDestinationEmail { get; set; }
         public bool IncludeTranscript { get; set; }
         public bool NotifyOnAbandonedCalls { get; set; }
+        public bool BookingEnabled { get; set; }
 
         public VoiceReceptionistConfig ToModel() => new(
             GreetingMessage, SystemPromptTemplate, ParseJson(BusinessHours),
             ParseJson(QualifyingQuestions), TransferMode, TransferTargetNumber, TransferCallerIdMode,
             EmergencyKeywords, RecordingDisclosureEnabled,
-            MessageEmailEnabled, MessageDestinationEmail, IncludeTranscript, NotifyOnAbandonedCalls);
+            MessageEmailEnabled, MessageDestinationEmail, IncludeTranscript, NotifyOnAbandonedCalls, BookingEnabled);
     }
 
     private sealed class McpRow
