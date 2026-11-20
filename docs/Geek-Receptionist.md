@@ -1,16 +1,21 @@
 # Geek-Receptionist — Engineering Specification
 
 
-> **Architecture decision, Jeff, 2026-11-19.** Geek-Receptionist is its own application and owns its
-> own stack: its own service, its own database tables, its own Qdrant collection and embeddings,
-> rather than those being built into GeekAPI by default. This is **not all-or-nothing** — Jeff: *"It's
-> not all vps or all GeekAPI"* — so settle each piece with him rather than reading a blanket rule in. Qdrant v1.13.4 and the `BAAI/bge-small-en-v1.5` embedder are already
-> deployed on the Hostinger VPS (`Geek-Crawler-Rag/docker-compose.yml`); nothing about embeddings or
-> vector search needs building. The voice code in `GeekAPI/Services/Receptionist/*`,
-> `GeekAPI/Services/Voice/*`, `GeekAPI/Controllers/Voice/*` and the `geek_voice` schema is the thing
-> to move, not to extend. `geek_voice.knowledge_documents` and `geek_voice.knowledge_chunks` are a
-> second vector store with no embedder and are to be deleted. Full note and handoff:
-> `Geek-Receptionist/plans/receptionist-owns-its-stack.md` and `Geek-Receptionist/HANDOFF.md`.
+> **Where this product lives, Jeff, 2026-11-20.** *"Service located inside Geek-API, documents data
+> in Mongo in Hostinger VPS"* — the structure Geek-Crawler, Geek-Crawler-Rag and Content Creator all
+> share. The voice code in `GeekAPI/Services/Receptionist/*`, `GeekAPI/Services/Voice/*`,
+> `GeekAPI/Controllers/Voice/*` and the `geek_voice` schema is **where it belongs and is extended
+> there**. Tenant, billing and config data is Postgres `geek_voice` through GeekRepository, hosted on
+> Supabase; a business's own documents are Mongo on the Hostinger VPS with their vectors in Qdrant
+> beside them; call content is persisted nowhere. Qdrant v1.13.4 and the `BAAI/bge-small-en-v1.5`
+> embedder are already deployed (`Geek-Crawler-Rag/docker-compose.yml`) and nothing in C# embeds
+> anything.
+>
+> An earlier version of this note said the voice code "is the thing to move, not to extend." That was
+> wrong and nobody asked for it: Jeff's *"its own DB tables, embeddings etc"* was about not standing up
+> a second vector store beside the working one — which `geek_voice.knowledge_documents` and
+> `knowledge_chunks` were, and which have since been dropped (migration `0080`). Full note:
+> `Geek-Receptionist/plans/where-the-receptionist-lives.md`.
 
 **Status:** Multi-Tenant v1 SaaS Implementation (Non-live v0 missed-call text-back code in `GeekAPI/Services/Receptionist/` is being refactored into v1; all single-tenant v0 assumptions are deprecated).
 **v1 Target Customer & Call Flow:** Phase 1 targets home service trades (HVAC, plumbing, electrical, roofing) in Southeastern Florida (Broward, Miami-Dade, and Palm Beach counties). **The AI Receptionist answers every inbound call first**, qualifies the job, answers FAQs from the grounded knowledge base, books appointments via MCP, and transfers calls to the business owner/technician only when configured `emergency_keywords` or escalation rules trigger.
