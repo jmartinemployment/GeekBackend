@@ -27,8 +27,6 @@ public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffse
 /// </summary>
 public sealed class RelayTickets(TimeProvider clock)
 {
-    public const string CompanyLine = "company";
-
     /// <summary>Twilio opens the WebSocket as soon as it reads the TwiML; this only has to cover that.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(60);
 

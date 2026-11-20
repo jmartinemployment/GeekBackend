@@ -101,7 +101,7 @@ public sealed class TenantCallController : ControllerBase
         {
             _logger.LogInformation("Tenant {TenantId}: call {CallSid} is not answered, the tenant is {Status}; it hears the closing message.",
                 tenantId, callSid, standing.Value!.TenantStatus);
-            return Twiml(ReceptionistEndpoints.Unanswered(tenant.Value!.BusinessName));
+            return Twiml(CallTwiml.Unanswered(tenant.Value!.BusinessName));
         }
 
         var settings = await _store.GetConfigAsync(tenantId, ct).ConfigureAwait(false);
@@ -130,7 +130,7 @@ public sealed class TenantCallController : ControllerBase
 
         var tenant = await _store.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
         if (!tenant.IsSuccess) return Failed(tenantId, "its tenant", tenant.Error, tenant.ErrorCode);
-        var closing = Twiml(ReceptionistEndpoints.Unanswered(tenant.Value!.BusinessName));
+        var closing = Twiml(CallTwiml.Unanswered(tenant.Value!.BusinessName));
 
         form.TryGetValue("CallSid", out var callSid);
         form.TryGetValue("Digits", out var digits);
@@ -175,7 +175,7 @@ public sealed class TenantCallController : ControllerBase
         {
             _logger.LogError("Tenant {TenantId}: call {CallSid} cannot be answered, its receptionist settings cannot be used ({Error}); it hears the closing message.",
                 tenantId, callSid, prompt.Error);
-            return Twiml(ReceptionistEndpoints.Unanswered(tenant.BusinessName));
+            return Twiml(CallTwiml.Unanswered(tenant.BusinessName));
         }
 
         form.TryGetValue("From", out var callerNumber);
@@ -229,7 +229,7 @@ public sealed class TenantCallController : ControllerBase
             return Refuse(StatusCodes.Status503ServiceUnavailable, "Twilio connections cannot be checked.", TelephonyFailureCodes.TelephonyNotConfigured);
         }
 
-        var url = ReceptionistEndpoints.HandshakeUrl(Request, _twilio.PublicBaseUrl);
+        var url = CallTwiml.HandshakeUrl(Request, _twilio.PublicBaseUrl);
         var verified = await _webhook.VerifyHandshakeAsync(tenantId, url, Request.Headers[TenantTwilioWebhook.SignatureHeader], ct).ConfigureAwait(false);
         if (!verified.IsSuccess) return Refuse(StatusFor(verified.ErrorCode), verified.Error!, verified.ErrorCode!);
 

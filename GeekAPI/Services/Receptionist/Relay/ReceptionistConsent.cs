@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using GeekAPI.Services.Voice.Calls;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekApplication.Models.Voice;
 using GeekApplication.Results;
@@ -47,7 +48,7 @@ public static class ReceptionistConsent
             method: HttpMethod.Post);
         gather.Say(ConsentText(business));
         response.Append(gather);
-        response.Say(ReceptionistEndpoints.UnansweredText(business));
+        response.Say(CallTwiml.UnansweredText(business));
         response.Hangup();
         return response;
     }
@@ -178,23 +179,4 @@ public static class ReceptionistConsent
 
         return Result<string>.Success(text.ToString());
     }
-
-    /// <summary>
-    /// The company line's receptionist settings, built in code rather than read from a tenant: the starting script with
-    /// <see cref="CompanyCallerQuestions"/>. 865-6990 has no tenant id to read stored settings by.
-    /// </summary>
-    public static Result<VoiceReceptionistConfig> CompanyConfig(string companyName)
-    {
-        var script = ReceptionistDefaults.ScriptFor(companyName, CompanyStateCode, CompanyIndustry);
-        if (!script.IsSuccess)
-            return Result<VoiceReceptionistConfig>.Failure(script.Error ?? "The company script could not be filled.", script.ErrorCode ?? VoiceFailureCodes.InvalidRequest);
-        return Result<VoiceReceptionistConfig>.Success(
-            ReceptionistDefaults.ConfigFor(script.Value!) with { QualifyingQuestions = CompanyCallerQuestions.ToJson() });
-    }
-
-    /// <summary>The script's own Reference Information serves Miami-Dade, Broward and Palm Beach.</summary>
-    internal const string CompanyStateCode = "FL";
-
-    /// <summary>The script's own "What we do" line, in a few words.</summary>
-    internal const string CompanyIndustry = "AI tools and automation for small businesses";
 }

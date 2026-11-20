@@ -74,7 +74,7 @@ public sealed class TwilioProvisionerTests
     {
         var (provisioner, handler, _) = Make();
 
-        var result = await provisioner.ProvisionAsync(Tenant, "561", smsEnabled: false);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.True(result.IsSuccess, result.Error);
         Assert.Equal(new ProvisionedTelephony(SubSid, SubToken, "+15615550123", "PNphone1"), result.Value);
@@ -95,7 +95,7 @@ public sealed class TwilioProvisionerTests
     {
         var (provisioner, handler, _) = Make();
 
-        await provisioner.ProvisionAsync(Tenant, "561", false);
+        await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.DoesNotContain(handler.Requests, r => r.Url.Contains("trunking.twilio.com", StringComparison.Ordinal) || r.Url.Contains("/SIP/", StringComparison.Ordinal));
         Assert.DoesNotContain("TrunkSid", handler.Requests[1].Body);
@@ -113,24 +113,10 @@ public sealed class TwilioProvisionerTests
     {
         var (provisioner, handler, _) = Make();
 
-        await provisioner.ProvisionAsync(Tenant, "561", false);
+        await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.Equal(Basic(MasterSid, MasterToken), handler.Requests[0].Authorization);
         Assert.All(handler.Requests.Skip(1), r => Assert.Equal(Basic(SubSid, SubToken), r.Authorization));
-    }
-
-    [Fact]
-    public async Task A_tenant_with_texts_on_gets_the_sms_address_and_one_without_gets_none()
-    {
-        var (on, onHandler, _) = Make();
-        var (off, offHandler, _) = Make();
-
-        await on.ProvisionAsync(Tenant, "561", true);
-        await off.ProvisionAsync(Tenant, "561", false);
-
-        Assert.Contains($"SmsUrl={Uri.EscapeDataString($"https://api.example.test/api/receptionist/twilio/sms/incoming/{Tenant}")}", onHandler.Requests[1].Body);
-        Assert.Contains("SmsMethod=POST", onHandler.Requests[1].Body);
-        Assert.DoesNotContain("SmsUrl", offHandler.Requests[1].Body);
     }
 
     [Theory]
@@ -144,7 +130,7 @@ public sealed class TwilioProvisionerTests
     {
         var (provisioner, handler, _) = Make();
 
-        var result = await provisioner.ProvisionAsync(Tenant, areaCode, false);
+        var result = await provisioner.ProvisionAsync(Tenant, areaCode);
 
         Assert.False(result.IsSuccess);
         Assert.Equal(TelephonyFailureCodes.AreaCodeInvalid, result.ErrorCode);
@@ -156,7 +142,7 @@ public sealed class TwilioProvisionerTests
     {
         var (provisioner, handler, log) = Make(options: new TwilioOptions(null, " ", null));
 
-        var result = await provisioner.ProvisionAsync(Tenant, "561", smsEnabled: true);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.False(result.IsSuccess);
         Assert.Equal(TelephonyFailureCodes.TelephonyNotConfigured, result.ErrorCode);
@@ -172,7 +158,7 @@ public sealed class TwilioProvisionerTests
         var (provisioner, handler, _) = Make(options: new TwilioOptions(MasterSid, MasterToken, null));
 
         Assert.Equal(["PUBLIC_BASE_URL"], provisioner.Missing());
-        var result = await provisioner.ProvisionAsync(Tenant, "561", false);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
         Assert.Equal(TelephonyFailureCodes.TelephonyNotConfigured, result.ErrorCode);
         Assert.Empty(handler.Requests);
     }
@@ -187,7 +173,7 @@ public sealed class TwilioProvisionerTests
                 ? Json("""{"code":21452,"message":"no numbers in that area code"}""", HttpStatusCode.BadRequest)
                 : Happy(seen));
 
-        var result = await provisioner.ProvisionAsync(Tenant, "561", false);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.False(result.IsSuccess);
         Assert.Equal(TelephonyFailureCodes.ProvisioningFailed, result.ErrorCode);
@@ -212,7 +198,7 @@ public sealed class TwilioProvisionerTests
     {
         var (provisioner, handler, _) = Make(seen => seen.Ends("/IncomingPhoneNumbers.json") ? Json("{}", HttpStatusCode.InternalServerError) : Happy(seen));
 
-        await provisioner.ProvisionAsync(Tenant, "561", false);
+        await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.Single(handler.Requests, r => r.Ends("/IncomingPhoneNumbers.json"));
     }
@@ -225,7 +211,7 @@ public sealed class TwilioProvisionerTests
                 ? Json("{}", HttpStatusCode.ServiceUnavailable)
                 : Happy(seen));
 
-        var result = await provisioner.ProvisionAsync(Tenant, "561", false);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.False(result.IsSuccess);
         Assert.Contains(log.Lines, l => l.Level == LogLevel.Error && l.Line.Contains(SubSid) && l.Line.Contains("closed by hand"));
@@ -236,7 +222,7 @@ public sealed class TwilioProvisionerTests
     {
         var (provisioner, handler, _) = Make(seen => seen.Ends("/IncomingPhoneNumbers.json") ? Json("""{"sid":"PNphone1"}""") : Happy(seen));
 
-        var result = await provisioner.ProvisionAsync(Tenant, "561", false);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.False(result.IsSuccess);
         Assert.Equal(TelephonyFailureCodes.ProvisioningFailed, result.ErrorCode);
@@ -248,7 +234,7 @@ public sealed class TwilioProvisionerTests
     {
         var (provisioner, handler, _) = Make(seen => seen.Ends("/Accounts.json") ? Json($$"""{"sid":"{{SubSid}}"}""") : Happy(seen));
 
-        var result = await provisioner.ProvisionAsync(Tenant, "561", false);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.False(result.IsSuccess);
         Assert.Equal(TelephonyFailureCodes.ProvisioningFailed, result.ErrorCode);
@@ -263,7 +249,7 @@ public sealed class TwilioProvisionerTests
                 ? Json($$"""{"code":21452,"message":"secret-body-text {{SubToken}}"}""", HttpStatusCode.BadRequest)
                 : Happy(seen));
 
-        var result = await provisioner.ProvisionAsync(Tenant, "561", false);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
 
         var everything = result.Error + string.Join('\n', log.Lines.Select(l => l.Line));
         Assert.DoesNotContain(MasterToken, everything);
@@ -283,7 +269,7 @@ public sealed class TwilioProvisionerTests
         });
         var provisioner = new TwilioProvisioner(new HttpClient(handler), new TwilioOptions(MasterSid, MasterToken, "https://api.example.test"), new CapturingLogger());
 
-        var result = await provisioner.ProvisionAsync(Tenant, "561", false);
+        var result = await provisioner.ProvisionAsync(Tenant, "561");
 
         Assert.False(result.IsSuccess);
         Assert.Equal(TelephonyFailureCodes.ProvisioningFailed, result.ErrorCode);

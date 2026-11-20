@@ -73,19 +73,19 @@ public class ApiKeyMiddlewareAuthBoundaryTests
     }
 
     [Theory]
-    // Geek-Receptionist's Twilio webhooks: Twilio cannot send our API key, and TwilioSignatureFilter
-    // authenticates these instead (GeekBackend.Tests/Receptionist covers the signature check).
-    [InlineData("/api/receptionist/twilio/voice/incoming", true)]
-    [InlineData("/api/receptionist/twilio/sms/incoming", true)]
-    // Twilio's webhooks for a tenant's number: TenantCallController checks X-Twilio-Signature with the tenant's subaccount token.
+    // Twilio's webhooks for a tenant's number: Twilio cannot send our API key, so TenantCallController checks X-Twilio-Signature
+    // against the tenant's own subaccount token instead and refuses anything it does not match.
     [InlineData("/api/receptionist/tenant/22222222-2222-2222-2222-222222222222/voice", true)]
     [InlineData("/api/receptionist/tenant/22222222-2222-2222-2222-222222222222/call-status", true)]
-    // Only those prefixes are exempt: a sibling route under /api/receptionist still needs credentials.
+    // That one prefix is the whole exemption. /api/receptionist/twilio was the company line's and was exempt until its routes were
+    // deleted on 2026-11-20; it now needs credentials like any other path, which is what these rows pin.
+    [InlineData("/api/receptionist/twilio/voice/incoming", false)]
+    [InlineData("/api/receptionist/twilio/sms/incoming", false)]
     [InlineData("/api/receptionist/settings", false)]
     [InlineData("/api/receptionist/twilio", false)]
     [InlineData("/api/receptionist/tenant", false)]
     [InlineData("/api/receptionist/tenants/22222222-2222-2222-2222-222222222222/voice", false)]
-    public async Task Only_receptionist_twilio_and_tenant_call_webhooks_pass_without_an_api_key(string path, bool passes)
+    public async Task Only_the_tenant_call_webhooks_pass_without_an_api_key(string path, bool passes)
     {
         var reached = false;
         var middleware = new ApiKeyMiddleware(

@@ -100,7 +100,7 @@ public sealed class SubscriptionActivation
         var billing = await _billing.VerifyAsync(tenantId, request.TierCode, request.PaypalSubscriptionId, request.PaypalVaultTokenId, ct).ConfigureAwait(false);
         if (!billing.IsSuccess) return Fail(billing.Error!, billing.ErrorCode!);
 
-        var telephony = await _twilio.ProvisionAsync(tenantId, request.PreferredAreaCode, smsEnabled: false, ct).ConfigureAwait(false);
+        var telephony = await _twilio.ProvisionAsync(tenantId, request.PreferredAreaCode, ct).ConfigureAwait(false);
         if (!telephony.IsSuccess) return Fail(telephony.Error!, telephony.ErrorCode!);
 
         var token = _protector.Protect(telephony.Value!.AuthToken, VoiceSecretPurposes.TwilioAuthToken);

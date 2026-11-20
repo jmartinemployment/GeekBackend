@@ -58,7 +58,7 @@ public sealed class TwilioProvisioner
     /// <summary>The variables a signup needs, so activation can refuse before it creates anything.</summary>
     public IReadOnlyList<string> Missing() => _options.Missing();
 
-    public async Task<Result<ProvisionedTelephony>> ProvisionAsync(Guid tenantId, string? areaCode, bool smsEnabled, CancellationToken ct = default)
+    public async Task<Result<ProvisionedTelephony>> ProvisionAsync(Guid tenantId, string? areaCode, CancellationToken ct = default)
     {
         if (areaCode is null || areaCode.Length != 3 || !areaCode.All(char.IsAsciiDigit))
             return Result<ProvisionedTelephony>.Failure("The preferred area code must be three digits.", TelephonyFailureCodes.AreaCodeInvalid);
@@ -88,7 +88,7 @@ public sealed class TwilioProvisioner
         }
 
         var sub = (subSid, subToken);
-        var result = await BuildAsync(tenantId, areaCode, smsEnabled, sub, ct).ConfigureAwait(false);
+        var result = await BuildAsync(tenantId, areaCode, sub, ct).ConfigureAwait(false);
         if (result.IsSuccess) return result;
 
         await AbandonAsync(subSid, tenantId, ct).ConfigureAwait(false);
@@ -131,7 +131,7 @@ public sealed class TwilioProvisioner
         return true;
     }
 
-    private async Task<Result<ProvisionedTelephony>> BuildAsync(Guid tenantId, string areaCode, bool smsEnabled, (string Sid, string Token) sub, CancellationToken ct)
+    private async Task<Result<ProvisionedTelephony>> BuildAsync(Guid tenantId, string areaCode, (string Sid, string Token) sub, CancellationToken ct)
     {
         var purchase = new Dictionary<string, string>
         {
@@ -142,11 +142,9 @@ public sealed class TwilioProvisioner
             ["StatusCallback"] = _options.PublicBaseUrl + TenantCallStatusPath(tenantId),
             ["StatusCallbackMethod"] = "POST",
         };
-        if (smsEnabled)
-        {
-            purchase["SmsUrl"] = $"{_options.PublicBaseUrl}/api/receptionist/twilio/sms/incoming/{tenantId}";
-            purchase["SmsMethod"] = "POST";
-        }
+        // No SmsUrl. A number is bought with no SMS address at all: this product has no inbound SMS, activation refuses
+        // EnableSmsNotifications, and the address this used to set was the company line's own route, which never carried the tenant
+        // id its handler needed and so answered 404 for every tenant it was ever set on.
 
         var number = await PostAsync("buy the phone number", tenantId, $"{ApiBase}Accounts/{sub.Sid}/IncomingPhoneNumbers.json", sub, purchase, ct).ConfigureAwait(false);
         if (!number.IsSuccess) return Failed(number);

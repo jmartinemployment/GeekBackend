@@ -107,7 +107,7 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 
 **Does not:** Issue tokens, host login UI, or run Geek SEO product logic.
 
-**Product logic hosted here by decision:** Geek-Receptionist (Twilio missed-call text-back) was merged into GeekAPI on 2026-11-10 (Jeff) rather than run as its own Railway service. It is optional (off without `TWILIO_ACCOUNT_SID`), an invalid configuration turns it off with an error log instead of stopping GeekAPI, and it holds no data today. If it gains persistence, that goes in a `geek_voice` schema in GeekRepository, reached over HTTP like everything else.
+**Product logic hosted here by decision:** Geek-Receptionist was merged into GeekAPI on 2026-11-10 (Jeff) rather than run as its own Railway service, and stays there (Jeff, 2026-11-20). It is multi-tenant: a business's settings live in `geek_voice` and are answered on the signup form, and the single-business path that read them from the environment was deleted on 2026-11-20. If it gains persistence, that goes in a `geek_voice` schema in GeekRepository, reached over HTTP like everything else.
 
 ---
 

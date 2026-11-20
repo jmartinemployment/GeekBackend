@@ -233,9 +233,6 @@ builder.Services.AddScoped<GeekApplication.Interfaces.Crm.ICrmWorkStore>(sp =>
     new GeekAPI.HttpClients.HttpCrmRepository(
         sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepository"),
         sp.GetRequiredService<ILogger<GeekAPI.HttpClients.HttpCrmRepository>>()));
-// Geek-Receptionist: Twilio missed-call text-back. Off unless TWILIO_ACCOUNT_SID is set; an invalid
-// configuration is logged and leaves it off rather than stopping GeekAPI.
-builder.Services.AddReceptionist(builder.Configuration);
 // The voice AI behind the consent step: GeekAPI's configured default LLM provider (LlmProviders__DefaultProvider), no default.
 builder.Services.AddReceptionistRelay();
 
@@ -428,14 +425,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseMiddleware<LegacyAuthRetiredMiddleware>();
-// ConversationRelay's WebSocket for Geek-Receptionist's calls (MapReceptionist, TenantCallController).
+// ConversationRelay's WebSocket for a tenant's calls (TenantCallController).
 app.UseWebSockets();
 app.UseMiddleware<ApiKeyMiddleware>();
 // After ApiKeyMiddleware: the limiter keys on the visitor address the portal forwards, which is believed only once the key is verified.
 // Geek-Receptionist's signup routes and owner sign-in carry the caps (OnboardingRateLimit); nothing else is limited here.
 app.UseRateLimiter();
 app.MapControllers();
-app.MapReceptionist();
 
 app.MapHub<GeekCrawlerRealtimeHub>("/hubs/geek-crawler-realtime");
 app.MapHub<WorkflowRealtimeHub>("/hubs/workflow-realtime");

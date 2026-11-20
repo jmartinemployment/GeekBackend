@@ -417,7 +417,7 @@ public sealed class TenantCallTests
         Assert.Contains(ReceptionistConsent.ConsentText(Business), body);
         Assert.Matches("<Gather[^>]*numDigits=\"1\"", body);
         Assert.Contains($"action=\"{BaseUrl}/{TenantCallController.RoutePrefix}/{Tenant}/consent-result\"", body);
-        Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.Contains(CallTwiml.UnansweredText(Business), body);
         Assert.Contains("<Hangup", body);
         Assert.DoesNotContain("<Record", body);
     }
@@ -431,7 +431,7 @@ public sealed class TenantCallTests
         var (status, body, _, billing) = await Post("voice", Ringing(), standing: standing);
 
         Assert.Equal(200, status);
-        Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.Contains(CallTwiml.UnansweredText(Business), body);
         Assert.DoesNotContain("<Gather", body);
         Assert.Equal(1, billing.StandingReads);
     }
@@ -453,7 +453,7 @@ public sealed class TenantCallTests
         var model = new FakeReceptionistModel();
         var (status, body, store, _) = await Post("consent-result", Pressed(digits), model: model);
         Assert.Equal(200, status);
-        Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.Contains(CallTwiml.UnansweredText(Business), body);
         Assert.DoesNotContain("ConversationRelay", body);
         Assert.Equal(0, store.ConfigReads);
     }
@@ -462,7 +462,7 @@ public sealed class TenantCallTests
     public async Task Pressing_1_with_no_model_configured_hears_the_closing_message()
     {
         var (_, body, _, _) = await Post("consent-result", Pressed("1"));
-        Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.Contains(CallTwiml.UnansweredText(Business), body);
         Assert.DoesNotContain("ConversationRelay", body);
     }
 
@@ -484,7 +484,7 @@ public sealed class TenantCallTests
     public async Task Pressing_1_when_the_standing_no_longer_allows_answering_hears_the_closing_message()
     {
         var (_, body, _, _) = await Post("consent-result", Pressed("1"), standing: Standing(VoiceTenantStatuses.Cancelled), model: new FakeReceptionistModel());
-        Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
+        Assert.Contains(CallTwiml.UnansweredText(Business), body);
         Assert.DoesNotContain("ConversationRelay", body);
     }
 

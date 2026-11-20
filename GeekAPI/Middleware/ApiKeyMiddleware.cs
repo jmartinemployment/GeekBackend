@@ -40,14 +40,6 @@ public class ApiKeyMiddleware
             return;
         }
 
-        // Geek-Receptionist's Twilio webhooks. Twilio cannot send our API key; every route under this
-        // prefix is authenticated by X-Twilio-Signature (TwilioSignatureFilter) or answers 503.
-        if (normalizedPath.StartsWith(GeekAPI.Services.Receptionist.ReceptionistEndpoints.RoutePrefix + "/", StringComparison.OrdinalIgnoreCase))
-        {
-            await _next(context);
-            return;
-        }
-
         // Twilio's webhooks for a tenant's number. Twilio cannot send our API key; TenantCallController checks X-Twilio-Signature
         // against the tenant's subaccount auth token and refuses (403) anything it does not match, or answers 503 when it cannot check.
         if (normalizedPath.StartsWith("/" + GeekAPI.Controllers.Voice.TenantCallController.RoutePrefix + "/", StringComparison.OrdinalIgnoreCase))
