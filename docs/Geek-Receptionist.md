@@ -2,8 +2,9 @@
 
 
 > **Architecture decision, Jeff, 2026-11-19.** Geek-Receptionist is its own application and owns its
-> own stack: its own service, its own database tables, its own Qdrant collection and embeddings, with
-> **GeekAPI out of the path**. Qdrant v1.13.4 and the `BAAI/bge-small-en-v1.5` embedder are already
+> own stack: its own service, its own database tables, its own Qdrant collection and embeddings,
+> rather than those being built into GeekAPI by default. This is **not all-or-nothing** — Jeff: *"It's
+> not all vps or all GeekAPI"* — so settle each piece with him rather than reading a blanket rule in. Qdrant v1.13.4 and the `BAAI/bge-small-en-v1.5` embedder are already
 > deployed on the Hostinger VPS (`Geek-Crawler-Rag/docker-compose.yml`); nothing about embeddings or
 > vector search needs building. The voice code in `GeekAPI/Services/Receptionist/*`,
 > `GeekAPI/Services/Voice/*`, `GeekAPI/Controllers/Voice/*` and the `geek_voice` schema is the thing
