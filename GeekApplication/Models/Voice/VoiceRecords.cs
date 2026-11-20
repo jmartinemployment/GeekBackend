@@ -30,6 +30,12 @@ public static class VoiceSubscriptionTiers
     public const string Pro = "PRO";
     public const string Premium = "PREMIUM";
     public static readonly IReadOnlyList<string> All = [Starter, Standard, Pro, Premium];
+
+    /// <summary>
+    /// The tiers that may write call records into the business's own bucket (plans/client-and-app-plan.md: "AWS S3 / Google Cloud
+    /// Storage (Standard &amp; Above)"). Google Drive is on every tier and is not gated here.
+    /// </summary>
+    public static readonly IReadOnlyList<string> WithObjectStorage = [Standard, Pro, Premium];
 }
 
 /// <summary>The PayPal subscription status a tenant's subscription row last recorded. Activation stores ACTIVE; end-of-cycle billing copies PayPal's own status when it is anything else.</summary>

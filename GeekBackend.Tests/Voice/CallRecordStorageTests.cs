@@ -482,4 +482,58 @@ public sealed class CallRecordStorageTests
         Assert.Empty(handler.Requests);
     }
 
+    // ----- The policy the owner pastes -----
+
+    [Fact]
+    public void The_amazon_policy_grants_the_one_action_the_writer_uses_and_no_other()
+    {
+        var policy = StorageSetupPolicy.For(VoiceStorageProviders.AwsS3, "dag-plumbing-records", "receptionist");
+        var statement = JsonNode.Parse(policy)!["Statement"]!.AsArray()[0]!;
+
+        Assert.Equal("s3:PutObject", statement["Action"]!.GetValue<string>());
+        Assert.Equal("Allow", statement["Effect"]!.GetValue<string>());
+        Assert.Equal("arn:aws:s3:::dag-plumbing-records/receptionist/*", statement["Resource"]!.GetValue<string>());
+        Assert.Single(JsonNode.Parse(policy)!["Statement"]!.AsArray());
+    }
+
+    [Theory]
+    [InlineData("s3:GetObject")]
+    [InlineData("s3:ListBucket")]
+    [InlineData("s3:DeleteObject")]
+    [InlineData("s3:*")]
+    public void The_amazon_policy_grants_nothing_that_could_read_list_or_delete(string forbidden)
+    {
+        var policy = StorageSetupPolicy.For(VoiceStorageProviders.AwsS3, "dag-plumbing-records", "");
+
+        Assert.DoesNotContain(forbidden, policy, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Without_a_prefix_the_grant_still_covers_only_that_one_bucket()
+    {
+        Assert.Equal("arn:aws:s3:::dag-plumbing-records/*", StorageSetupPolicy.ResourceFor("dag-plumbing-records", ""));
+        Assert.Equal("arn:aws:s3:::dag-plumbing-records/logs/*", StorageSetupPolicy.ResourceFor("dag-plumbing-records", "/logs/"));
+    }
+
+    [Fact]
+    public void The_google_instructions_name_the_create_only_role_and_say_what_it_cannot_do()
+    {
+        var text = StorageSetupPolicy.For(VoiceStorageProviders.GoogleCloudStorage, "dag-plumbing-records", "logs");
+
+        Assert.Contains("roles/storage.objectCreator", text, StringComparison.Ordinal);
+        Assert.Contains("may not read, list, delete or overwrite", text, StringComparison.Ordinal);
+        Assert.Contains("gs://dag-plumbing-records", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("objectViewer", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("objectAdmin", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Object_storage_is_standard_and_above_and_starter_is_not_in_it()
+    {
+        Assert.Equal(
+            [VoiceSubscriptionTiers.Standard, VoiceSubscriptionTiers.Pro, VoiceSubscriptionTiers.Premium],
+            VoiceSubscriptionTiers.WithObjectStorage);
+        Assert.DoesNotContain(VoiceSubscriptionTiers.Starter, VoiceSubscriptionTiers.WithObjectStorage);
+    }
+
 }
