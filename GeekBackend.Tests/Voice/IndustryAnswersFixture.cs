@@ -35,4 +35,3 @@ internal sealed class RecordingSignupAnswerStore(Func<Result<VoiceIndustryAnswer
     }
 }
 
-/// <summary>A billing exemption that records which tenants it activated, or answers with the failure a test gives it.</summary>
