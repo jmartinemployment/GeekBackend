@@ -6,6 +6,7 @@ using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.OwnerAuth;
 using GeekAPI.Services.Voice.Telephony;
+using GeekApplication.Interfaces.Receptionist;
 using GeekApplication.Interfaces.Voice;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -60,6 +61,7 @@ public static class VoiceServiceRegistration
         services.AddHttpClient<TwilioProvisioner>(client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddSingleton(EmailOptions.FromEnvironment());
         services.AddHttpClient<IEmailSender, ResendEmailSender>(client => client.Timeout = TimeSpan.FromSeconds(30));
+        services.AddScoped<ICallSummaryDelivery, EmailCallSummaryDelivery>();
         services.AddScoped<SubscriptionActivation>();
         services.AddSingleton(GoogleCalendarOptions.FromEnvironment());
         services.AddSingleton<McpOAuthState>();
