@@ -760,4 +760,35 @@ public sealed class CalendarToolsTests
         Assert.Equal(2, rig.Gateway.Seen.Count(seen => seen.Url.EndsWith("/v1/mcp/tools", StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// The catalog once held a single list for every tenant and only ever asked for Google Calendar. One provider made that correct and
+    /// a second would have made it wrong: a tenant connected to a CRM would have been handed a calendar's tools. Each provider is asked
+    /// for separately, so one being cached cannot answer for another.
+    /// </summary>
+    [Fact]
+    public async Task One_providers_tools_are_never_served_for_another()
+    {
+        var rig = ToolRig();
+        var catalog = new CalendarToolCatalog(new Clock(Now));
+
+        Assert.NotNull(await catalog.ToolsAsync(VoiceMcpProviders.GoogleCalendar, rig.Client, rig.GatewayLog));
+        Assert.NotNull(await catalog.ToolsAsync(VoiceMcpProviders.GoogleCalendar, rig.Client, rig.GatewayLog));
+        Assert.NotNull(await catalog.ToolsAsync(VoiceMcpProviders.HubSpot, rig.Client, rig.GatewayLog));
+
+        // Two fetches, not one and not three: each provider is asked once and then kept.
+        Assert.Equal(2, rig.Gateway.Seen.Count(seen => seen.Url.EndsWith("/v1/mcp/tools", StringComparison.Ordinal)));
+        Assert.Contains(rig.Gateway.Seen, seen => seen.Body.Contains(VoiceMcpProviders.HubSpot, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_provider_this_product_does_not_have_is_refused_without_asking_the_gateway()
+    {
+        var rig = ToolRig();
+        var catalog = new CalendarToolCatalog(new Clock(Now));
+
+        Assert.Null(await catalog.ToolsAsync("not_a_provider", rig.Client, rig.GatewayLog));
+
+        Assert.Empty(rig.Gateway.Seen);
+    }
+
 }

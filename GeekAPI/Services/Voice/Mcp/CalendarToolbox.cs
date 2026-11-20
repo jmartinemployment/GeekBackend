@@ -57,8 +57,13 @@ public sealed class CalendarToolbox : IReceptionistToolbox
         Guid tenantId, IVoiceStore store, CalendarTools calendar, CalendarToolCatalog catalog, McpGatewayClient gateway, ILogger logger,
         bool mayBook = false, CancellationToken ct = default)
     {
+        // One provider, read once and used for both the connection and the tools, so the two cannot name different things. Google
+        // Calendar is the only provider with an OAuth path today (plans/connecting-client-systems.md); when a second one has one, this
+        // is where a tenant's own connected provider is resolved rather than assumed.
+        const string provider = GoogleCalendarOptions.Provider;
+
         // The owner connecting their calendar is what asks for this; without it every tool would only ever answer calendar_not_connected.
-        var connection = await store.GetMcpConnectionAsync(tenantId, GoogleCalendarOptions.Provider, ct).ConfigureAwait(false);
+        var connection = await store.GetMcpConnectionAsync(tenantId, provider, ct).ConfigureAwait(false);
         if (!connection.IsSuccess || !connection.Value!.IsActive)
         {
             if (connection.IsSuccess || connection.ErrorCode == VoiceFailureCodes.NotFound)
@@ -68,7 +73,7 @@ public sealed class CalendarToolbox : IReceptionistToolbox
             return null;
         }
 
-        var offered = await catalog.ToolsAsync(gateway, logger, ct).ConfigureAwait(false);
+        var offered = await catalog.ToolsAsync(provider, gateway, logger, ct).ConfigureAwait(false);
         if (offered is null)
         {
             logger.LogError("Tenant {TenantId}: the calendar tools are not available, so this call has no calendar tools.", tenantId);
