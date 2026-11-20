@@ -12,6 +12,8 @@ using GeekApplication.Interfaces.Voice;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
+using GeekAPI.Services.Receptionist.Knowledge;
+
 namespace GeekAPI.Services.Voice;
 
 public static class VoiceServiceRegistration
@@ -78,6 +80,10 @@ public static class VoiceServiceRegistration
         services.AddScoped<S3CompatibleCallRecordStorage>();
         services.AddScoped<CallRecordStorages>();
         services.AddScoped<CalendarTools>();
+
+        // Which retrieved passages actually answer the caller. Its own step, so a passage that merely shares the subject never reaches
+        // the turn where an answer is spoken (Services/Receptionist/Knowledge/KnowledgePassageJudge.cs).
+        services.AddScoped<KnowledgePassageJudge>();
         services.AddSingleton<CalendarToolCatalog>();
         services.AddScoped<IVoiceOwnerStore>(sp =>
             new HttpVoiceOwnerRepository(

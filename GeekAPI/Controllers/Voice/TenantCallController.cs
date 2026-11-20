@@ -239,7 +239,9 @@ public sealed class TenantCallController : ControllerBase
         // What the business has published about itself, searched through the Library that already holds it. A business with no indexed
         // site gets no lookup tool, which is the ordinary case before its signup crawl has run.
         var knowledge = KnowledgeToolbox.Create(
-            tenantId, ticket.KnowledgeRunId, HttpContext.RequestServices.GetRequiredService<IGeekCrawlerRagClient>(), _logger);
+            tenantId, ticket.KnowledgeRunId,
+            HttpContext.RequestServices.GetRequiredService<IGeekCrawlerRagClient>(),
+            HttpContext.RequestServices.GetRequiredService<KnowledgePassageJudge>(), _logger);
 
         var toolbox = CompositeToolbox.Of(calendar, knowledge);
 

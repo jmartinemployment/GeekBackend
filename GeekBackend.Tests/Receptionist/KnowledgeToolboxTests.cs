@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Receptionist.Knowledge;
 using GeekAPI.Services.Voice.Mcp;
@@ -80,14 +81,36 @@ public sealed class KnowledgeToolboxTests
             string? runId = null) => throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// A judge that keeps every passage it is shown, so these tests stay about the toolbox. What the judge itself decides, and what it
+    /// does when it fails, is <see cref="KnowledgePassageJudgeTests"/>.
+    /// </summary>
+    private sealed class KeepEverything : IReceptionistModel
+    {
+        public bool IsConfigured => true;
+
+        public Task<ReceptionistReply> ReplyAsync(
+            string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, IReadOnlyList<ReceptionistToolDefinition>? tools = null,
+            CancellationToken ct = default)
+        {
+            // The judge numbers the passages it shows; keeping all of them means naming every number it used.
+            var shown = Regex.Matches(turns[^1].Text, @"^\[(\d+)\] ", RegexOptions.Multiline).Select(m => m.Groups[1].Value);
+            return Task.FromResult(new ReceptionistReply($$"""{"keep": [{{string.Join(", ", shown)}}]}""", false));
+        }
+
+        public Task<ReceptionistCallSummary> SummarizeAsync(IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+    }
+
     private sealed class Rig
     {
         public FakeRag Rag { get; } = new();
         public CapturingLogger<KnowledgeToolbox> Log { get; } = new();
+        public KnowledgePassageJudge Judge { get; } = new(new KeepEverything(), new CapturingLogger<KnowledgePassageJudge>());
 
-        public KnowledgeToolbox? Create() => KnowledgeToolbox.Create(Tenant, Run, Rag, Log);
+        public KnowledgeToolbox? Create() => KnowledgeToolbox.Create(Tenant, Run, Rag, Judge, Log);
 
-        public KnowledgeToolbox? CreateWith(Guid? knowledgeRunId) => KnowledgeToolbox.Create(Tenant, knowledgeRunId, Rag, Log);
+        public KnowledgeToolbox? CreateWith(Guid? knowledgeRunId) => KnowledgeToolbox.Create(Tenant, knowledgeRunId, Rag, Judge, Log);
 
         /// <summary>The toolbox a configured tenant with an indexed run gets, for the tests that are about running a tool.</summary>
         public KnowledgeToolbox Box => Create() ?? throw new InvalidOperationException("The rig's own toolbox was refused.");

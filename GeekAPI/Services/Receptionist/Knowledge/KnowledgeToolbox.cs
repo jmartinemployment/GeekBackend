@@ -47,13 +47,15 @@ public sealed class KnowledgeToolbox : IReceptionistToolbox
     private readonly Guid _tenantId;
     private readonly Guid _runId;
     private readonly IGeekCrawlerRagClient _rag;
+    private readonly KnowledgePassageJudge _judge;
     private readonly ILogger _logger;
 
-    private KnowledgeToolbox(Guid tenantId, Guid runId, IGeekCrawlerRagClient rag, ILogger logger)
+    private KnowledgeToolbox(Guid tenantId, Guid runId, IGeekCrawlerRagClient rag, KnowledgePassageJudge judge, ILogger logger)
     {
         _tenantId = tenantId;
         _runId = runId;
         _rag = rag;
+        _judge = judge;
         _logger = logger;
     }
 
@@ -64,7 +66,7 @@ public sealed class KnowledgeToolbox : IReceptionistToolbox
     /// the Library is not configured. Null is not a failure of the call — the receptionist answers the phone and takes messages, as it did
     /// before this tool existed.
     /// </summary>
-    public static KnowledgeToolbox? Create(Guid tenantId, Guid? knowledgeRunId, IGeekCrawlerRagClient rag, ILogger logger)
+    public static KnowledgeToolbox? Create(Guid tenantId, Guid? knowledgeRunId, IGeekCrawlerRagClient rag, KnowledgePassageJudge judge, ILogger logger)
     {
         if (!rag.IsEnabled)
         {
@@ -78,7 +80,7 @@ public sealed class KnowledgeToolbox : IReceptionistToolbox
             return null;
         }
 
-        return new KnowledgeToolbox(tenantId, runId, rag, logger);
+        return new KnowledgeToolbox(tenantId, runId, rag, judge, logger);
     }
 
     private static ReceptionistToolDefinition Definition()
@@ -131,7 +133,10 @@ public sealed class KnowledgeToolbox : IReceptionistToolbox
             return Result<string>.Failure("The business's information could not be searched.", KnowledgeFailureCodes.LookupUnavailable);
         }
 
-        var passages = Passages(result.Pages);
+        // Nearest is not the same as answers. What the search found is judged before the receptionist ever sees it, so a passage that
+        // merely shares the subject cannot become the thing an answer is built on. A judge that fails keeps nothing, by design.
+        var found = Passages(result.Pages);
+        var passages = await _judge.KeepAsync(question, found, p => p.Text, ct).ConfigureAwait(false);
         if (passages.Count == 0)
         {
             // Searched, and the business has not published an answer. The model is told so plainly, because the alternative is a
@@ -181,7 +186,7 @@ public sealed class KnowledgeToolbox : IReceptionistToolbox
         }
     }
 
-    private sealed record KnowledgePassage(string? Title, string Text);
+    internal sealed record KnowledgePassage(string? Title, string Text);
 }
 
 /// <summary>Why a lookup gave the receptionist no answer. The model is given the code, and both codes mean "do not answer from nothing".</summary>

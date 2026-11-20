@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using GeekApplication.Interfaces.Receptionist;
 
+using GeekAPI.Services.Receptionist.Agents;
 using GeekAPI.Services.Voice.Calls;
 using GeekAPI.Services.Voice.Storage;
 
@@ -52,6 +53,19 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
     /// <summary>The tools this business's receptionist may use; null for a receptionist that can only talk and hang up.</summary>
     public IReceptionistToolbox? Toolbox { get; init; }
+
+    /// <summary>
+    /// The roles this business's reception is made of, when it has more than the one. Null is a reception of one, which is what every
+    /// call was before roles existed: <see cref="Toolbox"/> and the constructor's prompt are used as they always were. There is no mode
+    /// here — <see cref="Prompt"/> and <see cref="Tools"/> simply read from the roster when there is one.
+    /// </summary>
+    public ReceptionistAgents? Agents { get; init; }
+
+    /// <summary>What the model is told this turn: the speaking role's own instructions, or the one prompt when there are no roles.</summary>
+    private string Prompt => Agents?.Current.SystemPrompt ?? systemPrompt;
+
+    /// <summary>What the model may do this turn: the speaking role's tools, or the one toolbox when there are no roles.</summary>
+    private IReceptionistToolbox? Tools => Agents is null ? Toolbox : Agents.Toolbox;
 
     /// <summary>Whether this business has somebody a failing call can be handed to, which decides which failure line the caller hears.</summary>
     public bool TransferConfigured { get; init; }
@@ -146,7 +160,7 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
             ReceptionistReply reply;
             try
             {
-                reply = await model.ReplyAsync(systemPrompt, _turns, Toolbox?.Tools, ct).ConfigureAwait(false);
+                reply = await model.ReplyAsync(Prompt, _turns, Tools?.Tools, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
@@ -171,7 +185,8 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
             if (requested.Count > 0)
             {
-                if (Toolbox is null || round >= MaxToolRounds)
+                var toolbox = Tools;
+                if (toolbox is null || round >= MaxToolRounds)
                 {
                     logger.LogError("The receptionist's model asked for tools it may not use in this call (round {Round}); the caller is told so.", round);
                     return Failed(sent);
@@ -180,7 +195,12 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
                 foreach (var call in requested)
                 {
                     _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolCall, call.ArgumentsJson, call.Id, call.Name));
-                    _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolResult, await RunToolAsync(Toolbox, call, ct).ConfigureAwait(false), call.Id, call.Name));
+                    _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolResult, await RunToolAsync(toolbox, call, ct).ConfigureAwait(false), call.Id, call.Name));
+
+                    // A handoff that named somewhere real changes who answers the next round. The turns are not touched: the new role
+                    // reads everything the caller has already said, which is the whole reason a handoff is silent to them. Asked after
+                    // the tool ran, because only a handoff that succeeded moves anybody.
+                    if (Agents?.TookOver(call.Name) == true) toolbox = Tools;
                 }
                 if (!reply.EndCall) continue;
             }
