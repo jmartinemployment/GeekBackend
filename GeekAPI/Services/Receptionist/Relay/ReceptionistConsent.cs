@@ -87,6 +87,13 @@ public static class ReceptionistConsent
         var prompt = new StringBuilder(config.SystemPromptTemplate.Trim());
         prompt.Append("\n\nThe caller has already heard this greeting: ").Append(greeting.Trim());
 
+        // What the business is open, which it gave at signup and the receptionist could not see until now.
+        var hours = BusinessHoursText(config.BusinessHours);
+        if (!hours.IsSuccess) return Result<string>.Failure(hours.Error!, hours.ErrorCode!);
+        prompt.Append(hours.Value!.Length == 0
+            ? "\n\nThis business has not given its opening hours. If a caller asks when it is open, say you do not have the hours and offer to take a message. Never guess them."
+            : "\n\nOpening hours, which are the only hours you may give a caller. Never guess beyond them:" + hours.Value);
+
         var questions = config.QualifyingQuestions;
         if (questions.ValueKind == JsonValueKind.Array && questions.GetArrayLength() == 0)
             return Result<string>.Success(prompt.ToString());
@@ -113,6 +120,54 @@ public static class ReceptionistConsent
         }
 
         return Result<string>.Success(prompt.ToString());
+    }
+
+    /// <summary>
+    /// The business's opening hours as the receptionist is told them, or nothing when the business has given none. The shape is:
+    ///
+    /// <code>
+    /// { "timezone": "America/New_York",
+    ///   "days": [ { "day": "monday", "open": "08:00", "close": "17:00" }, { "day": "sunday", "closed": true } ],
+    ///   "notes": "Closed on public holidays." }
+    /// </code>
+    ///
+    /// An empty object is a business that has not given its hours, which is allowed and is told to the receptionist as plainly as the
+    /// hours themselves would be: it must say it does not know rather than invent an answer. Any other shape is a failure, not skipped,
+    /// for the same reason the qualifying questions are: hours that are stored and silently not read are worse than hours refused.
+    /// </summary>
+    internal static Result<string> BusinessHoursText(JsonElement hours)
+    {
+        if (hours.ValueKind == JsonValueKind.Object && !hours.EnumerateObject().Any()) return Result<string>.Success(string.Empty);
+        if (hours.ValueKind == JsonValueKind.Array && hours.GetArrayLength() == 0) return Result<string>.Success(string.Empty);
+        if (hours.ValueKind != JsonValueKind.Object || !hours.TryGetProperty("days", out var days) || days.ValueKind != JsonValueKind.Array)
+            return Result<string>.Failure("The business hours are not in a form the receptionist reads.", VoiceFailureCodes.InvalidRequest);
+
+        var text = new StringBuilder();
+        if (hours.TryGetProperty("timezone", out var zone) && zone.ValueKind == JsonValueKind.String)
+            text.Append("\nAll times are ").Append(zone.GetString()).Append('.');
+
+        foreach (var day in days.EnumerateArray())
+        {
+            if (day.ValueKind != JsonValueKind.Object || !day.TryGetProperty("day", out var name) || name.ValueKind != JsonValueKind.String)
+                return Result<string>.Failure("The business hours are not in a form the receptionist reads.", VoiceFailureCodes.InvalidRequest);
+
+            if (day.TryGetProperty("closed", out var closed) && closed.ValueKind == JsonValueKind.True)
+            {
+                text.Append('\n').Append(name.GetString()).Append(": closed.");
+                continue;
+            }
+
+            if (!day.TryGetProperty("open", out var opens) || opens.ValueKind != JsonValueKind.String
+                || !day.TryGetProperty("close", out var shuts) || shuts.ValueKind != JsonValueKind.String)
+                return Result<string>.Failure("The business hours are not in a form the receptionist reads.", VoiceFailureCodes.InvalidRequest);
+
+            text.Append('\n').Append(name.GetString()).Append(": ").Append(opens.GetString()).Append(" to ").Append(shuts.GetString()).Append('.');
+        }
+
+        if (hours.TryGetProperty("notes", out var notes) && notes.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(notes.GetString()))
+            text.Append('\n').Append(notes.GetString());
+
+        return Result<string>.Success(text.ToString());
     }
 
     /// <summary>
