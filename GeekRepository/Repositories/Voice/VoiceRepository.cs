@@ -857,7 +857,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public bool IncludeTranscript { get; set; }
         public bool NotifyOnAbandonedCalls { get; set; }
         public bool BookingEnabled { get; set; }
-        public string ConsentMode { get; set; } = VoiceConsentModes.PassiveDisclosure;
+        // No initializer, like every string beside it. This read defaulted to passive_disclosure, which is a *valid* consent mode, so a
+        // row that arrived without the column passed ValidateConfig and was written back by SaveConfigAsync as the weaker mode - silently,
+        // on the one setting that decides whether a robocall is answered and billed. An empty string fails its CHECK instead, loudly.
+        public string ConsentMode { get; set; } = "";
         public Guid? KnowledgeRunId { get; set; }
 
         public VoiceReceptionistConfig ToModel() => new(
