@@ -37,6 +37,14 @@ public sealed record ReceptionistKnowledgeAnswers(
 /// </para>
 ///
 /// <para>
+/// <b><see cref="BookingEnabled"/> and <see cref="BookingRequested"/> are not two names for one setting.</b> The first is whether a
+/// call may write to the calendar, and it is refused without a calendar that works. The second is the business saying it wants
+/// appointments, which is what the signup form can ask: no business has a calendar during signup, because connecting one needs the
+/// owner's token and the owner's login is the last step. The form answers the second; the dashboard turns the first on once there is a
+/// calendar to turn it on against. A form that sent the first would be refused for an honest answer.
+/// </para>
+///
+/// <para>
 /// <c>KnowledgeRunId</c> is deliberately not here. It is a crawl, not an answer: the knowledge flow sets it when a business's website
 /// has been indexed, and a form field that let anyone write any run id would point a receptionist at another business's pages.
 /// </para>
@@ -56,6 +64,7 @@ public sealed record ReceptionistConfigAnswers(
     bool? IncludeTranscript = null,
     bool? NotifyOnAbandonedCalls = null,
     bool? BookingEnabled = null,
+    bool? BookingRequested = null,
     string? ConsentMode = null,
     ReceptionistKnowledgeAnswers? Knowledge = null)
 {
@@ -88,6 +97,7 @@ public sealed record ReceptionistConfigAnswers(
             if (IncludeTranscript is not null) answered.Add(nameof(IncludeTranscript));
             if (NotifyOnAbandonedCalls is not null) answered.Add(nameof(NotifyOnAbandonedCalls));
             if (BookingEnabled is not null) answered.Add(nameof(BookingEnabled));
+            if (BookingRequested is not null) answered.Add(nameof(BookingRequested));
             if (ConsentMode is not null) answered.Add(nameof(ConsentMode));
             // Named as the setting it becomes, because that is the setting this answer changes.
             if (Knowledge is not null && SystemPromptTemplate is null) answered.Add(nameof(SystemPromptTemplate));
@@ -174,6 +184,7 @@ public sealed record SealedReceptionistConfigAnswers(
         IncludeTranscript = Answered.IncludeTranscript ?? config.IncludeTranscript,
         NotifyOnAbandonedCalls = Answered.NotifyOnAbandonedCalls ?? config.NotifyOnAbandonedCalls,
         BookingEnabled = Answered.BookingEnabled ?? config.BookingEnabled,
+        BookingRequested = Answered.BookingRequested ?? config.BookingRequested,
         ConsentMode = Answered.ConsentMode ?? config.ConsentMode,
     };
 }

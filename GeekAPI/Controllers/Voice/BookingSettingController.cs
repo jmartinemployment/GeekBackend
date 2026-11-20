@@ -63,7 +63,14 @@ public sealed class BookingSettingController(IVoiceStore store, CalendarTools ca
         if (!config.IsSuccess)
             return StatusCode(CalendarController.StatusFor(config.ErrorCode), new { error = config.Error, code = config.ErrorCode });
 
-        return Ok(new { enabled = config.Value!.BookingEnabled, calendarConnected = await ConnectedAsync(tenantId, ct).ConfigureAwait(false) });
+        return Ok(new
+        {
+            enabled = config.Value!.BookingEnabled,
+            // What the business answered on the signup form, which is why the dashboard can tell an owner their yes is waiting on a
+            // calendar rather than showing them booking plainly off and leaving them to remember they asked for it.
+            requested = config.Value.BookingRequested,
+            calendarConnected = await ConnectedAsync(tenantId, ct).ConfigureAwait(false),
+        });
     }
 
     /// <summary>Turns booking on or off for this business. On takes a working calendar; off takes nothing at all.</summary>
@@ -100,7 +107,14 @@ public sealed class BookingSettingController(IVoiceStore store, CalendarTools ca
         }
 
         logger.LogInformation("Tenant {TenantId} turned booking {State}.", tenantId, saved.Value!.BookingEnabled ? "on" : "off");
-        return Ok(new { enabled = saved.Value!.BookingEnabled, calendarConnected = true });
+        return Ok(new
+        {
+            enabled = saved.Value!.BookingEnabled,
+            requested = saved.Value.BookingRequested,
+            // Turning it on has just checked the calendar, so that is known. Turning it off checked nothing, and said `true` here
+            // anyway until now - a claim about the owner's calendar that nothing had looked at. It is asked instead.
+            calendarConnected = request.Enabled || await ConnectedAsync(tenantId, ct).ConfigureAwait(false),
+        });
     }
 
     /// <summary>

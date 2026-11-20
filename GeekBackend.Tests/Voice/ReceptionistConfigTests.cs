@@ -164,6 +164,7 @@ public sealed class ReceptionistConfigTests
             IncludeTranscript: true,
             NotifyOnAbandonedCalls: true,
             BookingEnabled: true,
+            BookingRequested: true,
             ConsentMode: VoiceConsentModes.StrictKeypress,
             KnowledgeRunId: Knowledge);
     }
@@ -273,6 +274,7 @@ public sealed class ReceptionistConfigTests
             { new ReceptionistConfigAnswers(IncludeTranscript: false), nameof(VoiceReceptionistConfig.IncludeTranscript) },
             { new ReceptionistConfigAnswers(NotifyOnAbandonedCalls: false), nameof(VoiceReceptionistConfig.NotifyOnAbandonedCalls) },
             { new ReceptionistConfigAnswers(BookingEnabled: false), nameof(VoiceReceptionistConfig.BookingEnabled) },
+            { new ReceptionistConfigAnswers(BookingRequested: false), nameof(VoiceReceptionistConfig.BookingRequested) },
             { new ReceptionistConfigAnswers(ConsentMode: VoiceConsentModes.PassiveDisclosure), nameof(VoiceReceptionistConfig.ConsentMode) },
         };
         return data;
@@ -312,6 +314,7 @@ public sealed class ReceptionistConfigTests
             [nameof(VoiceReceptionistConfig.IncludeTranscript)] = c => c.IncludeTranscript,
             [nameof(VoiceReceptionistConfig.NotifyOnAbandonedCalls)] = c => c.NotifyOnAbandonedCalls,
             [nameof(VoiceReceptionistConfig.BookingEnabled)] = c => c.BookingEnabled,
+            [nameof(VoiceReceptionistConfig.BookingRequested)] = c => c.BookingRequested,
             [nameof(VoiceReceptionistConfig.ConsentMode)] = c => c.ConsentMode,
         };
 
@@ -983,6 +986,31 @@ public sealed class ReceptionistConfigTests
             Tenant, new ReceptionistConfigAnswers(ConsentMode: VoiceConsentModes.PassiveDisclosure), CancellationToken.None);
 
         Assert.True(saved.IsSuccess, saved.Error);
+        Assert.Equal(0, gateway.Calls);
+    }
+
+    /// <summary>
+    /// The signup form's appointments answer, which is the whole reason this field is not <c>BookingEnabled</c>: it asks no calendar,
+    /// because no business has one during signup. A business answering yes on the form must not be refused for it.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Asking_for_appointments_at_signup_is_saved_without_a_calendar_and_turns_booking_on_for_nobody(bool wants)
+    {
+        var store = new Store();
+        store.Config = Result<VoiceReceptionistConfig>.Success(Configured() with { BookingEnabled = false, BookingRequested = false });
+        var gateway = new GatewayHandler(() => throw new InvalidOperationException("The calendar must not be asked."));
+
+        var saved = await Writer(store, gateway).ApplyDuringSignupAsync(
+            new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(BookingRequested: wants)), CancellationToken.None);
+
+        Assert.True(saved.IsSuccess, saved.Error);
+        var written = Assert.Single(store.SavedConfigs);
+        Assert.Equal(wants, written.BookingRequested);
+
+        // The answer is recorded; the capability is not granted here, because there is nothing yet to grant it against.
+        Assert.False(written.BookingEnabled);
         Assert.Equal(0, gateway.Calls);
     }
 }

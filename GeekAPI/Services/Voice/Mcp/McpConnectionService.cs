@@ -86,7 +86,52 @@ public sealed class McpConnectionService(
             return Result<Guid>.Failure(saved.Error ?? "The connection could not be saved.", saved.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
 
         logger.LogInformation("Tenant {TenantId} connected {Provider}.", tenantId.Value, provider);
+
+        await HonourBookingRequestAsync(tenantId.Value, provider, ct).ConfigureAwait(false);
         return Result<Guid>.Success(tenantId.Value);
+    }
+
+    /// <summary>
+    /// The business answered the signup form's appointments question yes, and until now had no calendar for that yes to act on. A
+    /// calendar has just arrived, so the answer is honoured and booking goes on.
+    ///
+    /// <para>
+    /// <b>This is not booking turned on by connecting a calendar.</b> <c>BookingSettingController</c> keeps those two apart on
+    /// purpose - letting a receptionist read a calendar and letting a stranger on the telephone write to it are separate decisions. The
+    /// business made the second one on the form, and <c>BookingRequested</c> is where that decision was recorded; this acts on it. A
+    /// business that answered no is left alone, and so is one already booking.
+    /// </para>
+    ///
+    /// <para>
+    /// A failure here does not fail the connection, which did succeed: the calendar is connected either way and the owner's own switch
+    /// is on the same page. It is logged with its code, loudly enough for an operator, and nothing is retried.
+    /// </para>
+    /// </summary>
+    private async Task HonourBookingRequestAsync(Guid tenantId, string provider, CancellationToken ct)
+    {
+        if (!string.Equals(provider, GoogleCalendarOptions.Provider, StringComparison.Ordinal)) return;
+
+        var config = await store.GetConfigAsync(tenantId, ct).ConfigureAwait(false);
+        if (!config.IsSuccess)
+        {
+            logger.LogError(
+                "Tenant {TenantId} connected its calendar, and its settings could not be read to see whether it asked for appointments ({Code}).",
+                tenantId, config.ErrorCode);
+            return;
+        }
+
+        if (!config.Value!.BookingRequested || config.Value.BookingEnabled) return;
+
+        var saved = await store.SaveConfigAsync(tenantId, config.Value with { BookingEnabled = true }, ct).ConfigureAwait(false);
+        if (!saved.IsSuccess)
+        {
+            logger.LogError(
+                "Tenant {TenantId} asked for appointments and its calendar is connected, but booking could not be switched on ({Code}). Its owner can still switch it on.",
+                tenantId, saved.ErrorCode);
+            return;
+        }
+
+        logger.LogInformation("Tenant {TenantId} asked for appointments at signup; its calendar is connected and booking is on.", tenantId);
     }
 
     private static string NotSupported(string provider) =>

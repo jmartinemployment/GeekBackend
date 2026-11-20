@@ -229,6 +229,13 @@ public sealed record VoiceReceptionistConfig(
     bool IncludeTranscript = false,
     bool NotifyOnAbandonedCalls = false,
     bool BookingEnabled = false,
+    /// <summary>
+    /// That the business asked for appointments, which is not the same as its receptionist being able to book one.
+    /// <see cref="BookingEnabled"/> is the capability and is refused without a calendar that works; this is the answer, given on the
+    /// signup form before the business has a login to connect a calendar with. The first sign-in reads it, asks for the calendar, and
+    /// switches the capability on - honouring an answer the business gave rather than inferring one from a connection existing.
+    /// </summary>
+    bool BookingRequested = false,
     string ConsentMode = VoiceConsentModes.StrictKeypress,
     /// <summary>
     /// The business's own crawled, indexed website, which its receptionist answers questions from. Null when it has none, which gives the

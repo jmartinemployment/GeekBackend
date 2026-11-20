@@ -6,6 +6,8 @@ using GeekAPI.Controllers.Voice;
 using GeekAPI.Middleware;
 using GeekAPI.Services.Voice;
 using GeekAPI.Services.Voice.Mcp;
+using GeekAPI.Services.Voice.Onboarding;
+using GeekAPI.Services.Voice.Storage;
 using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
 using GeekApplication.Results;
@@ -81,8 +83,25 @@ public sealed class McpConnectionTests
         public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceTenant>> ActivateTenantAsync(Guid tenantId, ActivateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceTelephony>> GetTelephonyAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Result<VoiceReceptionistConfig>> GetConfigAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig config, CancellationToken ct = default) => throw new NotSupportedException();
+        /// <summary>
+        /// The business's settings, which connecting a calendar now reads: a business that asked for appointments on the signup form
+        /// has its booking switched on here, because that is the first moment its answer can be acted on. A business that asked for
+        /// nothing is the default.
+        /// </summary>
+        public Result<VoiceReceptionistConfig> ConfigResult { get; set; } = Result<VoiceReceptionistConfig>.Success(MakeConfig());
+
+        public Result<VoiceReceptionistConfig>? SaveConfigResult { get; set; }
+
+        public List<VoiceReceptionistConfig> SavedConfigs { get; } = new();
+
+        public Task<Result<VoiceReceptionistConfig>> GetConfigAsync(Guid tenantId, CancellationToken ct = default) =>
+            Task.FromResult(ConfigResult);
+
+        public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig config, CancellationToken ct = default)
+        {
+            SavedConfigs.Add(config);
+            return Task.FromResult(SaveConfigResult ?? Result<VoiceReceptionistConfig>.Success(config));
+        }
         // Bring-your-own-storage is not what this test is about; a fake that is asked says there is none.
         public Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default) =>
             Task.FromResult(Result<VoiceStorageConnection>.Failure("No storage connection.", VoiceFailureCodes.NotFound));
@@ -131,6 +150,11 @@ public sealed class McpConnectionTests
 
     private static VoiceTenant MakeTenant(string status) => new(
         Tenant, "Dag Plumbing", "Plumbing, heating, & air-conditioning contractors", DateTimeOffset.UnixEpoch, "US", "FL", "owner@example.com", "+15615550100", status, DateTimeOffset.UnixEpoch);
+
+    /// <summary>A business's settings, by whether it asked for appointments on the signup form.</summary>
+    private static VoiceReceptionistConfig MakeConfig(bool bookingRequested = false, bool bookingEnabled = false) =>
+        ReceptionistDefaults.ConfigFor(ReceptionistDefaults.ScriptFor("Dag Plumbing", "FL", "plumbing").Value!)
+            with { BookingRequested = bookingRequested, BookingEnabled = bookingEnabled };
 
     private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
@@ -723,5 +747,85 @@ public sealed class McpConnectionTests
 
         Assert.False(reached);
         Assert.Equal(StatusCodes.Status401Unauthorized, status);
+    }
+
+    // ----- The signup form's appointments answer is acted on here, because this is the first moment it can be -----
+
+    /// <summary>
+    /// The business answered yes to appointments on the signup form, where booking could not be switched on: no business has a
+    /// calendar during signup, since connecting one needs the owner's token and the login is the last step. The calendar has just
+    /// arrived, so the answer is honoured.
+    ///
+    /// <para>
+    /// This is not booking turned on by connecting a calendar - those stay separate on purpose. The business made the decision on the
+    /// form; this acts on the decision it already made.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task A_business_that_asked_for_appointments_has_booking_switched_on_when_its_calendar_arrives()
+    {
+        var rig = new Rig();
+        rig.Store.ConfigResult = Result<VoiceReceptionistConfig>.Success(MakeConfig(bookingRequested: true));
+
+        var connected = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+
+        Assert.True(connected.IsSuccess, connected.Error);
+        var saved = Assert.Single(rig.Store.SavedConfigs);
+        Assert.True(saved.BookingEnabled);
+        Assert.True(saved.BookingRequested);
+    }
+
+    /// <summary>A business that asked for no appointments is left alone, and is never asked again by having connected a calendar.</summary>
+    [Fact]
+    public async Task A_business_that_asked_for_no_appointments_keeps_booking_off()
+    {
+        var rig = new Rig();
+
+        var connected = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+
+        Assert.True(connected.IsSuccess, connected.Error);
+        Assert.Empty(rig.Store.SavedConfigs);
+    }
+
+    /// <summary>Already booking is nothing to switch on, so nothing is written.</summary>
+    [Fact]
+    public async Task A_business_already_booking_is_not_written_again()
+    {
+        var rig = new Rig();
+        rig.Store.ConfigResult = Result<VoiceReceptionistConfig>.Success(MakeConfig(bookingRequested: true, bookingEnabled: true));
+
+        await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+
+        Assert.Empty(rig.Store.SavedConfigs);
+    }
+
+    /// <summary>
+    /// The connection succeeded, and it stays succeeded: settings that cannot be read or saved do not undo a calendar that is
+    /// connected. The owner's own switch is on the same page, and the failure is logged with its code for an operator.
+    /// </summary>
+    [Fact]
+    public async Task Settings_that_cannot_be_saved_do_not_fail_the_connection_and_are_logged()
+    {
+        var rig = new Rig();
+        rig.Store.ConfigResult = Result<VoiceReceptionistConfig>.Success(MakeConfig(bookingRequested: true));
+        rig.Store.SaveConfigResult = Result<VoiceReceptionistConfig>.Failure("No.", VoiceFailureCodes.StoreUnavailable);
+
+        var connected = await rig.Service.CompleteAsync(Tenant, GoogleCalendarOptions.Provider, AuthCode, rig.SealedState(), null);
+
+        Assert.True(connected.IsSuccess, connected.Error);
+        Assert.Contains(rig.ServiceLog.Lines, l => l.Contains(VoiceFailureCodes.StoreUnavailable, StringComparison.Ordinal));
+    }
+
+    /// <summary>Connecting Drive is not connecting a calendar, so it reads no settings and writes none.</summary>
+    [Fact]
+    public async Task Connecting_drive_does_not_touch_the_booking_setting()
+    {
+        var rig = new Rig(google: _ => TokenAnswer(scope: GoogleDriveOptions.FileScope));
+        rig.Store.ConfigResult = Result<VoiceReceptionistConfig>.Failure("Settings must not be read here.", VoiceFailureCodes.NotFound);
+
+        var connected = await rig.Service.CompleteAsync(Tenant, GoogleDriveOptions.Provider, AuthCode, rig.SealedState(provider: GoogleDriveOptions.Provider), null);
+
+        Assert.True(connected.IsSuccess, connected.Error);
+        Assert.Empty(rig.Store.SavedConfigs);
     }
 }
