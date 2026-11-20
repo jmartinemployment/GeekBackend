@@ -5,6 +5,28 @@ using GeekApplication.Results;
 namespace GeekAPI.Services.Voice.Onboarding;
 
 /// <summary>
+/// What a business told the form about itself, from which its receptionist's prompt is assembled
+/// (<see cref="ReceptionistDefaults.PromptFrom"/>). The prompt is a document and not a setting, so the form asks for its parts rather
+/// than handing the business a text box holding somebody else's sales script to edit.
+///
+/// <para>
+/// Every part but <see cref="WhatTheBusinessDoes"/> may be left unanswered, and an unanswered part is left out of the prompt. The
+/// business's name, state and industry are not asked for here: they are on the tenant row from the business step.
+/// </para>
+/// </summary>
+/// <param name="ReceptionistName">What it calls itself. Blank is the question's other answer - just "the AI receptionist".</param>
+/// <param name="WhatTheBusinessDoes">What it sells or does. Required: a receptionist that cannot say this can answer nothing.</param>
+/// <param name="WhoItServes">The customers or the area it serves.</param>
+/// <param name="HowItPrices">What it charges, or that a person will quote it.</param>
+/// <param name="WhatToDoWithACaller">What the business wants the receptionist to do on a call.</param>
+public sealed record ReceptionistKnowledgeAnswers(
+    string? ReceptionistName = null,
+    string? WhatTheBusinessDoes = null,
+    string? WhoItServes = null,
+    string? HowItPrices = null,
+    string? WhatToDoWithACaller = null);
+
+/// <summary>
 /// What a business answered about its receptionist, on one step of the signup form or one save from its dashboard. Every field is
 /// optional because a form asks a few things at a time: a field that is null was not asked, and the business's current answer stands.
 ///
@@ -34,8 +56,15 @@ public sealed record ReceptionistConfigAnswers(
     bool? IncludeTranscript = null,
     bool? NotifyOnAbandonedCalls = null,
     bool? BookingEnabled = null,
-    string? ConsentMode = null)
+    string? ConsentMode = null,
+    ReceptionistKnowledgeAnswers? Knowledge = null)
 {
+    /// <summary>
+    /// Both answers for one setting. <see cref="Knowledge"/> is assembled into <see cref="SystemPromptTemplate"/>, so sending the two
+    /// together asks for one prompt to be written twice and is refused rather than silently resolved in some order.
+    /// </summary>
+    public bool AnswersThePromptTwice => Knowledge is not null && SystemPromptTemplate is not null;
+
     /// <summary>
     /// The settings this answer actually names, by setting name and never by value. It is what a log line can carry: which of its
     /// settings a business changed is operable, and a greeting, a script, a transfer number and a destination address are not.
@@ -60,6 +89,8 @@ public sealed record ReceptionistConfigAnswers(
             if (NotifyOnAbandonedCalls is not null) answered.Add(nameof(NotifyOnAbandonedCalls));
             if (BookingEnabled is not null) answered.Add(nameof(BookingEnabled));
             if (ConsentMode is not null) answered.Add(nameof(ConsentMode));
+            // Named as the setting it becomes, because that is the setting this answer changes.
+            if (Knowledge is not null && SystemPromptTemplate is null) answered.Add(nameof(SystemPromptTemplate));
             return answered;
         }
     }

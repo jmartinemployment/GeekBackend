@@ -731,12 +731,18 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     private static bool IsJson(JsonElement value) => value.ValueKind is not (JsonValueKind.Undefined or JsonValueKind.Null);
 
     /// <summary>
-    /// A list (a paying tenant's starts empty and is its own to fill), or the area set Geek @ Your Spot LLC's own receptionist uses:
+    /// A list of questions, each a non-blank string (a paying tenant's starts empty and is its own to fill), or the area set
+    /// Geek @ Your Spot LLC's own receptionist uses:
     /// {"openingQuestion": "...", "areas": [{"name": "...", "questions": ["..."]}]}, every text non-blank.
+    ///
+    /// <para>
+    /// The list's items are checked rather than taken on trust, because the receptionist reads the list item by item and a number or a
+    /// nested object in it is a call that fails after the setting was accepted.
+    /// </para>
     /// </summary>
     private static bool IsQualifyingQuestions(JsonElement value)
     {
-        if (value.ValueKind == JsonValueKind.Array) return true;
+        if (value.ValueKind == JsonValueKind.Array) return value.EnumerateArray().All(IsText);
         if (value.ValueKind != JsonValueKind.Object) return false;
         if (!value.TryGetProperty("openingQuestion", out var opening) || !IsText(opening)) return false;
         if (!value.TryGetProperty("areas", out var areas) || areas.ValueKind != JsonValueKind.Array || areas.GetArrayLength() == 0) return false;

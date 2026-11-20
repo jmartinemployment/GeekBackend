@@ -108,6 +108,19 @@ public static class ReceptionistConsent
         if (questions.ValueKind == JsonValueKind.Array && questions.GetArrayLength() == 0)
             return Result<string>.Success(prompt.ToString());
 
+        // A plain list is what a business answers on one line each, and it is asked of every caller. It is read here as well as the
+        // area shape because the form writes the list: a shape the repository stores and this method refused would be a business whose
+        // questions were accepted at signup and whose every call then failed.
+        if (questions.ValueKind == JsonValueKind.Array)
+        {
+            if (!questions.EnumerateArray().All(q => q.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(q.GetString())))
+                return Result<string>.Failure("The qualifying questions are not in a form the receptionist reads.", VoiceFailureCodes.InvalidRequest);
+
+            prompt.Append("\n\nQualifying questions. Ask these of every caller, in this order, as the conversation allows:");
+            foreach (var q in questions.EnumerateArray()) prompt.Append("\n- ").Append(q.GetString());
+            return Result<string>.Success(prompt.ToString());
+        }
+
         if (questions.ValueKind != JsonValueKind.Object
             || !questions.TryGetProperty("openingQuestion", out var opening) || opening.ValueKind != JsonValueKind.String
             || !questions.TryGetProperty("areas", out var areas) || areas.ValueKind != JsonValueKind.Array)

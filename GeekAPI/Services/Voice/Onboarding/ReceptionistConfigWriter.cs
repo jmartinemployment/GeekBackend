@@ -42,6 +42,8 @@ public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialP
             return Fail("A tenant is required.", VoiceFailureCodes.InvalidRequest);
         if (request.Answers is null || !request.Answers.AnswersAnything)
             return Fail("Nothing was answered.", VoiceFailureCodes.InvalidRequest);
+        if (request.Answers.AnswersThePromptTwice)
+            return Fail("The prompt was answered twice, as parts and as a whole.", VoiceFailureCodes.InvalidRequest);
 
         var tenant = await store.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
         if (!tenant.IsSuccess)
@@ -51,7 +53,8 @@ public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialP
             return Fail(
                 "This business is already active; its settings are changed by its owner.", ActivationFailureCodes.TenantNotPending);
 
-        return await MergeAndSaveAsync(tenantId, request.Answers, ct).ConfigureAwait(false);
+        // The tenant is already read for the gate, so the prompt's assembly is handed the row rather than reading it a second time.
+        return await MergeAndSaveAsync(tenantId, request.Answers, tenant.Value, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -66,17 +69,35 @@ public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialP
             return Fail("A tenant is required.", VoiceFailureCodes.InvalidRequest);
         if (answers is null || !answers.AnswersAnything)
             return Fail("Nothing was answered.", VoiceFailureCodes.InvalidRequest);
+        if (answers.AnswersThePromptTwice)
+            return Fail("The prompt was answered twice, as parts and as a whole.", VoiceFailureCodes.InvalidRequest);
 
-        return await MergeAndSaveAsync(tenantId, answers, ct).ConfigureAwait(false);
+        return await MergeAndSaveAsync(tenantId, answers, null, ct).ConfigureAwait(false);
     }
 
     /// <summary>
     /// The business's current settings, the answers written over them, saved whole. Settings that cannot be read abort the save:
     /// merging onto a default would overwrite answers the business had already given with ones it never gave.
     /// </summary>
+    /// <param name="tenant">The tenant row when the caller has already read it, so the prompt's assembly does not read it again.</param>
     private async Task<Result<VoiceReceptionistConfig>> MergeAndSaveAsync(
-        Guid tenantId, ReceptionistConfigAnswers answers, CancellationToken ct)
+        Guid tenantId, ReceptionistConfigAnswers answers, VoiceTenant? tenant, CancellationToken ct)
     {
+        // What the business said about itself becomes its receptionist's prompt here, where its name, state and industry are readable.
+        if (answers.Knowledge is not null)
+        {
+            if (tenant is null)
+            {
+                var read = await store.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
+                if (!read.IsSuccess) return Fail(read.Error ?? "The tenant could not be read.", read.ErrorCode);
+                tenant = read.Value!;
+            }
+
+            var prompt = ReceptionistDefaults.PromptFrom(tenant, answers.Knowledge);
+            if (!prompt.IsSuccess) return Fail(prompt.Error ?? "The prompt could not be written.", prompt.ErrorCode);
+            answers = answers with { SystemPromptTemplate = prompt.Value, Knowledge = null };
+        }
+
         // Sealed first, so a number that is not a number or an unusable encryption key stops the write before the settings are even
         // read. Nothing below this line holds a personal detail in the clear.
         var sealedAnswers = answers.Seal(protector);

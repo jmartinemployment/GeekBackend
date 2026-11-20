@@ -685,4 +685,159 @@ public sealed class ReceptionistConfigTests
         Assert.Equal(Configured().MessageEmailEnabled, written.MessageEmailEnabled);
         Assert.Equal(DestinationEmail, Opened(written.MessageDestinationEmailEncrypted, VoiceSecretPurposes.ConfigMessageDestinationEmail));
     }
+
+    // ----- The prompt is assembled from what the business said about itself -----
+
+    /// <summary>
+    /// The prompt is a document and not a setting, so the form sends its parts and GeekAPI writes it. What it replaces is the starting
+    /// script, which is one company's sales script with another company's name in it, and that is the whole point of this step: a
+    /// business that answers these questions stops having a receptionist that offers free consultations in three Florida counties.
+    /// </summary>
+    [Fact]
+    public async Task What_the_business_said_about_itself_becomes_its_prompt_and_nothing_else()
+    {
+        var store = new Store();
+
+        var saved = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+            new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(Knowledge: new ReceptionistKnowledgeAnswers(
+                ReceptionistName: "Dana",
+                WhatTheBusinessDoes: "Emergency plumbing and drain clearing.",
+                WhoItServes: "Homeowners within thirty miles.",
+                HowItPrices: "Ninety dollars to come out, quoted after that.",
+                WhatToDoWithACaller: "Take the address and a number to call back."))),
+            CancellationToken.None);
+
+        Assert.True(saved.IsSuccess);
+        var written = Assert.Single(store.SavedConfigs);
+
+        // Every part the business gave, and the three facts taken from its tenant row rather than asked for twice.
+        Assert.Contains("You are Dana, the receptionist for Acme Plumbing, a business in Florida that works in home_services", written.SystemPromptTemplate, StringComparison.Ordinal);
+        Assert.Contains("Emergency plumbing and drain clearing.", written.SystemPromptTemplate, StringComparison.Ordinal);
+        Assert.Contains("Homeowners within thirty miles.", written.SystemPromptTemplate, StringComparison.Ordinal);
+        Assert.Contains("Ninety dollars to come out", written.SystemPromptTemplate, StringComparison.Ordinal);
+        Assert.Contains("Take the address and a number to call back.", written.SystemPromptTemplate, StringComparison.Ordinal);
+
+        // Not one word of the script it replaced.
+        Assert.DoesNotContain("Lily", written.SystemPromptTemplate, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROMPT-SENTINEL", written.SystemPromptTemplate, StringComparison.Ordinal);
+        Assert.DoesNotContain("free consultation", written.SystemPromptTemplate, StringComparison.OrdinalIgnoreCase);
+
+        // The other fourteen are left as the business left them, including the crawl id no form touches.
+        Assert.Equal(Greeting, written.GreetingMessage);
+        Assert.Equal(Configured().ConsentMode, written.ConsentMode);
+        Assert.Equal(Knowledge, written.KnowledgeRunId);
+    }
+
+    /// <summary>
+    /// A part left unanswered is left out, not filled in. The receptionist is already told never to state a fact it was not given, so a
+    /// heading with nothing under it would be text for the model to weigh and nothing for it to say.
+    /// </summary>
+    [Fact]
+    public async Task A_part_the_business_left_blank_is_left_out_of_the_prompt()
+    {
+        var store = new Store();
+
+        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+            new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(
+                Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing.", HowItPrices: "   "))),
+            CancellationToken.None);
+
+        var written = Assert.Single(store.SavedConfigs);
+        Assert.Contains("## What this business does", written.SystemPromptTemplate, StringComparison.Ordinal);
+        Assert.DoesNotContain("## What it charges", written.SystemPromptTemplate, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Who it serves", written.SystemPromptTemplate, StringComparison.Ordinal);
+
+        // No name given is the question's other answer, used as given rather than treated as missing.
+        Assert.Contains("You are the AI receptionist for Acme Plumbing", written.SystemPromptTemplate, StringComparison.Ordinal);
+    }
+
+    /// <summary>A receptionist that cannot say what the business does can answer nothing, so that one part is refused when it is blank.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_business_that_says_nothing_about_itself_is_refused_rather_than_given_a_prompt_about_nothing(string? does)
+    {
+        var store = new Store();
+
+        var saved = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+            new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(
+                Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: does))),
+            CancellationToken.None);
+
+        Assert.False(saved.IsSuccess);
+        Assert.Equal(VoiceFailureCodes.InvalidRequest, saved.ErrorCode);
+        Assert.Empty(store.SavedConfigs);
+    }
+
+    /// <summary>
+    /// The parts and a finished prompt are two answers to one question. Resolving them in some order would make which one won depend on
+    /// reading this code, so both together is refused and nothing is written.
+    /// </summary>
+    [Fact]
+    public async Task The_prompt_answered_twice_is_refused_on_both_doors()
+    {
+        var answers = new ReceptionistConfigAnswers(
+            SystemPromptTemplate: "You answer for a plumber.",
+            Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing."));
+
+        var signup = new Store();
+        var duringSignup = await new ReceptionistConfigWriter(signup, Protector)
+            .ApplyDuringSignupAsync(new ReceptionistConfigStepRequest(Tenant, answers), CancellationToken.None);
+
+        var owner = new Store();
+        var asOwner = await new ReceptionistConfigWriter(owner, Protector)
+            .ApplyForOwnerAsync(Tenant, answers, CancellationToken.None);
+
+        Assert.False(duringSignup.IsSuccess);
+        Assert.False(asOwner.IsSuccess);
+        Assert.Equal(VoiceFailureCodes.InvalidRequest, duringSignup.ErrorCode);
+        Assert.Equal(VoiceFailureCodes.InvalidRequest, asOwner.ErrorCode);
+        Assert.Empty(signup.SavedConfigs);
+        Assert.Empty(owner.SavedConfigs);
+    }
+
+    /// <summary>
+    /// The signup door has already read the tenant for its status gate, so the prompt's assembly is handed that row. The owner's door
+    /// has not, and reads it once - the business's own name is in the prompt and cannot be guessed from the token.
+    /// </summary>
+    [Fact]
+    public async Task The_tenant_row_is_read_once_on_each_door()
+    {
+        var signup = new Store();
+        await new ReceptionistConfigWriter(signup, Protector).ApplyDuringSignupAsync(
+            new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(
+                Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing."))),
+            CancellationToken.None);
+
+        var owner = new Store();
+        await new ReceptionistConfigWriter(owner, Protector).ApplyForOwnerAsync(
+            Tenant,
+            new ReceptionistConfigAnswers(Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing.")),
+            CancellationToken.None);
+
+        Assert.Equal([Tenant], signup.TenantReads);
+        Assert.Equal([Tenant], owner.TenantReads);
+
+        // And an answer that is not the prompt does not read the tenant on the owner's door at all.
+        var unrelated = new Store();
+        await new ReceptionistConfigWriter(unrelated, Protector)
+            .ApplyForOwnerAsync(Tenant, new ReceptionistConfigAnswers(BookingEnabled: false), CancellationToken.None);
+        Assert.Empty(unrelated.TenantReads);
+    }
+
+    /// <summary>
+    /// The answer names the setting it changes, so a log line can say which setting a business changed without carrying what it said.
+    /// The parts arrive as Knowledge and are the prompt, so that is the name they take.
+    /// </summary>
+    [Fact]
+    public void The_parts_of_the_prompt_are_named_as_the_prompt()
+    {
+        var answers = new ReceptionistConfigAnswers(
+            Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing."));
+
+        Assert.True(answers.AnswersAnything);
+        Assert.False(answers.AnswersThePromptTwice);
+        Assert.Equal([nameof(VoiceReceptionistConfig.SystemPromptTemplate)], answers.AnsweredFields);
+    }
 }

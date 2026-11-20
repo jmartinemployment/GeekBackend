@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using GeekApplication.Models.Voice;
@@ -105,6 +106,63 @@ public static partial class ReceptionistDefaults
             ["industry"] = industry,
         };
         return Result<ReceptionistScript>.Success(new ReceptionistScript(Fill(GreetingTemplate, values), Fill(ScriptTemplate, values)));
+    }
+
+    /// <summary>
+    /// The prompt assembled from what a business told the signup form about itself, which replaces the starting script above wholesale.
+    /// Jeff, 2026-11-20: *"The application may have preset defaults, but I am not comfortable making decisions on behalf of others."*
+    /// Until a business answers these questions its receptionist runs on <see cref="ScriptTemplate"/>, which is one company's sales
+    /// script with another company's name in it - free consultations, South Florida counties, an AI consultancy's price answer.
+    ///
+    /// <para>
+    /// <b>It is assembled here and not in the portal.</b> The business's own name, state and industry are on the tenant row, which this
+    /// service can read and a signup form cannot without being handed them - and a form holding them would be a second copy of three
+    /// facts the tenant row already settles.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>An unanswered part is left out, not filled in.</b> A business that said nothing about its prices gets no pricing section, and
+    /// <c>ReceptionistConsent.SystemPrompt</c> already tells every receptionist never to state a fact it was not given. A section
+    /// reading "pricing: not provided" would be text for the model to weigh and nothing for it to say.
+    /// </para>
+    /// </summary>
+    public static Result<string> PromptFrom(VoiceTenant tenant, ReceptionistKnowledgeAnswers answers)
+    {
+        var business = OneLine(tenant.BusinessName);
+        var industry = OneLine(tenant.IndustryVertical);
+        if (business.Length == 0 || industry.Length == 0)
+            return Result<string>.Failure("The business name and industry are required.", VoiceFailureCodes.InvalidRequest);
+        if (!StateNames.TryGetValue(tenant.StateCode?.Trim().ToUpperInvariant() ?? "", out var state))
+            return Result<string>.Failure("The state code is not a US state.", VoiceFailureCodes.InvalidRequest);
+
+        var does = answers.WhatTheBusinessDoes?.Trim() ?? "";
+        if (does.Length == 0)
+            return Result<string>.Failure("Say what the business does, so its receptionist can tell a caller.", VoiceFailureCodes.InvalidRequest);
+
+        // Blank is the answer "just call it the AI receptionist", which is one of the two choices the question offers, so it is used as
+        // given rather than treated as a missing name.
+        var name = OneLine(answers.ReceptionistName);
+        var prompt = new StringBuilder("## Role\n\n");
+        prompt.Append(name.Length == 0 ? "You are the AI receptionist for " : $"You are {name}, the receptionist for ")
+            .Append(business).Append(", a business in ").Append(state).Append(" that works in ").Append(industry)
+            .Append(". Your job is to find out what the caller needs, answer it from what you are told below, and take a message when ")
+            .Append("you cannot. Keep replies short and conversational.\n\n");
+
+        prompt.Append("## What this business does\n\n").Append(does).Append("\n\n");
+        Section(prompt, "Who it serves", answers.WhoItServes);
+        Section(prompt, "What it charges", answers.HowItPrices);
+        Section(prompt, "What to do with a caller", answers.WhatToDoWithACaller);
+
+        prompt.Append("## Closing\n\nOnce the caller has no more questions, thank them and call `end_call`.\n\n");
+        prompt.Append("## Hold Handling\n\nIf the caller asks you to wait, output exactly:\n\n`NO_RESPONSE_NEEDED`");
+        return Result<string>.Success(prompt.ToString());
+    }
+
+    private static void Section(StringBuilder prompt, string heading, string? answer)
+    {
+        var text = answer?.Trim() ?? "";
+        if (text.Length == 0) return;
+        prompt.Append("## ").Append(heading).Append("\n\n").Append(text).Append("\n\n");
     }
 
     /// <summary>The receptionist settings a tenant starts with, holding its starting script.</summary>
