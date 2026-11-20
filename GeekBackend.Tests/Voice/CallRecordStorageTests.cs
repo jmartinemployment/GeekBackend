@@ -301,7 +301,7 @@ public sealed class CallRecordStorageTests
     [Fact]
     public void The_drive_connection_asks_for_one_scope_and_books_nothing()
     {
-        var drive = GoogleConnections.For(GoogleDriveOptions.Provider);
+        var drive = McpProviders.For(GoogleDriveOptions.Provider);
 
         Assert.NotNull(drive);
         Assert.Equal([GoogleDriveOptions.FileScope], drive!.Scopes);
@@ -311,7 +311,7 @@ public sealed class CallRecordStorageTests
     [Fact]
     public void The_calendar_connection_is_unchanged_by_drive_joining_it()
     {
-        var calendar = GoogleConnections.For(GoogleCalendarOptions.Provider);
+        var calendar = McpProviders.For(GoogleCalendarOptions.Provider);
 
         Assert.NotNull(calendar);
         Assert.Equal(GoogleCalendarOptions.Scopes, calendar!.Scopes);
@@ -321,8 +321,8 @@ public sealed class CallRecordStorageTests
     [Fact]
     public void A_provider_that_is_not_a_google_connection_is_not_one()
     {
-        Assert.Null(GoogleConnections.For("dropbox"));
-        Assert.Null(GoogleConnections.For("GOOGLE_DRIVE"));
+        Assert.Null(McpProviders.For("dropbox"));
+        Assert.Null(McpProviders.For("GOOGLE_DRIVE"));
     }
 
     [Fact]

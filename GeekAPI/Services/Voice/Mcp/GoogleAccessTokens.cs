@@ -50,6 +50,13 @@ public sealed class GoogleAccessTokens(
 
     private async Task<Result<string>> RenewAsync(Guid tenantId, string provider, VoiceMcpConnection connection, CancellationToken ct)
     {
+        var entry = McpProviders.For(provider);
+        if (entry is null)
+        {
+            logger.LogError("A {Provider} token cannot be renewed: it is not a provider this product has.", provider);
+            return Result<string>.Failure($"{provider} cannot be renewed.", McpFailureCodes.ProviderNotSupported);
+        }
+
         var missing = options.MissingForRefresh();
         if (missing.Count > 0)
         {
@@ -60,16 +67,26 @@ public sealed class GoogleAccessTokens(
         var refresh = protector.Unprotect(connection.OauthRefreshTokenEncrypted, VoiceSecretPurposes.McpRefreshToken);
         if (!refresh.IsSuccess) return Result<string>.Failure(refresh.Error!, refresh.ErrorCode!);
 
-        var renewed = await google.RefreshAsync(refresh.Value!, ct).ConfigureAwait(false);
+        var renewed = await google.RefreshAsync(refresh.Value!, entry, ct).ConfigureAwait(false);
         if (!renewed.IsSuccess) return Result<string>.Failure(renewed.Error!, renewed.ErrorCode!);
 
         var sealedAccess = protector.Protect(renewed.Value!.AccessToken, VoiceSecretPurposes.McpAccessToken);
         if (!sealedAccess.IsSuccess) return Result<string>.Failure(sealedAccess.Error!, sealedAccess.ErrorCode!);
 
+        // A rotating vendor hands back a new refresh token and keeps the old one working only until this one is used. Storing the old
+        // one again would renew fine today and fail once the original aged out, which is a failure nobody would connect to this line.
+        var sealedRefresh = connection.OauthRefreshTokenEncrypted;
+        if (renewed.Value.RefreshToken is { } rotated)
+        {
+            var resealed = protector.Protect(rotated, VoiceSecretPurposes.McpRefreshToken);
+            if (!resealed.IsSuccess) return Result<string>.Failure(resealed.Error!, resealed.ErrorCode!);
+            sealedRefresh = resealed.Value!;
+        }
+
         var saved = await store.SaveMcpConnectionAsync(
             tenantId,
             provider,
-            new SaveVoiceMcpConnectionCommand(sealedAccess.Value!, connection.OauthRefreshTokenEncrypted, renewed.Value.ExpiresAt, connection.ExternalCalendarId),
+            new SaveVoiceMcpConnectionCommand(sealedAccess.Value!, sealedRefresh, renewed.Value.ExpiresAt, connection.ExternalCalendarId),
             ct).ConfigureAwait(false);
         if (!saved.IsSuccess)
             return Result<string>.Failure(saved.Error ?? "The renewed token could not be saved.", saved.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);

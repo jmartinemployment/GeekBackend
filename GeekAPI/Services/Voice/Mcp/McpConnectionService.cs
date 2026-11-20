@@ -10,7 +10,7 @@ namespace GeekAPI.Services.Voice.Mcp;
 /// is approving: it refuses unless that tenant is the one sealed in the state, which is what stops someone from getting a stranger to
 /// approve a connection that was started for another tenant. It checks the state before it spends Google's one-time code,
 /// encrypts both tokens with <see cref="VoiceCredentialProtector"/> and hands only ciphertext to GeekRepository. The Google
-/// connections in <see cref="GoogleConnections"/> are the ones that exist — the calendar it books in and the Drive folder call records
+/// connections in <see cref="McpProviders"/> are the ones that exist — the calendar it books in and the Drive folder call records
 /// go to; any other provider is refused (400) and never quietly treated as Google.
 /// </summary>
 public sealed class McpConnectionService(
@@ -23,7 +23,7 @@ public sealed class McpConnectionService(
 {
     public async Task<Result<string>> BeginAsync(Guid tenantId, string provider, CancellationToken ct = default)
     {
-        var connection = GoogleConnections.For(provider);
+        var connection = McpProviders.For(provider);
         if (connection is null) return Result<string>.Failure(NotSupported(provider), McpFailureCodes.ProviderNotSupported);
 
         var configured = CheckConfigured();
@@ -46,7 +46,7 @@ public sealed class McpConnectionService(
     /// </summary>
     public async Task<Result<Guid>> CompleteAsync(Guid callerTenantId, string provider, string? code, string? sealedState, string? error, CancellationToken ct = default)
     {
-        var connection = GoogleConnections.For(provider);
+        var connection = McpProviders.For(provider);
         if (connection is null) return Result<Guid>.Failure(NotSupported(provider), McpFailureCodes.ProviderNotSupported);
 
         var configured = CheckConfigured();
@@ -135,7 +135,7 @@ public sealed class McpConnectionService(
     }
 
     private static string NotSupported(string provider) =>
-        $"{provider} cannot be connected. The connections that exist are: {string.Join(", ", GoogleConnections.All.Select(c => c.Provider))}.";
+        $"{provider} cannot be connected. The connections that exist are: {string.Join(", ", McpProviders.All.Select(c => c.Provider))}.";
 
     private string? CheckConfigured()
     {

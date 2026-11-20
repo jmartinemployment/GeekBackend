@@ -37,8 +37,6 @@ public static class McpFailureCodes
 public sealed record GoogleCalendarOptions(string? ClientId, string? ClientSecret, string? PortalBaseUrl)
 {
     public const string Provider = "google_calendar";
-    public const string AuthorizeEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
-    public const string TokenEndpoint = "https://oauth2.googleapis.com/token";
 
     /// <summary>The scope booking needs: create, change and delete events.</summary>
     public const string EventsScope = "https://www.googleapis.com/auth/calendar.events";

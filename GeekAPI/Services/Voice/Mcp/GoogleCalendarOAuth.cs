@@ -7,8 +7,12 @@ namespace GeekAPI.Services.Voice.Mcp;
 /// <summary>What Google handed back for an approved connection. The refresh token is what keeps the connection alive after the access token lapses.</summary>
 public sealed record GoogleCalendarTokens(string AccessToken, string RefreshToken, DateTimeOffset ExpiresAt);
 
-/// <summary>A renewed access token and when it lapses. Google does not send a new refresh token; the stored one stays valid.</summary>
-public sealed record GoogleCalendarAccess(string AccessToken, DateTimeOffset ExpiresAt);
+/// <summary>
+/// A renewed access token, when it lapses, and the refresh token to keep. <paramref name="RefreshToken"/> is null when the vendor did
+/// not send a new one, which means the stored one stays valid: Google works that way. Microsoft does not - it "replace[s] themselves
+/// with a fresh token upon every use" - so for a rotating vendor this carries the token that must be stored in its place.
+/// </summary>
+public sealed record GoogleCalendarAccess(string AccessToken, DateTimeOffset ExpiresAt, string? RefreshToken = null);
 
 /// <summary>
 /// Google's side of connecting a tenant's calendar: the address the person is sent to, and the one-time code exchange. Google answering
@@ -22,9 +26,9 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
     /// The address that asks the person to approve. access_type=offline and prompt=consent make Google return a refresh token every
     /// time; without them a second connection by the same person comes back with none and cannot be kept alive.
     /// </summary>
-    public string AuthorizationUrl(string state) => AuthorizationUrl(state, GoogleConnections.Calendar);
+    public string AuthorizationUrl(string state) => AuthorizationUrl(state, McpProviders.Calendar);
 
-    public string AuthorizationUrl(string state, GoogleConnection connection)
+    public string AuthorizationUrl(string state, McpProviderOAuth connection)
     {
         var query = new Dictionary<string, string>
         {
@@ -32,21 +36,19 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
             ["redirect_uri"] = options.RedirectUriFor(connection.Provider),
             ["response_type"] = "code",
             ["scope"] = string.Join(' ', connection.Scopes),
-            ["access_type"] = "offline",
-            ["prompt"] = "consent",
-            ["include_granted_scopes"] = "false",
             ["state"] = state,
         };
+        foreach (var (name, value) in connection.ExtraAuthorizationParameters) query[name] = value;
         var encoded = string.Join('&', query.Select(pair => $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
-        return $"{GoogleCalendarOptions.AuthorizeEndpoint}?{encoded}";
+        return $"{connection.AuthorizeEndpoint}?{encoded}";
     }
 
     public Task<Result<GoogleCalendarTokens>> ExchangeCodeAsync(string code, CancellationToken ct = default) =>
-        ExchangeCodeAsync(code, GoogleConnections.Calendar, ct);
+        ExchangeCodeAsync(code, McpProviders.Calendar, ct);
 
-    public async Task<Result<GoogleCalendarTokens>> ExchangeCodeAsync(string code, GoogleConnection connection, CancellationToken ct = default)
+    public async Task<Result<GoogleCalendarTokens>> ExchangeCodeAsync(string code, McpProviderOAuth connection, CancellationToken ct = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, GoogleCalendarOptions.TokenEndpoint)
+        using var request = new HttpRequestMessage(HttpMethod.Post, connection.TokenEndpoint)
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -99,9 +101,9 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
     /// the token was revoked), which only the owner can fix by connecting again, so it is reauthorization_required (409). Everything
     /// else is Google unavailable (503). Made once and never retried.
     /// </summary>
-    public async Task<Result<GoogleCalendarAccess>> RefreshAsync(string refreshToken, CancellationToken ct = default)
+    public async Task<Result<GoogleCalendarAccess>> RefreshAsync(string refreshToken, McpProviderOAuth connection, CancellationToken ct = default)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, GoogleCalendarOptions.TokenEndpoint)
+        using var request = new HttpRequestMessage(HttpMethod.Post, connection.TokenEndpoint)
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -155,7 +157,17 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
                     return RefreshUnavailable("Google answered something unexpected.");
                 }
 
-                return Result<GoogleCalendarAccess>.Success(new GoogleCalendarAccess(access, clock.GetUtcNow().AddSeconds(seconds)));
+                // A vendor that rotates its refresh tokens invalidates nothing on our side, but the next renewal needs the new one.
+                // Missing it would work until the stored token aged out and then strand the tenant, so it is a failure and not a shrug.
+                var rotated = Text(document.RootElement, "refresh_token");
+                if (connection.RotatesRefreshToken && string.IsNullOrWhiteSpace(rotated))
+                {
+                    logger.LogError("{Provider} renews by rotation and returned no refresh token.", connection.DisplayName);
+                    return RefreshUnavailable($"{connection.DisplayName} did not return a refresh token to keep.");
+                }
+
+                return Result<GoogleCalendarAccess>.Success(
+                    new GoogleCalendarAccess(access, clock.GetUtcNow().AddSeconds(seconds), string.IsNullOrWhiteSpace(rotated) ? null : rotated));
             }
             catch (JsonException)
             {
@@ -168,7 +180,7 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
     private static Result<GoogleCalendarAccess> RefreshUnavailable(string message) =>
         Result<GoogleCalendarAccess>.Failure(message, McpFailureCodes.OAuthUnavailable);
 
-    private Result<GoogleCalendarTokens> Read(string body, GoogleConnection connection)
+    private Result<GoogleCalendarTokens> Read(string body, McpProviderOAuth connection)
     {
         JsonDocument document;
         try
