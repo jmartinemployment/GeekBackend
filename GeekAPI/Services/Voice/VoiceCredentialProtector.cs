@@ -5,7 +5,7 @@ using GeekApplication.Results;
 namespace GeekAPI.Services.Voice;
 
 /// <summary>
-/// AES-256-GCM for the secrets Geek-Receptionist keeps for a tenant: the Twilio auth token and the calendar and CRM OAuth
+/// AES-256-GCM for the secrets Geek-Receptionist keeps for a tenant: the Twilio auth token and the calendar and storage OAuth
 /// tokens (docs/Geek-Receptionist.md section 8, VOICE_ENCRYPTION_KEY, 32 bytes, base64). GeekAPI encrypts before a value goes to
 /// /internal/v1/* and decrypts after one comes back, so GeekRepository and its database hold ciphertext only and the key lives in
 /// this service alone. The stored form is one base64 string: a format byte, the nonce (12 bytes), the tag (16 bytes), then the cipher.

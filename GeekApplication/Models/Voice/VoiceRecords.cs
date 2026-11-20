@@ -109,6 +109,31 @@ public static class VoiceTransferCallerIdModes
     public static readonly IReadOnlyList<string> All = [OriginalCaller, AssignedAiNumber];
 }
 
+/// <summary>
+/// One system a tenant can connect, and what it can do for the receptionist.
+///
+/// <para>
+/// <b>Capabilities are a set, because a vendor is not one thing.</b> HubSpot is a CRM that also has a calendar; Outlook is a calendar
+/// that also has contacts. Filing a vendor under a single kind forces a choice between its features, and that is exactly how a CRM
+/// came to sit in the list the appointments table reads: <c>bccc1a30</c> (2026-11-19) added Google Drive and carved it out as
+/// "everything that is not Drive is a calendar", which swept HubSpot in under a comment asserting the opposite. Jeff, 2026-11-20:
+/// <em>"Hubspot while it has a calendar, no it is a CRM, your filing."</em>
+/// </para>
+///
+/// <para>
+/// A capability is declared only once it is built and tested end to end for that provider - connect, reconnect, refresh,
+/// reauthorize, call a tool, do the job, disconnect. Declaring one we have not proved is the same defect as a name that reads as a
+/// live claim: something downstream offers it. HubSpot's meetings API is real and is not <see cref="Booking"/> here, because nothing
+/// books through it.
+/// </para>
+/// </summary>
+/// <param name="Code">The stored value, and what a route names.</param>
+/// <param name="Name">What an owner is shown.</param>
+/// <param name="Booking">An appointment can be read from and written to it.</param>
+/// <param name="Contacts">People and their details can be read from and written to it.</param>
+/// <param name="Storage">A business's own call records can be written to it.</param>
+public sealed record VoiceMcpProvider(string Code, string Name, bool Booking, bool Contacts, bool Storage);
+
 public static class VoiceMcpProviders
 {
     public const string GoogleCalendar = "google_calendar";
@@ -119,10 +144,32 @@ public static class VoiceMcpProviders
     /// <summary>Not a calendar: where a business has its own call records written (plans/client-and-app-plan.md, BYOS).</summary>
     public const string GoogleDrive = "google_drive";
 
-    public static readonly IReadOnlyList<string> All = [GoogleCalendar, Outlook, CalCom, HubSpot, GoogleDrive];
+    /// <summary>
+    /// Every provider, with what each can do. Only <see cref="GoogleCalendar"/> and <see cref="GoogleDrive"/> have an OAuth path
+    /// today; the other three are accepted values with nothing behind them yet (plans/connecting-client-systems.md).
+    /// </summary>
+    public static readonly IReadOnlyList<VoiceMcpProvider> Known =
+    [
+        new(GoogleCalendar, "Google Calendar", Booking: true, Contacts: false, Storage: false),
+        new(Outlook, "Outlook", Booking: true, Contacts: false, Storage: false),
+        new(CalCom, "Cal.com", Booking: true, Contacts: false, Storage: false),
+        new(HubSpot, "HubSpot", Booking: false, Contacts: true, Storage: false),
+        new(GoogleDrive, "Google Drive", Booking: false, Contacts: false, Storage: true),
+    ];
 
-    /// <summary>The providers an appointment can come from: a calendar, never a storage connection.</summary>
-    public static readonly IReadOnlyList<string> Calendars = [GoogleCalendar, Outlook, CalCom, HubSpot];
+    public static readonly IReadOnlyList<string> All = [.. Known.Select(p => p.Code)];
+
+    /// <summary>
+    /// The providers an appointment can come from: derived from <see cref="VoiceMcpProvider.Booking"/> rather than listed by hand, so
+    /// it cannot disagree with what each provider is said to do.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Calendars = [.. Known.Where(p => p.Booking).Select(p => p.Code)];
+
+    /// <summary>The providers a person's details can be read from and written to.</summary>
+    public static readonly IReadOnlyList<string> Crms = [.. Known.Where(p => p.Contacts).Select(p => p.Code)];
+
+    /// <summary>The providers a business's own call records can be written to.</summary>
+    public static readonly IReadOnlyList<string> Stores = [.. Known.Where(p => p.Storage).Select(p => p.Code)];
 }
 
 /// <summary>

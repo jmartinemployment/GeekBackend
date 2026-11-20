@@ -300,7 +300,8 @@ public sealed class VoiceRepositoryValidationTests
         AssertCheckList("transfer_caller_id_mode", VoiceTransferCallerIdModes.All);
         // Widened when Drive joined the providers a tenant can connect, so the baseline is no longer where this list lives.
         AssertCheckList("provider", VoiceMcpProviders.All, "0078_geek_voice_google_drive_provider.sql");
-        AssertCheckList("mcp_provider", VoiceMcpProviders.Calendars);
+        // Narrowed when HubSpot stopped being filed as a calendar, so the baseline is no longer where this list lives either.
+        AssertCheckList("mcp_provider", VoiceMcpProviders.Calendars, "0086_geek_voice_appointment_providers.sql");
     }
 
 
