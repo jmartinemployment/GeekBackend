@@ -54,7 +54,26 @@ public static class VoiceTransferModes
 
 /// <summary>
 /// How a caller is told, and asked, before the AI engages (plans/client-and-app-plan.md, "Upfront consent gate (Two-Mode Tenant
-/// Setting)"). Passive disclosure is the plan's default; strict keypress is the option for an owner who prefers active opt-in.
+/// Setting)").
+///
+/// <para>
+/// <b>Which one a business uses is the business's own choice</b> - Jeff, 2026-11-20: "Client configurable. I don't feel comfortable
+/// making that decision for others." The value here is only what a tenant starts with before it has been asked, and it is not a
+/// recommendation.
+/// </para>
+///
+/// <para>
+/// <b>Strict keypress</b> costs every caller a key-press and earns it three times over: a key pressed is affirmative consent rather than
+/// an assumption drawn from somebody not hanging up, which is the better evidence in an all-party state; an autodialer playing a
+/// recording does not press keys, so most of them end there; and because this product bills by the minute, a robocall the AI answers is
+/// a minute billed to a business for a call it never wanted. It is stricter than the comparable products ship - Vapi offers stay-on-line
+/// and spoken consent, and no keypress at all.
+/// </para>
+///
+/// <para>
+/// <b>Passive disclosure</b> asks nothing of the caller. It is what the rest of the industry does, and it deters nothing: staying on the
+/// line is exactly what a recording does. The business trades billed robocall minutes for a caller who never has to touch a keypad.
+/// </para>
 /// </summary>
 public static class VoiceConsentModes
 {

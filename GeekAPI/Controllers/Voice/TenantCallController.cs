@@ -109,7 +109,8 @@ public sealed class TenantCallController : ControllerBase
             return Twiml(ReceptionistConsent.Ask(tenant.Value!.BusinessName, new Uri(_twilio.PublicBaseUrl + ConsentResultPath(tenantId))));
         }
 
-        // Passive disclosure, the plan's default: the caller is told as the call connects and is not asked to press anything.
+        // Passive disclosure, which an owner has chosen over the keypress default: the caller is told as the call connects and is not
+        // asked to press anything.
         _logger.LogInformation("Tenant {TenantId}: call {CallSid} may be answered; it hears the disclosure and is handed to the AI.", tenantId, callSid);
         return HandToAi(tenantId, tenant.Value!, settings.Value, callSid, ReceptionistConsent.DisclosureText(tenant.Value!.BusinessName), form);
     }
