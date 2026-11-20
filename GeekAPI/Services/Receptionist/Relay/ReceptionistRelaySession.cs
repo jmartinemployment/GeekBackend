@@ -65,6 +65,7 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     private bool _booked;
     private bool _recordDelivered;
     private bool _failed;
+    private bool _bookingFailed;
 
     /// <summary>True once the end message has been sent; nothing more is sent after it.</summary>
     public bool Ended { get; private set; }
@@ -196,11 +197,13 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
                 if (toolbox.IsBooking(call.Name)) _booked = true;
                 return result.Value!;
             }
+            if (toolbox.IsBooking(call.Name)) _bookingFailed = true;
             logger.LogError("The receptionist's tool {Tool} failed ({Code}).", call.Name, result.ErrorCode);
             return new JsonObject { ["error"] = result.ErrorCode }.ToJsonString();
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
+            if (toolbox.IsBooking(call.Name)) _bookingFailed = true;
             logger.LogError("The receptionist's tool {Tool} failed ({Failure}).", call.Name, ex.GetType().Name);
             return new JsonObject { ["error"] = "tool_failed" }.ToJsonString();
         }
@@ -298,6 +301,9 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
         try
         {
+            // A plan kept only for a failed booking stays unused when the booking went through, or was never attempted.
+            if (!plan.DeliverAlways && !_bookingFailed) return;
+
             var callerWords = _turns.Where(t => t.Speaker == ReceptionistSpeaker.Caller)
                 .Sum(t => t.Text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length);
             if (callerWords < CallSummaryPlan.MinimumCallerWords && !plan.Request.NotifyOnAbandonedCalls) return;

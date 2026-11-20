@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using System.Text.Json;
 using GeekAPI.Services.Voice.Calls;
 using Microsoft.Extensions.Time.Testing;
 using System.Text;
@@ -297,6 +298,88 @@ public sealed class CallSummaryDispatchTests
         var flags = outcomes.Take("CAtest3")!.Disposition()!;
         Assert.DoesNotContain(Said, flags, StringComparison.OrdinalIgnoreCase);
         Assert.All(flags.Split(','), f => Assert.Contains(f, new[] { "answered", "booked", "record_delivered", "failed" }));
+    }
+
+    // ----- "Failed bookings route automatically as messages" -----
+
+    /// <summary>A toolbox whose one tool books, and either succeeds or fails as the test asks.</summary>
+    private sealed class BookingToolbox(bool succeeds) : IReceptionistToolbox
+    {
+        public const string Name = "create_event";
+
+        public IReadOnlyList<ReceptionistToolDefinition> Tools { get; } =
+            [new ReceptionistToolDefinition(Name, "Books an appointment.", JsonDocument.Parse("{}").RootElement)];
+
+        public bool IsBooking(string toolName) => string.Equals(toolName, Name, StringComparison.Ordinal);
+
+        public Task<Result<string>> RunAsync(ReceptionistToolCall call, CancellationToken ct = default) =>
+            Task.FromResult(succeeds
+                ? Result<string>.Success("""{"id":"evt_1"}""")
+                : Result<string>.Failure("The calendar refused the booking.", "gateway_unavailable"));
+    }
+
+    private static (ReceptionistRelaySession Session, FakeDelivery Delivery) MakeBooking(bool succeeds, bool deliverAlways)
+    {
+        var delivery = new FakeDelivery();
+        var model = new FakeReceptionistModel();
+        model.Script.Enqueue(new ReceptionistReply("", false, [new ReceptionistToolCall("c1", BookingToolbox.Name, "{}")]));
+        model.Script.Enqueue(new ReceptionistReply("All set.", true));
+        var session = new ReceptionistRelaySession(model, "prompt", new CapturingLogger())
+        {
+            Toolbox = new BookingToolbox(succeeds),
+            Summary = new CallSummaryPlan(
+                delivery,
+                new CallSummaryRequest("owner@example.test", "Dag Plumbing", "+15615550100", false, false),
+                DeliverAlways: deliverAlways),
+        };
+        return (session, delivery);
+    }
+
+    [Fact]
+    public async Task A_booking_that_failed_reaches_the_owner_even_though_the_business_asked_for_no_messages()
+    {
+        var (session, delivery) = MakeBooking(succeeds: false, deliverAlways: false);
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Single(delivery.Calls);
+    }
+
+    [Fact]
+    public async Task A_booking_that_went_through_sends_nothing_to_a_business_that_asked_for_no_messages()
+    {
+        var (session, delivery) = MakeBooking(succeeds: true, deliverAlways: false);
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Empty(delivery.Calls);
+    }
+
+    [Fact]
+    public async Task A_call_that_never_tried_to_book_sends_nothing_to_that_business_either()
+    {
+        var delivery = new FakeDelivery();
+        var session = new ReceptionistRelaySession(new FakeReceptionistModel(), "prompt", new CapturingLogger())
+        {
+            Summary = new CallSummaryPlan(
+                delivery,
+                new CallSummaryRequest("owner@example.test", "Dag Plumbing", "+15615550100", false, false),
+                DeliverAlways: false),
+        };
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Empty(delivery.Calls);
+    }
+
+    [Fact]
+    public async Task A_business_that_asked_for_messages_still_gets_every_call_booking_or_not()
+    {
+        var (session, delivery) = MakeBooking(succeeds: true, deliverAlways: true);
+
+        await session.RunAsync(new ScriptedSocket([Prompt(Said)]), CancellationToken.None);
+
+        Assert.Single(delivery.Calls);
     }
 
 }

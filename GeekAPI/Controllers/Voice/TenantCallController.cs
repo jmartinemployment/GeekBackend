@@ -170,13 +170,19 @@ public sealed class TenantCallController : ControllerBase
         }
 
         form.TryGetValue("From", out var callerNumber);
-        var request = config.MessageEmailEnabled && !string.IsNullOrWhiteSpace(config.MessageDestinationEmail)
+
+        // Where a record of this call would go, and whether every call gets one. A business that asked for messages names its own
+        // address and gets all of them. A business that only books gets one address anyway, its own contact email, used for nothing
+        // unless a booking fails: "Failed bookings route automatically as messages".
+        var deliverAlways = config.MessageEmailEnabled && !string.IsNullOrWhiteSpace(config.MessageDestinationEmail);
+        var destination = deliverAlways ? config.MessageDestinationEmail : tenant.ContactEmail;
+        var request = deliverAlways || (config.BookingEnabled && !string.IsNullOrWhiteSpace(tenant.ContactEmail))
             ? new CallSummaryRequest(
-                config.MessageDestinationEmail, tenant.BusinessName, callerNumber, config.IncludeTranscript, config.NotifyOnAbandonedCalls)
+                destination!, tenant.BusinessName, callerNumber, config.IncludeTranscript, config.NotifyOnAbandonedCalls)
             : null;
         // A business with somebody to hand a failing call to hears the plan's transfer line rather than the take-a-message one.
         var transferConfigured = config.TransferMode != VoiceTransferModes.VoicemailOnly && !string.IsNullOrWhiteSpace(config.TransferTargetNumber);
-        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured);
+        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured, deliverAlways);
         return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting));
     }
 
@@ -215,7 +221,7 @@ public sealed class TenantCallController : ControllerBase
             if (delivery is null)
                 _logger.LogError("Tenant {TenantId} asked for an end-of-call record and nothing is registered to deliver it; this call will send none.", tenantId);
             else
-                plan = new CallSummaryPlan(delivery, request);
+                plan = new CallSummaryPlan(delivery, request, ticket.DeliverSummaryAlways);
         }
 
         var toolbox = await CalendarToolbox.CreateAsync(

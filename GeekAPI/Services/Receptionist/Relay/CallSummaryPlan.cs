@@ -10,8 +10,15 @@ namespace GeekAPI.Services.Receptionist.Relay;
 public sealed record CallSummaryRequest(
     string Destination, string BusinessName, string? CallerNumber, bool IncludeTranscript, bool NotifyOnAbandonedCalls);
 
-/// <summary>A call's request together with whatever delivers its record.</summary>
-public sealed record CallSummaryPlan(ICallSummaryDelivery Delivery, CallSummaryRequest Request)
+/// <summary>
+/// A call's request together with whatever delivers its record.
+///
+/// <paramref name="DeliverAlways"/> is true for a business that asked for a record of every call. It is false for the one the plan
+/// requires whether or not the business asked: "Failed bookings route automatically as messages". Such a plan sits unused for every
+/// call that goes well, and delivers only when the receptionist tried to book and could not, so the lead reaches the owner instead of
+/// being lost between a calendar that refused it and a message setting that is off.
+/// </summary>
+public sealed record CallSummaryPlan(ICallSummaryDelivery Delivery, CallSummaryRequest Request, bool DeliverAlways = true)
 {
     /// <summary>A caller who said fewer words than this across the whole call (dead air, noise, a dropped consent) did not make a call worth a record.</summary>
     public const int MinimumCallerWords = 3;
