@@ -32,13 +32,17 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     internal const int MaxToolRounds = 4;
 
     /// <summary>
-    /// What a caller hears when the receptionist fails mid-call and a person can be reached, word for word from the plan
+    /// What a caller hears when the receptionist fails mid-call, word for word from the plan
     /// (plans/client-and-app-plan.md, "Spoken Mid-Call Failure Fallbacks"). The call is not dropped on them in silence.
+    ///
+    /// <para>
+    /// <b>There is one line, because there is one thing that happens.</b> The plan has a second for a business with somebody to hand
+    /// the call to - "please hold for just a moment while I connect you directly with our team" - and it was spoken whenever a business
+    /// had a transfer number stored. Nothing dials: the only Twilio Dial in this product was the company line's, deleted with it, so
+    /// the caller was told to hold and then hung up on. A sentence the code cannot honour is worse than the plainer one, so it is gone
+    /// rather than left for the next reader to assume transfer works. It comes back with the code that dials.
+    /// </para>
     /// </summary>
-    internal const string FailureWithTransfer =
-        "I'm having a quick connection issue on my end-please hold for just a moment while I connect you directly with our team.";
-
-    /// <summary>The same, for a business with no one to transfer to, word for word from the plan.</summary>
     internal const string FailureWithoutTransfer =
         "I'm having trouble completing that request right now. Please leave your name, phone number, and a brief message after the tone, and our team will call you right back.";
 
@@ -74,7 +78,6 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     private IReceptionistToolbox? Tools => Agents is null ? Toolbox : Agents.Toolbox;
 
     /// <summary>Whether this business has somebody a failing call can be handed to, which decides which failure line the caller hears.</summary>
-    public bool TransferConfigured { get; init; }
 
     /// <summary>
     /// Where this call's outcome flags are left for Twilio's status callback to write with the call row; null for a line that keeps no
@@ -272,9 +275,8 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     private IReadOnlyList<string> Failed(List<string> sent)
     {
         _failed = true;
-        var spoken = TransferConfigured ? FailureWithTransfer : FailureWithoutTransfer;
-        _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, spoken));
-        sent.Add(Text(spoken));
+        _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Receptionist, FailureWithoutTransfer));
+        sent.Add(Text(FailureWithoutTransfer));
         sent.AddRange(End());
         return sent;
     }

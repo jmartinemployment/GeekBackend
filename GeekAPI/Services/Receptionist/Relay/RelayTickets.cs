@@ -8,7 +8,6 @@ namespace GeekAPI.Services.Receptionist.Relay;
 /// <param name="Line">"company" for the company line, or the tenant's id.</param>
 /// <param name="Summary">What the call's end-of-call record needs; null when the business has not asked for one.</param>
 /// <param name="BookingEnabled">Whether this business lets its receptionist put an appointment on its calendar.</param>
-/// <param name="TransferConfigured">Whether this business has somebody a failing call can be handed to.</param>
 /// <param name="DeliverSummaryAlways">True when the business asked for a record of every call; false when one is kept only for a failed booking.</param>
 /// <param name="KnowledgeRunId">The business's own indexed site, which its receptionist answers questions from; null when it has none.</param>
 /// <param name="Config">
@@ -17,7 +16,7 @@ namespace GeekAPI.Services.Receptionist.Relay;
 /// call content, so Zero Data Retention is untouched.
 /// </param>
 /// <param name="SpokenGreeting">What this caller actually heard as the call connected, so no role greets them a second time.</param>
-public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffset ExpiresAt, CallSummaryRequest? Summary = null, bool BookingEnabled = false, bool TransferConfigured = false, bool DeliverSummaryAlways = true, Guid? KnowledgeRunId = null, VoiceReceptionistConfig? Config = null, string? SpokenGreeting = null);
+public sealed record RelayTicket(string Line, string SystemPrompt, DateTimeOffset ExpiresAt, CallSummaryRequest? Summary = null, bool BookingEnabled = false, bool DeliverSummaryAlways = true, Guid? KnowledgeRunId = null, VoiceReceptionistConfig? Config = null, string? SpokenGreeting = null);
 
 /// <summary>
 /// One-time tickets for ConversationRelay's WebSocket. A ticket is issued only from a consent post Twilio signed, travels in the relay
@@ -33,7 +32,7 @@ public sealed class RelayTickets(TimeProvider clock)
     private readonly ConcurrentDictionary<string, RelayTicket> _tickets = new(StringComparer.Ordinal);
 
     public string Issue(
-        string line, string systemPrompt, CallSummaryRequest? summary = null, bool bookingEnabled = false, bool transferConfigured = false,
+        string line, string systemPrompt, CallSummaryRequest? summary = null, bool bookingEnabled = false,
         bool deliverSummaryAlways = true, Guid? knowledgeRunId = null, VoiceReceptionistConfig? config = null, string? spokenGreeting = null)
     {
         var now = clock.GetUtcNow();
@@ -41,7 +40,7 @@ public sealed class RelayTickets(TimeProvider clock)
             if (ticket.ExpiresAt <= now) _tickets.TryRemove(key, out _);
 
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
-        _tickets[token] = new RelayTicket(line, systemPrompt, now + Lifetime, summary, bookingEnabled, transferConfigured, deliverSummaryAlways, knowledgeRunId, config, spokenGreeting);
+        _tickets[token] = new RelayTicket(line, systemPrompt, now + Lifetime, summary, bookingEnabled, deliverSummaryAlways, knowledgeRunId, config, spokenGreeting);
         return token;
     }
 

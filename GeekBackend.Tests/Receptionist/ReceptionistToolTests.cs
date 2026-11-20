@@ -223,15 +223,27 @@ public sealed class ReceptionistToolTests
 
     // ----- The plan's spoken mid-call failure fallbacks -----
 
+    /// <summary>
+    /// One line, whatever the business has stored, because one thing happens: the caller is asked for a message and the call ends.
+    ///
+    /// <para>
+    /// This test used to assert the opposite - that a business with a transfer number stored had its caller told "please hold for just
+    /// a moment while I connect you directly with our team" - and then asserted the very next thing sent was <c>{"type":"end"}</c>. It
+    /// was pinning a promise the product could not keep: nothing in this codebase dials, so the caller held and was hung up on. A
+    /// transfer number stored changes nothing a caller hears until something dials.
+    /// </para>
+    /// </summary>
     [Fact]
-    public async Task A_model_failure_tells_a_caller_who_can_be_transferred_to_hold_rather_than_dropping_the_call()
+    public async Task A_model_failure_never_promises_a_transfer_this_product_cannot_make()
     {
         var model = new FakeReceptionistModel { Fail = true };
-        var session = new ReceptionistRelaySession(model, "p", new CapturingLogger()) { TransferConfigured = true };
+        var session = new ReceptionistRelaySession(model, "p", new CapturingLogger());
 
         var sent = await session.HandleAsync(Prompt, CancellationToken.None);
 
-        Assert.Equal([ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithTransfer), """{"type":"end"}"""], sent);
+        Assert.Equal([ReceptionistRelaySession.Text(ReceptionistRelaySession.FailureWithoutTransfer), """{"type":"end"}"""], sent);
+        Assert.DoesNotContain("connect you", string.Join(" ", sent), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("hold", string.Join(" ", sent), StringComparison.OrdinalIgnoreCase);
         Assert.True(session.Ended);
     }
 

@@ -206,10 +206,7 @@ public sealed class TenantCallController : ControllerBase
                     tenantId, callSid, destination.ErrorCode);
         }
 
-        // A business with somebody to hand a failing call to hears the plan's transfer line rather than the take-a-message one. The
-        // number itself is never needed for this, only whether the business gave one, so it stays sealed.
-        var transferConfigured = config.TransferMode != VoiceTransferModes.VoicemailOnly && !string.IsNullOrWhiteSpace(config.TransferTargetNumberEncrypted);
-        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured, deliverAlways, config.KnowledgeRunId, config, spokenGreeting);
+        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, deliverAlways, config.KnowledgeRunId, config, spokenGreeting);
         return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting));
     }
 
@@ -301,7 +298,7 @@ public sealed class TenantCallController : ControllerBase
                 _logger.LogError("Tenant {TenantId}: its reception roles could not be built ({Error}); the call is answered by one receptionist.", tenantId, roles.Error);
         }
 
-        session = new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes, TenantId = tenantId, Agents = agents, Dispatcher = HttpContext.RequestServices.GetRequiredService<ReceptionistDispatcher>() };
+        session = new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, Outcomes = _outcomes, TenantId = tenantId, Agents = agents, Dispatcher = HttpContext.RequestServices.GetRequiredService<ReceptionistDispatcher>() };
         await session.RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }
