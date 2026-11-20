@@ -14,9 +14,10 @@ namespace GeekAPI.Services.Receptionist.Agents;
 /// </para>
 ///
 /// <para>
-/// <b>What it costs.</b> One model round trip at the moment of handoff, with nothing spoken. The call loop already continues after a
-/// tool call without speaking, so a handoff rides that path and the caller hears no pause for it. A handoff is not free and is therefore
-/// not a thing to do twice in one turn — <see cref="ReceptionistAgents.MaxHandoffs"/> bounds it.
+/// <b>Who decides.</b> Not the roles. A role may ask to hand the caller on, and <see cref="ReceptionistDispatcher"/> decides every turn
+/// whether it happens. Roles handing to each other directly was the first design, and it put routing back into every role's prompt and
+/// let two of them pass a caller between themselves, which needed a counter to stop. One director cannot volley with itself, so there is
+/// no counter and no bound.
 /// </para>
 ///
 /// <para>Zero Data Retention is unchanged: a role is instructions and tools, the turns stay in RAM and are shared across roles so a

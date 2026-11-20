@@ -62,7 +62,7 @@ public sealed class KnowledgePassageJudgeTests
         new("Tankless service starts at ninety dollars."),
     ];
 
-    private static Task<IReadOnlyList<Passage>> Keep(KnowledgePassageJudge judge, IReadOnlyList<Passage> passages) =>
+    private static Task<AnswerStepResult<IReadOnlyList<Passage>>> Keep(KnowledgePassageJudge judge, IReadOnlyList<Passage> passages) =>
         judge.KeepAsync("Do you fix tankless heaters?", passages, p => p.Text);
 
     [Fact]
@@ -71,7 +71,7 @@ public sealed class KnowledgePassageJudgeTests
         var model = Answering("""{"keep": [0]}""");
         var (judge, _) = Judge(model);
 
-        Assert.Empty(await Keep(judge, []));
+        Assert.Equal(AnswerStepOutcome.Nothing, (await Keep(judge, [])).Outcome);
         Assert.Equal(0, model.Calls);
     }
 
@@ -82,7 +82,8 @@ public sealed class KnowledgePassageJudgeTests
 
         var kept = await Keep(judge, Three);
 
-        Assert.Equal([Three[0], Three[2]], kept);
+        Assert.Equal(AnswerStepOutcome.Done, kept.Outcome);
+        Assert.Equal([Three[0], Three[2]], kept.Value);
     }
 
     [Fact]
@@ -90,7 +91,7 @@ public sealed class KnowledgePassageJudgeTests
     {
         var (judge, log) = Judge(Answering("""{"keep": []}"""));
 
-        Assert.Empty(await Keep(judge, Three));
+        Assert.Equal(AnswerStepOutcome.Nothing, (await Keep(judge, Three)).Outcome);
         Assert.DoesNotContain(log.Lines, line => line.Contains("not a verdict", StringComparison.Ordinal));
     }
 
@@ -117,7 +118,7 @@ public sealed class KnowledgePassageJudgeTests
     {
         var (judge, log) = Judge(Answering(answer));
 
-        Assert.Empty(await Keep(judge, Three));
+        Assert.Equal(AnswerStepOutcome.Failed, (await Keep(judge, Three)).Outcome);
         Assert.Contains(log.Lines, line => line.Contains("not a verdict", StringComparison.Ordinal));
     }
 
@@ -131,7 +132,7 @@ public sealed class KnowledgePassageJudgeTests
             ```
             """));
 
-        Assert.Equal([Three[1]], await Keep(judge, Three));
+        Assert.Equal([Three[1]], (await Keep(judge, Three)).Value);
     }
 
     [Fact]
@@ -139,7 +140,7 @@ public sealed class KnowledgePassageJudgeTests
     {
         var (judge, _) = Judge(Answering("""{"keep": [0, 9, -1, 2]}"""));
 
-        Assert.Equal([Three[0], Three[2]], await Keep(judge, Three));
+        Assert.Equal([Three[0], Three[2]], (await Keep(judge, Three)).Value);
     }
 
     [Fact]
@@ -147,7 +148,7 @@ public sealed class KnowledgePassageJudgeTests
     {
         var (judge, _) = Judge(Answering("""{"keep": [1, 1, 1]}"""));
 
-        Assert.Equal([Three[1]], await Keep(judge, Three));
+        Assert.Equal([Three[1]], (await Keep(judge, Three)).Value);
     }
 
     [Fact]
@@ -155,7 +156,7 @@ public sealed class KnowledgePassageJudgeTests
     {
         var (judge, log) = Judge(new Model(_ => throw new HttpRequestException("the provider is down")));
 
-        Assert.Empty(await Keep(judge, Three));
+        Assert.Equal(AnswerStepOutcome.Failed, (await Keep(judge, Three)).Outcome);
         Assert.Contains(log.Lines, line => line.Contains("failed", StringComparison.Ordinal));
     }
 
@@ -168,7 +169,7 @@ public sealed class KnowledgePassageJudgeTests
             return new ReceptionistReply("""{"keep": [0, 1, 2]}""", false);
         }));
 
-        Assert.Empty(await Keep(judge, Three));
+        Assert.Equal(AnswerStepOutcome.Failed, (await Keep(judge, Three)).Outcome);
         Assert.Contains(log.Lines, line => line.Contains("longer than", StringComparison.Ordinal));
     }
 

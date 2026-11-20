@@ -61,6 +61,12 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
     /// </summary>
     public ReceptionistAgents? Agents { get; init; }
 
+    /// <summary>
+    /// Who decides which role takes the caller's next turn. Null leaves the caller with whoever greeted them for the whole call, which
+    /// is what a business with one role gets anyway.
+    /// </summary>
+    public ReceptionistDispatcher? Dispatcher { get; init; }
+
     /// <summary>What the model is told this turn: the speaking role's own instructions, or the one prompt when there are no roles.</summary>
     private string Prompt => Agents?.Current.SystemPrompt ?? systemPrompt;
 
@@ -154,6 +160,18 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
 
         _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Caller, said.GetString()!));
 
+        // Who should take this turn, decided once, before anybody answers. A role that asked to hand over on its last turn is asking
+        // here; the director honours that without a round trip, and otherwise only asks a model when the speaking role has no claim on
+        // what was just said. Nothing is moved on a failed decision.
+        if (Agents is { } agents && Dispatcher is { } dispatcher)
+        {
+            var to = await dispatcher.RouteAsync(agents.Current, agents.Roles, _turns, agents.TakeRequest(), ct).ConfigureAwait(false);
+            // The director has already checked that this role exists and is not the one speaking, so a refusal here means the two
+            // disagree about the roster. The caller stays put either way; what must not happen is it reaching nobody.
+            if (to is not null && !agents.MoveTo(to))
+                logger.LogError("The director sent a caller to {Role}, which the roster would not move them to.", to);
+        }
+
         var sent = new List<string>();
         for (var round = 0; ; round++)
         {
@@ -196,11 +214,6 @@ public sealed partial class ReceptionistRelaySession(IReceptionistModel model, s
                 {
                     _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolCall, call.ArgumentsJson, call.Id, call.Name));
                     _turns.Add(new ReceptionistTurn(ReceptionistSpeaker.ToolResult, await RunToolAsync(toolbox, call, ct).ConfigureAwait(false), call.Id, call.Name));
-
-                    // A handoff that named somewhere real changes who answers the next round. The turns are not touched: the new role
-                    // reads everything the caller has already said, which is the whole reason a handoff is silent to them. Asked after
-                    // the tool ran, because only a handoff that succeeded moves anybody.
-                    if (Agents?.TookOver(call.Name) == true) toolbox = Tools;
                 }
                 if (!reply.EndCall) continue;
             }

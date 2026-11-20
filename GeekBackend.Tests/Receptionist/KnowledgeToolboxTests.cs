@@ -5,21 +5,34 @@ using GeekAPI.Services.Receptionist.Knowledge;
 using GeekAPI.Services.Voice.Mcp;
 using GeekApplication.Interfaces.Receptionist;
 using GeekApplication.Models.ContentCreator;
-using GeekApplication.Models.Voice;
 using Microsoft.Extensions.Logging;
 
 namespace GeekBackend.Tests.Receptionist;
 
 /// <summary>
-/// The one tool that lets a receptionist answer a question about the business itself: a tenant with no indexed site or no configured
-/// Library gets no tool at all rather than one that always answers nothing; the caller's own words go to the Library as the need for
-/// that tenant's run; a search that failed and a search that found nothing are different refusals, and neither is an answer; and no log
-/// line carries the caller's question or anything the Library said back.
+/// The door between the call's own model and the one thing that answers a caller from the business's own information. The toolbox no
+/// longer answers anything itself: it decides whether this tenant gets a tool at all, refuses a tool it never offered, hands the call's
+/// turns to <see cref="KnowledgeOrchestrator"/>, and turns what comes back into either a checked answer or a coded refusal that tells
+/// the receptionist to take a message. What happens between those two points — formulating, searching, judging, writing, grounding — is
+/// the orchestrator's, and is tested where it lives.
+///
+/// <para>These tests drive the real orchestrator over scripted models rather than a stand-in, because the outcome the toolbox translates
+/// has to be an outcome the orchestrator can actually produce.</para>
 /// </summary>
 public sealed class KnowledgeToolboxTests
 {
+    /// <summary>What the caller said on the line.</summary>
     private const string Question = "How much do you charge to replace a water heater on a Sunday";
-    private const string Answer = "A Sunday call-out is two hundred and forty dollars before parts.";
+
+    /// <summary>What the orchestrator's formulator makes of it. The model never writes this any more, and it is never logged.</summary>
+    private const string Asked = "What does this business charge to replace a water heater on a Sunday?";
+
+    /// <summary>A sentence off the business's own page — a passage, which has not been through the grounding check.</summary>
+    private const string Published = "A Sunday call-out is two hundred and forty dollars before parts.";
+
+    /// <summary>What the orchestrator wrote and checked. Deliberately not the published sentence, so the two cannot be confused.</summary>
+    private const string Answer = "It is two hundred and forty dollars for a Sunday call-out, before parts.";
+
     private static readonly Guid Tenant = Guid.Parse("11111111-2222-3333-4444-555555555555");
     private static readonly Guid Run = Guid.Parse("99999999-8888-7777-6666-555555555555");
 
@@ -34,7 +47,7 @@ public sealed class KnowledgeToolboxTests
 
     /// <summary>
     /// A Library that answers whatever the test set, and keeps every search it was asked for. The positional overload is not the path
-    /// the toolbox takes; a fake that quietly answered it would hide the day the toolbox stopped sending a query object.
+    /// the orchestrator takes; a fake that quietly answered it would hide the day the query object stopped being sent.
     /// </summary>
     private sealed class FakeRag : IGeekCrawlerRagClient
     {
@@ -82,6 +95,30 @@ public sealed class KnowledgeToolboxTests
     }
 
     /// <summary>
+    /// A model that answers whatever the test scripted and keeps what it was shown. One of these stands behind each of the
+    /// orchestrator's workers, which is how a test here chooses which outcome the toolbox has to translate.
+    /// </summary>
+    private sealed class Scripted : IReceptionistModel
+    {
+        public Scripted(string answer) => Answer = answer;
+
+        public string Answer { get; set; }
+        public List<string> Shown { get; } = new();
+        public bool IsConfigured => true;
+
+        public Task<ReceptionistReply> ReplyAsync(
+            string systemPrompt, IReadOnlyList<ReceptionistTurn> turns, IReadOnlyList<ReceptionistToolDefinition>? tools = null,
+            CancellationToken ct = default)
+        {
+            Shown.Add(turns[^1].Text);
+            return Task.FromResult(new ReceptionistReply(Answer, false));
+        }
+
+        public Task<ReceptionistCallSummary> SummarizeAsync(IReadOnlyList<ReceptionistTurn> turns, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+    }
+
+    /// <summary>
     /// A judge that keeps every passage it is shown, so these tests stay about the toolbox. What the judge itself decides, and what it
     /// does when it fails, is <see cref="KnowledgePassageJudgeTests"/>.
     /// </summary>
@@ -102,15 +139,54 @@ public sealed class KnowledgeToolboxTests
             throw new NotSupportedException();
     }
 
+    /// <summary>
+    /// A tenant whose Library is configured, whose site is indexed, and whose caller has just asked the question: by default every step
+    /// succeeds and the toolbox has an answer to hand over. A test changes one thing to choose a different outcome.
+    /// </summary>
     private sealed class Rig
     {
+        private readonly CapturingLogger<KnowledgeOrchestrator> _planning = new();
+        private readonly CapturingLogger<QuestionFormulator> _formulating = new();
+        private readonly CapturingLogger<KnowledgePassageJudge> _judging = new();
+        private readonly CapturingLogger<AnswerComposer> _composing = new();
+        private readonly CapturingLogger<AnswerGrounding> _checking = new();
+
         public FakeRag Rag { get; } = new();
         public CapturingLogger<KnowledgeToolbox> Log { get; } = new();
-        public KnowledgePassageJudge Judge { get; } = new(new KeepEverything(), new CapturingLogger<KnowledgePassageJudge>());
 
-        public KnowledgeToolbox? Create() => KnowledgeToolbox.Create(Tenant, Run, Rag, Judge, Log);
+        /// <summary>The call's turns so far. The toolbox is built over a closure on this list, exactly as the live wiring is.</summary>
+        public List<ReceptionistTurn> Turns { get; } = [new ReceptionistTurn(ReceptionistSpeaker.Caller, Question)];
 
-        public KnowledgeToolbox? CreateWith(Guid? knowledgeRunId) => KnowledgeToolbox.Create(Tenant, knowledgeRunId, Rag, Judge, Log);
+        public Scripted Formulator { get; } = new(JsonSerializer.Serialize(new { question = Asked }));
+        public Scripted Composer { get; } = new(JsonSerializer.Serialize(new { answer = Answer }));
+        public Scripted Grounding { get; } = new("""{"supported": true}""");
+
+        public KnowledgeOrchestrator Orchestrator { get; }
+
+        public Rig()
+        {
+            Rag.Result = Found(Page("Pricing", Published));
+            Orchestrator = new KnowledgeOrchestrator(
+                new QuestionFormulator(Formulator, _formulating),
+                new KnowledgePassageJudge(new KeepEverything(), _judging),
+                new AnswerComposer(Composer, _composing),
+                new AnswerGrounding(Grounding, _checking),
+                _planning);
+        }
+
+        /// <summary>Everything anything in this rig logged, so the zero-retention assertion reads the whole path and not just the door.</summary>
+        public IEnumerable<string> Lines =>
+            Log.Lines
+                .Concat(_planning.Lines)
+                .Concat(_formulating.Lines)
+                .Concat(_judging.Lines)
+                .Concat(_composing.Lines)
+                .Concat(_checking.Lines);
+
+        public KnowledgeToolbox? Create() => KnowledgeToolbox.Create(Tenant, Run, Rag, Orchestrator, () => Turns, Log);
+
+        public KnowledgeToolbox? CreateWith(Guid? knowledgeRunId) =>
+            KnowledgeToolbox.Create(Tenant, knowledgeRunId, Rag, Orchestrator, () => Turns, Log);
 
         /// <summary>The toolbox a configured tenant with an indexed run gets, for the tests that are about running a tool.</summary>
         public KnowledgeToolbox Box => Create() ?? throw new InvalidOperationException("The rig's own toolbox was refused.");
@@ -125,11 +201,8 @@ public sealed class KnowledgeToolboxTests
     private static GeekCrawlerRagQueryResult SearchFailed() =>
         new() { RunId = Run, Pages = [], Failed = true, Error = "RAG query unavailable.", Warning = "RAG query unavailable." };
 
-    private static ReceptionistToolCall Ask(string question) =>
-        new("c1", KnowledgeToolbox.LookupTool, JsonSerializer.Serialize(new { question }));
-
-    private static ReceptionistToolCall AskRaw(string? argumentsJson) =>
-        new("c1", KnowledgeToolbox.LookupTool, argumentsJson!);
+    /// <summary>The lookup as the receptionist asks for it: a name and nothing else, because the tool takes no arguments.</summary>
+    private static ReceptionistToolCall Lookup() => new("c1", KnowledgeToolbox.LookupTool, "{}");
 
     // ----- Whether a business gets the tool at all -----
 
@@ -142,6 +215,7 @@ public sealed class KnowledgeToolboxTests
         Assert.Null(rig.Create());
         Assert.Contains(rig.Log.Lines, l => l.Contains("evidence library is not configured", StringComparison.Ordinal));
         Assert.Empty(rig.Rag.Queries);
+        Assert.Empty(rig.Formulator.Shown);
     }
 
     [Fact]
@@ -152,6 +226,7 @@ public sealed class KnowledgeToolboxTests
         Assert.Null(rig.CreateWith(null));
         Assert.Contains(rig.Log.Lines, l => l.Contains("no indexed site", StringComparison.Ordinal));
         Assert.Empty(rig.Rag.Queries);
+        Assert.Empty(rig.Formulator.Shown);
     }
 
     [Fact]
@@ -162,10 +237,17 @@ public sealed class KnowledgeToolboxTests
         Assert.Null(rig.CreateWith(Guid.Empty));
         Assert.Contains(rig.Log.Lines, l => l.Contains("no indexed site", StringComparison.Ordinal));
         Assert.Empty(rig.Rag.Queries);
+        Assert.Empty(rig.Formulator.Shown);
     }
 
+    /// <summary>
+    /// The one tool takes no arguments at all. It used to take a <c>question</c> string, and that string was the defect: it was the
+    /// call's own model writing down what it thought the caller meant, and the paraphrase — not the caller — was what got embedded and
+    /// searched. The orchestrator reads the call's turns instead, so there is nothing left for the model to fill in, and a schema that
+    /// still demanded a question would invite it to paraphrase again.
+    /// </summary>
     [Fact]
-    public void The_toolbox_offers_one_tool_that_takes_the_callers_question_as_a_string()
+    public void The_one_tool_offered_takes_no_arguments_because_the_model_no_longer_paraphrases_the_caller()
     {
         var tool = Assert.Single(new Rig().Box.Tools);
 
@@ -174,197 +256,164 @@ public sealed class KnowledgeToolboxTests
         Assert.False(string.IsNullOrWhiteSpace(tool.Description));
 
         Assert.Equal("object", tool.InputSchema.GetProperty("type").GetString());
-        var question = tool.InputSchema.GetProperty("properties").GetProperty("question");
-        Assert.Equal("string", question.GetProperty("type").GetString());
-        Assert.Contains(
-            "question",
-            tool.InputSchema.GetProperty("required").EnumerateArray().Select(r => r.GetString()!));
+        Assert.Empty(tool.InputSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList());
+        Assert.False(tool.InputSchema.GetProperty("properties").TryGetProperty("question", out _));
+        Assert.False(tool.InputSchema.TryGetProperty("required", out _));
     }
 
-    // ----- What the model may ask for, and how -----
+    // ----- What the model may ask for -----
 
     [Fact]
-    public async Task A_tool_this_toolbox_never_offered_is_refused_and_nothing_is_searched()
+    public async Task A_tool_this_toolbox_never_offered_is_refused_and_nothing_is_looked_up()
     {
         var rig = new Rig();
 
-        var result = await rig.Box.RunAsync(new ReceptionistToolCall("c1", "create_event", """{"question":"anything"}"""));
+        var result = await rig.Box.RunAsync(new ReceptionistToolCall("c1", "create_event", "{}"));
 
         Assert.False(result.IsSuccess);
         Assert.Equal(McpFailureCodes.ToolNotAllowed, result.ErrorCode);
+        Assert.Empty(rig.Formulator.Shown);
         Assert.Empty(rig.Rag.Queries);
     }
 
-    [Theory]
-    [InlineData("not json")]
-    [InlineData("{\"question\":")]
-    [InlineData("[1,2]")]
-    [InlineData("\"just a string\"")]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData(null)]
-    public async Task Arguments_that_are_not_a_json_object_are_invalid_request_and_nothing_is_searched(string? argumentsJson)
-    {
-        var rig = new Rig();
-
-        var result = await rig.Box.RunAsync(AskRaw(argumentsJson));
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal(VoiceFailureCodes.InvalidRequest, result.ErrorCode);
-        Assert.Empty(rig.Rag.Queries);
-    }
-
-    [Theory]
-    [InlineData("{}")]
-    [InlineData("""{"query":"when do you open"}""")]
-    [InlineData("""{"question":""}""")]
-    [InlineData("""{"question":"   "}""")]
-    [InlineData("""{"question":null}""")]
-    [InlineData("""{"question":7}""")]
-    public async Task Arguments_carrying_no_question_or_an_empty_one_are_invalid_request(string argumentsJson)
-    {
-        var rig = new Rig();
-
-        var result = await rig.Box.RunAsync(AskRaw(argumentsJson));
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal(VoiceFailureCodes.InvalidRequest, result.ErrorCode);
-        Assert.Empty(rig.Rag.Queries);
-    }
-
-    // ----- What came back, and what the model is told about it -----
+    // ----- Turning one outcome into what the receptionist is told -----
 
     [Fact]
-    public async Task A_search_that_failed_is_lookup_unavailable_because_nothing_was_searched()
+    public async Task An_orchestrator_that_answered_gives_the_receptionist_that_answer()
+    {
+        var rig = new Rig();
+
+        var result = await rig.Box.RunAsync(Lookup());
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.ErrorCode);
+        using var json = JsonDocument.Parse(result.Value!);
+        Assert.Equal(Answer, json.RootElement.GetProperty("answer").GetString());
+    }
+
+    /// <summary>
+    /// What the receptionist gets is the answer, under <c>answer</c>, and never the passages it was built from. The difference is the
+    /// whole point of the orchestrator: the answer has been written from the passages and then checked back against them by a separate
+    /// call, and the passages have not been through anything. Handing passages over would put the call's own model back in the position
+    /// of writing an answer from raw text with nothing checking it.
+    /// </summary>
+    [Fact]
+    public async Task A_checked_answer_is_handed_over_as_an_answer_and_never_as_passages()
+    {
+        var rig = new Rig();
+
+        var result = await rig.Box.RunAsync(Lookup());
+
+        Assert.True(result.IsSuccess);
+        using var json = JsonDocument.Parse(result.Value!);
+
+        var fields = json.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+        Assert.Equal("answer", Assert.Single(fields));
+        Assert.False(json.RootElement.TryGetProperty("passages", out _));
+
+        // The published sentence the passage carried is not what came back; the checked answer is.
+        Assert.Equal(Answer, json.RootElement.GetProperty("answer").GetString());
+        Assert.DoesNotContain(Published, result.Value!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Pricing", result.Value!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Nothing was asked — the caller said hello, or gave a name. This is the one refusal that does not tell the receptionist to take a
+    /// message, because there is no question to take a message about; it simply says there was nothing to look up and the call carries on.
+    /// </summary>
+    [Fact]
+    public async Task Nothing_asked_is_refused_with_that_code_and_does_not_tell_the_receptionist_to_take_a_message()
+    {
+        var rig = new Rig();
+        rig.Formulator.Answer = """{"question": null}""";
+
+        var result = await rig.Box.RunAsync(Lookup());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AnswerRefusals.NothingAsked, result.ErrorCode);
+        Assert.Equal("There was no question about the business to look up.", result.Error);
+        Assert.DoesNotContain("take a message", result.Error!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The business has published nothing that answers it. The receptionist is told to take a message rather than answer.</summary>
+    [Fact]
+    public async Task Not_published_is_refused_with_that_code_and_the_receptionist_is_told_to_take_a_message()
+    {
+        var rig = new Rig();
+        // Found nothing, and the second, broader attempt is the same question again — which the orchestrator reads as nothing published.
+        rig.Rag.Result = Found();
+
+        var result = await rig.Box.RunAsync(Lookup());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AnswerRefusals.NotPublished, result.ErrorCode);
+        Assert.Contains("does not cover that", result.Error!, StringComparison.Ordinal);
+        Assert.Contains("Take a message instead of answering.", result.Error!, StringComparison.Ordinal);
+    }
+
+    /// <summary>An answer was written and the business's own words did not support it. It is discarded, and a message is taken.</summary>
+    [Fact]
+    public async Task Unsupported_is_refused_with_that_code_and_the_receptionist_is_told_to_take_a_message()
+    {
+        var rig = new Rig();
+        rig.Grounding.Answer = """{"supported": false}""";
+
+        var result = await rig.Box.RunAsync(Lookup());
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(AnswerRefusals.Unsupported, result.ErrorCode);
+        Assert.Contains("does not support an answer to that", result.Error!, StringComparison.Ordinal);
+        Assert.Contains("Take a message instead of answering.", result.Error!, StringComparison.Ordinal);
+
+        // The rejected draft is never handed over as something to say.
+        Assert.Null(result.Value);
+    }
+
+    /// <summary>A step could not be run at all. Nothing was established either way, so nothing is said and a message is taken.</summary>
+    [Fact]
+    public async Task Could_not_check_is_refused_with_that_code_and_the_receptionist_is_told_to_take_a_message()
     {
         var rig = new Rig();
         rig.Rag.Result = SearchFailed();
 
-        var result = await rig.Box.RunAsync(Ask(Question));
+        var result = await rig.Box.RunAsync(Lookup());
 
         Assert.False(result.IsSuccess);
-        // Not nothing_found: a failed search and a business that has not published an answer are different facts.
-        Assert.Equal(KnowledgeFailureCodes.LookupUnavailable, result.ErrorCode);
-        Assert.NotEqual(KnowledgeFailureCodes.NothingFound, result.ErrorCode);
-        Assert.Single(rig.Rag.Queries);
+        Assert.Equal(AnswerRefusals.CouldNotCheck, result.ErrorCode);
+        Assert.Contains("could not be checked", result.Error!, StringComparison.Ordinal);
+        Assert.Contains("Take a message instead of answering.", result.Error!, StringComparison.Ordinal);
     }
 
+    // ----- The turns handed over are the call's own, at the moment the tool runs -----
+
+    /// <summary>
+    /// The toolbox holds a function, not a list. It has to: the toolbox is built before the call session exists and the session needs
+    /// the toolbox, so the live wiring closes over a session variable that is still null at construction. If the turns were read when
+    /// the toolbox was built, every lookup on every call would hand the orchestrator an empty call and come back "nothing asked".
+    ///
+    /// <para>Proved the only way that distinguishes the two: the list is empty when the toolbox is built and the caller's words are added
+    /// afterwards, and the orchestrator is shown them.</para>
+    /// </summary>
     [Fact]
-    public async Task A_library_that_went_away_mid_call_is_lookup_unavailable_too()
+    public async Task The_turns_handed_over_are_the_ones_the_call_has_when_the_tool_runs_not_when_it_was_built()
     {
         var rig = new Rig();
-        // Disabled between building the toolbox and the caller asking: the client answers null, which is not an empty result.
-        rig.Rag.Result = null;
+        rig.Turns.Clear();
 
-        var result = await rig.Box.RunAsync(Ask(Question));
+        var box = rig.Box;
+        rig.Turns.Add(new ReceptionistTurn(ReceptionistSpeaker.Caller, Question));
 
-        Assert.False(result.IsSuccess);
-        Assert.Equal(KnowledgeFailureCodes.LookupUnavailable, result.ErrorCode);
-    }
+        var result = await box.RunAsync(Lookup());
 
-    [Fact]
-    public async Task A_search_that_found_nothing_is_nothing_found_and_the_model_is_told_to_take_a_message()
-    {
-        var rig = new Rig();
-        rig.Rag.Result = Found();
-
-        var result = await rig.Box.RunAsync(Ask(Question));
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal(KnowledgeFailureCodes.NothingFound, result.ErrorCode);
-        Assert.Contains("take a message", result.Error!, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Pages_come_back_as_passages_carrying_each_pages_title_and_its_paragraphs()
-    {
-        var rig = new Rig();
-        rig.Rag.Result = Found(
-            Page("Pricing", Answer, "Parts are billed separately."),
-            Page("   ", "We work across Palm Beach County."));
-
-        var result = await rig.Box.RunAsync(Ask(Question));
-
+        // The formulator is the first thing the orchestrator runs, and it is shown the call as it stands.
+        Assert.Contains(Question, Assert.Single(rig.Formulator.Shown), StringComparison.Ordinal);
         Assert.True(result.IsSuccess);
-        using var json = JsonDocument.Parse(result.Value!);
-        var passages = json.RootElement.GetProperty("passages").EnumerateArray().ToList();
-        Assert.Equal(2, passages.Count);
-
-        Assert.Equal("Pricing", passages[0].GetProperty("Title").GetString());
-        Assert.Contains(Answer, passages[0].GetProperty("Text").GetString()!, StringComparison.Ordinal);
-        Assert.Contains("Parts are billed separately.", passages[0].GetProperty("Text").GetString()!, StringComparison.Ordinal);
-
-        // A page with no title of its own carries none rather than a blank one.
-        Assert.Equal(JsonValueKind.Null, passages[1].GetProperty("Title").ValueKind);
-        Assert.Equal("We work across Palm Beach County.", passages[1].GetProperty("Text").GetString());
-    }
-
-    [Fact]
-    public async Task A_page_with_nothing_readable_on_it_is_dropped_and_a_search_of_only_those_is_nothing_found()
-    {
-        var mixed = new Rig();
-        mixed.Rag.Result = Found(Page("Blank", "", "   ", "\t"), Page("Hours", "We open at eight."));
-
-        var kept = await mixed.Box.RunAsync(Ask(Question));
-
-        Assert.True(kept.IsSuccess);
-        using var json = JsonDocument.Parse(kept.Value!);
-        var passage = Assert.Single(json.RootElement.GetProperty("passages").EnumerateArray().ToList());
-        Assert.Equal("Hours", passage.GetProperty("Title").GetString());
-
-        var allBlank = new Rig();
-        allBlank.Rag.Result = Found(Page("Blank", "", "   "), Page("Also blank", "\n"));
-
-        var nothing = await allBlank.Box.RunAsync(Ask(Question));
-
-        Assert.False(nothing.IsSuccess);
-        Assert.Equal(KnowledgeFailureCodes.NothingFound, nothing.ErrorCode);
-    }
-
-    [Fact]
-    public async Task No_more_than_the_first_few_paragraphs_of_a_page_are_read_to_the_model()
-    {
-        var rig = new Rig();
-        var paragraphs = Enumerable.Range(1, KnowledgeToolbox.ParagraphsPerPage + 2)
-            .Select(n => $"Paragraph number {n}.")
-            .ToArray();
-        rig.Rag.Result = Found(Page("Pricing", paragraphs));
-
-        var result = await rig.Box.RunAsync(Ask(Question));
-
-        Assert.True(result.IsSuccess);
-        using var json = JsonDocument.Parse(result.Value!);
-        var text = json.RootElement.GetProperty("passages")[0].GetProperty("Text").GetString()!;
-
-        foreach (var taken in paragraphs.Take(KnowledgeToolbox.ParagraphsPerPage))
-        {
-            Assert.Contains(taken, text, StringComparison.Ordinal);
-        }
-
-        foreach (var dropped in paragraphs.Skip(KnowledgeToolbox.ParagraphsPerPage))
-        {
-            Assert.DoesNotContain(dropped, text, StringComparison.Ordinal);
-        }
-    }
-
-    [Fact]
-    public async Task The_callers_own_question_is_searched_verbatim_against_this_businesss_own_run()
-    {
-        var rig = new Rig();
-        rig.Rag.Result = Found(Page("Pricing", Answer));
-
-        await rig.Box.RunAsync(Ask(Question));
-
-        var query = Assert.Single(rig.Rag.Queries);
-        Assert.Equal(Question, query.Need);
-        Assert.Equal(Run, query.RunId);
-        Assert.Equal(KnowledgeToolbox.TopK, query.TopK);
     }
 
     // ----- Zero Data Retention -----
 
     [Fact]
-    public async Task No_log_line_carries_the_callers_question_or_anything_the_library_answered()
+    public async Task No_log_line_carries_the_callers_words_or_the_answer()
     {
         var disabled = new Rig();
         disabled.Rag.IsEnabled = false;
@@ -374,38 +423,36 @@ public sealed class KnowledgeToolboxTests
         Assert.Null(noRun.CreateWith(null));
 
         var notAllowed = new Rig();
-        await notAllowed.Box.RunAsync(new ReceptionistToolCall("c1", "create_event", JsonSerializer.Serialize(new { question = Question })));
+        await notAllowed.Box.RunAsync(new ReceptionistToolCall("c1", "create_event", "{}"));
 
-        // The question itself, sent as arguments that will not parse: what cannot be read must still not be logged.
-        var unparseable = new Rig();
-        await unparseable.Box.RunAsync(AskRaw(Question));
+        var nothingAsked = new Rig();
+        nothingAsked.Formulator.Answer = """{"question": null}""";
+        await nothingAsked.Box.RunAsync(Lookup());
 
-        var noQuestion = new Rig();
-        await noQuestion.Box.RunAsync(AskRaw($$"""{"asked":"{{Question}}"}"""));
+        var notPublished = new Rig();
+        notPublished.Rag.Result = Found();
+        await notPublished.Box.RunAsync(Lookup());
 
-        var failed = new Rig();
-        failed.Rag.Result = SearchFailed();
-        await failed.Box.RunAsync(Ask(Question));
+        var unsupported = new Rig();
+        unsupported.Grounding.Answer = """{"supported": false}""";
+        await unsupported.Box.RunAsync(Lookup());
 
-        var gone = new Rig();
-        gone.Rag.Result = null;
-        await gone.Box.RunAsync(Ask(Question));
-
-        var empty = new Rig();
-        empty.Rag.Result = Found();
-        await empty.Box.RunAsync(Ask(Question));
+        var couldNotCheck = new Rig();
+        couldNotCheck.Rag.Result = SearchFailed();
+        await couldNotCheck.Box.RunAsync(Lookup());
 
         var answered = new Rig();
-        answered.Rag.Result = Found(Page("Pricing", Answer));
-        var success = await answered.Box.RunAsync(Ask(Question));
+        var success = await answered.Box.RunAsync(Lookup());
         Assert.True(success.IsSuccess);
 
-        var rigs = new[] { disabled, noRun, notAllowed, unparseable, noQuestion, failed, gone, empty, answered };
+        var rigs = new[] { disabled, noRun, notAllowed, nothingAsked, notPublished, unsupported, couldNotCheck, answered };
         foreach (var rig in rigs)
         {
-            foreach (var line in rig.Log.Lines)
+            foreach (var line in rig.Lines)
             {
                 Assert.DoesNotContain(Question, line, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(Asked, line, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(Published, line, StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain(Answer, line, StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("water heater", line, StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("two hundred and forty", line, StringComparison.OrdinalIgnoreCase);

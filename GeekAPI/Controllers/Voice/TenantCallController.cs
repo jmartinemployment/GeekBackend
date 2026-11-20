@@ -1,5 +1,6 @@
 using GeekAPI.Services.Receptionist;
 using GeekAPI.Services.GeekCrawler;
+using GeekAPI.Services.Receptionist.Agents;
 using GeekAPI.Services.Receptionist.Knowledge;
 using GeekAPI.Services.Receptionist.Relay;
 using GeekAPI.Services.Voice.Billing;
@@ -236,17 +237,23 @@ public sealed class TenantCallController : ControllerBase
             tenantId, _store, HttpContext.RequestServices.GetRequiredService<CalendarTools>(), _catalog,
             HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ticket.BookingEnabled, ct).ConfigureAwait(false);
 
-        // What the business has published about itself, searched through the Library that already holds it. A business with no indexed
+        // What the business has published about itself, answered through the Library that already holds it. A business with no indexed
         // site gets no lookup tool, which is the ordinary case before its signup crawl has run.
+        //
+        // The lookup reads the call's own turns rather than arguments the model writes, so the question that gets searched is what the
+        // caller actually said and not the model's paraphrase of it. That means the tool needs the session, and the session needs the
+        // tool; the closure below is read when a tool runs, by which point both exist, and neither has to own the other.
+        ReceptionistRelaySession? session = null;
         var knowledge = KnowledgeToolbox.Create(
             tenantId, ticket.KnowledgeRunId,
             HttpContext.RequestServices.GetRequiredService<IGeekCrawlerRagClient>(),
-            HttpContext.RequestServices.GetRequiredService<KnowledgePassageJudge>(), _logger);
+            HttpContext.RequestServices.GetRequiredService<KnowledgeOrchestrator>(),
+            () => session?.Turns ?? [], _logger);
 
         var toolbox = CompositeToolbox.Of(calendar, knowledge);
 
-        await new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes, TenantId = tenantId }
-            .RunAsync(socket, ct).ConfigureAwait(false);
+        session = new ReceptionistRelaySession(_model, ticket.SystemPrompt, _logger) { Summary = plan, Toolbox = toolbox, TransferConfigured = ticket.TransferConfigured, Outcomes = _outcomes, TenantId = tenantId, Dispatcher = HttpContext.RequestServices.GetRequiredService<ReceptionistDispatcher>() };
+        await session.RunAsync(socket, ct).ConfigureAwait(false);
         return new EmptyResult();
     }
 

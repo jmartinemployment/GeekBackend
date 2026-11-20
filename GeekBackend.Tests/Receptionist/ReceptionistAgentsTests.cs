@@ -9,9 +9,9 @@ namespace GeekBackend.Tests.Receptionist;
 /// <summary>
 /// The roles one business's reception is made of, and which of them holds the caller: a roster of none is no reception at all, a roster
 /// of one is that role with nothing to hand to, a roster of several greets with its first, and every role is offered a handoff to the
-/// others and never to itself. A duplicate name is dropped loudly. A handoff moves the caller only when the handoff tool actually asked
-/// for somewhere real, and only until the bound; past it the caller stays where they are and an operator is told. Nothing any of that
-/// logs is anything a caller said.
+/// others and never to itself. A duplicate name is dropped loudly. A role <i>asks</i> — a successful handoff leaves a request the
+/// director reads once and that is then gone — and the director <i>moves</i>, to a real role that is not the one already speaking, as
+/// many times as it decides to. Nothing any of that logs is anything a caller said.
 /// </summary>
 public sealed class ReceptionistAgentsTests
 {
@@ -75,6 +75,21 @@ public sealed class ReceptionistAgentsTests
             : JsonSerializer.Serialize(new { to, caller_said = callerSaid });
 
         return await toolbox!.RunAsync(new ReceptionistToolCall("call-1", HandoffToolbox.Tool, arguments));
+    }
+
+    /// <summary>
+    /// One whole turn of the real loop: the speaking role asks for somewhere, the director reads the ask, and the director moves the
+    /// caller. Returns where they ended up, so a test can bounce a caller without ever asserting on the director's own decision.
+    /// </summary>
+    private static async Task<string> HandOffAndMove(ReceptionistAgents roster, string to)
+    {
+        Assert.True((await HandOff(roster, to)).IsSuccess);
+
+        var requested = roster.TakeRequest();
+        Assert.Equal(to, requested);
+        Assert.True(roster.MoveTo(requested!));
+
+        return roster.Current.Name;
     }
 
     /// <summary>The other role of a two-role roster, so a test can bounce the caller without naming a side.</summary>
@@ -163,14 +178,12 @@ public sealed class ReceptionistAgentsTests
         Assert.Equal(["transfer_to_human", HandoffToolbox.Tool], roster.Toolbox!.Tools.Select(t => t.Name));
         Assert.Equal([ReceptionistRoles.Answerer, ReceptionistRoles.Booker], Destinations(roster));
 
-        Assert.True((await HandOff(roster, ReceptionistRoles.Answerer)).IsSuccess);
-        Assert.True(roster.TookOver(HandoffToolbox.Tool));
+        Assert.Equal(ReceptionistRoles.Answerer, await HandOffAndMove(roster, ReceptionistRoles.Answerer));
 
         Assert.Equal(["look_up", "opening_hours", HandoffToolbox.Tool], roster.Toolbox!.Tools.Select(t => t.Name));
         Assert.Equal([ReceptionistRoles.Greeter, ReceptionistRoles.Booker], Destinations(roster));
 
-        Assert.True((await HandOff(roster, ReceptionistRoles.Booker)).IsSuccess);
-        Assert.True(roster.TookOver(HandoffToolbox.Tool));
+        Assert.Equal(ReceptionistRoles.Booker, await HandOffAndMove(roster, ReceptionistRoles.Booker));
 
         Assert.Equal(["book_now", HandoffToolbox.Tool], roster.Toolbox!.Tools.Select(t => t.Name));
         Assert.Equal([ReceptionistRoles.Greeter, ReceptionistRoles.Answerer], Destinations(roster));
@@ -194,8 +207,8 @@ public sealed class ReceptionistAgentsTests
         Assert.Equal("transfer_to_human", Assert.Single(greeterBox.Ran).Name);
         Assert.Empty(bookerBox.Ran);
 
-        // Running a role's own tool is not a handoff, so the caller does not move.
-        Assert.False(roster.TookOver("transfer_to_human"));
+        // Running a role's own tool asks for nothing, so there is nothing for the director to read and the caller does not move.
+        Assert.Null(roster.TakeRequest());
         Assert.Equal(ReceptionistRoles.Greeter, roster.Current.Name);
         Assert.Equal(0, roster.HandoffsMade);
     }
@@ -220,33 +233,16 @@ public sealed class ReceptionistAgentsTests
         Assert.Contains(ReceptionistRoles.Greeter, line, StringComparison.Ordinal);
     }
 
-    // ----- Changing hands -----
+    // ----- What the speaking role asked for -----
 
     [Fact]
-    public async Task Taking_over_is_only_ever_the_handoff_tool()
+    public void A_role_that_has_run_no_handoff_has_asked_for_nothing()
     {
         var log = new CapturingLogger();
         var roster = Roster(log, Role(ReceptionistRoles.Greeter), Role(ReceptionistRoles.Answerer));
 
-        // Even with a valid handoff standing, a different tool's name is not a handoff.
-        Assert.True((await HandOff(roster, ReceptionistRoles.Answerer)).IsSuccess);
-
-        Assert.False(roster.TookOver("book_now"));
-        Assert.False(roster.TookOver("end_call"));
-        Assert.False(roster.TookOver("HAND_OFF"));
-        Assert.False(roster.TookOver(string.Empty));
-
-        Assert.Equal(ReceptionistRoles.Greeter, roster.Current.Name);
-        Assert.Equal(0, roster.HandoffsMade);
-    }
-
-    [Fact]
-    public void The_handoff_tool_name_alone_moves_nobody_when_no_handoff_was_asked_for()
-    {
-        var log = new CapturingLogger();
-        var roster = Roster(log, Role(ReceptionistRoles.Greeter), Role(ReceptionistRoles.Answerer));
-
-        Assert.False(roster.TookOver(HandoffToolbox.Tool));
+        // Nothing has been run at all, so there is no ask. The director's ordinary turn is this one.
+        Assert.Null(roster.TakeRequest());
 
         Assert.Equal(ReceptionistRoles.Greeter, roster.Current.Name);
         Assert.Equal(0, roster.HandoffsMade);
@@ -254,29 +250,42 @@ public sealed class ReceptionistAgentsTests
     }
 
     [Fact]
-    public async Task A_handoff_that_named_somewhere_real_moves_the_caller_and_counts()
+    public async Task A_handoff_that_named_somewhere_real_is_the_request_the_director_reads()
     {
         var log = new CapturingLogger();
         var greeter = Role(ReceptionistRoles.Greeter);
-        var booker = Role(ReceptionistRoles.Booker, new Box("book_now"));
-        var roster = Roster(log, greeter, booker);
+        var roster = Roster(log, greeter, Role(ReceptionistRoles.Booker, new Box("book_now")));
 
         var asked = await HandOff(roster, ReceptionistRoles.Booker);
 
         Assert.True(asked.IsSuccess);
-        Assert.True(roster.TookOver(HandoffToolbox.Tool));
-        Assert.Same(booker, roster.Current);
-        Assert.Equal(1, roster.HandoffsMade);
-        Assert.Equal(["book_now", HandoffToolbox.Tool], roster.Toolbox!.Tools.Select(t => t.Name));
+        Assert.Equal(ReceptionistRoles.Booker, roster.TakeRequest());
 
-        var line = Assert.Single(log.Lines);
-        Assert.StartsWith("Information ", line, StringComparison.Ordinal);
-        Assert.Contains(ReceptionistRoles.Greeter, line, StringComparison.Ordinal);
-        Assert.Contains(ReceptionistRoles.Booker, line, StringComparison.Ordinal);
+        // An ask is not a move: the toolbox reports where to go and the director is what puts the caller there.
+        Assert.Same(greeter, roster.Current);
+        Assert.Equal(0, roster.HandoffsMade);
+        Assert.Empty(log.Lines);
     }
 
     [Fact]
-    public async Task A_handoff_to_a_role_this_business_does_not_have_is_refused_and_the_caller_stays()
+    public async Task A_request_is_read_once_and_then_it_is_gone()
+    {
+        var log = new CapturingLogger();
+        var roster = Roster(log, Role(ReceptionistRoles.Greeter), Role(ReceptionistRoles.Answerer));
+
+        Assert.True((await HandOff(roster, ReceptionistRoles.Answerer)).IsSuccess);
+
+        Assert.Equal(ReceptionistRoles.Answerer, roster.TakeRequest());
+        // An ask that has been considered must not be considered twice: a request left standing would route the turn after it too.
+        Assert.Null(roster.TakeRequest());
+        Assert.Null(roster.TakeRequest());
+
+        Assert.Equal(ReceptionistRoles.Greeter, roster.Current.Name);
+        Assert.Equal(0, roster.HandoffsMade);
+    }
+
+    [Fact]
+    public async Task A_handoff_to_a_role_this_business_does_not_have_asks_for_nothing()
     {
         var log = new CapturingLogger();
         var greeter = Role(ReceptionistRoles.Greeter);
@@ -284,17 +293,17 @@ public sealed class ReceptionistAgentsTests
 
         var asked = await HandOff(roster, ReceptionistRoles.MessageTaker);
 
+        // The tool failed loudly with a code, so nothing was requested and the director has nothing to honour.
         Assert.False(asked.IsSuccess);
         Assert.Equal(HandoffFailureCodes.UnknownDestination, asked.ErrorCode);
-        // The tool failed loudly with a code, so nothing was requested and nothing moves.
-        Assert.False(roster.TookOver(HandoffToolbox.Tool));
+        Assert.Null(roster.TakeRequest());
         Assert.Same(greeter, roster.Current);
         Assert.Equal(0, roster.HandoffsMade);
         Assert.Empty(log.Lines);
     }
 
     [Fact]
-    public async Task A_handoff_that_named_nowhere_is_refused_and_the_caller_stays()
+    public async Task A_handoff_that_named_nowhere_asks_for_nothing()
     {
         var log = new CapturingLogger();
         var greeter = Role(ReceptionistRoles.Greeter);
@@ -304,75 +313,125 @@ public sealed class ReceptionistAgentsTests
 
         Assert.False(asked.IsSuccess);
         Assert.Equal(HandoffFailureCodes.NoDestination, asked.ErrorCode);
-        Assert.False(roster.TookOver(HandoffToolbox.Tool));
+        Assert.Null(roster.TakeRequest());
         Assert.Same(greeter, roster.Current);
         Assert.Equal(0, roster.HandoffsMade);
         Assert.Empty(log.Lines);
     }
 
     [Fact]
-    public async Task A_refused_handoff_after_a_good_one_leaves_the_caller_where_the_good_one_put_them()
+    public async Task A_refused_handoff_after_a_good_one_asks_for_nothing_and_the_good_one_does_not_stand_in_for_it()
     {
         var log = new CapturingLogger();
         var roster = Roster(log, Role(ReceptionistRoles.Greeter), Role(ReceptionistRoles.Answerer));
 
-        Assert.True((await HandOff(roster, ReceptionistRoles.Answerer)).IsSuccess);
-        Assert.True(roster.TookOver(HandoffToolbox.Tool));
-        Assert.Equal(ReceptionistRoles.Answerer, roster.Current.Name);
+        Assert.Equal(ReceptionistRoles.Answerer, await HandOffAndMove(roster, ReceptionistRoles.Answerer));
 
         // The same toolbox is asked again for somewhere that does not exist: the earlier request must not stand in for this one.
         var asked = await HandOff(roster, ReceptionistRoles.Booker);
 
         Assert.False(asked.IsSuccess);
         Assert.Equal(HandoffFailureCodes.UnknownDestination, asked.ErrorCode);
-        Assert.False(roster.TookOver(HandoffToolbox.Tool));
+        Assert.Null(roster.TakeRequest());
         Assert.Equal(ReceptionistRoles.Answerer, roster.Current.Name);
         Assert.Equal(1, roster.HandoffsMade);
     }
 
     [Fact]
-    public async Task A_call_changes_hands_up_to_the_bound_and_the_one_past_it_is_refused_and_logged()
+    public void A_role_with_nowhere_to_hand_to_is_asked_what_it_wants_and_answers_nothing()
     {
+        var log = new CapturingLogger();
+        var roster = Roster(log, Role(ReceptionistRoles.Greeter, new Box("book_now")));
+
+        // One role is offered no handoff at all, so there is no handoff to read a request off. The director asks every roster the same
+        // question and a short one answers it rather than throwing at it.
+        Assert.Null(roster.TakeRequest());
+        Assert.Null(roster.TakeRequest());
+
+        Assert.Equal(ReceptionistRoles.Greeter, roster.Current.Name);
+        Assert.Equal(0, roster.HandoffsMade);
+        Assert.Empty(log.Lines);
+    }
+
+    // ----- Changing hands, as the director decides -----
+
+    [Fact]
+    public void Moving_a_caller_to_a_real_role_swaps_the_role_and_its_toolbox_and_counts_and_says_so()
+    {
+        var log = new CapturingLogger();
+        var greeter = Role(ReceptionistRoles.Greeter);
+        var booker = Role(ReceptionistRoles.Booker, new Box("book_now"));
+        var roster = Roster(log, greeter, booker);
+
+        Assert.True(roster.MoveTo(ReceptionistRoles.Booker));
+
+        Assert.Same(booker, roster.Current);
+        Assert.Equal(["book_now", HandoffToolbox.Tool], roster.Toolbox!.Tools.Select(t => t.Name));
+        Assert.Equal(1, roster.HandoffsMade);
+
+        // One line, naming where the caller came from and where they went, and nothing else about the call.
+        var line = Assert.Single(log.Lines);
+        Assert.StartsWith("Information ", line, StringComparison.Ordinal);
+        Assert.Contains(ReceptionistRoles.Greeter, line, StringComparison.Ordinal);
+        Assert.Contains(ReceptionistRoles.Booker, line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Moving_a_caller_to_a_role_this_business_does_not_have_moves_nobody()
+    {
+        var log = new CapturingLogger();
+        var greeter = Role(ReceptionistRoles.Greeter);
+        var roster = Roster(log, greeter, Role(ReceptionistRoles.Answerer));
+
+        // A name that is not a role leaves the caller where they are rather than anywhere invented — including a role this product
+        // knows about that this business was not given, and a name matched on case alone.
+        Assert.False(roster.MoveTo(ReceptionistRoles.MessageTaker));
+        Assert.False(roster.MoveTo("concierge"));
+        Assert.False(roster.MoveTo("ANSWERER"));
+        Assert.False(roster.MoveTo(string.Empty));
+
+        Assert.Same(greeter, roster.Current);
+        Assert.Equal(0, roster.HandoffsMade);
+        Assert.Empty(log.Lines);
+    }
+
+    [Fact]
+    public void Moving_a_caller_to_the_role_already_speaking_is_not_a_move()
+    {
+        var log = new CapturingLogger();
+        var greeter = Role(ReceptionistRoles.Greeter);
+        var roster = Roster(log, greeter, Role(ReceptionistRoles.Answerer));
+
+        // Moving somebody to where they already are is not a move: counting it would make an ordinary turn look like a handoff.
+        Assert.False(roster.MoveTo(ReceptionistRoles.Greeter));
+
+        Assert.Same(greeter, roster.Current);
+        Assert.Equal(0, roster.HandoffsMade);
+        Assert.Empty(log.Lines);
+    }
+
+    [Fact]
+    public async Task A_call_changes_hands_as_often_as_the_director_decides_and_there_is_no_bound_at_all()
+    {
+        const int Times = 10;
+
         var log = new CapturingLogger();
         var roster = Roster(log, Role(ReceptionistRoles.Greeter), Role(ReceptionistRoles.Answerer));
 
-        for (var made = 1; made <= ReceptionistAgents.MaxHandoffs; made++)
+        // The two roles pass the caller back and forth, which is exactly what the old counter existed to stop. One director decides
+        // every turn and cannot volley with itself, so the counter is gone and nothing here is refused for being the eleventh.
+        for (var made = 1; made <= Times; made++)
         {
             var destination = Other(roster);
-            var asked = await HandOff(roster, destination);
 
-            Assert.True(asked.IsSuccess);
-            Assert.True(roster.TookOver(HandoffToolbox.Tool));
-            Assert.Equal(destination, roster.Current.Name);
+            Assert.Equal(destination, await HandOffAndMove(roster, destination));
             Assert.Equal(made, roster.HandoffsMade);
         }
 
-        var parked = roster.Current.Name;
-        var beyond = Other(roster);
-
-        // The tool still validates it — the destination is real — and the roster is what refuses. One more, to prove the bound holds
-        // rather than merely delaying.
-        var refused = await HandOff(roster, beyond);
-        Assert.True(refused.IsSuccess);
-        Assert.False(roster.TookOver(HandoffToolbox.Tool));
-        Assert.Equal(parked, roster.Current.Name);
-        Assert.Equal(ReceptionistAgents.MaxHandoffs, roster.HandoffsMade);
-
-        var again = await HandOff(roster, beyond);
-        Assert.True(again.IsSuccess);
-        Assert.False(roster.TookOver(HandoffToolbox.Tool));
-        Assert.Equal(parked, roster.Current.Name);
-        Assert.Equal(ReceptionistAgents.MaxHandoffs, roster.HandoffsMade);
-
-        var warnings = log.Lines.Where(l => l.StartsWith("Warning ", StringComparison.Ordinal)).ToList();
-        Assert.Equal(2, warnings.Count);
-        Assert.All(warnings, line =>
-        {
-            Assert.Contains(parked, line, StringComparison.Ordinal);
-            Assert.Contains(ReceptionistAgents.MaxHandoffs.ToString(), line, StringComparison.Ordinal);
-        });
-        // Every handoff that happened was told, and no more than happened.
-        Assert.Equal(ReceptionistAgents.MaxHandoffs, log.Lines.Count(l => l.StartsWith("Information ", StringComparison.Ordinal)));
+        Assert.Equal(Times, roster.HandoffsMade);
+        // Every handoff that happened was told, and no more than happened — no warning, because nothing was refused.
+        Assert.Equal(Times, log.Lines.Count(l => l.StartsWith("Information ", StringComparison.Ordinal)));
+        Assert.Equal(Times, log.Lines.Count);
     }
 
     // ----- Zero Data Retention -----
@@ -395,17 +454,22 @@ public sealed class ReceptionistAgentsTests
         // What the caller said goes through a role's own tool…
         var ran = await roster.Toolbox!.RunAsync(new ReceptionistToolCall("call-1", "take_a_message", JsonSerializer.Serialize(new { q = Said })));
         Assert.True(ran.IsSuccess);
-        Assert.False(roster.TookOver("take_a_message"));
+        Assert.Null(roster.TakeRequest());
 
-        // …and rides along on every handoff, including the ones past the bound, so every line this class can write is in the sample.
-        for (var attempt = 0; attempt < ReceptionistAgents.MaxHandoffs + 2; attempt++)
+        // …and rides along on every handoff, so every line this class can write is in the sample.
+        for (var attempt = 0; attempt < 4; attempt++)
         {
-            var asked = await HandOff(roster, Other(roster), Said);
-            Assert.True(asked.IsSuccess);
-            roster.TookOver(HandoffToolbox.Tool);
+            var destination = Other(roster);
+            Assert.True((await HandOff(roster, destination, Said)).IsSuccess);
+            Assert.Equal(destination, roster.TakeRequest());
+            Assert.True(roster.MoveTo(destination));
         }
 
-        Assert.Equal(ReceptionistAgents.MaxHandoffs, roster.HandoffsMade);
+        // A move that is refused writes nothing at all, which is the other half of the sample.
+        Assert.False(roster.MoveTo(roster.Current.Name));
+        Assert.False(roster.MoveTo(ReceptionistRoles.Booker));
+
+        Assert.Equal(4, roster.HandoffsMade);
 
         string[] forbidden = ["Dana", "Whitfield", "561", "555", "0199", "swallowed", "wedding", "callback", "take_a_message", Said];
         string[] roles = [ReceptionistRoles.Greeter, ReceptionistRoles.Answerer];
@@ -416,7 +480,7 @@ public sealed class ReceptionistAgentsTests
             foreach (var word in forbidden)
                 Assert.DoesNotContain(word, line, StringComparison.OrdinalIgnoreCase);
 
-            // What is left is a role's name and, where the bound was reached, a count.
+            // What is left is the names of the roles the caller passed between.
             Assert.Contains(roles, role => line.Contains(role, StringComparison.Ordinal));
         });
     }

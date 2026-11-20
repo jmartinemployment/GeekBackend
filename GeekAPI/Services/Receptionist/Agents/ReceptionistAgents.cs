@@ -19,18 +19,9 @@ namespace GeekAPI.Services.Receptionist.Agents;
 /// </summary>
 public sealed class ReceptionistAgents
 {
-    /// <summary>
-    /// How many times one call may change hands. A caller who has been passed four times is not being helped by a fifth, and an
-    /// unbounded handoff is a pair of roles that can hand to each other until the call ends. Past this the caller stays where they are
-    /// and the role is told so.
-    /// </summary>
-    public const int MaxHandoffs = 4;
-
-    private readonly IReadOnlyList<ReceptionistAgent> _agents;
     private readonly Dictionary<string, HandoffToolbox?> _handoffs;
     private readonly Dictionary<string, IReceptionistToolbox?> _toolboxes;
     private readonly ILogger _logger;
-    private int _handoffsMade;
 
     private ReceptionistAgents(
         IReadOnlyList<ReceptionistAgent> agents,
@@ -39,12 +30,15 @@ public sealed class ReceptionistAgents
         ReceptionistAgent current,
         ILogger logger)
     {
-        _agents = agents;
+        Roles = agents;
         _handoffs = handoffs;
         _toolboxes = toolboxes;
         Current = current;
         _logger = logger;
     }
+
+    /// <summary>Every role this business has, in the order they were given. The first greets.</summary>
+    public IReadOnlyList<ReceptionistAgent> Roles { get; }
 
     /// <summary>The role speaking to the caller now. Every call starts with the first of the roster, which is the one that greets.</summary>
     public ReceptionistAgent Current { get; private set; }
@@ -53,7 +47,7 @@ public sealed class ReceptionistAgents
     public IReceptionistToolbox? Toolbox => _toolboxes[Current.Name];
 
     /// <summary>How many times this call has changed hands. Metadata about the call, never about what was said in it.</summary>
-    public int HandoffsMade => _handoffsMade;
+    public int HandoffsMade { get; private set; }
 
     /// <summary>
     /// A reception made of these roles, in order — the first greets. Null when there are none, which is a business whose receptionist
@@ -92,26 +86,35 @@ public sealed class ReceptionistAgents
     }
 
     /// <summary>
-    /// Whether the tool just run was a handoff that asked for somewhere real, and if so, moves the caller there. Called after every tool,
-    /// so the loop never has to know which toolbox a tool came from.
+    /// Where the speaking role has asked for this caller to go, if anywhere, and clears the ask. It is a request and not a move: the
+    /// director decides, and one thing deciding is the whole reason this does not move anybody itself.
     /// </summary>
-    public bool TookOver(string toolName)
+    public string? TakeRequest()
     {
-        if (!string.Equals(toolName, HandoffToolbox.Tool, StringComparison.Ordinal)) return false;
-        if (_handoffs[Current.Name] is not { Requested: { } requested }) return false;
+        if (_handoffs[Current.Name] is not { } handoff) return null;
+        var requested = handoff.Requested;
+        handoff.Clear();
+        return requested;
+    }
 
-        if (_handoffsMade >= MaxHandoffs)
-        {
-            _logger.LogWarning("A call has already changed hands {Count} times; it stays with {Role}.", _handoffsMade, Current.Name);
-            return false;
-        }
+    /// <summary>
+    /// Puts the caller with this role, as the director decided. False when there is no such role, which leaves the caller where they
+    /// are rather than anywhere invented.
+    /// </summary>
+    public bool MoveTo(string roleName)
+    {
+        var next = Roles.FirstOrDefault(a => string.Equals(a.Name, roleName, StringComparison.Ordinal));
+        // By name, not by reference. One name is one instance today only because Of de-duplicates, and a check that says what it means
+        // survives a change to how the roster is built.
+        if (next is null || string.Equals(next.Name, Current.Name, StringComparison.Ordinal)) return false;
 
-        var next = _agents.FirstOrDefault(a => string.Equals(a.Name, requested, StringComparison.Ordinal));
-        if (next is null) return false;
-
-        _handoffsMade++;
+        HandoffsMade++;
         _logger.LogInformation("A call changed hands from {From} to {To}.", Current.Name, next.Name);
         Current = next;
+
+        // Anything the arriving role asked for the last time it spoke is forgotten on the way in. Otherwise a caller who comes back to a
+        // role would be routed by an ask that was already answered, which is closed today only by the order of two lines in the loop.
+        _handoffs[Current.Name]?.Clear();
         return true;
     }
 }

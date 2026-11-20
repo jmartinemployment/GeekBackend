@@ -55,16 +55,18 @@ public sealed class KnowledgePassageJudge(IReceptionistModel model, ILogger<Know
         """;
 
     /// <summary>
-    /// The passages that answer the question, in the order they were given. Empty when none do, when the judge could not be run, or when
-    /// it answered with something that is not a verdict.
+    /// The passages that answer the question, in the order they were given, and which of three things happened. A judge that could not be
+    /// run reports <see cref="AnswerStepOutcome.Failed"/> rather than an empty list: "none of these answer it" and "I could not tell" are
+    /// opposite facts, and returning the same empty list for both made a timed-out judge indistinguishable from a business that has
+    /// published nothing on the subject.
     /// </summary>
-    public async Task<IReadOnlyList<T>> KeepAsync<T>(
+    public async Task<AnswerStepResult<IReadOnlyList<T>>> KeepAsync<T>(
         string question,
         IReadOnlyList<T> passages,
         Func<T, string> textOf,
         CancellationToken ct = default)
     {
-        if (passages.Count == 0) return [];
+        if (passages.Count == 0) return AnswerStepResult<IReadOnlyList<T>>.Nothing();
 
         var asked = new StringBuilder();
         asked.Append("Caller's question: ").Append(question).Append("\n\nPassages:\n");
@@ -83,13 +85,22 @@ public sealed class KnowledgePassageJudge(IReceptionistModel model, ILogger<Know
 
             // The budget is held here rather than trusted to the provider. Cancelling the token only works if the implementation honours
             // it, and a provider that does not would hold a caller on the line for as long as it liked. Racing it means the caller waits
-            // the budget at most, whatever the implementation does; the losing request is cancelled on its way out.
-            var finished = await Task.WhenAny(judging, Task.Delay(Budget, ct)).ConfigureAwait(false);
+            // the budget at most, whatever the implementation does; the losing request is cancelled on its way out, and the timer is
+            // cancelled too so a fast answer does not leave one running.
+            using var timer = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var finished = await Task.WhenAny(judging, Task.Delay(Budget, timer.Token)).ConfigureAwait(false);
+            await timer.CancelAsync().ConfigureAwait(false);
+
+            // Asked before the timeout is read. The call ending cancels the timer as well, so without this an ended call would be logged
+            // as a judge that ran out of time, which never happened.
+            ct.ThrowIfCancellationRequested();
+
             if (finished != judging)
             {
                 await budget.CancelAsync().ConfigureAwait(false);
+                Abandon(judging);
                 logger.LogError("Judging which passages answer a caller's question took longer than {Budget}; none are used.", Budget);
-                return [];
+                return AnswerStepResult<IReadOnlyList<T>>.Failed();
             }
 
             reply = await judging.ConfigureAwait(false);
@@ -102,27 +113,38 @@ public sealed class KnowledgePassageJudge(IReceptionistModel model, ILogger<Know
         catch (OperationCanceledException)
         {
             logger.LogError("Judging which passages answer a caller's question took longer than {Budget}; none are used.", Budget);
-            return [];
+            return AnswerStepResult<IReadOnlyList<T>>.Failed();
         }
         catch (Exception ex)
         {
             logger.LogError("Judging which passages answer a caller's question failed ({Failure}); none are used.", ex.GetType().Name);
-            return [];
+            return AnswerStepResult<IReadOnlyList<T>>.Failed();
         }
 
         var kept = Kept(reply.Text, passages.Count);
         if (kept is null)
         {
             logger.LogError("The passage judge answered with something that is not a verdict; no passages are used.");
-            return [];
+            return AnswerStepResult<IReadOnlyList<T>>.Failed();
         }
 
         logger.LogInformation(
             "{Kept} of {Found} passages answer what was asked, judged in {Elapsed}ms.",
             kept.Count, passages.Count, (int)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
 
-        return kept.Select(i => passages[i]).ToList();
+        var answering = kept.Select(i => passages[i]).ToList();
+        return answering.Count == 0
+            ? AnswerStepResult<IReadOnlyList<T>>.Nothing()
+            : AnswerStepResult<IReadOnlyList<T>>.Done(answering);
     }
+
+    /// <summary>
+    /// <summary>
+    /// Reads whatever becomes of a request nobody is waiting for any more, so a provider that fails after the budget expired does not
+    /// raise an unobserved task exception on a background thread.
+    /// </summary>
+    private static void Abandon(Task task) =>
+        _ = task.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
 
     /// <summary>
     /// The passage numbers the judge kept, in the order the passages were given rather than the order it named them. Retrieval ranked

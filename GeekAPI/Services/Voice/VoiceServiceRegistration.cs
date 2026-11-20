@@ -12,6 +12,7 @@ using GeekApplication.Interfaces.Voice;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
+using GeekAPI.Services.Receptionist.Agents;
 using GeekAPI.Services.Receptionist.Knowledge;
 
 namespace GeekAPI.Services.Voice;
@@ -81,9 +82,17 @@ public static class VoiceServiceRegistration
         services.AddScoped<CallRecordStorages>();
         services.AddScoped<CalendarTools>();
 
-        // Which retrieved passages actually answer the caller. Its own step, so a passage that merely shares the subject never reaches
-        // the turn where an answer is spoken (Services/Receptionist/Knowledge/KnowledgePassageJudge.cs).
+        // Answering a caller from the business's own information, as one coordinator over workers that each do one job and decide
+        // nothing (Services/Receptionist/Knowledge/KnowledgeOrchestrator.cs).
+        services.AddScoped<QuestionFormulator>();
         services.AddScoped<KnowledgePassageJudge>();
+        services.AddScoped<AnswerComposer>();
+        services.AddScoped<AnswerGrounding>();
+        services.AddScoped<KnowledgeOrchestrator>();
+
+        // Who takes the caller's next turn. One thing decides, every turn, so two roles cannot pass a caller back and forth
+        // (Services/Receptionist/Agents/ReceptionistDispatcher.cs).
+        services.AddScoped<ReceptionistDispatcher>();
         services.AddSingleton<CalendarToolCatalog>();
         services.AddScoped<IVoiceOwnerStore>(sp =>
             new HttpVoiceOwnerRepository(

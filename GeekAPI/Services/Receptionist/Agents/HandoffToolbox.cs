@@ -33,8 +33,21 @@ public sealed class HandoffToolbox : IReceptionistToolbox
 
     public IReadOnlyList<ReceptionistToolDefinition> Tools { get; }
 
-    /// <summary>Where a handoff asked to go, when the last call was a valid one. The loop reads this instead of parsing the tool's answer back out of JSON.</summary>
+    /// <summary>
+    /// Where a handoff asked to go, when the last call was a valid one. The director reads this instead of parsing the tool's answer back
+    /// out of JSON.
+    ///
+    /// <para>
+    /// One call at a time. A reply may carry several tool calls and the loop runs them in sequence
+    /// (<c>ReceptionistRelaySession.PromptAsync</c>), so two handoffs in one reply leave the last one asked for, which is a definite
+    /// answer rather than a race. Running a reply's tool calls concurrently would make this field one, and the caller would see a handoff
+    /// succeed and nobody move.
+    /// </para>
+    /// </summary>
     public string? Requested { get; private set; }
+
+    /// <summary>Forgets the request, once the director has read it. An ask that has been considered must not be considered twice.</summary>
+    public void Clear() => Requested = null;
 
     /// <summary>
     /// A handoff tool offering these destinations, or null when there are none — a business with one role has nowhere to hand to, and a
@@ -44,7 +57,13 @@ public sealed class HandoffToolbox : IReceptionistToolbox
     {
         if (destinations.Count == 0) return null;
 
-        var names = string.Join(", ", destinations.Select(d => $"{d.Key} ({d.Value})"));
+        // Copied, and ordinal by this class's own decision rather than the caller's. The schema below is a snapshot of these names, so a
+        // caller that later mutated its dictionary would have the model shown one set of destinations and the lookup accept another -
+        // offering a name it then refuses, or accepting one it never showed. The comparer is fixed here for the same reason: a
+        // case-insensitive caller would get a handoff accepted here and then matched ordinally against the roles, which is an accepted
+        // handoff that moves nobody.
+        var copied = new Dictionary<string, string>(destinations, StringComparer.Ordinal);
+        var names = string.Join(", ", copied.Select(d => $"{d.Key} ({d.Value})"));
         using var schema = JsonDocument.Parse(
             $$"""
             {
@@ -52,7 +71,7 @@ public sealed class HandoffToolbox : IReceptionistToolbox
               "properties": {
                 "to": {
                   "type": "string",
-                  "enum": [{{string.Join(", ", destinations.Keys.Select(k => JsonSerializer.Serialize(k)))}}],
+                  "enum": [{{string.Join(", ", copied.Keys.Select(k => JsonSerializer.Serialize(k)))}}],
                   "description": "Which part of this business's reception should take over."
                 }
               },
@@ -66,7 +85,7 @@ public sealed class HandoffToolbox : IReceptionistToolbox
             + $"rather than attempting it yourself. The caller hears nothing and does not repeat themselves. Available: {names}.",
             schema.RootElement.Clone());
 
-        return new HandoffToolbox(destinations, [definition]);
+        return new HandoffToolbox(copied, [definition]);
     }
 
     public Task<Result<string>> RunAsync(ReceptionistToolCall call, CancellationToken ct = default)
