@@ -28,6 +28,13 @@ namespace GeekAPI.Services.Receptionist.Relay;
 /// </para>
 ///
 /// <para>
+/// When Spanish is added it is <c>es-US</c> and not <c>es-ES</c>. Twilio offers both with an ElevenLabs voice and Deepgram recognition,
+/// so it is a free choice, and the census decides it: of 69.98M Hispanic or Latino people (ACS 2025, Table B03001) 56.9% are of Mexican
+/// origin and 1.5% are Spaniards, so Castilian - <em>vosotros</em> and <em>distincion</em> - is the one variety the US market does not
+/// call for. Recorded here because this is the file someone opens to add it. See <c>plans/multilingual-receptionist.md</c>.
+/// </para>
+///
+/// <para>
 /// The locale is Twilio's. <c>en-US</c> is also ConversationRelay's own documented default for an unset <c>language</c> attribute, so
 /// storing it changes nothing about what a call sounds like today and makes the value explicit instead of inherited.
 /// </para>
