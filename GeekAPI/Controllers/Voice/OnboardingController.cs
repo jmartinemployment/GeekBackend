@@ -20,8 +20,26 @@ namespace GeekAPI.Controllers.Voice;
 [RequireApiKey]
 [Route("api/v1/onboarding")]
 [EnableRateLimiting(OnboardingRateLimit.PolicyName)]
-public sealed class OnboardingController(OnboardingEligibility eligibility, IndustryRefusals refusals, BillingExemption exemption, SignupPayments payments, SubscriptionActivation activation) : ControllerBase
+public sealed class OnboardingController(OnboardingEligibility eligibility, IndustryRefusals refusals, BillingExemption exemption, SignupPayments payments, SubscriptionActivation activation, ReceptionistConfigWriter config) : ControllerBase
 {
+    /// <summary>
+    /// What a business answered about how its receptionist should behave, on one step of the form. Every field is optional, so the
+    /// portal decides whether it asks one setting per screen or groups several, and this route does not care which.
+    ///
+    /// <para>
+    /// Refused once the business is active: after that its settings are its owner's to change, through their own token. The answers
+    /// are saved here as each step is submitted, which is also why the portal's cookie never carries them.
+    /// </para>
+    /// </summary>
+    [HttpPost("receptionist-config")]
+    public async Task<IActionResult> SaveReceptionistConfig([FromBody] ReceptionistConfigStepRequest? request, CancellationToken ct)
+    {
+        var result = await config.ApplyDuringSignupAsync(request, ct);
+        return result.IsSuccess
+            ? Ok(result.Value)
+            : Refuse(result.Error, result.ErrorCode, "The answers could not be saved.");
+    }
+
     /// <summary>
     /// A visitor answered yes to an excluded industry on /signup. The yes and the answers before it are stored and kept forever;
     /// the signup ends there, on the portal, whatever this answers.

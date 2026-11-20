@@ -44,6 +44,8 @@ public static class VoiceServiceRegistration
         services.AddScoped<BillingExemption>();
         services.AddScoped<OnboardingEligibility>();
         services.AddScoped<IndustryRefusals>();
+        // The only writer of a whole receptionist config: the signup form's steps, and the owner's own changes afterwards.
+        services.AddScoped<ReceptionistConfigWriter>();
         services.AddSingleton<VoiceCredentialProtector>();
         services.AddSingleton(PayPalOptions.FromEnvironment());
         services.AddHttpClient<PayPalBillingVerifier>(client => client.Timeout = TimeSpan.FromSeconds(30));
