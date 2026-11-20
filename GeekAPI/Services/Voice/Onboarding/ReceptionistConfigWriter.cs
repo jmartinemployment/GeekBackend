@@ -1,3 +1,4 @@
+using GeekAPI.Services.Voice.Mcp;
 using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
 using GeekApplication.Results;
@@ -30,10 +31,24 @@ public sealed record ReceptionistConfigStepRequest(Guid? TenantId, ReceptionistC
 /// in the clear. Moved, not copied.
 /// </para>
 ///
+/// <para>
+/// <b>One rule is enforced here rather than in the store, because the store cannot see it.</b> Booking turned on needs a calendar that
+/// works, which is a call to the business's own calendar and not a shape check. <see cref="BookingSettingController"/> refuses it on the
+/// dashboard's own switch and says why: a setting saved as on with nothing behind it shows the owner a receptionist that books while
+/// every caller is offered a message instead. That route and this one write the same column, so until this check existed the rule held
+/// on one of the two paths to it and a config save went straight past it.
+/// </para>
+///
 /// <para>The store is GeekRepository over internal HTTP; this adds no database access to GeekAPI.</para>
 /// </summary>
-public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialProtector protector)
+public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialProtector protector, CalendarTools calendar)
 {
+    /// <summary>
+    /// Asked for booking with no calendar behind it. Defined here because this is the service both doors onto the setting go through;
+    /// <see cref="BookingSettingController"/> reads it from here so the two cannot answer with different codes.
+    /// </summary>
+    public const string CalendarRequired = "calendar_required";
+
     /// <summary>A step of the signup form. Refused once the business is live, whatever the portal sends.</summary>
     public async Task<Result<VoiceReceptionistConfig>> ApplyDuringSignupAsync(
         ReceptionistConfigStepRequest? request, CancellationToken ct = default)
@@ -96,6 +111,17 @@ public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialP
             var prompt = ReceptionistDefaults.PromptFrom(tenant, answers.Knowledge);
             if (!prompt.IsSuccess) return Fail(prompt.Error ?? "The prompt could not be written.", prompt.ErrorCode);
             answers = answers with { SystemPromptTemplate = prompt.Value, Knowledge = null };
+        }
+
+        // Turning booking on is the one answer that is refused for a reason outside the answer itself, and only in that direction:
+        // turning it off is the business withdrawing permission and nothing may stand in the way of it. The check runs the same call a
+        // telephone call would, so a connection that exists and no longer works is not a calendar.
+        if (answers.BookingEnabled == true)
+        {
+            var connected = await calendar
+                .CallAsync(tenantId, GoogleCalendarOptions.Provider, "list_calendars", null, ct).ConfigureAwait(false);
+            if (!connected.IsSuccess)
+                return Fail("Connect a calendar that works before the receptionist can book into it.", CalendarRequired);
         }
 
         // Sealed first, so a number that is not a number or an unusable encryption key stops the write before the settings are even

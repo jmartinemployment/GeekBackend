@@ -1,4 +1,5 @@
 using GeekAPI.Services.Voice.Mcp;
+using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.OwnerAuth;
 using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
@@ -42,8 +43,12 @@ public sealed record BookingSettingRequest(bool Enabled);
 public sealed class BookingSettingController(IVoiceStore store, CalendarTools calendar, ILogger<BookingSettingController> logger)
     : ControllerBase
 {
-    /// <summary>Asked for booking with no calendar behind it. The owner is told to connect one, not told it worked.</summary>
-    public const string CalendarRequired = "calendar_required";
+    /// <summary>
+    /// Asked for booking with no calendar behind it. The owner is told to connect one, not told it worked. One definition, in
+    /// <see cref="ReceptionistConfigWriter"/>, because the whole-config route enforces the same rule and the two must not answer with
+    /// different codes - the portal turns this one into a sentence.
+    /// </summary>
+    public const string CalendarRequired = ReceptionistConfigWriter.CalendarRequired;
 
     /// <summary>
     /// What the receptionist does about appointments today, and whether the calendar behind it works. Both, because "booking is on" and

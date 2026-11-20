@@ -114,7 +114,15 @@ public sealed class ReceptionistConfigTests
         public Task<Result<VoiceTenant>> CreateTenantAsync(CreateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceTenant>> ActivateTenantAsync(Guid tenantId, ActivateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceTelephony>> GetTelephonyAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
-        public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) => throw new NotSupportedException();
+        /// <summary>
+        /// The business's calendar connection, which only booking asks about. No connection is the default, because that is what a
+        /// business has until it connects one - and turning booking on is the one answer that is refused for it.
+        /// </summary>
+        public Result<VoiceMcpConnection> Connection { get; set; } =
+            Result<VoiceMcpConnection>.Failure("No calendar is connected.", VoiceFailureCodes.NotFound);
+
+        public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) =>
+            Task.FromResult(Connection);
         public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) => throw new NotSupportedException();
@@ -171,9 +179,64 @@ public sealed class ReceptionistConfigTests
 
     private static string Serialized(object? value) => JsonSerializer.Serialize(value);
 
+    /// <summary>
+    /// The gateway behind the calendar check, which answers only when a test gives this business a connection. Booking turned on is
+    /// the one answer refused for something outside the answer, so the check is run for real here rather than stubbed away: the
+    /// product asks the business's calendar the same question a telephone call would.
+    /// </summary>
+    private sealed class GatewayHandler(Func<HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(respond());
+        }
+    }
+
+    private static readonly GoogleCalendarOptions CalendarOptions =
+        new("client-id.apps.googleusercontent.com", "client-secret", "https://receptionist.geekatyourspot.example");
+
+    /// <summary>A connected, working calendar for this business: a token that is not near expiring, and a gateway that answers.</summary>
+    private static void GiveACalendar(Store store) => store.Connection = Result<VoiceMcpConnection>.Success(new VoiceMcpConnection(
+        Tenant,
+        GoogleCalendarOptions.Provider,
+        Protector.Protect("google-access-token", VoiceSecretPurposes.McpAccessToken).Value!,
+        Protector.Protect("google-refresh-token", VoiceSecretPurposes.McpRefreshToken).Value!,
+        DateTimeOffset.UtcNow.AddHours(1),
+        "primary",
+        IsActive: true));
+
+    private static ReceptionistConfigWriter Writer(Store store, GatewayHandler? gateway = null)
+    {
+        var handler = gateway ?? new GatewayHandler(() => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                """{"tool":"list_calendars","content":[{"type":"text","text":"ok"}],"structuredContent":{"calendars":[{"id":"primary"}]}}""",
+                System.Text.Encoding.UTF8,
+                "application/json"),
+        });
+
+        var tokens = new GoogleAccessTokens(
+            store,
+            Protector,
+            CalendarOptions,
+            null!,
+            TimeProvider.System,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<GoogleAccessTokens>.Instance);
+
+        var calendar = new CalendarTools(tokens, new McpGatewayClient(
+            new HttpClient(handler),
+            new McpGatewayOptions("http://geek-mcp-gateway.railway.internal:3000", "gateway-key"),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<McpGatewayClient>.Instance));
+
+        return new ReceptionistConfigWriter(store, Protector, calendar);
+    }
+
     private static ReceptionistConfigController OwnerController(
         Store store, CapturingLogger<ReceptionistConfigController> log, Guid? signedInAs = null) =>
-        new(store, new ReceptionistConfigWriter(store, Protector), log)
+        new(store, Writer(store), log)
         {
             ControllerContext = new ControllerContext
             {
@@ -222,7 +285,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        var saved = await new ReceptionistConfigWriter(store, Protector)
+        var saved = await Writer(store)
             .ApplyDuringSignupAsync(new ReceptionistConfigStepRequest(Tenant, answers), CancellationToken.None);
 
         Assert.True(saved.IsSuccess);
@@ -274,7 +337,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(
                 Tenant,
                 new ReceptionistConfigAnswers(
@@ -309,7 +372,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(
                 Tenant, new ReceptionistConfigAnswers(TransferTargetNumber: answer, MessageDestinationEmail: answer)),
             CancellationToken.None);
@@ -324,7 +387,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(BookingEnabled: false)),
             CancellationToken.None);
 
@@ -340,7 +403,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(EmergencyKeywords: [])),
             CancellationToken.None);
 
@@ -353,7 +416,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        var refused = await new ReceptionistConfigWriter(store, Protector)
+        var refused = await Writer(store)
             .ApplyDuringSignupAsync(new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers()), CancellationToken.None);
 
         Assert.False(refused.IsSuccess);
@@ -370,7 +433,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        var refused = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        var refused = await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(
                 tenantId is null ? null : Guid.Parse(tenantId), new ReceptionistConfigAnswers(BookingEnabled: true)),
             CancellationToken.None);
@@ -396,7 +459,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store { Tenant = Result<VoiceTenant>.Success(TenantAt(status)) };
 
-        var refused = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        var refused = await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(ConsentMode: VoiceConsentModes.PassiveDisclosure)),
             CancellationToken.None);
 
@@ -413,7 +476,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store { Tenant = Result<VoiceTenant>.Failure("No such business.", VoiceFailureCodes.NotFound) };
 
-        var refused = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        var refused = await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(BookingEnabled: true)), CancellationToken.None);
 
         Assert.False(refused.IsSuccess);
@@ -433,7 +496,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store { Tenant = Result<VoiceTenant>.Success(TenantAt(status)) };
 
-        var saved = await new ReceptionistConfigWriter(store, Protector)
+        var saved = await Writer(store)
             .ApplyForOwnerAsync(Tenant, new ReceptionistConfigAnswers(GreetingMessage: "Acme Plumbing."), CancellationToken.None);
 
         Assert.True(saved.IsSuccess);
@@ -457,7 +520,7 @@ public sealed class ReceptionistConfigTests
                 "Choose a consent mode this product has.", VoiceFailureCodes.InvalidRequest),
         };
 
-        var refused = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        var refused = await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(ConsentMode: "loud_disclosure")),
             CancellationToken.None);
 
@@ -479,8 +542,8 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store { Config = Result<VoiceReceptionistConfig>.Failure("The settings could not be read.", code) };
 
-        var refused = await new ReceptionistConfigWriter(store, Protector)
-            .ApplyForOwnerAsync(Tenant, new ReceptionistConfigAnswers(BookingEnabled: true), CancellationToken.None);
+        var refused = await Writer(store)
+            .ApplyForOwnerAsync(Tenant, new ReceptionistConfigAnswers(NotifyOnAbandonedCalls: true), CancellationToken.None);
 
         Assert.False(refused.IsSuccess);
         Assert.Equal(code, refused.ErrorCode);
@@ -553,7 +616,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
         var controller = new ReceptionistConfigController(
-            store, new ReceptionistConfigWriter(store, Protector), new CapturingLogger<ReceptionistConfigController>())
+            store, Writer(store), new CapturingLogger<ReceptionistConfigController>())
         {
             ControllerContext = new ControllerContext
             {
@@ -601,7 +664,7 @@ public sealed class ReceptionistConfigTests
         var log = new CapturingLogger<ReceptionistConfigController>();
 
         var refused = Assert.IsType<ObjectResult>(
-            await OwnerController(store, log).Put(Tenant, new ReceptionistConfigAnswers(BookingEnabled: true), CancellationToken.None));
+            await OwnerController(store, log).Put(Tenant, new ReceptionistConfigAnswers(NotifyOnAbandonedCalls: true), CancellationToken.None));
 
         Assert.Equal(status, refused.StatusCode);
         Assert.Contains($"\"code\":\"{code}\"", Serialized(refused.Value), StringComparison.Ordinal);
@@ -677,7 +740,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store, Protector).ApplyForOwnerAsync(
+        await Writer(store).ApplyForOwnerAsync(
             Tenant, new ReceptionistConfigAnswers(IncludeTranscript: include), CancellationToken.None);
 
         var written = Assert.Single(store.SavedConfigs);
@@ -698,7 +761,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        var saved = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        var saved = await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(Knowledge: new ReceptionistKnowledgeAnswers(
                 ReceptionistName: "Dana",
                 WhatTheBusinessDoes: "Emergency plumbing and drain clearing.",
@@ -737,7 +800,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(
                 Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing.", HowItPrices: "   "))),
             CancellationToken.None);
@@ -760,7 +823,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        var saved = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
+        var saved = await Writer(store).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(
                 Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: does))),
             CancellationToken.None);
@@ -782,11 +845,11 @@ public sealed class ReceptionistConfigTests
             Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing."));
 
         var signup = new Store();
-        var duringSignup = await new ReceptionistConfigWriter(signup, Protector)
+        var duringSignup = await Writer(signup)
             .ApplyDuringSignupAsync(new ReceptionistConfigStepRequest(Tenant, answers), CancellationToken.None);
 
         var owner = new Store();
-        var asOwner = await new ReceptionistConfigWriter(owner, Protector)
+        var asOwner = await Writer(owner)
             .ApplyForOwnerAsync(Tenant, answers, CancellationToken.None);
 
         Assert.False(duringSignup.IsSuccess);
@@ -805,13 +868,13 @@ public sealed class ReceptionistConfigTests
     public async Task The_tenant_row_is_read_once_on_each_door()
     {
         var signup = new Store();
-        await new ReceptionistConfigWriter(signup, Protector).ApplyDuringSignupAsync(
+        await Writer(signup).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(
                 Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing."))),
             CancellationToken.None);
 
         var owner = new Store();
-        await new ReceptionistConfigWriter(owner, Protector).ApplyForOwnerAsync(
+        await Writer(owner).ApplyForOwnerAsync(
             Tenant,
             new ReceptionistConfigAnswers(Knowledge: new ReceptionistKnowledgeAnswers(WhatTheBusinessDoes: "Emergency plumbing.")),
             CancellationToken.None);
@@ -821,7 +884,7 @@ public sealed class ReceptionistConfigTests
 
         // And an answer that is not the prompt does not read the tenant on the owner's door at all.
         var unrelated = new Store();
-        await new ReceptionistConfigWriter(unrelated, Protector)
+        await Writer(unrelated)
             .ApplyForOwnerAsync(Tenant, new ReceptionistConfigAnswers(BookingEnabled: false), CancellationToken.None);
         Assert.Empty(unrelated.TenantReads);
     }
@@ -839,5 +902,87 @@ public sealed class ReceptionistConfigTests
         Assert.True(answers.AnswersAnything);
         Assert.False(answers.AnswersThePromptTwice);
         Assert.Equal([nameof(VoiceReceptionistConfig.SystemPromptTemplate)], answers.AnsweredFields);
+    }
+
+    // ----- Booking on needs a calendar behind it, on this door too -----
+
+    /// <summary>
+    /// The rule BookingSettingController states and enforces on the dashboard's own switch: <i>"A setting saved as on with nothing
+    /// behind it would show the owner a receptionist that books while every caller is offered a message instead."</i> This route writes
+    /// the same column, so until the check was here the rule held on one of the two paths to it.
+    /// </summary>
+    [Fact]
+    public async Task Booking_turned_on_without_a_calendar_is_refused_and_nothing_is_saved()
+    {
+        var store = new Store();
+
+        var refused = await Writer(store).ApplyForOwnerAsync(
+            Tenant, new ReceptionistConfigAnswers(BookingEnabled: true), CancellationToken.None);
+
+        Assert.False(refused.IsSuccess);
+        Assert.Equal(ReceptionistConfigWriter.CalendarRequired, refused.ErrorCode);
+        Assert.Equal(BookingSettingController.CalendarRequired, refused.ErrorCode);
+        Assert.Empty(store.SavedConfigs);
+    }
+
+    /// <summary>The same refusal during signup, where a business has no calendar yet because its owner has no login yet.</summary>
+    [Fact]
+    public async Task Booking_turned_on_during_signup_is_refused_too()
+    {
+        var store = new Store();
+
+        var refused = await Writer(store).ApplyDuringSignupAsync(
+            new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(BookingEnabled: true)), CancellationToken.None);
+
+        Assert.False(refused.IsSuccess);
+        Assert.Equal(ReceptionistConfigWriter.CalendarRequired, refused.ErrorCode);
+        Assert.Empty(store.SavedConfigs);
+    }
+
+    /// <summary>With a calendar that answers, booking is turned on and nothing else moves.</summary>
+    [Fact]
+    public async Task Booking_turned_on_with_a_calendar_that_works_is_saved()
+    {
+        var store = new Store();
+        store.Config = Result<VoiceReceptionistConfig>.Success(Configured() with { BookingEnabled = false });
+        GiveACalendar(store);
+
+        var saved = await Writer(store).ApplyForOwnerAsync(
+            Tenant, new ReceptionistConfigAnswers(BookingEnabled: true), CancellationToken.None);
+
+        Assert.True(saved.IsSuccess, saved.Error);
+        Assert.True(Assert.Single(store.SavedConfigs).BookingEnabled);
+    }
+
+    /// <summary>
+    /// Turning it off is the business withdrawing permission and is never refused, whatever the state of its calendar - and it does
+    /// not ask the calendar at all, because there is nothing a calendar could say that should stand in the way of it.
+    /// </summary>
+    [Fact]
+    public async Task Booking_turned_off_is_never_refused_and_asks_no_calendar()
+    {
+        var store = new Store();
+        var gateway = new GatewayHandler(() => throw new InvalidOperationException("The calendar must not be asked."));
+
+        var saved = await Writer(store, gateway).ApplyForOwnerAsync(
+            Tenant, new ReceptionistConfigAnswers(BookingEnabled: false), CancellationToken.None);
+
+        Assert.True(saved.IsSuccess, saved.Error);
+        Assert.False(Assert.Single(store.SavedConfigs).BookingEnabled);
+        Assert.Equal(0, gateway.Calls);
+    }
+
+    /// <summary>An answer that is not about booking asks no calendar either, so no other step pays for this check.</summary>
+    [Fact]
+    public async Task An_answer_that_is_not_about_booking_asks_no_calendar()
+    {
+        var store = new Store();
+        var gateway = new GatewayHandler(() => throw new InvalidOperationException("The calendar must not be asked."));
+
+        var saved = await Writer(store, gateway).ApplyForOwnerAsync(
+            Tenant, new ReceptionistConfigAnswers(ConsentMode: VoiceConsentModes.PassiveDisclosure), CancellationToken.None);
+
+        Assert.True(saved.IsSuccess, saved.Error);
+        Assert.Equal(0, gateway.Calls);
     }
 }
