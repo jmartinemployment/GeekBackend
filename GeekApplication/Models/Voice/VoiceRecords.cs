@@ -70,7 +70,14 @@ public static class VoiceMcpProviders
     public const string Outlook = "outlook";
     public const string CalCom = "cal_com";
     public const string HubSpot = "hubspot";
-    public static readonly IReadOnlyList<string> All = [GoogleCalendar, Outlook, CalCom, HubSpot];
+
+    /// <summary>Not a calendar: where a business has its own call records written (plans/client-and-app-plan.md, BYOS).</summary>
+    public const string GoogleDrive = "google_drive";
+
+    public static readonly IReadOnlyList<string> All = [GoogleCalendar, Outlook, CalCom, HubSpot, GoogleDrive];
+
+    /// <summary>The providers an appointment can come from: a calendar, never a storage connection.</summary>
+    public static readonly IReadOnlyList<string> Calendars = [GoogleCalendar, Outlook, CalCom, HubSpot];
 }
 
 public static class VoiceKnowledgeSourceTypes

@@ -70,6 +70,7 @@ public static class VoiceServiceRegistration
         services.AddScoped<McpConnectionService>();
         services.AddSingleton(McpGatewayOptions.FromEnvironment());
         services.AddHttpClient<McpGatewayClient>(client => client.Timeout = TimeSpan.FromSeconds(45));
+        services.AddScoped<GoogleAccessTokens>();
         services.AddScoped<CalendarTools>();
         services.AddSingleton<CalendarToolCatalog>();
         services.AddScoped<IVoiceOwnerStore>(sp =>

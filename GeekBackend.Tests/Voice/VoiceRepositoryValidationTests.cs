@@ -266,10 +266,16 @@ public sealed class VoiceRepositoryValidationTests
 
     // ----- The script and the vocabularies agree -----
 
-    private static readonly string SqlPath = Path.GetFullPath(Path.Combine(
-        AppContext.BaseDirectory, "..", "..", "..", "..", "GeekRepository", "Migrations", "Sql", "0060_geek_voice.sql"));
+    private static readonly string SqlDirectory = Path.GetFullPath(Path.Combine(
+        AppContext.BaseDirectory, "..", "..", "..", "..", "GeekRepository", "Migrations", "Sql"));
+
+    private static readonly string SqlPath = Path.Combine(SqlDirectory, "0060_geek_voice.sql");
 
     private static string Sql => Regex.Replace(File.ReadAllText(SqlPath), @"--[^\n]*", string.Empty);
+
+    /// <summary>One migration's statements, for a list the baseline no longer has the last word on.</summary>
+    private static string SqlOf(string migration) =>
+        Regex.Replace(File.ReadAllText(Path.Combine(SqlDirectory, migration)), @"--[^\n]*", string.Empty);
 
     [Fact]
     public void Every_vocabulary_value_is_in_the_script_and_the_script_has_no_other_value()
@@ -278,8 +284,9 @@ public sealed class VoiceRepositoryValidationTests
         AssertCheckList("tier_code", VoiceSubscriptionTiers.All);
         AssertCheckList("transfer_mode", VoiceTransferModes.All);
         AssertCheckList("transfer_caller_id_mode", VoiceTransferCallerIdModes.All);
-        AssertCheckList("provider", VoiceMcpProviders.All);
-        AssertCheckList("mcp_provider", VoiceMcpProviders.All);
+        // Widened when Drive joined the providers a tenant can connect, so the baseline is no longer where this list lives.
+        AssertCheckList("provider", VoiceMcpProviders.All, "0078_geek_voice_google_drive_provider.sql");
+        AssertCheckList("mcp_provider", VoiceMcpProviders.Calendars);
         AssertCheckList("source_type", VoiceKnowledgeSourceTypes.All);
     }
 
@@ -310,10 +317,11 @@ public sealed class VoiceRepositoryValidationTests
         Assert.DoesNotContain("geek_social", Sql, StringComparison.Ordinal);
     }
 
-    private static void AssertCheckList(string column, IReadOnlyList<string> values)
+    private static void AssertCheckList(string column, IReadOnlyList<string> values, string? migration = null)
     {
-        // CHECK (column IN ('a', 'b')) -- the list in the script for this column.
-        var match = Regex.Match(Sql, $@"CHECK \({column} IN \(([^)]*)\)\)");
+        // CHECK (column IN ('a', 'b')) -- the list in force for this column, in the baseline unless a later migration replaced it.
+        var sql = migration is null ? Sql : SqlOf(migration);
+        var match = Regex.Match(sql, $@"CHECK \({column} IN \(([^)]*)\)\)");
         Assert.True(match.Success, $"No CHECK list for {column}.");
         var inScript = Regex.Matches(match.Groups[1].Value, "'([^']+)'").Select(m => m.Groups[1].Value).ToList();
         Assert.Equal(values.OrderBy(v => v, StringComparer.Ordinal), inScript.OrderBy(v => v, StringComparer.Ordinal));

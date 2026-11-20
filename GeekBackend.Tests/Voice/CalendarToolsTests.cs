@@ -102,9 +102,11 @@ public sealed class CalendarToolsTests
         public StubHandler Google { get; }
         public StubHandler Gateway { get; }
         public CapturingLogger<CalendarTools> ToolsLog { get; } = new();
+        public CapturingLogger<GoogleAccessTokens> TokensLog { get; } = new();
         public CapturingLogger<GoogleCalendarOAuth> GoogleLog { get; } = new();
         public CapturingLogger<McpGatewayClient> GatewayLog { get; } = new();
         public VoiceCredentialProtector Protector { get; }
+        public GoogleAccessTokens Tokens { get; }
         public CalendarTools Tools { get; }
         public McpGatewayClient Client { get; }
         public string AccessCipher { get; }
@@ -129,10 +131,11 @@ public sealed class CalendarToolsTests
             var oauth = new GoogleCalendarOAuth(new HttpClient(Google), googleOptions, clock, GoogleLog);
             var gatewayClient = new McpGatewayClient(new HttpClient(Gateway), gatewayOptions ?? new McpGatewayOptions("http://geek-mcp-gateway.railway.internal:3000", GatewayKey), GatewayLog);
             Client = gatewayClient;
-            Tools = new CalendarTools(Store, Protector, googleOptions, oauth, gatewayClient, clock, ToolsLog);
+            Tokens = new GoogleAccessTokens(Store, Protector, googleOptions, oauth, clock, TokensLog);
+            Tools = new CalendarTools(Tokens, gatewayClient);
         }
 
-        public IEnumerable<string> AllLogLines => ToolsLog.Lines.Concat(GoogleLog.Lines).Concat(GatewayLog.Lines);
+        public IEnumerable<string> AllLogLines => ToolsLog.Lines.Concat(TokensLog.Lines).Concat(GoogleLog.Lines).Concat(GatewayLog.Lines);
     }
 
     private static JsonElement Args() => JsonDocument.Parse($"{{\"summary\":\"{Secret}\"}}").RootElement.Clone();
@@ -524,7 +527,7 @@ public sealed class CalendarToolsTests
         var rig = ToolRig(body, status);
 
         Assert.Null(await BoxAsync(rig));
-        Assert.Contains(rig.GatewayLog.Lines.Concat(rig.ToolsLog.Lines), l => l.Contains("no calendar tools", StringComparison.Ordinal));
+        Assert.Contains(rig.GatewayLog.Lines.Concat(rig.ToolsLog.Lines).Concat(rig.TokensLog.Lines), l => l.Contains("no calendar tools", StringComparison.Ordinal));
     }
 
     [Fact]

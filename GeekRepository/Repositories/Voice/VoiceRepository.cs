@@ -728,7 +728,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     private static string? ValidateAppointment(CreateVoiceAppointmentCommand c)
     {
         if (c.ScheduledEnd <= c.ScheduledStart) return "An appointment must end after it starts.";
-        if (!VoiceMcpProviders.All.Contains(c.McpProvider, StringComparer.Ordinal)) return $"The calendar provider must be one of: {string.Join(", ", VoiceMcpProviders.All)}.";
+        if (!VoiceMcpProviders.Calendars.Contains(c.McpProvider, StringComparer.Ordinal)) return $"The calendar provider must be one of: {string.Join(", ", VoiceMcpProviders.Calendars)}.";
         return null;
     }
 
