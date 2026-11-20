@@ -8,7 +8,7 @@ namespace GeekAPI.Services.Voice;
 /// AES-256-GCM for the secrets Geek-Receptionist keeps for a tenant: the Twilio auth token and the calendar and CRM OAuth
 /// tokens (docs/Geek-Receptionist.md section 8, VOICE_ENCRYPTION_KEY, 32 bytes, base64). GeekAPI encrypts before a value goes to
 /// /internal/v1/* and decrypts after one comes back, so GeekRepository and its database hold ciphertext only and the key lives in
-/// this service alone. The stored form is one base64 string: nonce (12 bytes), tag (16 bytes), then the cipher.
+/// this service alone. The stored form is one base64 string: a format byte, the nonce (12 bytes), the tag (16 bytes), then the cipher.
 /// </summary>
 /// <remarks>
 /// Modeled on SocialCredentialProtector and copied rather than shared, with its own key variable. A missing or malformed key does
@@ -18,6 +18,13 @@ namespace GeekAPI.Services.Voice;
 /// <summary>
 /// What a sealed value is for. The purpose is bound into the ciphertext (as AES-GCM associated data), so a value sealed for one purpose
 /// cannot be opened as another: a sealed OAuth state cannot be passed off as a stored token, nor an access token as a refresh token.
+///
+/// <para>
+/// <b>Every kind of secret needs its own purpose, and a borrowed one is a hole.</b> The bucket keys in
+/// <c>storage_connections</c> were sealed under <see cref="McpAccessToken"/> and <see cref="McpRefreshToken"/>, which meant a Google
+/// OAuth ciphertext from <c>tenant_mcp_connections</c> would open as an AWS access key and the reverse - the one thing the purpose
+/// exists to prevent. They have their own purposes now, and so does each of the four personal details the product stores.
+/// </para>
 /// </summary>
 public static class VoiceSecretPurposes
 {
@@ -26,6 +33,20 @@ public static class VoiceSecretPurposes
     public const string McpRefreshToken = "geek-voice/mcp-refresh-token";
     public const string TwilioAuthToken = "geek-voice/twilio-auth-token";
     public const string KeyCheck = "geek-voice/key-check";
+
+    /// <summary>The business's own bucket credentials (<c>storage_connections</c>), one purpose each.</summary>
+    public const string StorageAccessKeyId = "geek-voice/storage-access-key-id";
+    public const string StorageSecretAccessKey = "geek-voice/storage-secret-access-key";
+
+    /// <summary>
+    /// The four personal details the product stores: the business's own contact address and number, the number its receptionist
+    /// transfers a caller to, and the address its messages are sent to. Not secrets in the credential sense, but they are the
+    /// business's and its people's, and they are the only values in these tables that identify a person.
+    /// </summary>
+    public const string TenantContactEmail = "geek-voice/tenant-contact-email";
+    public const string TenantContactPhone = "geek-voice/tenant-contact-phone";
+    public const string ConfigTransferTargetNumber = "geek-voice/config-transfer-target-number";
+    public const string ConfigMessageDestinationEmail = "geek-voice/config-message-destination-email";
 }
 
 public sealed class VoiceCredentialProtector
@@ -34,9 +55,26 @@ public sealed class VoiceCredentialProtector
     public const string EncryptionUnavailable = "encryption_unavailable";
     public const string InvalidSecret = "invalid_secret";
 
+    /// <summary>A sealed value whose first byte is a format this build does not know. It is refused, never guessed at.</summary>
+    public const string UnsupportedVersion = "unsupported_secret_version";
+
+    /// <summary>
+    /// The format of the sealed value, written as its first byte. It exists so the key can be rotated one day: until this byte was
+    /// here, nothing in a stored value said which key or layout wrote it, <see cref="Unprotect"/> had only the current key to try,
+    /// and a changed key would have made every stored row unreadable with no way to tell that from tampering. Rotation itself is not
+    /// built; this is what makes it possible to build without re-reading every row blind.
+    /// </summary>
+    private const byte Version1 = 1;
+
+    private const int VersionBytes = 1;
     private const int KeyBytes = 32;
     private const int NonceBytes = 12;
     private const int TagBytes = 16;
+
+    /// <summary>Where each part starts in the sealed value: version, then nonce, then tag, then the cipher.</summary>
+    private const int NonceOffset = VersionBytes;
+    private const int TagOffset = VersionBytes + NonceBytes;
+    private const int CipherOffset = VersionBytes + NonceBytes + TagBytes;
 
     private readonly Func<string?> _readKey;
 
@@ -61,10 +99,11 @@ public sealed class VoiceCredentialProtector
         var plain = Encoding.UTF8.GetBytes(secret);
         try
         {
-            var stored = new byte[NonceBytes + TagBytes + plain.Length];
-            var nonce = stored.AsSpan(0, NonceBytes);
-            var tag = stored.AsSpan(NonceBytes, TagBytes);
-            var cipher = stored.AsSpan(NonceBytes + TagBytes);
+            var stored = new byte[CipherOffset + plain.Length];
+            stored[0] = Version1;
+            var nonce = stored.AsSpan(NonceOffset, NonceBytes);
+            var tag = stored.AsSpan(TagOffset, TagBytes);
+            var cipher = stored.AsSpan(CipherOffset);
             RandomNumberGenerator.Fill(nonce);
             using var aes = new AesGcm(key, TagBytes);
             aes.Encrypt(nonce, plain, cipher, tag, Encoding.UTF8.GetBytes(purpose));
@@ -93,18 +132,24 @@ public sealed class VoiceCredentialProtector
         {
             return Result<string>.Failure("The stored secret is not well formed.", InvalidSecret);
         }
-        if (bytes.Length <= NonceBytes + TagBytes)
+        if (bytes.Length <= CipherOffset)
             return Result<string>.Failure("The stored secret is not well formed.", InvalidSecret);
+
+        // A format this build does not know is refused rather than read at the offsets of the one it does know. Guessing would open
+        // a value at the wrong boundaries and report whatever came out.
+        if (bytes[0] != Version1)
+            return Result<string>.Failure(
+                $"The stored secret is format {bytes[0]}, which this service cannot read.", UnsupportedVersion);
 
         var key = ReadKey();
         if (key is null)
             return Result<string>.Failure(KeyProblem, EncryptionUnavailable);
 
-        var plain = new byte[bytes.Length - NonceBytes - TagBytes];
+        var plain = new byte[bytes.Length - CipherOffset];
         try
         {
             using var aes = new AesGcm(key, TagBytes);
-            aes.Decrypt(bytes.AsSpan(0, NonceBytes), bytes.AsSpan(NonceBytes + TagBytes), bytes.AsSpan(NonceBytes, TagBytes), plain, Encoding.UTF8.GetBytes(purpose));
+            aes.Decrypt(bytes.AsSpan(NonceOffset, NonceBytes), bytes.AsSpan(CipherOffset), bytes.AsSpan(TagOffset, TagBytes), plain, Encoding.UTF8.GetBytes(purpose));
             return Result<string>.Success(Encoding.UTF8.GetString(plain));
         }
         catch (AuthenticationTagMismatchException)

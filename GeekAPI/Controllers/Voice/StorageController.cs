@@ -88,9 +88,9 @@ public sealed class StorageController(
             });
         }
 
-        var keyId = protector.Protect(request.AccessKeyId, VoiceSecretPurposes.McpAccessToken);
+        var keyId = protector.Protect(request.AccessKeyId, VoiceSecretPurposes.StorageAccessKeyId);
         if (!keyId.IsSuccess) return StatusCode(StatusFor(keyId.ErrorCode), new { error = keyId.Error, code = keyId.ErrorCode });
-        var secret = protector.Protect(request.SecretAccessKey, VoiceSecretPurposes.McpRefreshToken);
+        var secret = protector.Protect(request.SecretAccessKey, VoiceSecretPurposes.StorageSecretAccessKey);
         if (!secret.IsSuccess) return StatusCode(StatusFor(secret.ErrorCode), new { error = secret.Error, code = secret.ErrorCode });
 
         var saved = await store.SaveStorageConnectionAsync(

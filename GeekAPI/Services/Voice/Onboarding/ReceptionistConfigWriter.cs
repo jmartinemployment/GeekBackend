@@ -23,12 +23,16 @@ public sealed record ReceptionistConfigStepRequest(Guid? TenantId, ReceptionistC
 /// </para>
 ///
 /// <para>
-/// Nothing is validated twice. <see cref="IVoiceStore.SaveConfigAsync"/> is the one place the rules live (a transfer mode that needs
-/// a number, an email that must be an email, a consent mode this product has), and its refusal comes back with its own code. The store
-/// is GeekRepository over internal HTTP; this adds no database access to GeekAPI.
+/// Nothing is validated twice. The behavioural rules live in <see cref="IVoiceStore.SaveConfigAsync"/> - a transfer mode and a
+/// caller-ID mode this product has, qualifying questions of a shape it can read, a consent mode it answers to - and a refusal comes
+/// back with that store's own code. The two shape rules that cannot live there any more are the number and the address, because the
+/// columns hold ciphertext: those moved up into <see cref="ReceptionistConfigAnswers.Seal"/>, which is the last place that holds them
+/// in the clear. Moved, not copied.
 /// </para>
+///
+/// <para>The store is GeekRepository over internal HTTP; this adds no database access to GeekAPI.</para>
 /// </summary>
-public sealed class ReceptionistConfigWriter(IVoiceStore store)
+public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialProtector protector)
 {
     /// <summary>A step of the signup form. Refused once the business is live, whatever the portal sends.</summary>
     public async Task<Result<VoiceReceptionistConfig>> ApplyDuringSignupAsync(
@@ -73,11 +77,17 @@ public sealed class ReceptionistConfigWriter(IVoiceStore store)
     private async Task<Result<VoiceReceptionistConfig>> MergeAndSaveAsync(
         Guid tenantId, ReceptionistConfigAnswers answers, CancellationToken ct)
     {
+        // Sealed first, so a number that is not a number or an unusable encryption key stops the write before the settings are even
+        // read. Nothing below this line holds a personal detail in the clear.
+        var sealedAnswers = answers.Seal(protector);
+        if (!sealedAnswers.IsSuccess)
+            return Fail(sealedAnswers.Error ?? "The answers could not be stored.", sealedAnswers.ErrorCode);
+
         var current = await store.GetConfigAsync(tenantId, ct).ConfigureAwait(false);
         if (!current.IsSuccess)
             return Fail(current.Error ?? "The settings could not be read.", current.ErrorCode);
 
-        return await store.SaveConfigAsync(tenantId, answers.AppliedTo(current.Value!), ct).ConfigureAwait(false);
+        return await store.SaveConfigAsync(tenantId, sealedAnswers.Value!.AppliedTo(current.Value!), ct).ConfigureAwait(false);
     }
 
     /// <summary>A failure raised without a code is the store being unreachable as far as a caller can tell, which is what 503 says.</summary>

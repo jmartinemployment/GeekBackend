@@ -3,6 +3,7 @@ using GeekAPI.Services.GeekCrawler;
 using GeekAPI.Services.Receptionist.Agents;
 using GeekAPI.Services.Receptionist.Knowledge;
 using GeekAPI.Services.Receptionist.Relay;
+using GeekAPI.Services.Voice;
 using GeekAPI.Services.Voice.Billing;
 using GeekAPI.Services.Voice.Calls;
 using GeekAPI.Services.Voice.Mcp;
@@ -49,6 +50,7 @@ public sealed class TenantCallController : ControllerBase
     private readonly TwilioOptions _twilio;
     private readonly CalendarToolCatalog _catalog;
     private readonly CallOutcomes _outcomes;
+    private readonly VoiceCredentialProtector _protector;
     private readonly ILogger<TenantCallController> _logger;
 
     public TenantCallController(
@@ -62,6 +64,7 @@ public sealed class TenantCallController : ControllerBase
         TwilioOptions twilio,
         CalendarToolCatalog catalog,
         CallOutcomes outcomes,
+        VoiceCredentialProtector protector,
         ILogger<TenantCallController> logger)
     {
         _model = model;
@@ -69,6 +72,7 @@ public sealed class TenantCallController : ControllerBase
         _twilio = twilio;
         _catalog = catalog;
         _outcomes = outcomes;
+        _protector = protector;
         _webhook = webhook;
         _recorder = recorder;
         _store = store;
@@ -179,14 +183,32 @@ public sealed class TenantCallController : ControllerBase
         // Where a record of this call would go, and whether every call gets one. A business that asked for messages names its own
         // address and gets all of them. A business that only books gets one address anyway, its own contact email, used for nothing
         // unless a booking fails: "Failed bookings route automatically as messages".
-        var deliverAlways = config.MessageEmailEnabled && !string.IsNullOrWhiteSpace(config.MessageDestinationEmail);
-        var destination = deliverAlways ? config.MessageDestinationEmail : tenant.ContactEmail;
-        var request = deliverAlways || (config.BookingEnabled && !string.IsNullOrWhiteSpace(tenant.ContactEmail))
-            ? new CallSummaryRequest(
-                destination!, tenant.BusinessName, callerNumber, config.IncludeTranscript, config.NotifyOnAbandonedCalls)
-            : null;
-        // A business with somebody to hand a failing call to hears the plan's transfer line rather than the take-a-message one.
-        var transferConfigured = config.TransferMode != VoiceTransferModes.VoicemailOnly && !string.IsNullOrWhiteSpace(config.TransferTargetNumber);
+        var deliverAlways = config.MessageEmailEnabled && !string.IsNullOrWhiteSpace(config.MessageDestinationEmailEncrypted);
+        var wantsSummary = deliverAlways || (config.BookingEnabled && !string.IsNullOrWhiteSpace(tenant.ContactEmailEncrypted));
+
+        // The address is stored sealed, so it is opened here, where it is about to be sent to, and nowhere earlier. An address that
+        // cannot be opened is not guessed at and not replaced by the other one: the call is answered and no summary is arranged,
+        // which is the business getting no message rather than a stranger getting its caller's details.
+        CallSummaryRequest? request = null;
+        if (wantsSummary)
+        {
+            var sealedDestination = deliverAlways ? config.MessageDestinationEmailEncrypted : tenant.ContactEmailEncrypted;
+            var purpose = deliverAlways
+                ? VoiceSecretPurposes.ConfigMessageDestinationEmail
+                : VoiceSecretPurposes.TenantContactEmail;
+            var destination = VoicePersonalDetails.Open(_protector, sealedDestination, purpose);
+            if (destination.IsSuccess)
+                request = new CallSummaryRequest(
+                    destination.Value!, tenant.BusinessName, callerNumber, config.IncludeTranscript, config.NotifyOnAbandonedCalls);
+            else
+                _logger.LogError(
+                    "Tenant {TenantId}: call {CallSid} will send no message, its stored destination address could not be read ({Code}).",
+                    tenantId, callSid, destination.ErrorCode);
+        }
+
+        // A business with somebody to hand a failing call to hears the plan's transfer line rather than the take-a-message one. The
+        // number itself is never needed for this, only whether the business gave one, so it stays sealed.
+        var transferConfigured = config.TransferMode != VoiceTransferModes.VoicemailOnly && !string.IsNullOrWhiteSpace(config.TransferTargetNumberEncrypted);
         var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled, transferConfigured, deliverAlways, config.KnowledgeRunId, config, spokenGreeting);
         return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting));
     }

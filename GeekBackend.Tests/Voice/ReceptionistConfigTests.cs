@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using GeekAPI.Controllers.Voice;
+using GeekAPI.Services.Voice;
 using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.OwnerAuth;
@@ -37,6 +38,24 @@ public sealed class ReceptionistConfigTests
     private static readonly Guid Tenant = Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
     private static readonly Guid OtherTenant = Guid.Parse("99999999-8888-7777-6666-555555555555");
     private static readonly Guid Knowledge = Guid.Parse("11111111-2222-3333-4444-555555555555");
+
+    /// <summary>
+    /// A real protector with a real key, because two of the sixteen settings are stored sealed and a fake that passed strings through
+    /// would test a merge the product does not run. The key is this run's own; nothing here depends on its value.
+    /// </summary>
+    private static readonly string Key = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+
+    private static readonly VoiceCredentialProtector Protector = new(() => Key);
+
+    /// <summary>
+    /// Sealed once, here, and reused. Every seal draws a fresh nonce, so sealing the same number twice gives two different strings:
+    /// a fixture that sealed per call would compare one ciphertext against another and fail on every row for the wrong reason.
+    /// </summary>
+    private static readonly string TransferNumberSealed =
+        Protector.Protect(TransferNumber, VoiceSecretPurposes.ConfigTransferTargetNumber).Value!;
+
+    private static readonly string DestinationEmailSealed =
+        Protector.Protect(DestinationEmail, VoiceSecretPurposes.ConfigMessageDestinationEmail).Value!;
 
     // Sentinels, so a lost field and a leaked field are both visible by name rather than by a value that could come from anywhere.
     private const string Greeting = "GREETING-SENTINEL: Thanks for calling Acme Plumbing.";
@@ -128,12 +147,12 @@ public sealed class ReceptionistConfigTests
             hours.RootElement.Clone(),
             questions.RootElement.Clone(),
             VoiceTransferModes.WarmTransfer,
-            TransferNumber,
+            TransferNumberSealed,
             VoiceTransferCallerIdModes.OriginalCaller,
             [EmergencyKeyword, "fire"],
             RecordingDisclosureEnabled: true,
             MessageEmailEnabled: true,
-            MessageDestinationEmail: DestinationEmail,
+            MessageDestinationEmailEncrypted: DestinationEmailSealed,
             IncludeTranscript: true,
             NotifyOnAbandonedCalls: true,
             BookingEnabled: true,
@@ -147,11 +166,14 @@ public sealed class ReceptionistConfigTests
         return doc.RootElement.Clone();
     }
 
+    /// <summary>What a stored personal detail actually is, which is the only way to assert on one.</summary>
+    private static string Opened(string? stored, string purpose) => Protector.Unprotect(stored!, purpose).Value!;
+
     private static string Serialized(object? value) => JsonSerializer.Serialize(value);
 
     private static ReceptionistConfigController OwnerController(
         Store store, CapturingLogger<ReceptionistConfigController> log, Guid? signedInAs = null) =>
-        new(store, new ReceptionistConfigWriter(store), log)
+        new(store, new ReceptionistConfigWriter(store, Protector), log)
         {
             ControllerContext = new ControllerContext
             {
@@ -179,12 +201,12 @@ public sealed class ReceptionistConfigTests
             { new ReceptionistConfigAnswers(BusinessHours: Json("""{"tuesday":"09:00-18:00"}""")), nameof(VoiceReceptionistConfig.BusinessHours) },
             { new ReceptionistConfigAnswers(QualifyingQuestions: Json("""["What is the address?"]""")), nameof(VoiceReceptionistConfig.QualifyingQuestions) },
             { new ReceptionistConfigAnswers(TransferMode: VoiceTransferModes.ColdTransfer), nameof(VoiceReceptionistConfig.TransferMode) },
-            { new ReceptionistConfigAnswers(TransferTargetNumber: "+15615550123"), nameof(VoiceReceptionistConfig.TransferTargetNumber) },
+            { new ReceptionistConfigAnswers(TransferTargetNumber: "+15615550123"), nameof(VoiceReceptionistConfig.TransferTargetNumberEncrypted) },
             { new ReceptionistConfigAnswers(TransferCallerIdMode: VoiceTransferCallerIdModes.AssignedAiNumber), nameof(VoiceReceptionistConfig.TransferCallerIdMode) },
             { new ReceptionistConfigAnswers(EmergencyKeywords: ["burst pipe"]), nameof(VoiceReceptionistConfig.EmergencyKeywords) },
             { new ReceptionistConfigAnswers(RecordingDisclosureEnabled: false), nameof(VoiceReceptionistConfig.RecordingDisclosureEnabled) },
             { new ReceptionistConfigAnswers(MessageEmailEnabled: false), nameof(VoiceReceptionistConfig.MessageEmailEnabled) },
-            { new ReceptionistConfigAnswers(MessageDestinationEmail: "dispatch@acme-plumbing.example"), nameof(VoiceReceptionistConfig.MessageDestinationEmail) },
+            { new ReceptionistConfigAnswers(MessageDestinationEmail: "dispatch@acme-plumbing.example"), nameof(VoiceReceptionistConfig.MessageDestinationEmailEncrypted) },
             { new ReceptionistConfigAnswers(IncludeTranscript: false), nameof(VoiceReceptionistConfig.IncludeTranscript) },
             { new ReceptionistConfigAnswers(NotifyOnAbandonedCalls: false), nameof(VoiceReceptionistConfig.NotifyOnAbandonedCalls) },
             { new ReceptionistConfigAnswers(BookingEnabled: false), nameof(VoiceReceptionistConfig.BookingEnabled) },
@@ -200,14 +222,16 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        var saved = await new ReceptionistConfigWriter(store)
+        var saved = await new ReceptionistConfigWriter(store, Protector)
             .ApplyDuringSignupAsync(new ReceptionistConfigStepRequest(Tenant, answers), CancellationToken.None);
 
         Assert.True(saved.IsSuccess);
         var written = Assert.Single(store.SavedConfigs);
 
-        // Exactly one setting was named, and it is the one that moved.
-        Assert.Equal(changed, Assert.Single(answers.AnsweredFields));
+        // Exactly one setting was named. Its name on the answers record is the plaintext one the form sends
+        // (TransferTargetNumber), and on the config it is the stored one (TransferTargetNumberEncrypted), so the two are compared by
+        // which setting moved rather than by a shared string.
+        Assert.Single(answers.AnsweredFields);
 
         var untouched = new Dictionary<string, Func<VoiceReceptionistConfig, object?>>(StringComparer.Ordinal)
         {
@@ -216,12 +240,12 @@ public sealed class ReceptionistConfigTests
             [nameof(VoiceReceptionistConfig.BusinessHours)] = c => c.BusinessHours.GetRawText(),
             [nameof(VoiceReceptionistConfig.QualifyingQuestions)] = c => c.QualifyingQuestions.GetRawText(),
             [nameof(VoiceReceptionistConfig.TransferMode)] = c => c.TransferMode,
-            [nameof(VoiceReceptionistConfig.TransferTargetNumber)] = c => c.TransferTargetNumber,
+            [nameof(VoiceReceptionistConfig.TransferTargetNumberEncrypted)] = c => c.TransferTargetNumberEncrypted,
             [nameof(VoiceReceptionistConfig.TransferCallerIdMode)] = c => c.TransferCallerIdMode,
             [nameof(VoiceReceptionistConfig.EmergencyKeywords)] = c => string.Join("|", c.EmergencyKeywords),
             [nameof(VoiceReceptionistConfig.RecordingDisclosureEnabled)] = c => c.RecordingDisclosureEnabled,
             [nameof(VoiceReceptionistConfig.MessageEmailEnabled)] = c => c.MessageEmailEnabled,
-            [nameof(VoiceReceptionistConfig.MessageDestinationEmail)] = c => c.MessageDestinationEmail,
+            [nameof(VoiceReceptionistConfig.MessageDestinationEmailEncrypted)] = c => c.MessageDestinationEmailEncrypted,
             [nameof(VoiceReceptionistConfig.IncludeTranscript)] = c => c.IncludeTranscript,
             [nameof(VoiceReceptionistConfig.NotifyOnAbandonedCalls)] = c => c.NotifyOnAbandonedCalls,
             [nameof(VoiceReceptionistConfig.BookingEnabled)] = c => c.BookingEnabled,
@@ -250,7 +274,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store).ApplyDuringSignupAsync(
+        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(
                 Tenant,
                 new ReceptionistConfigAnswers(
@@ -263,11 +287,11 @@ public sealed class ReceptionistConfigTests
         var written = Assert.Single(store.SavedConfigs);
         Assert.Equal(VoiceTransferModes.VoicemailOnly, written.TransferMode);
         Assert.True(written.MessageEmailEnabled);
-        Assert.Equal("dispatch@acme-plumbing.example", written.MessageDestinationEmail);
+        Assert.Equal("dispatch@acme-plumbing.example", Opened(written.MessageDestinationEmailEncrypted, VoiceSecretPurposes.ConfigMessageDestinationEmail));
         Assert.False(written.IncludeTranscript);
 
         Assert.Equal(Greeting, written.GreetingMessage);
-        Assert.Equal(TransferNumber, written.TransferTargetNumber);
+        Assert.Equal(TransferNumber, Opened(written.TransferTargetNumberEncrypted, VoiceSecretPurposes.ConfigTransferTargetNumber));
         Assert.Equal(VoiceConsentModes.StrictKeypress, written.ConsentMode);
     }
 
@@ -285,14 +309,14 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store).ApplyDuringSignupAsync(
+        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(
                 Tenant, new ReceptionistConfigAnswers(TransferTargetNumber: answer, MessageDestinationEmail: answer)),
             CancellationToken.None);
 
         var written = Assert.Single(store.SavedConfigs);
-        Assert.Null(written.TransferTargetNumber);
-        Assert.Null(written.MessageDestinationEmail);
+        Assert.Null(written.TransferTargetNumberEncrypted);
+        Assert.Null(written.MessageDestinationEmailEncrypted);
     }
 
     [Fact]
@@ -300,13 +324,13 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store).ApplyDuringSignupAsync(
+        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(BookingEnabled: false)),
             CancellationToken.None);
 
         var written = Assert.Single(store.SavedConfigs);
-        Assert.Equal(TransferNumber, written.TransferTargetNumber);
-        Assert.Equal(DestinationEmail, written.MessageDestinationEmail);
+        Assert.Equal(TransferNumber, Opened(written.TransferTargetNumberEncrypted, VoiceSecretPurposes.ConfigTransferTargetNumber));
+        Assert.Equal(DestinationEmail, Opened(written.MessageDestinationEmailEncrypted, VoiceSecretPurposes.ConfigMessageDestinationEmail));
         Assert.Equal([EmergencyKeyword, "fire"], written.EmergencyKeywords);
     }
 
@@ -316,7 +340,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store).ApplyDuringSignupAsync(
+        await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(EmergencyKeywords: [])),
             CancellationToken.None);
 
@@ -329,7 +353,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        var refused = await new ReceptionistConfigWriter(store)
+        var refused = await new ReceptionistConfigWriter(store, Protector)
             .ApplyDuringSignupAsync(new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers()), CancellationToken.None);
 
         Assert.False(refused.IsSuccess);
@@ -346,7 +370,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        var refused = await new ReceptionistConfigWriter(store).ApplyDuringSignupAsync(
+        var refused = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(
                 tenantId is null ? null : Guid.Parse(tenantId), new ReceptionistConfigAnswers(BookingEnabled: true)),
             CancellationToken.None);
@@ -372,7 +396,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store { Tenant = Result<VoiceTenant>.Success(TenantAt(status)) };
 
-        var refused = await new ReceptionistConfigWriter(store).ApplyDuringSignupAsync(
+        var refused = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(ConsentMode: VoiceConsentModes.PassiveDisclosure)),
             CancellationToken.None);
 
@@ -389,7 +413,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store { Tenant = Result<VoiceTenant>.Failure("No such business.", VoiceFailureCodes.NotFound) };
 
-        var refused = await new ReceptionistConfigWriter(store).ApplyDuringSignupAsync(
+        var refused = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(BookingEnabled: true)), CancellationToken.None);
 
         Assert.False(refused.IsSuccess);
@@ -409,7 +433,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store { Tenant = Result<VoiceTenant>.Success(TenantAt(status)) };
 
-        var saved = await new ReceptionistConfigWriter(store)
+        var saved = await new ReceptionistConfigWriter(store, Protector)
             .ApplyForOwnerAsync(Tenant, new ReceptionistConfigAnswers(GreetingMessage: "Acme Plumbing."), CancellationToken.None);
 
         Assert.True(saved.IsSuccess);
@@ -433,7 +457,7 @@ public sealed class ReceptionistConfigTests
                 "Choose a consent mode this product has.", VoiceFailureCodes.InvalidRequest),
         };
 
-        var refused = await new ReceptionistConfigWriter(store).ApplyDuringSignupAsync(
+        var refused = await new ReceptionistConfigWriter(store, Protector).ApplyDuringSignupAsync(
             new ReceptionistConfigStepRequest(Tenant, new ReceptionistConfigAnswers(ConsentMode: "loud_disclosure")),
             CancellationToken.None);
 
@@ -455,7 +479,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store { Config = Result<VoiceReceptionistConfig>.Failure("The settings could not be read.", code) };
 
-        var refused = await new ReceptionistConfigWriter(store)
+        var refused = await new ReceptionistConfigWriter(store, Protector)
             .ApplyForOwnerAsync(Tenant, new ReceptionistConfigAnswers(BookingEnabled: true), CancellationToken.None);
 
         Assert.False(refused.IsSuccess);
@@ -529,7 +553,7 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
         var controller = new ReceptionistConfigController(
-            store, new ReceptionistConfigWriter(store), new CapturingLogger<ReceptionistConfigController>())
+            store, new ReceptionistConfigWriter(store, Protector), new CapturingLogger<ReceptionistConfigController>())
         {
             ControllerContext = new ControllerContext
             {
@@ -653,12 +677,12 @@ public sealed class ReceptionistConfigTests
     {
         var store = new Store();
 
-        await new ReceptionistConfigWriter(store).ApplyForOwnerAsync(
+        await new ReceptionistConfigWriter(store, Protector).ApplyForOwnerAsync(
             Tenant, new ReceptionistConfigAnswers(IncludeTranscript: include), CancellationToken.None);
 
         var written = Assert.Single(store.SavedConfigs);
         Assert.Equal(include, written.IncludeTranscript);
         Assert.Equal(Configured().MessageEmailEnabled, written.MessageEmailEnabled);
-        Assert.Equal(DestinationEmail, written.MessageDestinationEmail);
+        Assert.Equal(DestinationEmail, Opened(written.MessageDestinationEmailEncrypted, VoiceSecretPurposes.ConfigMessageDestinationEmail));
     }
 }

@@ -1,4 +1,5 @@
 using GeekAPI.Controllers.Voice;
+using GeekAPI.Services.Voice;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekApplication.Interfaces.Voice;
 using GeekApplication.Models.Voice;
@@ -28,7 +29,7 @@ public sealed class OnboardingEligibilityTests
         }
 
         private static VoiceTenant Tenant(CreateVoiceTenantCommand c) => new(NewTenant, c.BusinessName, c.IndustryVertical,
-            c.ComplianceAttestedAt, c.CountryCode, c.StateCode, c.ContactEmail, c.ContactPhone,
+            c.ComplianceAttestedAt, c.CountryCode, c.StateCode, c.ContactEmailEncrypted, c.ContactPhoneEncrypted,
             VoiceTenantStatuses.PendingPayment, Now);
 
         public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
@@ -61,8 +62,23 @@ public sealed class OnboardingEligibilityTests
 
     private static readonly VisitorOrigin FromUs = new("203.0.113.9", "US");
 
+    /// <summary>
+    /// A real protector with a real key: the business's contact address and number are sealed before the tenant is created, so a gate
+    /// built without one would test a signup this product cannot perform.
+    /// </summary>
+    private static readonly string Key = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+
+    private static readonly VoiceCredentialProtector Protector = new(() => Key);
+
     private static OnboardingEligibility Gate(RecordingStore store, RecordingSignupAnswerStore? refusals = null) =>
-        new(store, refusals ?? new RecordingSignupAnswerStore(), new FakeTimeProvider(Now));
+        new(store, refusals ?? new RecordingSignupAnswerStore(), new FakeTimeProvider(Now), Protector);
+
+    /// <summary>The number as it was stored, which is ciphertext, read back the only way there is.</summary>
+    private static string StoredPhone(CreateVoiceTenantCommand created) =>
+        Protector.Unprotect(created.ContactPhoneEncrypted, VoiceSecretPurposes.TenantContactPhone).Value!;
+
+    private static string StoredEmail(CreateVoiceTenantCommand created) =>
+        Protector.Unprotect(created.ContactEmailEncrypted, VoiceSecretPurposes.TenantContactEmail).Value!;
 
     [Fact]
     public async Task A_passing_signup_becomes_one_pending_tenant_with_its_attestation()
@@ -76,7 +92,7 @@ public sealed class OnboardingEligibilityTests
         var created = Assert.Single(store.Created);
         Assert.Equal(Now, created.ComplianceAttestedAt);
         Assert.Equal("US", created.CountryCode);
-        Assert.Equal("+15615550101", created.ContactPhone);
+        Assert.Equal("+15615550101", StoredPhone(created));
         Assert.Equal("Heating and air conditioning", created.IndustryVertical);
     }
 
@@ -117,7 +133,7 @@ public sealed class OnboardingEligibilityTests
         var result = await Gate(store).ValidateAsync(Signup() with { ContactPhone = "(561) 555-0101" }, FromUs);
 
         Assert.True(result.IsSuccess, result.Error);
-        Assert.Equal("+15615550101", Assert.Single(store.Created).ContactPhone);
+        Assert.Equal("+15615550101", StoredPhone(Assert.Single(store.Created)));
     }
 
     [Theory]

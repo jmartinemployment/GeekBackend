@@ -42,9 +42,9 @@ public sealed class S3CompatibleCallRecordStorage(
             return Result<string>.Failure(connection.Error ?? "The storage connection could not be read.", code ?? VoiceFailureCodes.StoreUnavailable);
         }
 
-        var keyId = protector.Unprotect(connection.Value!.AccessKeyIdEncrypted, VoiceSecretPurposes.McpAccessToken);
+        var keyId = protector.Unprotect(connection.Value!.AccessKeyIdEncrypted, VoiceSecretPurposes.StorageAccessKeyId);
         if (!keyId.IsSuccess) return Result<string>.Failure(keyId.Error!, keyId.ErrorCode!);
-        var secret = protector.Unprotect(connection.Value.SecretAccessKeyEncrypted, VoiceSecretPurposes.McpRefreshToken);
+        var secret = protector.Unprotect(connection.Value.SecretAccessKeyEncrypted, VoiceSecretPurposes.StorageSecretAccessKey);
         if (!secret.IsSuccess) return Result<string>.Failure(secret.Error!, secret.ErrorCode!);
 
         return await PutAsync(connection.Value, keyId.Value!, secret.Value!, record, ct).ConfigureAwait(false);

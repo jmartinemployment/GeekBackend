@@ -114,7 +114,7 @@ public sealed class ConsentSettingControllerTests
             [EmergencyKeyword, "fire"],
             RecordingDisclosureEnabled: true,
             MessageEmailEnabled: true,
-            MessageDestinationEmail: "owner@acme-plumbing.example",
+            MessageDestinationEmailEncrypted: "owner@acme-plumbing.example",
             IncludeTranscript: true,
             NotifyOnAbandonedCalls: true,
             BookingEnabled: true,
@@ -208,12 +208,12 @@ public sealed class ConsentSettingControllerTests
         Assert.Equal(BusinessHoursJson, saved.BusinessHours.GetRawText());
         Assert.Equal(QualifyingQuestionsJson, saved.QualifyingQuestions.GetRawText());
         Assert.Equal(VoiceTransferModes.WarmTransfer, saved.TransferMode);
-        Assert.Equal(TransferNumber, saved.TransferTargetNumber);
+        Assert.Equal(TransferNumber, saved.TransferTargetNumberEncrypted);
         Assert.Equal(VoiceTransferCallerIdModes.OriginalCaller, saved.TransferCallerIdMode);
         Assert.Equal(new[] { EmergencyKeyword, "fire" }, saved.EmergencyKeywords);
         Assert.True(saved.RecordingDisclosureEnabled);
         Assert.True(saved.MessageEmailEnabled);
-        Assert.Equal("owner@acme-plumbing.example", saved.MessageDestinationEmail);
+        Assert.Equal("owner@acme-plumbing.example", saved.MessageDestinationEmailEncrypted);
         Assert.True(saved.IncludeTranscript);
         Assert.True(saved.NotifyOnAbandonedCalls);
         Assert.True(saved.BookingEnabled);

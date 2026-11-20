@@ -117,6 +117,7 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
             or OnboardingFailureCodes.BusinessDescriptionRequired
             or OnboardingFailureCodes.IndustryNotAnswered
             or OnboardingFailureCodes.ContactPhoneNotUs
+            or OnboardingFailureCodes.ContactEmailInvalid
             or OnboardingFailureCodes.IndustryExcluded
             or OnboardingFailureCodes.AttestationRequired
             or OnboardingFailureCodes.VisitorUnverified

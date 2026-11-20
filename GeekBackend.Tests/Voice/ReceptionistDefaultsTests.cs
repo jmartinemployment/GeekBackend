@@ -121,7 +121,7 @@ public sealed class ReceptionistDefaultsTests
         Assert.Equal(script.Prompt, config.SystemPromptTemplate);
         Assert.True(config.RecordingDisclosureEnabled);
         Assert.Equal(VoiceTransferModes.VoicemailOnly, config.TransferMode);
-        Assert.Null(config.TransferTargetNumber);
+        Assert.Null(config.TransferTargetNumberEncrypted);
         Assert.Equal(VoiceTransferCallerIdModes.OriginalCaller, config.TransferCallerIdMode);
         Assert.Empty(config.EmergencyKeywords);
         Assert.Equal("{}", config.BusinessHours.GetRawText());

@@ -129,8 +129,8 @@ public sealed record CreateVoiceTenantCommand(
     DateTimeOffset ComplianceAttestedAt,
     string CountryCode,
     string StateCode,
-    string ContactEmail,
-    string ContactPhone)
+    string ContactEmailEncrypted,
+    string ContactPhoneEncrypted)
 {
     /// <summary>The business's no to every excluded-industry question, stored with the tenant in one transaction and kept forever.</summary>
     public required VoiceIndustryAnswerSet IndustryAnswers { get; init; }
@@ -152,6 +152,11 @@ public sealed record VoiceIndustryAnswerSet(
 /// <summary>How many answers of a refused visitor were stored.</summary>
 public sealed record VoiceIndustryAnswersRecorded(int Answers);
 
+/// <summary>
+/// A business as it is stored. Its contact address and number are ciphertext GeekAPI sealed (<c>VoiceSecretPurposes</c>
+/// <c>TenantContactEmail</c> / <c>TenantContactPhone</c>); GeekRepository holds them and never reads them, and GeekAPI opens one only
+/// where it needs the clear value. The name says so, because a field called ContactEmail would be read as an address and sent to.
+/// </summary>
 public sealed record VoiceTenant(
     Guid Id,
     string BusinessName,
@@ -159,8 +164,8 @@ public sealed record VoiceTenant(
     DateTimeOffset ComplianceAttestedAt,
     string CountryCode,
     string StateCode,
-    string ContactEmail,
-    string ContactPhone,
+    string ContactEmailEncrypted,
+    string ContactPhoneEncrypted,
     string Status,
     DateTimeOffset CreatedAt);
 
@@ -200,19 +205,27 @@ public sealed record VoiceTelephony(
     string A2pStatus,
     bool SmsNotificationsEnabled);
 
-/// <summary>A tenant's receptionist settings. Saving sends the whole record: there are no defaults to fall back on.</summary>
+/// <summary>
+/// A tenant's receptionist settings. Saving sends the whole record: there are no defaults to fall back on.
+///
+/// <para>
+/// Two of the sixteen are a person's details rather than a behaviour, and both are ciphertext GeekAPI sealed: the number a caller is
+/// transferred to and the address an end-of-call message goes to. The other fourteen stay in the clear - they are read on every call,
+/// they are not anybody's personal details, and encrypting a boolean or a greeting buys nothing.
+/// </para>
+/// </summary>
 public sealed record VoiceReceptionistConfig(
     string GreetingMessage,
     string SystemPromptTemplate,
     JsonElement BusinessHours,
     JsonElement QualifyingQuestions,
     string TransferMode,
-    string? TransferTargetNumber,
+    string? TransferTargetNumberEncrypted,
     string TransferCallerIdMode,
     IReadOnlyList<string> EmergencyKeywords,
     bool RecordingDisclosureEnabled,
     bool MessageEmailEnabled = false,
-    string? MessageDestinationEmail = null,
+    string? MessageDestinationEmailEncrypted = null,
     bool IncludeTranscript = false,
     bool NotifyOnAbandonedCalls = false,
     bool BookingEnabled = false,

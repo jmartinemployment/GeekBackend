@@ -26,15 +26,16 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     private const string TenantColumns = """
         id AS Id, business_name AS BusinessName, industry_vertical AS IndustryVertical,
         compliance_attested_at AS ComplianceAttestedAt, country_code AS CountryCode, state_code AS StateCode,
-        contact_email AS ContactEmail, contact_phone AS ContactPhone, status AS Status, created_at AS CreatedAt
+        contact_email_encrypted AS ContactEmailEncrypted, contact_phone_encrypted AS ContactPhoneEncrypted,
+        status AS Status, created_at AS CreatedAt
         """;
     private const string ConfigColumns = """
         greeting_message AS GreetingMessage, system_prompt_template AS SystemPromptTemplate,
         business_hours_json::text AS BusinessHours, qualifying_questions_json::text AS QualifyingQuestions,
-        transfer_mode AS TransferMode, transfer_target_number AS TransferTargetNumber,
+        transfer_mode AS TransferMode, transfer_target_number_encrypted AS TransferTargetNumberEncrypted,
         transfer_caller_id_mode AS TransferCallerIdMode, emergency_keywords AS EmergencyKeywords,
         recording_disclosure_enabled AS RecordingDisclosureEnabled,
-        message_email_enabled AS MessageEmailEnabled, message_destination_email AS MessageDestinationEmail,
+        message_email_enabled AS MessageEmailEnabled, message_destination_email_encrypted AS MessageDestinationEmailEncrypted,
         include_transcript AS IncludeTranscript, notify_on_abandoned_calls AS NotifyOnAbandonedCalls,
         booking_enabled AS BookingEnabled, consent_mode AS ConsentMode,
         knowledge_run_id AS KnowledgeRunId
@@ -60,10 +61,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             var row = await conn.QuerySingleAsync<TenantRow>(new CommandDefinition($"""
                 INSERT INTO geek_voice.tenants (
                     id, business_name, industry_vertical,
-                    compliance_attested_at, country_code, state_code, contact_email, contact_phone)
+                    compliance_attested_at, country_code, state_code, contact_email_encrypted, contact_phone_encrypted)
                 VALUES (
                     @TenantId, @BusinessName, @IndustryVertical,
-                    @ComplianceAttestedAt, @CountryCode, @StateCode, @ContactEmail, @ContactPhone)
+                    @ComplianceAttestedAt, @CountryCode, @StateCode, @ContactEmailEncrypted, @ContactPhoneEncrypted)
                 RETURNING {TenantColumns};
                 """,
                 new
@@ -74,8 +75,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     ComplianceAttestedAt = command.ComplianceAttestedAt.UtcDateTime,
                     command.CountryCode,
                     command.StateCode,
-                    command.ContactEmail,
-                    command.ContactPhone,
+                    command.ContactEmailEncrypted,
+                    command.ContactPhoneEncrypted,
                 },
                 tx,
                 cancellationToken: ct));
@@ -283,24 +284,24 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             var row = await conn.QuerySingleAsync<ConfigRow>(new CommandDefinition($"""
                 INSERT INTO geek_voice.receptionist_configs (
                     tenant_id, greeting_message, system_prompt_template, business_hours_json, qualifying_questions_json,
-                    transfer_mode, transfer_target_number, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled,
-                    message_email_enabled, message_destination_email, include_transcript, notify_on_abandoned_calls, booking_enabled, consent_mode, knowledge_run_id)
+                    transfer_mode, transfer_target_number_encrypted, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled,
+                    message_email_enabled, message_destination_email_encrypted, include_transcript, notify_on_abandoned_calls, booking_enabled, consent_mode, knowledge_run_id)
                 VALUES (
                     @TenantId, @GreetingMessage, @SystemPromptTemplate, @BusinessHours::jsonb, @QualifyingQuestions::jsonb,
-                    @TransferMode, @TransferTargetNumber, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled,
-                    @MessageEmailEnabled, @MessageDestinationEmail, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled, @ConsentMode, @KnowledgeRunId)
+                    @TransferMode, @TransferTargetNumberEncrypted, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled,
+                    @MessageEmailEnabled, @MessageDestinationEmailEncrypted, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled, @ConsentMode, @KnowledgeRunId)
                 ON CONFLICT (tenant_id) DO UPDATE SET
                     greeting_message = EXCLUDED.greeting_message,
                     system_prompt_template = EXCLUDED.system_prompt_template,
                     business_hours_json = EXCLUDED.business_hours_json,
                     qualifying_questions_json = EXCLUDED.qualifying_questions_json,
                     transfer_mode = EXCLUDED.transfer_mode,
-                    transfer_target_number = EXCLUDED.transfer_target_number,
+                    transfer_target_number_encrypted = EXCLUDED.transfer_target_number_encrypted,
                     transfer_caller_id_mode = EXCLUDED.transfer_caller_id_mode,
                     emergency_keywords = EXCLUDED.emergency_keywords,
                     recording_disclosure_enabled = EXCLUDED.recording_disclosure_enabled,
                     message_email_enabled = EXCLUDED.message_email_enabled,
-                    message_destination_email = EXCLUDED.message_destination_email,
+                    message_destination_email_encrypted = EXCLUDED.message_destination_email_encrypted,
                     include_transcript = EXCLUDED.include_transcript,
                     notify_on_abandoned_calls = EXCLUDED.notify_on_abandoned_calls,
                     booking_enabled = EXCLUDED.booking_enabled,
@@ -317,13 +318,13 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     BusinessHours = config.BusinessHours.GetRawText(),
                     QualifyingQuestions = config.QualifyingQuestions.GetRawText(),
                     config.TransferMode,
-                    config.TransferTargetNumber,
+                    config.TransferTargetNumberEncrypted,
                     config.TransferCallerIdMode,
                     // Dapper expands an array parameter into a list of parameters, so the keywords travel as JSON and the SQL builds the text[].
                     EmergencyKeywords = JsonSerializer.Serialize(config.EmergencyKeywords),
                     config.RecordingDisclosureEnabled,
                     config.MessageEmailEnabled,
-                    config.MessageDestinationEmail,
+                    config.MessageDestinationEmailEncrypted,
                     config.IncludeTranscript,
                     config.NotifyOnAbandonedCalls,
                     config.BookingEnabled,
@@ -654,8 +655,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         if (Blank(c.IndustryVertical)) return "An industry is required.";
         if (!string.Equals(c.CountryCode, "US", StringComparison.Ordinal)) return "Only US businesses can sign up.";
         if (c.StateCode is null || c.StateCode.Length != 2) return "The state must be a two-letter code.";
-        if (Blank(c.ContactEmail) || !c.ContactEmail.Contains('@', StringComparison.Ordinal)) return "A contact email is required.";
-        if (Blank(c.ContactPhone) || !E164().IsMatch(c.ContactPhone)) return "The contact phone must be in E.164 form, such as +15615550101.";
+        // Sealed before they got here, so there is no address to look for an @ in and no number to match against E.164. Those shape
+        // rules moved to GeekAPI (VoicePersonalDetails), which is the last place that holds the clear value. What is still checkable
+        // here is that the business sent one at all.
+        if (Blank(c.ContactEmailEncrypted) || Blank(c.ContactPhoneEncrypted)) return "The contact email and phone are required.";
         return null;
     }
 
@@ -679,17 +682,13 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         if (!IsQualifyingQuestions(c.QualifyingQuestions)) return "Qualifying questions must be a list, or an opening question with areas that each have a name and non-blank questions.";
         if (!VoiceTransferModes.All.Contains(c.TransferMode, StringComparer.Ordinal)) return $"The transfer mode must be one of: {string.Join(", ", VoiceTransferModes.All)}.";
         if (!VoiceTransferCallerIdModes.All.Contains(c.TransferCallerIdMode, StringComparer.Ordinal)) return $"The caller ID mode must be one of: {string.Join(", ", VoiceTransferCallerIdModes.All)}.";
-        if (c.TransferTargetNumber is not null && !E164().IsMatch(c.TransferTargetNumber)) return "The transfer number must be in E.164 form.";
+        // Ciphertext: E.164 is checked in GeekAPI before sealing. A number stored here is opaque by design.
         if (c.EmergencyKeywords is null || c.EmergencyKeywords.Any(Blank)) return "Emergency keywords cannot be blank.";
-        if (c.MessageEmailEnabled && !IsEmailAddress(c.MessageDestinationEmail)) return "Message email needs a valid destination email address.";
+        if (c.MessageEmailEnabled && Blank(c.MessageDestinationEmailEncrypted)) return "Message email needs a destination email address.";
         if (!VoiceConsentModes.All.Contains(c.ConsentMode, StringComparer.Ordinal)) return $"The consent mode must be one of: {string.Join(", ", VoiceConsentModes.All)}.";
         return null;
     }
 
-    private static bool IsEmailAddress(string? value) =>
-        !string.IsNullOrWhiteSpace(value)
-        && System.Net.Mail.MailAddress.TryCreate(value, out var address)
-        && string.Equals(address.Address, value, StringComparison.Ordinal);
 
 
     private static string? ValidateMcpConnection(string provider, SaveVoiceMcpConnectionCommand? c)
@@ -772,13 +771,14 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public DateTime ComplianceAttestedAt { get; set; }
         public string CountryCode { get; set; } = "";
         public string StateCode { get; set; } = "";
-        public string ContactEmail { get; set; } = "";
-        public string ContactPhone { get; set; } = "";
+        public string ContactEmailEncrypted { get; set; } = "";
+        public string ContactPhoneEncrypted { get; set; } = "";
         public string Status { get; set; } = "";
         public DateTime CreatedAt { get; set; }
 
         public VoiceTenant ToModel() => new(
-            Id, BusinessName, IndustryVertical, Utc(ComplianceAttestedAt), CountryCode, StateCode, ContactEmail, ContactPhone, Status, Utc(CreatedAt));
+            Id, BusinessName, IndustryVertical, Utc(ComplianceAttestedAt), CountryCode, StateCode,
+            ContactEmailEncrypted, ContactPhoneEncrypted, Status, Utc(CreatedAt));
     }
 
     private sealed class TelephonyRow
@@ -805,12 +805,12 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public string BusinessHours { get; set; } = "";
         public string QualifyingQuestions { get; set; } = "";
         public string TransferMode { get; set; } = "";
-        public string? TransferTargetNumber { get; set; }
+        public string? TransferTargetNumberEncrypted { get; set; }
         public string TransferCallerIdMode { get; set; } = "";
         public string[] EmergencyKeywords { get; set; } = [];
         public bool RecordingDisclosureEnabled { get; set; }
         public bool MessageEmailEnabled { get; set; }
-        public string? MessageDestinationEmail { get; set; }
+        public string? MessageDestinationEmailEncrypted { get; set; }
         public bool IncludeTranscript { get; set; }
         public bool NotifyOnAbandonedCalls { get; set; }
         public bool BookingEnabled { get; set; }
@@ -822,9 +822,9 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
 
         public VoiceReceptionistConfig ToModel() => new(
             GreetingMessage, SystemPromptTemplate, ParseJson(BusinessHours),
-            ParseJson(QualifyingQuestions), TransferMode, TransferTargetNumber, TransferCallerIdMode,
+            ParseJson(QualifyingQuestions), TransferMode, TransferTargetNumberEncrypted, TransferCallerIdMode,
             EmergencyKeywords, RecordingDisclosureEnabled,
-            MessageEmailEnabled, MessageDestinationEmail, IncludeTranscript, NotifyOnAbandonedCalls, BookingEnabled, ConsentMode,
+            MessageEmailEnabled, MessageDestinationEmailEncrypted, IncludeTranscript, NotifyOnAbandonedCalls, BookingEnabled, ConsentMode,
             KnowledgeRunId);
     }
 

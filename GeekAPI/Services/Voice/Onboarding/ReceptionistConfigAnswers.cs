@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GeekApplication.Models.Voice;
+using GeekApplication.Results;
 
 namespace GeekAPI.Services.Voice.Onboarding;
 
@@ -66,26 +67,82 @@ public sealed record ReceptionistConfigAnswers(
     /// <summary>False when nothing was answered, which is a form posting an empty step and is refused rather than saved as a no-op.</summary>
     public bool AnswersAnything => AnsweredFields.Count > 0;
 
+    /// <summary>
+    /// These answers with the two personal details among them sealed, ready to be written over a config. Two of the fifteen are a
+    /// person's details rather than a behaviour - the number a caller is handed to and the address a message is sent to - and both are
+    /// stored as ciphertext, so they are checked and sealed here, before anything is merged or sent. A number that is not a number and
+    /// an address that is not an address are refused rather than stored, and a key that cannot seal is reported: there is no path from
+    /// this form to a personal detail written in the clear.
+    /// </summary>
+    public Result<SealedReceptionistConfigAnswers> Seal(VoiceCredentialProtector protector)
+    {
+        string? transferCipher = null;
+        if (!string.IsNullOrWhiteSpace(TransferTargetNumber))
+        {
+            // The business's own number, typed the way people write one, as the signup's contact phone already allows. An E.164
+            // number is taken as it stands, so a number this product stored before is still a valid answer.
+            var dialable = UsPhone.ToE164(TransferTargetNumber) ?? TransferTargetNumber.Trim();
+            var sealedNumber = VoicePersonalDetails.SealPhone(
+                protector,
+                dialable,
+                VoiceSecretPurposes.ConfigTransferTargetNumber,
+                "Enter the US phone number a caller should be transferred to, ten digits, such as (561) 555-0101.");
+            if (!sealedNumber.IsSuccess)
+                return Result<SealedReceptionistConfigAnswers>.Failure(sealedNumber.Error!, sealedNumber.ErrorCode!);
+            transferCipher = sealedNumber.Value;
+        }
+
+        string? emailCipher = null;
+        if (!string.IsNullOrWhiteSpace(MessageDestinationEmail))
+        {
+            var sealedEmail = VoicePersonalDetails.SealEmail(
+                protector,
+                MessageDestinationEmail.Trim(),
+                VoiceSecretPurposes.ConfigMessageDestinationEmail,
+                "Enter the email address a message about a call should be sent to.");
+            if (!sealedEmail.IsSuccess)
+                return Result<SealedReceptionistConfigAnswers>.Failure(sealedEmail.Error!, sealedEmail.ErrorCode!);
+            emailCipher = sealedEmail.Value;
+        }
+
+        return Result<SealedReceptionistConfigAnswers>.Success(new SealedReceptionistConfigAnswers(this, transferCipher, emailCipher));
+    }
+}
+
+/// <summary>
+/// The answers with their two personal details already sealed, which is the only form that may be written to a config. The names say
+/// ciphertext because that is what they hold; the record they came from holds what the business typed.
+/// </summary>
+/// <param name="Answered">The answers as given, which is what says whether a question was asked at all.</param>
+/// <param name="TransferTargetNumberEncrypted">The sealed number, or null when the question was not asked or was answered "none".</param>
+/// <param name="MessageDestinationEmailEncrypted">The sealed address, on the same terms.</param>
+public sealed record SealedReceptionistConfigAnswers(
+    ReceptionistConfigAnswers Answered,
+    string? TransferTargetNumberEncrypted,
+    string? MessageDestinationEmailEncrypted)
+{
     /// <summary>The business's current settings with these answers written over them, and nothing else changed.</summary>
     public VoiceReceptionistConfig AppliedTo(VoiceReceptionistConfig config) => config with
     {
-        GreetingMessage = GreetingMessage ?? config.GreetingMessage,
-        SystemPromptTemplate = SystemPromptTemplate ?? config.SystemPromptTemplate,
-        BusinessHours = BusinessHours ?? config.BusinessHours,
-        QualifyingQuestions = QualifyingQuestions ?? config.QualifyingQuestions,
-        TransferMode = TransferMode ?? config.TransferMode,
-        TransferTargetNumber = TransferTargetNumber is null ? config.TransferTargetNumber : Chosen(TransferTargetNumber),
-        TransferCallerIdMode = TransferCallerIdMode ?? config.TransferCallerIdMode,
-        EmergencyKeywords = EmergencyKeywords ?? config.EmergencyKeywords,
-        RecordingDisclosureEnabled = RecordingDisclosureEnabled ?? config.RecordingDisclosureEnabled,
-        MessageEmailEnabled = MessageEmailEnabled ?? config.MessageEmailEnabled,
-        MessageDestinationEmail = MessageDestinationEmail is null ? config.MessageDestinationEmail : Chosen(MessageDestinationEmail),
-        IncludeTranscript = IncludeTranscript ?? config.IncludeTranscript,
-        NotifyOnAbandonedCalls = NotifyOnAbandonedCalls ?? config.NotifyOnAbandonedCalls,
-        BookingEnabled = BookingEnabled ?? config.BookingEnabled,
-        ConsentMode = ConsentMode ?? config.ConsentMode,
+        GreetingMessage = Answered.GreetingMessage ?? config.GreetingMessage,
+        SystemPromptTemplate = Answered.SystemPromptTemplate ?? config.SystemPromptTemplate,
+        BusinessHours = Answered.BusinessHours ?? config.BusinessHours,
+        QualifyingQuestions = Answered.QualifyingQuestions ?? config.QualifyingQuestions,
+        TransferMode = Answered.TransferMode ?? config.TransferMode,
+        // Not asked leaves what the business said last time; answered "none" clears it; answered leaves the sealed value.
+        TransferTargetNumberEncrypted = Answered.TransferTargetNumber is null
+            ? config.TransferTargetNumberEncrypted
+            : TransferTargetNumberEncrypted,
+        TransferCallerIdMode = Answered.TransferCallerIdMode ?? config.TransferCallerIdMode,
+        EmergencyKeywords = Answered.EmergencyKeywords ?? config.EmergencyKeywords,
+        RecordingDisclosureEnabled = Answered.RecordingDisclosureEnabled ?? config.RecordingDisclosureEnabled,
+        MessageEmailEnabled = Answered.MessageEmailEnabled ?? config.MessageEmailEnabled,
+        MessageDestinationEmailEncrypted = Answered.MessageDestinationEmail is null
+            ? config.MessageDestinationEmailEncrypted
+            : MessageDestinationEmailEncrypted,
+        IncludeTranscript = Answered.IncludeTranscript ?? config.IncludeTranscript,
+        NotifyOnAbandonedCalls = Answered.NotifyOnAbandonedCalls ?? config.NotifyOnAbandonedCalls,
+        BookingEnabled = Answered.BookingEnabled ?? config.BookingEnabled,
+        ConsentMode = Answered.ConsentMode ?? config.ConsentMode,
     };
-
-    /// <summary>An answer sent empty is the business choosing "none", stored as null rather than as an empty string.</summary>
-    private static string? Chosen(string answer) => string.IsNullOrWhiteSpace(answer) ? null : answer.Trim();
 }

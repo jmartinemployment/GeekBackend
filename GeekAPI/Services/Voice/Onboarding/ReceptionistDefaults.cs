@@ -114,7 +114,7 @@ public static partial class ReceptionistDefaults
         BusinessHours: Json("{}"),
         QualifyingQuestions: Json("[]"),
         TransferMode: VoiceTransferModes.VoicemailOnly,
-        TransferTargetNumber: null,
+        TransferTargetNumberEncrypted: null,
         TransferCallerIdMode: VoiceTransferCallerIdModes.OriginalCaller,
         EmergencyKeywords: [],
         RecordingDisclosureEnabled: true,

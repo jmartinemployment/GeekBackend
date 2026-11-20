@@ -93,8 +93,12 @@ public class VoiceCredentialProtectorTests
         var protector = new VoiceCredentialProtector(() => key);
 
         var protectedSecret = protector.Protect(Secret, Purpose);
-        var stored = Convert.ToBase64String(new byte[40]);
-        var opened = protector.Unprotect(stored, Purpose);
+
+        // Well formed as far as its format byte goes, so what fails is the key and not the layout: a zero-filled blob would now be
+        // refused as an unknown format before the key was ever read, and this test would stop being about the key.
+        var wellFormed = new byte[40];
+        wellFormed[0] = 1;
+        var opened = protector.Unprotect(Convert.ToBase64String(wellFormed), Purpose);
 
         Assert.False(protectedSecret.IsSuccess);
         Assert.Equal(VoiceCredentialProtector.EncryptionUnavailable, protectedSecret.ErrorCode);

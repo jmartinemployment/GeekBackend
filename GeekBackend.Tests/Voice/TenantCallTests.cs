@@ -356,6 +356,7 @@ public sealed class TenantCallTests
             new TwilioOptions("ACmaster", "master-token", BaseUrl),
             new CalendarToolCatalog(new FakeTimeProvider(Now)),
             outcomes,
+            Protector,
             NullLogger<TenantCallController>.Instance);
 
         var path = $"/{TenantCallController.RoutePrefix}/{Tenant}/{route}";

@@ -406,8 +406,8 @@ public sealed class CallRecordStorageTests
         var protector = new VoiceCredentialProtector(() => Key);
         var connection = new VoiceStorageConnection(
             Guid.NewGuid(), provider,
-            protector.Protect("AKIDEXAMPLE", VoiceSecretPurposes.McpAccessToken).Value!,
-            protector.Protect("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", VoiceSecretPurposes.McpRefreshToken).Value!,
+            protector.Protect("AKIDEXAMPLE", VoiceSecretPurposes.StorageAccessKeyId).Value!,
+            protector.Protect("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", VoiceSecretPurposes.StorageSecretAccessKey).Value!,
             "dag-plumbing-records", "", "us-east-1", IsActive: true);
 
         var handler = new StubHandler((status, ""));

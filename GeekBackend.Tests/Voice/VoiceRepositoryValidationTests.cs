@@ -54,8 +54,10 @@ public sealed class VoiceRepositoryValidationTests
     [InlineData("Acme", "", "US", "FL", "a@b.example", "+15615550101")]
     [InlineData("Acme", "HVAC", "CA", "FL", "a@b.example", "+15615550101")]
     [InlineData("Acme", "HVAC", "US", "Florida", "a@b.example", "+15615550101")]
-    [InlineData("Acme", "HVAC", "US", "FL", "no-at-sign", "+15615550101")]
-    [InlineData("Acme", "HVAC", "US", "FL", "a@b.example", "561-555-0101")]
+    // Both are ciphertext here, so blank is the whole of what GeekRepository can refuse. "no-at-sign" and "561-555-0101" are refused
+    // in GeekAPI before sealing (VoicePersonalDetailsTests), which is the last place that holds them in the clear.
+    [InlineData("Acme", "HVAC", "US", "FL", "", "+15615550101")]
+    [InlineData("Acme", "HVAC", "US", "FL", "a@b.example", "")]
     public async Task A_tenant_with_a_bad_field_is_refused(string name, string industry, string country, string state, string email, string phone) =>
         await AssertInvalid(Store().CreateTenantAsync(new(name, industry, Now, country, state, email, phone) { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) }));
 
@@ -140,10 +142,6 @@ public sealed class VoiceRepositoryValidationTests
         await AssertInvalid(Store().SaveConfigAsync(Tenant, GoodConfig() with { TransferCallerIdMode = "anonymous" }));
 
     [Fact]
-    public async Task A_transfer_number_that_is_not_e164_is_refused() =>
-        await AssertInvalid(Store().SaveConfigAsync(Tenant, GoodConfig() with { TransferTargetNumber = "call me" }));
-
-    [Fact]
     public async Task A_blank_emergency_keyword_is_refused() =>
         await AssertInvalid(Store().SaveConfigAsync(Tenant, GoodConfig() with { EmergencyKeywords = ["flood", "  "] }));
 
@@ -155,14 +153,17 @@ public sealed class VoiceRepositoryValidationTests
     public async Task A_blank_greeting_is_refused() =>
         await AssertInvalid(Store().SaveConfigAsync(Tenant, GoodConfig() with { GreetingMessage = "" }));
 
+    /// <summary>
+    /// The destination is ciphertext here, so this is the whole of what GeekRepository can still check: that the business sent one.
+    /// Whether it is an address at all is checked in GeekAPI before sealing (VoicePersonalDetails), which is the last place that holds
+    /// it in the clear - "no-at-sign" and "Owner &lt;owner@b.example&gt;" are refused there, and tested there.
+    /// </summary>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("no-at-sign")]
-    [InlineData("Owner <owner@b.example>")]
-    public async Task Message_email_enabled_without_a_valid_destination_is_refused(string? destination) =>
-        await AssertInvalid(Store().SaveConfigAsync(Tenant, GoodConfig() with { MessageEmailEnabled = true, MessageDestinationEmail = destination }));
+    public async Task Message_email_enabled_without_a_destination_is_refused(string? destination) =>
+        await AssertInvalid(Store().SaveConfigAsync(Tenant, GoodConfig() with { MessageEmailEnabled = true, MessageDestinationEmailEncrypted = destination }));
 
     [Fact]
     public async Task An_unknown_calendar_provider_is_refused() =>

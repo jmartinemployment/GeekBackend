@@ -11,6 +11,7 @@ public static class OnboardingFailureCodes
     public const string BusinessDescriptionRequired = "business_description_required";
     public const string IndustryNotAnswered = "industry_not_answered";
     public const string ContactPhoneNotUs = "contact_phone_not_us";
+    public const string ContactEmailInvalid = "contact_email_invalid";
     public const string IndustryExcluded = "industry_excluded";
     public const string AttestationRequired = "attestation_required";
     public const string VisitorUnverified = "visitor_unverified";
@@ -19,8 +20,8 @@ public static class OnboardingFailureCodes
 
 /// <summary>
 /// What the first step of /signup sends (docs/Geek-Receptionist.md section 5, item 1). Every field is nullable so a field that
-/// was left out is told apart from one that was sent empty; the shape of the contact details is checked by GeekRepository, once,
-/// when the tenant is stored.
+/// was left out is told apart from one that was sent empty. The shape of the contact details is checked here, where they are still in
+/// the clear: they are sealed before the tenant is stored, so GeekRepository can only check that they were sent at all.
 /// </summary>
 public sealed record ValidateEligibilityRequest(
     string? BusinessName,
@@ -53,7 +54,8 @@ public sealed record EligibilityAccepted(Guid TenantId, string Status);
 /// place the attestation can be stored. Nothing is created for a signup that fails, and a store that
 /// cannot be reached is a failure, never an accepted signup.
 /// </summary>
-public sealed class OnboardingEligibility(IVoiceStore voice, IVoiceSignupAnswerStore signupAnswers, TimeProvider clock)
+public sealed class OnboardingEligibility(
+    IVoiceStore voice, IVoiceSignupAnswerStore signupAnswers, TimeProvider clock, VoiceCredentialProtector protector)
 {
     public async Task<Result<EligibilityAccepted>> ValidateAsync(ValidateEligibilityRequest request, VisitorOrigin visitor, CancellationToken ct = default)
     {
@@ -90,14 +92,29 @@ public sealed class OnboardingEligibility(IVoiceStore voice, IVoiceSignupAnswerS
         if (phone is null)
             return Refused(OnboardingFailureCodes.ContactPhoneNotUs, "Enter the business's US phone number, ten digits, such as (561) 555-0101.");
 
+        if (!VoicePersonalDetails.IsEmailAddress(request.ContactEmail?.Trim()))
+            return Refused(OnboardingFailureCodes.ContactEmailInvalid, "Enter the business's email address.");
+
+        // The business's own address and number are sealed here, the last place they are held in the clear, so the tenant row and
+        // every internal call about it carry ciphertext. A key that cannot seal refuses the signup rather than storing them bare.
+        var sealedEmail = VoicePersonalDetails.SealEmail(
+            protector, request.ContactEmail!.Trim(), VoiceSecretPurposes.TenantContactEmail, "Enter the business's email address.");
+        if (!sealedEmail.IsSuccess)
+            return Result<EligibilityAccepted>.Failure(sealedEmail.Error!, sealedEmail.ErrorCode!);
+
+        var sealedPhone = VoicePersonalDetails.SealPhone(
+            protector, phone, VoiceSecretPurposes.TenantContactPhone, "Enter the business's US phone number.");
+        if (!sealedPhone.IsSuccess)
+            return Result<EligibilityAccepted>.Failure(sealedPhone.Error!, sealedPhone.ErrorCode!);
+
         var created = await voice.CreateTenantAsync(new CreateVoiceTenantCommand(
             request.BusinessName ?? string.Empty,
             request.BusinessDescription.Trim(),
             now,
             request.CountryCode!,
             request.StateCode ?? string.Empty,
-            request.ContactEmail ?? string.Empty,
-            phone)
+            sealedEmail.Value!,
+            sealedPhone.Value!)
         {
             IndustryAnswers = answerSet,
         }, ct).ConfigureAwait(false);
