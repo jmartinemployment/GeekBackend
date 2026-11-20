@@ -63,7 +63,10 @@ public sealed record GoogleCalendarOptions(string? ClientId, string? ClientSecre
     /// The portal page Google sends the owner's browser back to. It must match, character for character, one registered on the OAuth
     /// client. The portal holds the owner's session, so it is the portal that hands the code to GeekAPI, with the owner's token.
     /// </summary>
-    public string RedirectUri => $"{PortalBaseUrl}/oauth/mcp/{Provider}/callback";
+    public string RedirectUri => RedirectUriFor(Provider);
+
+    /// <summary>The portal page Google sends the owner back to for one kind of connection. Each is registered on the OAuth client.</summary>
+    public string RedirectUriFor(string provider) => $"{PortalBaseUrl}/oauth/mcp/{provider}/callback";
 
     /// <summary>The names of the variables renewing an access token needs that are unset or blank. The portal address is not one of them.</summary>
     public IReadOnlyList<string> MissingForRefresh()

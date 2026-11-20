@@ -22,14 +22,16 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
     /// The address that asks the person to approve. access_type=offline and prompt=consent make Google return a refresh token every
     /// time; without them a second connection by the same person comes back with none and cannot be kept alive.
     /// </summary>
-    public string AuthorizationUrl(string state)
+    public string AuthorizationUrl(string state) => AuthorizationUrl(state, GoogleConnections.Calendar);
+
+    public string AuthorizationUrl(string state, GoogleConnection connection)
     {
         var query = new Dictionary<string, string>
         {
             ["client_id"] = options.ClientId!,
-            ["redirect_uri"] = options.RedirectUri,
+            ["redirect_uri"] = options.RedirectUriFor(connection.Provider),
             ["response_type"] = "code",
-            ["scope"] = string.Join(' ', GoogleCalendarOptions.Scopes),
+            ["scope"] = string.Join(' ', connection.Scopes),
             ["access_type"] = "offline",
             ["prompt"] = "consent",
             ["include_granted_scopes"] = "false",
@@ -39,7 +41,10 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
         return $"{GoogleCalendarOptions.AuthorizeEndpoint}?{encoded}";
     }
 
-    public async Task<Result<GoogleCalendarTokens>> ExchangeCodeAsync(string code, CancellationToken ct = default)
+    public Task<Result<GoogleCalendarTokens>> ExchangeCodeAsync(string code, CancellationToken ct = default) =>
+        ExchangeCodeAsync(code, GoogleConnections.Calendar, ct);
+
+    public async Task<Result<GoogleCalendarTokens>> ExchangeCodeAsync(string code, GoogleConnection connection, CancellationToken ct = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, GoogleCalendarOptions.TokenEndpoint)
         {
@@ -48,7 +53,7 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
                 ["code"] = code,
                 ["client_id"] = options.ClientId!,
                 ["client_secret"] = options.ClientSecret!,
-                ["redirect_uri"] = options.RedirectUri,
+                ["redirect_uri"] = options.RedirectUriFor(connection.Provider),
                 ["grant_type"] = "authorization_code",
             }),
         };
@@ -85,7 +90,7 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
                 return Unavailable("Google refused the connection.");
             }
 
-            return Read(body);
+            return Read(body, connection);
         }
     }
 
@@ -163,7 +168,7 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
     private static Result<GoogleCalendarAccess> RefreshUnavailable(string message) =>
         Result<GoogleCalendarAccess>.Failure(message, McpFailureCodes.OAuthUnavailable);
 
-    private Result<GoogleCalendarTokens> Read(string body)
+    private Result<GoogleCalendarTokens> Read(string body, GoogleConnection connection)
     {
         JsonDocument document;
         try
@@ -188,15 +193,11 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
                 return Unavailable("Google answered something unexpected.");
             }
 
-            // A person can untick a scope on the consent screen. The receptionist reads availability, lists calendars and books, and each
-            // tool needs its own scope, so all three must be granted; a missing one would otherwise surface later as a tool error.
+            // A person can untick a scope on the consent screen. Every scope this connection asks for is one something needs, so a
+            // partial grant is refused here rather than surfacing later as a tool error or a record that could not be written.
             var granted = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (GoogleCalendarOptions.Scopes.Any(required => !granted.Contains(required, StringComparer.Ordinal)))
-            {
-                return Result<GoogleCalendarTokens>.Failure(
-                    "Calendar access was not fully granted. The receptionist needs every permission on the consent screen to check availability and book.",
-                    McpFailureCodes.ScopeNotGranted);
-            }
+            if (connection.Scopes.Any(required => !granted.Contains(required, StringComparer.Ordinal)))
+                return Result<GoogleCalendarTokens>.Failure(connection.PartialGrantMessage, McpFailureCodes.ScopeNotGranted);
 
             var refresh = Text(root, "refresh_token");
             if (string.IsNullOrWhiteSpace(refresh))

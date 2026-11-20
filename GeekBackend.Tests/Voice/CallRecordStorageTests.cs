@@ -293,4 +293,49 @@ public sealed class CallRecordStorageTests
 
         Assert.Equal(["WriteAsync"], methods.Where(m => !m.StartsWith("get_", StringComparison.Ordinal)));
     }
+    // ----- Connecting a Drive, alongside the calendar -----
+
+    [Fact]
+    public void The_drive_connection_asks_for_one_scope_and_books_nothing()
+    {
+        var drive = GoogleConnections.For(GoogleDriveOptions.Provider);
+
+        Assert.NotNull(drive);
+        Assert.Equal([GoogleDriveOptions.FileScope], drive!.Scopes);
+        Assert.Null(drive.ExternalId);
+    }
+
+    [Fact]
+    public void The_calendar_connection_is_unchanged_by_drive_joining_it()
+    {
+        var calendar = GoogleConnections.For(GoogleCalendarOptions.Provider);
+
+        Assert.NotNull(calendar);
+        Assert.Equal(GoogleCalendarOptions.Scopes, calendar!.Scopes);
+        Assert.Equal(GoogleCalendarOptions.PrimaryCalendarId, calendar.ExternalId);
+    }
+
+    [Fact]
+    public void A_provider_that_is_not_a_google_connection_is_not_one()
+    {
+        Assert.Null(GoogleConnections.For("dropbox"));
+        Assert.Null(GoogleConnections.For("GOOGLE_DRIVE"));
+    }
+
+    [Fact]
+    public void Each_connection_is_sent_back_to_its_own_portal_page()
+    {
+        var options = GoogleCalendarOptions.From(name => name switch
+        {
+            "GOOGLE_OAUTH_CLIENT_ID" => "client",
+            "GOOGLE_OAUTH_CLIENT_SECRET" => "secret",
+            "PORTAL_BASE_URL" => "https://portal.example.test/",
+            _ => null,
+        });
+
+        Assert.Equal("https://portal.example.test/oauth/mcp/google_calendar/callback", options.RedirectUriFor(GoogleCalendarOptions.Provider));
+        Assert.Equal("https://portal.example.test/oauth/mcp/google_drive/callback", options.RedirectUriFor(GoogleDriveOptions.Provider));
+        Assert.Equal(options.RedirectUri, options.RedirectUriFor(GoogleCalendarOptions.Provider));
+    }
+
 }
