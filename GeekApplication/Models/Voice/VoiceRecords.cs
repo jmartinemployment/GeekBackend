@@ -46,6 +46,17 @@ public static class VoiceTransferModes
     public static readonly IReadOnlyList<string> All = [WarmTransfer, ColdTransfer, VoicemailOnly];
 }
 
+/// <summary>
+/// How a caller is told, and asked, before the AI engages (plans/client-and-app-plan.md, "Upfront consent gate (Two-Mode Tenant
+/// Setting)"). Passive disclosure is the plan's default; strict keypress is the option for an owner who prefers active opt-in.
+/// </summary>
+public static class VoiceConsentModes
+{
+    public const string PassiveDisclosure = "passive_disclosure";
+    public const string StrictKeypress = "strict_keypress";
+    public static readonly IReadOnlyList<string> All = [PassiveDisclosure, StrictKeypress];
+}
+
 public static class VoiceTransferCallerIdModes
 {
     public const string OriginalCaller = "original_caller";
@@ -173,7 +184,8 @@ public sealed record VoiceReceptionistConfig(
     string? MessageDestinationEmail = null,
     bool IncludeTranscript = false,
     bool NotifyOnAbandonedCalls = false,
-    bool BookingEnabled = false);
+    bool BookingEnabled = false,
+    string ConsentMode = VoiceConsentModes.PassiveDisclosure);
 
 public sealed record VoiceMcpConnection(
     Guid TenantId,

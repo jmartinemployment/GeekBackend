@@ -150,17 +150,14 @@ public class VoiceWebhookTests
     }
 
     [Fact]
-    public async Task Unanswered_call_is_asked_for_consent_then_hears_a_closing_message_with_no_recording_and_no_text()
+    public async Task Unanswered_call_hears_the_disclosure_and_is_handed_to_the_ai_with_no_recording_and_no_text()
     {
-        using var app = new App();
+        using var app = new App(model: new FakeReceptionistModel());
         var (_, xml) = await app.PostTwilio("/voice/dial-complete", Call(dialStatus: "no-answer"));
 
-        Assert.Contains("<Gather", xml);
-        Assert.Contains($"{Settings.Base}/api/receptionist/twilio/voice/consent-result", xml);
-        Assert.True(xml.IndexOf("<Gather", StringComparison.Ordinal) < xml.IndexOf("We can", StringComparison.Ordinal));
-
-        Assert.Contains("Thank you for calling Dag Plumbing. We can&apos;t take your call right now.", xml.Replace("'", "&apos;"));
-        Assert.Contains("<Hangup", xml);
+        Assert.Contains("Calls are processed in real time and not recorded.", xml, StringComparison.Ordinal);
+        Assert.Contains("<ConversationRelay", xml);
+        Assert.DoesNotContain("<Gather", xml);
         Assert.DoesNotContain("<Record", xml);
         Assert.Empty(app.Sms.Sent);
     }

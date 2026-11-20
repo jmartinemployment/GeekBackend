@@ -117,7 +117,8 @@ public static partial class ReceptionistDefaults
         TransferTargetNumber: null,
         TransferCallerIdMode: VoiceTransferCallerIdModes.OriginalCaller,
         EmergencyKeywords: [],
-        RecordingDisclosureEnabled: true);
+        RecordingDisclosureEnabled: true,
+        ConsentMode: VoiceConsentModes.PassiveDisclosure);
 
     /// <summary>The tokens a template names, so a test can prove each one is a value the signup supplies.</summary>
     internal static IReadOnlyList<string> TokensIn(string template) =>

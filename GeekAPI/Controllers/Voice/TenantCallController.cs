@@ -93,8 +93,18 @@ public sealed class TenantCallController : ControllerBase
             return Twiml(ReceptionistEndpoints.Unanswered(tenant.Value!.BusinessName));
         }
 
-        _logger.LogInformation("Tenant {TenantId}: call {CallSid} may be answered; it is asked for consent.", tenantId, callSid);
-        return Twiml(ReceptionistConsent.Ask(tenant.Value!.BusinessName, new Uri(_twilio.PublicBaseUrl + ConsentResultPath(tenantId))));
+        var settings = await _store.GetConfigAsync(tenantId, ct).ConfigureAwait(false);
+        if (!settings.IsSuccess) return Failed(tenantId, "its receptionist settings", settings.Error, settings.ErrorCode);
+
+        if (settings.Value!.ConsentMode == VoiceConsentModes.StrictKeypress)
+        {
+            _logger.LogInformation("Tenant {TenantId}: call {CallSid} may be answered; it is asked for consent.", tenantId, callSid);
+            return Twiml(ReceptionistConsent.Ask(tenant.Value!.BusinessName, new Uri(_twilio.PublicBaseUrl + ConsentResultPath(tenantId))));
+        }
+
+        // Passive disclosure, the plan's default: the caller is told as the call connects and is not asked to press anything.
+        _logger.LogInformation("Tenant {TenantId}: call {CallSid} may be answered; it hears the disclosure and is handed to the AI.", tenantId, callSid);
+        return HandToAi(tenantId, tenant.Value!, settings.Value, callSid, ReceptionistConsent.DisclosureText(tenant.Value!.BusinessName), form);
     }
 
     [HttpPost("consent-result")]
@@ -134,23 +144,35 @@ public sealed class TenantCallController : ControllerBase
 
         var config = await _store.GetConfigAsync(tenantId, ct).ConfigureAwait(false);
         if (!config.IsSuccess) return Failed(tenantId, "its receptionist settings", config.Error, config.ErrorCode);
-        var prompt = ReceptionistConsent.SystemPrompt(config.Value!);
+
+        _logger.LogInformation("Tenant {TenantId}: call {CallSid} consented; it is handed to the AI.", tenantId, callSid);
+        return HandToAi(tenantId, tenant.Value!, config.Value!, callSid, config.Value!.GreetingMessage, form);
+    }
+
+    /// <summary>
+    /// Hands the call to ConversationRelay, speaking <paramref name="spokenGreeting"/> as it connects: the plan's disclosure in passive
+    /// mode, the business's own greeting after a keypress in strict mode. The prompt is told which of the two the caller actually heard,
+    /// so the AI does not greet a second time. Settings that cannot be used are the closing message, never a call answered wrongly.
+    /// </summary>
+    private IActionResult HandToAi(
+        Guid tenantId, VoiceTenant tenant, VoiceReceptionistConfig config, string? callSid, string spokenGreeting,
+        IReadOnlyDictionary<string, string> form)
+    {
+        var prompt = ReceptionistConsent.SystemPrompt(config, spokenGreeting);
         if (!prompt.IsSuccess)
         {
-            _logger.LogError("Tenant {TenantId}: call {CallSid} consented, and its receptionist settings cannot be used ({Error}); it hears the closing message.",
+            _logger.LogError("Tenant {TenantId}: call {CallSid} cannot be answered, its receptionist settings cannot be used ({Error}); it hears the closing message.",
                 tenantId, callSid, prompt.Error);
-            return closing;
+            return Twiml(ReceptionistEndpoints.Unanswered(tenant.BusinessName));
         }
 
         form.TryGetValue("From", out var callerNumber);
-        var request = config.Value!.MessageEmailEnabled && !string.IsNullOrWhiteSpace(config.Value.MessageDestinationEmail)
+        var request = config.MessageEmailEnabled && !string.IsNullOrWhiteSpace(config.MessageDestinationEmail)
             ? new CallSummaryRequest(
-                config.Value.MessageDestinationEmail, tenant.Value!.BusinessName, callerNumber,
-                config.Value.IncludeTranscript, config.Value.NotifyOnAbandonedCalls)
+                config.MessageDestinationEmail, tenant.BusinessName, callerNumber, config.IncludeTranscript, config.NotifyOnAbandonedCalls)
             : null;
-        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.Value.BookingEnabled);
-        _logger.LogInformation("Tenant {TenantId}: call {CallSid} consented; it is handed to the AI.", tenantId, callSid);
-        return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), config.Value!.GreetingMessage));
+        var ticket = _tickets.Issue(tenantId.ToString(), prompt.Value!, request, config.BookingEnabled);
+        return Twiml(ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(_twilio.PublicBaseUrl!, RelayPath(tenantId), ticket), spokenGreeting));
     }
 
     [HttpGet("relay")]

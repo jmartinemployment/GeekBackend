@@ -60,10 +60,13 @@ public sealed class TenantCallTests
         public Task<Result<VoiceTenant>> ActivateTenantAsync(Guid tenantId, ActivateVoiceTenantCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public int ConfigReads { get; private set; }
 
+        public string ConsentMode { get; set; } = VoiceConsentModes.PassiveDisclosure;
+
         public Task<Result<VoiceReceptionistConfig>> GetConfigAsync(Guid tenantId, CancellationToken ct = default)
         {
             ConfigReads++;
-            return Task.FromResult(Result<VoiceReceptionistConfig>.Success(ReceptionistDefaults.ConfigFor(ReceptionistDefaults.ScriptFor(Business, "FL", "HVAC").Value!)));
+            var config = ReceptionistDefaults.ConfigFor(ReceptionistDefaults.ScriptFor(Business, "FL", "HVAC").Value!);
+            return Task.FromResult(Result<VoiceReceptionistConfig>.Success(config with { ConsentMode = ConsentMode }));
         }
 
         public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig config, CancellationToken ct = default) => throw new NotSupportedException();
@@ -289,9 +292,11 @@ public sealed class TenantCallTests
     // ----- Routes -----
 
     private static async Task<(int Status, string Body, FakeVoice Store, FakeBilling Billing)> Post(
-        string route, Dictionary<string, string> form, string? token = SubToken, VoiceBillingStanding? standing = null, FakeReceptionistModel? model = null)
+        string route, Dictionary<string, string> form, string? token = SubToken, VoiceBillingStanding? standing = null, FakeReceptionistModel? model = null,
+        Action<FakeVoice>? configure = null)
     {
         var store = new FakeVoice();
+        configure?.Invoke(store);
         var billing = new FakeBilling(standing ?? Standing(VoiceTenantStatuses.Active));
         var controller = new TenantCallController(
             Webhook(store),
@@ -340,9 +345,24 @@ public sealed class TenantCallTests
     };
 
     [Fact]
-    public async Task A_call_the_standing_allows_is_asked_for_consent_and_without_a_key_hears_the_closing_message()
+    public async Task A_call_the_standing_allows_hears_the_disclosure_and_is_handed_to_the_ai_without_being_asked_to_press_anything()
     {
-        var (status, body, _, billing) = await Post("voice", Ringing());
+        // The plan's default mode: the caller is told as the call connects, and is not interrupted.
+        var (status, body, _, billing) = await Post("voice", Ringing(), model: new FakeReceptionistModel());
+
+        Assert.Equal(200, status);
+        Assert.Contains(ReceptionistConsent.DisclosureText(Business), body);
+        Assert.Contains("<ConversationRelay", body);
+        Assert.DoesNotContain("<Gather", body);
+        Assert.DoesNotContain("<Record", body);
+        Assert.DoesNotContain("<Dial", body);
+        Assert.Equal(1, billing.StandingReads);
+    }
+
+    [Fact]
+    public async Task A_business_in_strict_mode_is_still_asked_for_a_key_and_without_one_hears_the_closing_message()
+    {
+        var (status, body, _, _) = await Post("voice", Ringing(), configure: store => store.ConsentMode = VoiceConsentModes.StrictKeypress);
 
         Assert.Equal(200, status);
         Assert.Contains(ReceptionistConsent.ConsentText(Business), body);
@@ -351,8 +371,6 @@ public sealed class TenantCallTests
         Assert.Contains(ReceptionistEndpoints.UnansweredText(Business), body);
         Assert.Contains("<Hangup", body);
         Assert.DoesNotContain("<Record", body);
-        Assert.DoesNotContain("<Dial", body);
-        Assert.Equal(1, billing.StandingReads);
     }
 
     [Theory]

@@ -74,16 +74,41 @@ public sealed class ConsentAndRelayTests
     // ----- Consent TwiML -----
 
     [Fact]
-    public async Task The_consent_step_says_the_approved_wording_and_gathers_one_key_and_no_speech()
+    public async Task A_forwarded_call_hears_the_disclosure_and_is_handed_to_the_ai_without_a_key()
     {
-        using var app = new App(new() { ["CALL_MODE"] = "Forwarded" });
+        // The plan's default mode, which the company line takes like any other business.
+        using var app = new App(new() { ["CALL_MODE"] = "Forwarded" }, model: new FakeReceptionistModel());
         var (status, xml) = await app.PostTwilio("/voice/incoming", Pressed(null));
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Contains(Consent, xml);
+        Assert.Contains("Calls are processed in real time and not recorded.", xml, StringComparison.Ordinal);
+        Assert.Contains("AI assistant", xml, StringComparison.Ordinal);
+        Assert.Contains("<ConversationRelay", xml);
+        Assert.DoesNotContain("<Gather", xml);
+        Assert.DoesNotContain("speech", xml);
+        Assert.DoesNotContain("<Record", xml);
+    }
+
+    [Fact]
+    public async Task A_forwarded_call_hears_the_closing_message_when_the_ai_is_not_configured_rather_than_a_disclosure()
+    {
+        // Nothing is disclosed and no call is connected when there is no AI to connect it to.
+        using var app = new App(new() { ["CALL_MODE"] = "Forwarded" });
+        var (_, xml) = await app.PostTwilio("/voice/incoming", Pressed(null));
+
+        Assert.DoesNotContain("Calls are processed in real time", xml, StringComparison.Ordinal);
+        Assert.DoesNotContain("<ConversationRelay", xml);
+        Assert.Contains("<Hangup", xml);
+    }
+
+    [Fact]
+    public void Strict_mode_still_asks_for_a_key_with_the_approved_wording_and_takes_no_speech()
+    {
+        var xml = ReceptionistConsent.Ask("Dag Plumbing", new Uri("https://example.test/voice/consent-result")).ToString();
+
+        Assert.Contains(Consent, xml.Replace("&apos;", "'"), StringComparison.Ordinal);
         Assert.Matches("<Gather[^>]*input=\"dtmf\"", xml);
         Assert.Matches("<Gather[^>]*numDigits=\"1\"", xml);
-        Assert.Contains($"action=\"{Settings.Base}/api/receptionist/twilio/voice/consent-result\"", xml);
         Assert.DoesNotContain("speech", xml);
         Assert.DoesNotContain("<Record", xml);
         // No key: the closing message after the Gather, then a hang-up.

@@ -1,5 +1,6 @@
 using GeekAPI.Services.Receptionist.Relay;
 using GeekApplication.Interfaces.Receptionist;
+using GeekApplication.Models.Voice;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Twilio.Security;
 using Twilio.Clients;
@@ -87,14 +88,14 @@ public static class ReceptionistEndpoints
         var voice = app.MapGroup(RoutePrefix + "/voice").AddEndpointFilter<TwilioSignatureFilter>();
 
         // 1. A call arrives at the Twilio number.
-        voice.MapPost("/incoming", async (HttpRequest req, MissedCallService missed, CancellationToken ct) =>
+        voice.MapPost("/incoming", async (HttpRequest req, MissedCallService missed, IReceptionistModel model, RelayTickets tickets, CancellationToken ct) =>
         {
             var form = await req.ReadFormAsync(ct);
             var callSid = form["CallSid"].ToString();
 
             if (o.Mode == CallMode.Forwarded)
-                // The client's own line already rang and went unanswered before forwarding here: the caller is asked to consent to the AI.
-                return Twiml(ReceptionistConsent.Ask(o.CompanyName, Url(o, "/voice/consent-result")));
+                // The client's own line already rang and went unanswered before forwarding here: the caller meets the consent gate.
+                return Twiml(CompanyConsent(o, model, tickets, log, callSid));
 
             var response = new VoiceResponse();
             var dial = new Dial(
@@ -133,7 +134,7 @@ public static class ReceptionistEndpoints
         });
 
         // 4. The <Dial> to the owner finished. Decide whether the call was missed.
-        voice.MapPost("/dial-complete", async (HttpRequest req, MissedCallService missed, CancellationToken ct) =>
+        voice.MapPost("/dial-complete", async (HttpRequest req, MissedCallService missed, IReceptionistModel model, RelayTickets tickets, CancellationToken ct) =>
         {
             var form = await req.ReadFormAsync(ct);
             var callSid = form["CallSid"].ToString();
@@ -152,11 +153,11 @@ public static class ReceptionistEndpoints
                 return Twiml(done);
             }
 
-            return Twiml(ReceptionistConsent.Ask(o.CompanyName, Url(o, "/voice/consent-result")));
+            return Twiml(CompanyConsent(o, model, tickets, log, callSid));
         });
 
-        // 4a. The caller pressed a key at the consent step. Only a 1, with the AI configured, is handed to ConversationRelay; a 2, any
-        // other key, or an AI that is not configured hears the closing message. The key is not recorded.
+        // 4a. The caller pressed a key at the consent step, in strict keypress mode. Only a 1, with the AI configured, is handed to
+        // ConversationRelay; a 2, any other key, or an AI that is not configured hears the closing message. The key is not recorded.
         voice.MapPost("/consent-result", async (HttpRequest req, IReceptionistModel model, RelayTickets tickets, CancellationToken ct) =>
         {
             var form = await req.ReadFormAsync(ct);
@@ -255,6 +256,43 @@ public static class ReceptionistEndpoints
         var signature = request.Headers["X-Twilio-Signature"].ToString();
         if (string.IsNullOrEmpty(signature)) return false;
         return new RequestValidator(authToken).Validate(HandshakeUrl(request, publicBaseUrl), new Dictionary<string, string>(), signature);
+    }
+
+    /// <summary>
+    /// The company line's consent gate, in whichever mode its settings name. Passive disclosure, the plan's default, speaks the
+    /// disclosure as ConversationRelay connects and asks for no key; strict keypress asks as before. Anything that cannot be built is
+    /// the closing message, never a call answered wrongly.
+    /// </summary>
+    private static VoiceResponse CompanyConsent(
+        ReceptionistOptions o, IReceptionistModel model, RelayTickets tickets, ILogger log, string callSid)
+    {
+        var config = ReceptionistConsent.CompanyConfig(o.CompanyName);
+        if (!config.IsSuccess)
+        {
+            log.LogError("Call {CallSid} could not be answered, the company line's settings could not be built; it hears the closing message.", callSid);
+            return Unanswered(o.CompanyName);
+        }
+
+        if (config.Value!.ConsentMode == VoiceConsentModes.StrictKeypress)
+            return ReceptionistConsent.Ask(o.CompanyName, Url(o, "/voice/consent-result"));
+
+        if (!model.IsConfigured)
+        {
+            log.LogWarning("Call {CallSid} reached the AI step, and the AI is not configured; it hears the closing message.", callSid);
+            return Unanswered(o.CompanyName);
+        }
+
+        var disclosure = ReceptionistConsent.DisclosureText(o.CompanyName);
+        var prompt = ReceptionistConsent.SystemPrompt(config.Value, disclosure);
+        if (!prompt.IsSuccess)
+        {
+            log.LogError("Call {CallSid} could not be answered, the company line's prompt could not be built; it hears the closing message.", callSid);
+            return Unanswered(o.CompanyName);
+        }
+
+        var ticket = tickets.Issue(RelayTickets.CompanyLine, prompt.Value!);
+        log.LogInformation("Call {CallSid} hears the disclosure and is handed to the AI.", callSid);
+        return ReceptionistConsent.Connect(ReceptionistConsent.RelayUrl(o.PublicBaseUrl, RelayPath, ticket), disclosure);
     }
 
     internal static string HandshakeUrl(HttpRequest request, string publicBaseUrl) =>

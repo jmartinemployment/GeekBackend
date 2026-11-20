@@ -10,12 +10,24 @@ using HttpMethod = Twilio.Http.HttpMethod;
 namespace GeekAPI.Services.Receptionist.Relay;
 
 /// <summary>
-/// The keypad consent step every call to the AI passes through (Jeff, 2026-11-18), and the TwiML that hands a consenting caller to
-/// ConversationRelay. The consent TwiML records nothing and takes keys only: no Record, no speech input.
+/// The consent gate every call to the AI passes through, in the plan's two modes (plans/client-and-app-plan.md, "Upfront consent gate
+/// (Two-Mode Tenant Setting)"), and the TwiML that hands the caller to ConversationRelay.
+///
+/// Passive disclosure is the plan's default: <see cref="DisclosureText"/> is spoken by ConversationRelay as the call connects, before
+/// the AI engages, and the call is not interrupted. Strict keypress is the option for an owner who prefers active opt-in, and is
+/// <see cref="ConsentText"/> with a key. Either way nothing is recorded: the consent TwiML takes keys only, no Record and no speech
+/// input, and the plan notes the final wording is subject to Florida counsel's review under Fla. Stat. 934.03.
 /// </summary>
 public static class ReceptionistConsent
 {
     public const string ConsentDigit = "1";
+
+    /// <summary>
+    /// The plan's passive disclosure, word for word, with the business name. It ends by asking what the caller wants, so it is both the
+    /// disclosure and the greeting: ConversationRelay speaks it and the AI takes the call from there without greeting twice.
+    /// </summary>
+    public static string DisclosureText(string business) =>
+        $"Hi, you've reached {business}'s AI assistant. Calls are processed in real time and not recorded. How can I help you today?";
 
     /// <summary>Jeff's approved wording, word for word, with the business name.</summary>
     public static string ConsentText(string business) =>
@@ -64,13 +76,16 @@ public static class ReceptionistConsent
     /// The system prompt a call is answered with: the stored prompt, the greeting the caller has already heard, and the qualifying
     /// questions when there are any. A shape of qualifying questions this code does not read is a failure, not skipped.
     /// </summary>
-    public static Result<string> SystemPrompt(VoiceReceptionistConfig config)
+    public static Result<string> SystemPrompt(VoiceReceptionistConfig config, string? spokenGreeting = null)
     {
         if (string.IsNullOrWhiteSpace(config.SystemPromptTemplate) || string.IsNullOrWhiteSpace(config.GreetingMessage))
             return Result<string>.Failure("The receptionist has no prompt or greeting.", VoiceFailureCodes.InvalidRequest);
 
+        // What the caller actually heard, which in passive disclosure is the disclosure and not the stored greeting.
+        var greeting = string.IsNullOrWhiteSpace(spokenGreeting) ? config.GreetingMessage : spokenGreeting;
+
         var prompt = new StringBuilder(config.SystemPromptTemplate.Trim());
-        prompt.Append("\n\nThe caller has already heard this greeting: ").Append(config.GreetingMessage.Trim());
+        prompt.Append("\n\nThe caller has already heard this greeting: ").Append(greeting.Trim());
 
         var questions = config.QualifyingQuestions;
         if (questions.ValueKind == JsonValueKind.Array && questions.GetArrayLength() == 0)

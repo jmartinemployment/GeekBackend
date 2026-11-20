@@ -37,7 +37,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         recording_disclosure_enabled AS RecordingDisclosureEnabled,
         message_email_enabled AS MessageEmailEnabled, message_destination_email AS MessageDestinationEmail,
         include_transcript AS IncludeTranscript, notify_on_abandoned_calls AS NotifyOnAbandonedCalls,
-        booking_enabled AS BookingEnabled
+        booking_enabled AS BookingEnabled, consent_mode AS ConsentMode
         """;
 
     [GeneratedRegex(@"^\+[1-9]\d{6,14}$")]
@@ -327,11 +327,11 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 INSERT INTO geek_voice.receptionist_configs (
                     tenant_id, greeting_message, system_prompt_template, business_hours_json, qualifying_questions_json,
                     transfer_mode, transfer_target_number, transfer_caller_id_mode, emergency_keywords, recording_disclosure_enabled,
-                    message_email_enabled, message_destination_email, include_transcript, notify_on_abandoned_calls, booking_enabled)
+                    message_email_enabled, message_destination_email, include_transcript, notify_on_abandoned_calls, booking_enabled, consent_mode)
                 VALUES (
                     @TenantId, @GreetingMessage, @SystemPromptTemplate, @BusinessHours::jsonb, @QualifyingQuestions::jsonb,
                     @TransferMode, @TransferTargetNumber, @TransferCallerIdMode, ARRAY(SELECT jsonb_array_elements_text(@EmergencyKeywords::jsonb)), @RecordingDisclosureEnabled,
-                    @MessageEmailEnabled, @MessageDestinationEmail, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled)
+                    @MessageEmailEnabled, @MessageDestinationEmail, @IncludeTranscript, @NotifyOnAbandonedCalls, @BookingEnabled, @ConsentMode)
                 ON CONFLICT (tenant_id) DO UPDATE SET
                     greeting_message = EXCLUDED.greeting_message,
                     system_prompt_template = EXCLUDED.system_prompt_template,
@@ -347,6 +347,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     include_transcript = EXCLUDED.include_transcript,
                     notify_on_abandoned_calls = EXCLUDED.notify_on_abandoned_calls,
                     booking_enabled = EXCLUDED.booking_enabled,
+                    consent_mode = EXCLUDED.consent_mode,
                     updated_at = NOW()
                 RETURNING {ConfigColumns};
                 """,
@@ -368,6 +369,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     config.IncludeTranscript,
                     config.NotifyOnAbandonedCalls,
                     config.BookingEnabled,
+                    config.ConsentMode,
                 },
                 cancellationToken: ct));
             return Result<VoiceReceptionistConfig>.Success(row.ToModel());
@@ -675,6 +677,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         if (c.TransferTargetNumber is not null && !E164().IsMatch(c.TransferTargetNumber)) return "The transfer number must be in E.164 form.";
         if (c.EmergencyKeywords is null || c.EmergencyKeywords.Any(Blank)) return "Emergency keywords cannot be blank.";
         if (c.MessageEmailEnabled && !IsEmailAddress(c.MessageDestinationEmail)) return "Message email needs a valid destination email address.";
+        if (!VoiceConsentModes.All.Contains(c.ConsentMode, StringComparer.Ordinal)) return $"The consent mode must be one of: {string.Join(", ", VoiceConsentModes.All)}.";
         return null;
     }
 
@@ -814,12 +817,13 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         public bool IncludeTranscript { get; set; }
         public bool NotifyOnAbandonedCalls { get; set; }
         public bool BookingEnabled { get; set; }
+        public string ConsentMode { get; set; } = VoiceConsentModes.PassiveDisclosure;
 
         public VoiceReceptionistConfig ToModel() => new(
             GreetingMessage, SystemPromptTemplate, ParseJson(BusinessHours),
             ParseJson(QualifyingQuestions), TransferMode, TransferTargetNumber, TransferCallerIdMode,
             EmergencyKeywords, RecordingDisclosureEnabled,
-            MessageEmailEnabled, MessageDestinationEmail, IncludeTranscript, NotifyOnAbandonedCalls, BookingEnabled);
+            MessageEmailEnabled, MessageDestinationEmail, IncludeTranscript, NotifyOnAbandonedCalls, BookingEnabled, ConsentMode);
     }
 
     private sealed class McpRow
