@@ -68,6 +68,7 @@ public sealed class VoiceRepositoryValidationTests
         { "no business address", () => AttestationFixture.Good(Now) with { BusinessAddressEncrypted = "" } },
         { "no declarant address", () => AttestationFixture.Good(Now) with { DeclarantAddressEncrypted = " " } },
         { "no declarant telephone", () => AttestationFixture.Good(Now) with { DeclarantPhoneEncrypted = "" } },
+        { "no declarant email", () => AttestationFixture.Good(Now) with { DeclarantEmailEncrypted = "" } },
         { "no declaration words", () => AttestationFixture.Good(Now) with { DeclarationStatement = "" } },
         { "no terms words", () => AttestationFixture.Good(Now) with { TermsStatement = " " } },
         { "no visitor address", () => AttestationFixture.Good(Now) with { IpAddress = "" } },

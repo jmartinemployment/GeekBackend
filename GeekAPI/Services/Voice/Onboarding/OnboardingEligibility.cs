@@ -18,6 +18,7 @@ public static class OnboardingFailureCodes
     public const string BusinessAddressRequired = "business_address_required";
     public const string DeclarantAddressRequired = "declarant_address_required";
     public const string DeclarantPhoneNotUs = "declarant_phone_not_us";
+    public const string DeclarantEmailInvalid = "declarant_email_invalid";
     public const string DeclarationRequired = "declaration_required";
     public const string TermsRequired = "terms_required";
     public const string VisitorUnverified = "visitor_unverified";
@@ -46,7 +47,8 @@ public sealed record ValidateEligibilityRequest(
     string? TermsStatement = null,
     bool? TermsAgreed = null,
     string? DeclarantAddress = null,
-    string? DeclarantPhone = null);
+    string? DeclarantPhone = null,
+    string? DeclarantEmail = null);
 
 /// <summary>
 /// The two statements a person agrees to at the end of the signup declaration, word for word (plans/attestation-and-terms.md, stages 2
@@ -138,6 +140,10 @@ public sealed class OnboardingEligibility(
         if (declarantPhone is null)
             return Refused(OnboardingFailureCodes.DeclarantPhoneNotUs, "Enter the declarant's US telephone number, ten digits, such as (561) 555-0101.");
 
+        var declarantEmail = request.DeclarantEmail?.Trim();
+        if (!VoicePersonalDetails.IsEmailAddress(declarantEmail))
+            return Refused(OnboardingFailureCodes.DeclarantEmailInvalid, "Enter the email address of the person making this declaration.");
+
         if (request.DeclarationAgreed != true || !string.Equals(request.DeclarationStatement, SignupStatements.Declaration, StringComparison.Ordinal))
             return Refused(OnboardingFailureCodes.DeclarationRequired, "The declaration must be agreed to, in the words shown.");
 
@@ -181,6 +187,11 @@ public sealed class OnboardingEligibility(
         if (!sealedDeclarantPhone.IsSuccess)
             return Result<EligibilityAccepted>.Failure(sealedDeclarantPhone.Error!, sealedDeclarantPhone.ErrorCode!);
 
+        var sealedDeclarantEmail = VoicePersonalDetails.SealEmail(
+            protector, declarantEmail, VoiceSecretPurposes.SignupDeclarantEmail, "Enter the declarant's email address.");
+        if (!sealedDeclarantEmail.IsSuccess)
+            return Result<EligibilityAccepted>.Failure(sealedDeclarantEmail.Error!, sealedDeclarantEmail.ErrorCode!);
+
         var created = await voice.CreateTenantAsync(new CreateVoiceTenantCommand(
             request.BusinessName ?? string.Empty,
             request.BusinessDescription.Trim(),
@@ -192,7 +203,7 @@ public sealed class OnboardingEligibility(
         {
             IndustryAnswers = answerSet,
             Attestation = new VoiceSignupAttestation(
-                sealedName.Value!, sealedTitle.Value!, sealedAddress.Value!, sealedDeclarantAddress.Value!, sealedDeclarantPhone.Value!,
+                sealedName.Value!, sealedTitle.Value!, sealedAddress.Value!, sealedDeclarantAddress.Value!, sealedDeclarantPhone.Value!, sealedDeclarantEmail.Value!,
                 SignupStatements.Declaration, SignupStatements.Terms, now, visitor.IpAddress, visitor.CountryCode),
         }, ct).ConfigureAwait(false);
 

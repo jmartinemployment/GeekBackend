@@ -43,6 +43,7 @@ public static class VoiceSecretPurposes
     public const string SignupBusinessAddress = "geek-voice/signup-business-address";
     public const string SignupDeclarantAddress = "geek-voice/signup-declarant-address";
     public const string SignupDeclarantPhone = "geek-voice/signup-declarant-phone";
+    public const string SignupDeclarantEmail = "geek-voice/signup-declarant-email";
 }
 
 /// <summary>

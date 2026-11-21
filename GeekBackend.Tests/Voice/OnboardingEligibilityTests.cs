@@ -57,7 +57,7 @@ public sealed class OnboardingEligibilityTests
         new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, Answers(yesTo),
             "Pat Rivera", "Owner", "12 Palm Way, Boca Raton, FL 33432",
             SignupStatements.Declaration, true, SignupStatements.Terms, true,
-            "9 Ocean Blvd, Delray Beach, FL 33444", "(561) 555-0199");
+            "9 Ocean Blvd, Delray Beach, FL 33444", "(561) 555-0199", "pat@example.test");
 
     /// <summary>The eight questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
     private static List<IndustryAnswerInput> Answers(string? yesTo = null) =>
@@ -338,6 +338,8 @@ public sealed class OnboardingEligibilityTests
         Assert.Equal("12 Palm Way, Boca Raton, FL 33432", Protector.Unprotect(kept.BusinessAddressEncrypted, VoiceSecretPurposes.SignupBusinessAddress).Value);
         Assert.Equal("9 Ocean Blvd, Delray Beach, FL 33444", Protector.Unprotect(kept.DeclarantAddressEncrypted, VoiceSecretPurposes.SignupDeclarantAddress).Value);
         Assert.Equal("+15615550199", Protector.Unprotect(kept.DeclarantPhoneEncrypted, VoiceSecretPurposes.SignupDeclarantPhone).Value);
+        Assert.Equal("pat@example.test", Protector.Unprotect(kept.DeclarantEmailEncrypted, VoiceSecretPurposes.SignupDeclarantEmail).Value);
+        Assert.DoesNotContain("pat@example.test", kept.DeclarantEmailEncrypted);
         Assert.DoesNotContain("Pat Rivera", kept.AttestorNameEncrypted);
         Assert.DoesNotContain("5615550199", kept.DeclarantPhoneEncrypted);
         Assert.Equal(SignupStatements.Declaration, kept.DeclarationStatement);
@@ -414,6 +416,21 @@ public sealed class OnboardingEligibilityTests
         var result = await Gate(store).ValidateAsync(Signup() with { DeclarantPhone = phone }, FromUs);
 
         Assert.Equal(OnboardingFailureCodes.DeclarantPhoneNotUs, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("no-at-sign")]
+    [InlineData("Pat <pat@example.test>")]
+    public async Task A_signup_whose_declarant_email_is_not_an_address_is_refused_and_creates_nothing(string? email)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { DeclarantEmail = email }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.DeclarantEmailInvalid, result.ErrorCode);
         Assert.Empty(store.Created);
     }
 
@@ -495,6 +512,7 @@ public sealed class OnboardingEligibilityTests
     [InlineData(OnboardingFailureCodes.BusinessAddressRequired, 400)]
     [InlineData(OnboardingFailureCodes.DeclarantAddressRequired, 400)]
     [InlineData(OnboardingFailureCodes.DeclarantPhoneNotUs, 400)]
+    [InlineData(OnboardingFailureCodes.DeclarantEmailInvalid, 400)]
     [InlineData(OnboardingFailureCodes.DeclarationRequired, 400)]
     [InlineData(OnboardingFailureCodes.TermsRequired, 400)]
     [InlineData(OnboardingFailureCodes.VisitorUnverified, 400)]

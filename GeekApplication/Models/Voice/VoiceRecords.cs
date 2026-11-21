@@ -208,7 +208,7 @@ public sealed record CreateVoiceTenantCommand(
 /// The declaration a named person made before a tenant existed (plans/attestation-and-terms.md, stages 2 and 3): that they are authorised
 /// to answer for the business and that the answers are true, and that they accept the Terms. It is a record of agreement, so it exists
 /// only for a person who agreed; a No creates no tenant and so no attestation. The name, title and address are ciphertext GeekAPI sealed
-/// (<c>VoiceSecretPurposes</c> <c>SignupAttestorName</c> / <c>SignupAttestorTitle</c> / <c>SignupBusinessAddress</c> / <c>SignupDeclarantAddress</c> / <c>SignupDeclarantPhone</c>); the two statements are
+/// (<c>VoiceSecretPurposes</c> <c>SignupAttestorName</c> / <c>SignupAttestorTitle</c> / <c>SignupBusinessAddress</c> / <c>SignupDeclarantAddress</c> / <c>SignupDeclarantPhone</c> / <c>SignupDeclarantEmail</c>); the two statements are
 /// the exact words the person was shown.
 /// </summary>
 public sealed record VoiceSignupAttestation(
@@ -217,6 +217,7 @@ public sealed record VoiceSignupAttestation(
     string BusinessAddressEncrypted,
     string DeclarantAddressEncrypted,
     string DeclarantPhoneEncrypted,
+    string DeclarantEmailEncrypted,
     string DeclarationStatement,
     string TermsStatement,
     DateTimeOffset AttestedAt,
