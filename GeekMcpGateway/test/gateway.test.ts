@@ -41,7 +41,7 @@ describe("gateway", () => {
     logs = [];
     onCall = () => ({ isError: false, content: [], structuredContent: null });
     onList = () => [];
-    server = createServer(createHandler({ config: { port: 0, apiKey: ApiKey }, mcp, log: (line) => logs.push(line) }));
+    server = createServer(createHandler({ config: { port: 0, apiKey: ApiKey }, mcp: () => mcp, log: (line) => logs.push(line) }));
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
@@ -302,7 +302,7 @@ describe("gateway", () => {
   it("gives up on a body that never finishes arriving: the connection is closed within the deadline and the log says 408", async () => {
     reset();
     const slowLogs: LogLine[] = [];
-    const slow = createServer(createHandler({ config: { port: 0, apiKey: ApiKey }, mcp, log: (line) => slowLogs.push(line), bodyTimeoutMs: 200 }));
+    const slow = createServer(createHandler({ config: { port: 0, apiKey: ApiKey }, mcp: () => mcp, log: (line) => slowLogs.push(line), bodyTimeoutMs: 200 }));
     await new Promise<void>((resolve) => slow.listen(0, "127.0.0.1", resolve));
     const port = (slow.address() as AddressInfo).port;
     const net = await import("node:net");

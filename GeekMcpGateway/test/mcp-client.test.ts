@@ -7,6 +7,10 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { GatewayError } from "../src/errors.ts";
 import { createMcpCaller } from "../src/mcp.ts";
+import { GoogleCalendar, type Provider } from "../src/providers.ts";
+
+// The caller under test needs somewhere to connect and a name to put in a failure; the stub server below stands in for the vendor.
+const at = (mcpUrl: string): Provider => ({ ...GoogleCalendar, mcpUrl });
 
 // A real MCP server over HTTP, standing in for Google's, so the gateway's MCP client is exercised end to end:
 // initialize, the bearer header, tools/list, tools/call, tool errors, HTTP refusals and an unreachable server.
@@ -69,14 +73,14 @@ describe("MCP client", () => {
   it("lists the server's tools", async () => {
     httpStatus = null;
     behaviour = "normal";
-    const tools = await createMcpCaller(url).listTools(null);
+    const tools = await createMcpCaller(at(url)).listTools(null);
     assert.deepEqual(tools.map((t) => t.name), ["list_calendars"]);
   });
 
   it("calls a tool with the bearer token and the arguments, and returns the content", async () => {
     httpStatus = null;
     requests.length = 0;
-    const outcome = await createMcpCaller(url).callTool("tok-123", "list_calendars", { pageSize: 5 });
+    const outcome = await createMcpCaller(at(url)).callTool("tok-123", "list_calendars", { pageSize: 5 });
 
     assert.equal(outcome.isError, false);
     assert.deepEqual(outcome.structuredContent, { echoed: { pageSize: 5 } });
@@ -87,7 +91,7 @@ describe("MCP client", () => {
 
   it("reports a tool's own error as isError", async () => {
     httpStatus = null;
-    const outcome = await createMcpCaller(url).callTool("tok", "boom", {});
+    const outcome = await createMcpCaller(at(url)).callTool("tok", "boom", {});
     assert.equal(outcome.isError, true);
   });
 
@@ -101,7 +105,7 @@ describe("MCP client", () => {
   ] as const) {
     it(`turns an HTTP ${status} from the server into ${expectedStatus} ${code}`, async () => {
       httpStatus = status;
-      await assert.rejects(createMcpCaller(url).callTool("tok", "list_calendars", {}), (error: unknown) => {
+      await assert.rejects(createMcpCaller(at(url)).callTool("tok", "list_calendars", {}), (error: unknown) => {
         assert.ok(error instanceof GatewayError);
         assert.equal(error.status, expectedStatus);
         assert.equal(error.code, code);
@@ -114,7 +118,7 @@ describe("MCP client", () => {
     httpStatus = null;
     behaviour = "never_answers";
     const started = Date.now();
-    await assert.rejects(createMcpCaller(url, { timeoutMs: 300 }).callTool("tok", "list_calendars", {}), (error: unknown) => {
+    await assert.rejects(createMcpCaller(at(url), { timeoutMs: 300 }).callTool("tok", "list_calendars", {}), (error: unknown) => {
       assert.ok(error instanceof GatewayError);
       assert.equal(error.status, 502);
       assert.equal(error.code, "provider_unreachable");
@@ -127,7 +131,7 @@ describe("MCP client", () => {
   it("turns a protocol error for bad arguments into 400 provider_rejected", async () => {
     httpStatus = null;
     behaviour = "invalid_params";
-    await assert.rejects(createMcpCaller(url).callTool("tok", "list_calendars", {}), (error: unknown) => {
+    await assert.rejects(createMcpCaller(at(url)).callTool("tok", "list_calendars", {}), (error: unknown) => {
       assert.ok(error instanceof GatewayError);
       assert.equal(error.status, 400);
       assert.equal(error.code, "provider_rejected");
@@ -139,7 +143,7 @@ describe("MCP client", () => {
   it("turns a server without the tools capability into 400 provider_rejected, never an empty list", async () => {
     httpStatus = null;
     behaviour = "no_tools_capability";
-    await assert.rejects(createMcpCaller(url).listTools(null), (error: unknown) => {
+    await assert.rejects(createMcpCaller(at(url)).listTools(null), (error: unknown) => {
       assert.ok(error instanceof GatewayError);
       assert.equal(error.code, "provider_rejected");
       return true;
@@ -149,7 +153,7 @@ describe("MCP client", () => {
 
   it("turns an unreachable server into 502 provider_unreachable", async () => {
     httpStatus = null;
-    await assert.rejects(createMcpCaller("http://127.0.0.1:1/mcp").callTool("tok", "list_calendars", {}), (error: unknown) => {
+    await assert.rejects(createMcpCaller(at("http://127.0.0.1:1/mcp")).callTool("tok", "list_calendars", {}), (error: unknown) => {
       assert.ok(error instanceof GatewayError);
       assert.equal(error.status, 502);
       assert.equal(error.code, "provider_unreachable");

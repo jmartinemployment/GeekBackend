@@ -2,7 +2,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import type { GatewayConfig } from "./config.ts";
 import { GatewayError } from "./errors.ts";
-import { AllowedTools, type McpCaller } from "./mcp.ts";
+import type { McpCaller } from "./mcp.ts";
+import { allowedTools, type Provider } from "./providers.ts";
 import { parseToolCall, parseToolList } from "./validate.ts";
 
 const MaxBodyBytes = 64 * 1024;
@@ -21,7 +22,8 @@ export interface LogLine {
 
 export interface GatewayDependencies {
   readonly config: GatewayConfig;
-  readonly mcp: McpCaller;
+  /** One caller per provider: the endpoint and the name in a failure both come from that provider's entry. */
+  readonly mcp: (provider: Provider) => McpCaller;
   readonly log: (line: LogLine) => void;
   readonly bodyTimeoutMs?: number;
 }
@@ -72,7 +74,7 @@ function send(response: ServerResponse, status: number, payload: unknown): void 
   response.end(text);
 }
 
-// Stateless by design: every call carries the tenant's access token, which is used for that one Google call and is never stored,
+// Stateless by design: every call carries the tenant's access token, which is used for that one provider call and is never stored,
 // logged or returned. Nothing here retries; a failure is a status and a code.
 export function createHandler(deps: GatewayDependencies): RequestListener {
   return async (request, response) => {
@@ -96,19 +98,20 @@ export function createHandler(deps: GatewayDependencies): RequestListener {
       }
 
       if (method === "POST" && path === "/v1/mcp/tools") {
-        parseToolList(await readJson(request, deps.bodyTimeoutMs ?? DefaultBodyTimeoutMs));
-        const tools = (await deps.mcp.listTools(null)).filter((tool) => AllowedTools.includes(tool.name));
+        const provider = parseToolList(await readJson(request, deps.bodyTimeoutMs ?? DefaultBodyTimeoutMs));
+        const offered = allowedTools(provider);
+        const tools = (await deps.mcp(provider).listTools(null)).filter((tool) => offered.includes(tool.name));
         send(response, 200, { tools });
         return;
       }
 
       if (method === "POST" && path === "/v1/mcp/call") {
         const call = parseToolCall(await readJson(request, deps.bodyTimeoutMs ?? DefaultBodyTimeoutMs));
-        const outcome = await deps.mcp.callTool(call.accessToken, call.tool, call.args);
+        const outcome = await deps.mcp(call.provider).callTool(call.accessToken, call.tool, call.args);
         if (outcome.isError) {
           const text = toolErrorText(outcome.content);
           toolErrorChars = text.length;
-          if (ExpiredCredential.test(text)) throw new GatewayError(401, "token_rejected", "Google Calendar did not accept the access token; it has expired or been revoked.");
+          if (ExpiredCredential.test(text)) throw new GatewayError(401, "token_rejected", `${call.provider.displayName} did not accept the access token; it has expired or been revoked.`);
           status = 422;
           code = "tool_error";
           send(response, 422, { error: "The tool reported an error.", code: "tool_error", tool: call.tool, content: outcome.content });

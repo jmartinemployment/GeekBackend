@@ -1,11 +1,10 @@
 import { GatewayError } from "./errors.ts";
-import { AllowedTools, ForcedArguments, ToolArguments } from "./mcp.ts";
+import { allowedTools, providerCodes, providerFor, type Provider } from "./providers.ts";
 
-export const SupportedProvider = "google_calendar";
 const MaxArgumentBytes = 32 * 1024;
 const MaxSuggestAttendees = 5;
 // Printable ASCII only. Anything else (a newline, a space, a control character) cannot be in an Authorization header and would
-// otherwise surface later as a failure to reach Google.
+// otherwise surface later as a failure to reach the provider.
 const HeaderSafeToken = /^[\x21-\x7e]+$/;
 
 function invalid(message: string): GatewayError {
@@ -17,19 +16,25 @@ function asObject(body: unknown): Record<string, unknown> {
   return body as Record<string, unknown>;
 }
 
-function checkProvider(body: Record<string, unknown>): void {
-  const provider = body["provider"];
-  if (typeof provider !== "string" || provider.trim() === "") throw invalid("provider is required.");
-  if (provider !== SupportedProvider) {
-    throw new GatewayError(400, "provider_not_supported", `Only ${SupportedProvider} is supported so far.`);
+// The provider is resolved to its entry rather than compared with one name, so everything after this point - the MCP endpoint, the
+// tools, the arguments and the name in a failure - comes from the same place and cannot be mixed between vendors.
+function checkProvider(body: Record<string, unknown>): Provider {
+  const code = body["provider"];
+  if (typeof code !== "string" || code.trim() === "") throw invalid("provider is required.");
+
+  const provider = providerFor(code);
+  if (provider === null) {
+    throw new GatewayError(400, "provider_not_supported", `${code} is not supported; the supported providers are ${providerCodes().join(", ")}.`);
   }
+  return provider;
 }
 
-export function parseToolList(body: unknown): void {
-  checkProvider(asObject(body));
+export function parseToolList(body: unknown): Provider {
+  return checkProvider(asObject(body));
 }
 
 export interface ToolCall {
+  readonly provider: Provider;
   readonly accessToken: string;
   readonly tool: string;
   readonly args: Record<string, unknown>;
@@ -37,7 +42,7 @@ export interface ToolCall {
 
 export function parseToolCall(body: unknown): ToolCall {
   const input = asObject(body);
-  checkProvider(input);
+  const provider = checkProvider(input);
 
   const accessToken = input["accessToken"];
   if (typeof accessToken !== "string" || accessToken.trim() === "") throw invalid("accessToken is required.");
@@ -46,8 +51,10 @@ export function parseToolCall(body: unknown): ToolCall {
 
   const tool = input["tool"];
   if (typeof tool !== "string" || tool.trim() === "") throw invalid("tool is required.");
-  if (!AllowedTools.includes(tool)) {
-    throw new GatewayError(400, "tool_not_allowed", `The tool ${tool} is not offered; the offered tools are ${AllowedTools.join(", ")}.`);
+
+  const offered = allowedTools(provider);
+  if (!offered.includes(tool)) {
+    throw new GatewayError(400, "tool_not_allowed", `The tool ${tool} is not offered for ${provider.code}; the offered tools are ${offered.join(", ")}.`);
   }
 
   const rawArguments = input["arguments"] ?? {};
@@ -55,7 +62,7 @@ export function parseToolCall(body: unknown): ToolCall {
   if (JSON.stringify(rawArguments).length > MaxArgumentBytes) throw invalid(`arguments may not be larger than ${MaxArgumentBytes} characters.`);
 
   const args = rawArguments as Record<string, unknown>;
-  const permitted = ToolArguments[tool] ?? [];
+  const permitted = provider.toolArguments[tool] ?? [];
   for (const key of Object.keys(args)) {
     if (!permitted.includes(key)) {
       throw new GatewayError(
@@ -73,5 +80,5 @@ export function parseToolCall(body: unknown): ToolCall {
     }
   }
 
-  return { accessToken: accessToken.trim(), tool, args: { ...args, ...(ForcedArguments[tool] ?? {}) } };
+  return { provider, accessToken: accessToken.trim(), tool, args: { ...args, ...(provider.forcedArguments[tool] ?? {}) } };
 }
