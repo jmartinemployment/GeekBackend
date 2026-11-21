@@ -28,7 +28,7 @@ public sealed class VoiceIntegrationTests
     private static async Task<Guid> ActiveTenantAsync(VoiceRepository store)
     {
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+            "Boca Cool HVAC " + Unique()[..6], "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = AttestationFixture.Good(Now) });
         Assert.True(created.IsSuccess, created.Error);
         var id = created.Value!.Id;
 
@@ -47,7 +47,7 @@ public sealed class VoiceIntegrationTests
         var store = NewRepository();
 
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+            "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = AttestationFixture.Good(Now) });
         Assert.True(created.IsSuccess, created.Error);
         Assert.Equal(VoiceTenantStatuses.PendingPayment, created.Value!.Status);
         var id = created.Value.Id;
@@ -79,7 +79,7 @@ public sealed class VoiceIntegrationTests
         var number = (await store.GetTelephonyAsync(first)).Value!.AssignedPhoneNumber;
 
         var second = await store.CreateTenantAsync(new(
-            "Other HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "other@example.test", "+15615550102") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+            "Other HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "other@example.test", "+15615550102") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = AttestationFixture.Good(Now) });
         var clash = await store.ActivateTenantAsync(second.Value!.Id, new(
             VoiceSubscriptionTiers.Pro, 148m, 1000, 0.50m, "I-" + Unique(), "VAULT-" + Unique(), Now, Now.AddMonths(1), "active",
             "AC" + Unique(), "ciphertext", number, "PN" + Unique(), null, null, "not_started", false));
@@ -251,7 +251,7 @@ public sealed class VoiceIntegrationTests
         var store = NewRepository();
 
         var created = await store.CreateTenantAsync(new(
-            "Boca Cool HVAC " + Unique()[..6], "Heating and air conditioning", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) });
+            "Boca Cool HVAC " + Unique()[..6], "Heating and air conditioning", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = AttestationFixture.Good(Now) });
         Assert.True(created.IsSuccess, created.Error);
         var id = created.Value!.Id;
 
@@ -273,7 +273,37 @@ public sealed class VoiceIntegrationTests
         Assert.Contains("kept forever", truncate.MessageText, StringComparison.Ordinal);
 
         var still = await Dapper.SqlMapper.ExecuteScalarAsync<long>(conn, "SELECT count(*) FROM geek_voice.signup_industry_answers WHERE tenant_id = @id AND answer = FALSE", new { id });
-        Assert.Equal(5, still);
+        Assert.Equal(IndustryAnswersFixture.Questions.Length, still);
+    }
+
+    [Fact]
+    public async Task The_signup_declaration_is_stored_with_the_tenant_and_the_database_refuses_to_change_or_delete_it()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var store = NewRepository();
+
+        var attestation = AttestationFixture.Good(Now);
+        var created = await store.CreateTenantAsync(new(
+            "Boca Cool HVAC " + Unique()[..6], "Heating and air conditioning", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = attestation });
+        Assert.True(created.IsSuccess, created.Error);
+        var id = created.Value!.Id;
+
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        var row = await Dapper.SqlMapper.QuerySingleAsync<(string Name, string Title, string Address, string Declaration, string Terms, string Ip, string Country)>(conn,
+            "SELECT attestor_name_encrypted, attestor_title_encrypted, business_address_encrypted, declaration_statement, terms_statement, host(ip_address), visitor_country FROM geek_voice.signup_attestations WHERE tenant_id = @id", new { id });
+        Assert.Equal((attestation.AttestorNameEncrypted, attestation.AttestorTitleEncrypted, attestation.BusinessAddressEncrypted, attestation.DeclarationStatement, attestation.TermsStatement, "203.0.113.9", "US"), row);
+
+        var update = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "UPDATE geek_voice.signup_attestations SET declaration_statement = 'changed' WHERE tenant_id = @id", new { id }));
+        var delete = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "DELETE FROM geek_voice.signup_attestations WHERE tenant_id = @id", new { id }));
+        var truncate = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "TRUNCATE geek_voice.signup_attestations"));
+        Assert.Contains("kept forever", update.MessageText, StringComparison.Ordinal);
+        Assert.Contains("kept forever", delete.MessageText, StringComparison.Ordinal);
+        Assert.Contains("kept forever", truncate.MessageText, StringComparison.Ordinal);
     }
 
     [Fact]

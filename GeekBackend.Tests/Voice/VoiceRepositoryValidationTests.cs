@@ -30,7 +30,7 @@ public sealed class VoiceRepositoryValidationTests
 
 
     private static CreateVoiceTenantCommand GoodTenant() => new(
-        "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) };
+        "Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = AttestationFixture.Good(Now) };
 
     private static ActivateVoiceTenantCommand GoodActivation() => new(
         VoiceSubscriptionTiers.Standard, 48m, 250, 0.50m, "I-TEST", "VAULT-TEST", Now, Now.AddMonths(1), "active",
@@ -59,7 +59,26 @@ public sealed class VoiceRepositoryValidationTests
     [InlineData("Acme", "HVAC", "US", "FL", "", "+15615550101")]
     [InlineData("Acme", "HVAC", "US", "FL", "a@b.example", "")]
     public async Task A_tenant_with_a_bad_field_is_refused(string name, string industry, string country, string state, string email, string phone) =>
-        await AssertInvalid(Store().CreateTenantAsync(new(name, industry, Now, country, state, email, phone) { IndustryAnswers = IndustryAnswersFixture.AllNo(Now) }));
+        await AssertInvalid(Store().CreateTenantAsync(new(name, industry, Now, country, state, email, phone) { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = AttestationFixture.Good(Now) }));
+
+    public static TheoryData<string, Func<VoiceSignupAttestation>> AttestationsThatCannotBeStored() => new()
+    {
+        { "no declarant name", () => AttestationFixture.Good(Now) with { AttestorNameEncrypted = " " } },
+        { "no declarant title", () => AttestationFixture.Good(Now) with { AttestorTitleEncrypted = "" } },
+        { "no business address", () => AttestationFixture.Good(Now) with { BusinessAddressEncrypted = "" } },
+        { "no declaration words", () => AttestationFixture.Good(Now) with { DeclarationStatement = "" } },
+        { "no terms words", () => AttestationFixture.Good(Now) with { TermsStatement = " " } },
+        { "no visitor address", () => AttestationFixture.Good(Now) with { IpAddress = "" } },
+        { "no visitor country", () => AttestationFixture.Good(Now) with { VisitorCountry = "" } },
+    };
+
+    [Theory]
+    [MemberData(nameof(AttestationsThatCannotBeStored))]
+    public async Task A_tenant_whose_declaration_is_incomplete_is_refused(string reason, Func<VoiceSignupAttestation> attestation)
+    {
+        Assert.NotEmpty(reason);
+        await AssertInvalid(Store().CreateTenantAsync(GoodTenant() with { Attestation = attestation() }));
+    }
 
     public static TheoryData<string, Func<VoiceIndustryAnswerSet>> AnswerSetsThatCannotBeStored() => new()
     {

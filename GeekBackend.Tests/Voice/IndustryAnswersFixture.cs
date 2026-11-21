@@ -23,6 +23,14 @@ internal static class IndustryAnswersFixture
         Questions.Select(q => new VoiceIndustryAnswer(q.Code, q.Question, false)).ToList(), at, "203.0.113.9", "US");
 }
 
+/// <summary>The declaration of a named person who agreed, as an accepted signup stores it with its tenant: the sealed values are opaque here.</summary>
+internal static class AttestationFixture
+{
+    public static VoiceSignupAttestation Good(DateTimeOffset at) => new(
+        "sealed-name", "sealed-title", "sealed-address", GeekAPI.Services.Voice.Onboarding.SignupStatements.Declaration,
+        GeekAPI.Services.Voice.Onboarding.SignupStatements.Terms, at, "203.0.113.9", "US");
+}
+
 /// <summary>A refusal store that records what it was asked to keep, or answers with the failure a test gives it.</summary>
 internal sealed class RecordingSignupAnswerStore(Func<Result<VoiceIndustryAnswersRecorded>>? answer = null) : IVoiceSignupAnswerStore
 {

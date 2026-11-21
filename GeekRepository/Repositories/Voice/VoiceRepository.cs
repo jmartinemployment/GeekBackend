@@ -82,6 +82,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 cancellationToken: ct));
             // The tenant and its answers are one write: a tenant never exists without the record of what it answered.
             await InsertIndustryAnswersAsync(conn, tx, tenantId, command.IndustryAnswers, ct);
+            await InsertAttestationAsync(conn, tx, tenantId, command.Attestation, ct);
             await tx.CommitAsync(ct);
             return Result<VoiceTenant>.Success(row.ToModel());
         }
@@ -140,6 +141,35 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 tx,
                 cancellationToken: ct));
         }
+    }
+
+    /// <summary>The declaration is part of the tenant's own write: a tenant never exists without the record of who declared for it.</summary>
+    private static async Task InsertAttestationAsync(
+        NpgsqlConnection conn, System.Data.Common.DbTransaction tx, Guid tenantId, VoiceSignupAttestation attestation, CancellationToken ct)
+    {
+        await conn.ExecuteAsync(new CommandDefinition("""
+            INSERT INTO geek_voice.signup_attestations (
+                id, tenant_id, attestor_name_encrypted, attestor_title_encrypted, business_address_encrypted,
+                declaration_statement, terms_statement, attested_at, ip_address, visitor_country)
+            VALUES (
+                @Id, @TenantId, @AttestorNameEncrypted, @AttestorTitleEncrypted, @BusinessAddressEncrypted,
+                @DeclarationStatement, @TermsStatement, @AttestedAt, @IpAddress::inet, @VisitorCountry);
+            """,
+            new
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                attestation.AttestorNameEncrypted,
+                attestation.AttestorTitleEncrypted,
+                attestation.BusinessAddressEncrypted,
+                attestation.DeclarationStatement,
+                attestation.TermsStatement,
+                AttestedAt = attestation.AttestedAt.UtcDateTime,
+                attestation.IpAddress,
+                attestation.VisitorCountry,
+            },
+            tx,
+            cancellationToken: ct));
     }
 
     public async Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default)
@@ -663,6 +693,14 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         // rules moved to GeekAPI (VoicePersonalDetails), which is the last place that holds the clear value. What is still checkable
         // here is that the business sent one at all.
         if (Blank(c.ContactEmailEncrypted) || Blank(c.ContactPhoneEncrypted)) return "The contact email and phone are required.";
+        // The declarant and the address are sealed too, so what can still be checked here is that each is there, and that the words
+        // the person agreed to are there beside them.
+        var a = c.Attestation;
+        if (a is null) return "A signup declaration is required.";
+        if (Blank(a.AttestorNameEncrypted) || Blank(a.AttestorTitleEncrypted)) return "The declarant's name and title are required.";
+        if (Blank(a.BusinessAddressEncrypted)) return "The business's address is required.";
+        if (Blank(a.DeclarationStatement) || Blank(a.TermsStatement)) return "The words the declarant agreed to are required.";
+        if (Blank(a.IpAddress) || Blank(a.VisitorCountry)) return "The declarant's address and country are required.";
         return null;
     }
 

@@ -61,7 +61,7 @@ public sealed class HttpVoiceRepositoryTests
         countryCode = "US", stateCode = "FL", contactEmail = "owner@bocacool.example", contactPhone = "+15615550101", status = "pending_payment", createdAt = DateTimeOffset.UnixEpoch,
     };
 
-    private static CreateVoiceTenantCommand SomeTenant() => new("Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", DateTimeOffset.UnixEpoch, "US", "FL", "owner@bocacool.example", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(DateTimeOffset.UnixEpoch) };
+    private static CreateVoiceTenantCommand SomeTenant() => new("Boca Cool HVAC", "Plumbing, heating, & air-conditioning contractors", DateTimeOffset.UnixEpoch, "US", "FL", "owner@bocacool.example", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(DateTimeOffset.UnixEpoch), Attestation = AttestationFixture.Good(DateTimeOffset.UnixEpoch) };
 
     [Fact]
     public async Task Creating_a_tenant_posts_the_command_and_reads_the_tenant()

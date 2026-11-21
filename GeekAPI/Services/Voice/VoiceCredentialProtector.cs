@@ -36,6 +36,11 @@ public static class VoiceSecretPurposes
     public const string TenantContactPhone = "geek-voice/tenant-contact-phone";
     public const string ConfigTransferTargetNumber = "geek-voice/config-transfer-target-number";
     public const string ConfigMessageDestinationEmail = "geek-voice/config-message-destination-email";
+
+    /// <summary>What a named person gave in the signup declaration: their own name and title, and the business's address.</summary>
+    public const string SignupAttestorName = "geek-voice/signup-attestor-name";
+    public const string SignupAttestorTitle = "geek-voice/signup-attestor-title";
+    public const string SignupBusinessAddress = "geek-voice/signup-business-address";
 }
 
 /// <summary>

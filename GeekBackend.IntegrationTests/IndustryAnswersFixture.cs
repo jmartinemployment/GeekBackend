@@ -23,6 +23,16 @@ internal static class IndustryAnswersFixture
         Questions.Select(q => new VoiceIndustryAnswer(q.Code, q.Question, false)).ToList(), at, "203.0.113.9", "US");
 }
 
+/// <summary>The declaration of a named person who agreed, as an accepted signup stores it with its tenant: the sealed values are opaque here.</summary>
+internal static class AttestationFixture
+{
+    public static VoiceSignupAttestation Good(DateTimeOffset at) => new(
+        "sealed-name", "sealed-title", "sealed-address",
+        "I declare that I am authorised to answer for this business and that the answers given in this document are true to the best of my knowledge.",
+        "I agree to the Geek-Receptionist Subscription Terms, subject to Geek-Receptionist verifying a connection to each system the business requires. No payment is taken before that connection is verified, and if a required system cannot be connected I may continue without it or stop.",
+        at, "203.0.113.9", "US");
+}
+
 /// <summary>A refusal store that records what it was asked to keep, or answers with the failure a test gives it.</summary>
 internal sealed class RecordingSignupAnswerStore(Func<Result<VoiceIndustryAnswersRecorded>>? answer = null) : IVoiceSignupAnswerStore
 {

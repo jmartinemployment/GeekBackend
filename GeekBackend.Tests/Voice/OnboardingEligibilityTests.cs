@@ -54,7 +54,9 @@ public sealed class OnboardingEligibilityTests
 
     private static ValidateEligibilityRequest Signup(
         string? country = "US", bool? attested = true, string? yesTo = null) =>
-        new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, Answers(yesTo));
+        new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, Answers(yesTo),
+            "Pat Rivera", "Owner", "12 Palm Way, Boca Raton, FL 33432",
+            SignupStatements.Declaration, true, SignupStatements.Terms, true);
 
     /// <summary>The eight questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
     private static List<IndustryAnswerInput> Answers(string? yesTo = null) =>
@@ -322,6 +324,106 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Fact]
+    public async Task An_accepted_signup_stores_who_declared_what_they_agreed_to_with_the_name_title_and_address_sealed()
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup(), FromUs);
+
+        Assert.True(result.IsSuccess, result.Error);
+        var kept = Assert.Single(store.Created).Attestation;
+        Assert.Equal("Pat Rivera", Protector.Unprotect(kept.AttestorNameEncrypted, VoiceSecretPurposes.SignupAttestorName).Value);
+        Assert.Equal("Owner", Protector.Unprotect(kept.AttestorTitleEncrypted, VoiceSecretPurposes.SignupAttestorTitle).Value);
+        Assert.Equal("12 Palm Way, Boca Raton, FL 33432", Protector.Unprotect(kept.BusinessAddressEncrypted, VoiceSecretPurposes.SignupBusinessAddress).Value);
+        Assert.DoesNotContain("Pat Rivera", kept.AttestorNameEncrypted);
+        Assert.Equal(SignupStatements.Declaration, kept.DeclarationStatement);
+        Assert.Equal(SignupStatements.Terms, kept.TermsStatement);
+        Assert.Equal(Now, kept.AttestedAt);
+        Assert.Equal("203.0.113.9", kept.IpAddress);
+        Assert.Equal("US", kept.VisitorCountry);
+    }
+
+    [Theory]
+    [InlineData(null, "Owner")]
+    [InlineData("", "Owner")]
+    [InlineData("   ", "Owner")]
+    [InlineData("Pat Rivera", null)]
+    [InlineData("Pat Rivera", " ")]
+    public async Task A_signup_with_no_named_person_is_refused_and_creates_nothing(string? name, string? title)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { AttestorName = name, AttestorTitle = title }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.AttestorRequired, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Fact]
+    public async Task A_signup_whose_name_is_longer_than_the_limit_is_refused_and_not_cut_short()
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { AttestorName = new string('a', SignupStatements.MaxFieldLength + 1) }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.AttestorRequired, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task A_signup_with_no_business_address_is_refused_and_creates_nothing(string? address)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { BusinessAddress = address }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.BusinessAddressRequired, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(null, null)]
+    [InlineData(true, "I declare something else.")]
+    [InlineData(true, null)]
+    public async Task A_declaration_that_was_not_agreed_to_in_the_words_shown_is_refused(bool? agreed, string? words)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(
+            Signup() with { DeclarationAgreed = agreed, DeclarationStatement = words ?? (agreed == true ? null : SignupStatements.Declaration) }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.DeclarationRequired, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(null, null)]
+    [InlineData(true, "I agree to something else.")]
+    [InlineData(true, null)]
+    public async Task Terms_that_were_not_agreed_to_in_the_words_shown_are_refused(bool? agreed, string? words)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(
+            Signup() with { TermsAgreed = agreed, TermsStatement = words ?? (agreed == true ? null : SignupStatements.Terms) }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.TermsRequired, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Fact]
+    public void The_terms_the_person_agrees_to_say_they_are_subject_to_the_connections_being_verified()
+    {
+        Assert.Contains("subject to", SignupStatements.Terms);
+        Assert.Contains("No payment is taken before that connection is verified", SignupStatements.Terms);
+    }
+
+    [Fact]
     public async Task The_rules_answer_in_the_plans_order()
     {
         var store = new RecordingStore();
@@ -356,6 +458,10 @@ public sealed class OnboardingEligibilityTests
     [InlineData(OnboardingFailureCodes.ContactPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.IndustryExcluded, 400)]
     [InlineData(OnboardingFailureCodes.AttestationRequired, 400)]
+    [InlineData(OnboardingFailureCodes.AttestorRequired, 400)]
+    [InlineData(OnboardingFailureCodes.BusinessAddressRequired, 400)]
+    [InlineData(OnboardingFailureCodes.DeclarationRequired, 400)]
+    [InlineData(OnboardingFailureCodes.TermsRequired, 400)]
     [InlineData(OnboardingFailureCodes.VisitorUnverified, 400)]
     [InlineData(OnboardingFailureCodes.VisitorCountryNotSupported, 400)]
     [InlineData(VoiceFailureCodes.InvalidRequest, 400)]

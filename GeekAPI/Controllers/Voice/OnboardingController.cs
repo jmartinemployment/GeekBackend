@@ -120,6 +120,10 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
             or OnboardingFailureCodes.ContactEmailInvalid
             or OnboardingFailureCodes.IndustryExcluded
             or OnboardingFailureCodes.AttestationRequired
+            or OnboardingFailureCodes.AttestorRequired
+            or OnboardingFailureCodes.BusinessAddressRequired
+            or OnboardingFailureCodes.DeclarationRequired
+            or OnboardingFailureCodes.TermsRequired
             or OnboardingFailureCodes.VisitorUnverified
             or OnboardingFailureCodes.VisitorCountryNotSupported
             or BillingFailureCodes.TierUnknown

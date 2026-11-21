@@ -199,7 +199,27 @@ public sealed record CreateVoiceTenantCommand(
 {
     /// <summary>The business's no to every excluded-industry question, stored with the tenant in one transaction and kept forever.</summary>
     public required VoiceIndustryAnswerSet IndustryAnswers { get; init; }
+
+    /// <summary>The named person's declaration and acceptance of the Terms, stored with the tenant in one transaction and kept forever.</summary>
+    public required VoiceSignupAttestation Attestation { get; init; }
 }
+
+/// <summary>
+/// The declaration a named person made before a tenant existed (plans/attestation-and-terms.md, stages 2 and 3): that they are authorised
+/// to answer for the business and that the answers are true, and that they accept the Terms. It is a record of agreement, so it exists
+/// only for a person who agreed; a No creates no tenant and so no attestation. The name, title and address are ciphertext GeekAPI sealed
+/// (<c>VoiceSecretPurposes</c> <c>SignupAttestorName</c> / <c>SignupAttestorTitle</c> / <c>SignupBusinessAddress</c>); the two statements are
+/// the exact words the person was shown.
+/// </summary>
+public sealed record VoiceSignupAttestation(
+    string AttestorNameEncrypted,
+    string AttestorTitleEncrypted,
+    string BusinessAddressEncrypted,
+    string DeclarationStatement,
+    string TermsStatement,
+    DateTimeOffset AttestedAt,
+    string IpAddress,
+    string VisitorCountry);
 
 /// <summary>One excluded-industry question of /signup as it was answered: the industry's code, the exact words shown, and the answer.</summary>
 public sealed record VoiceIndustryAnswer(string Industry, string Question, bool Answer);
