@@ -31,13 +31,16 @@ public sealed class CalendarToolbox : IReceptionistToolbox
     public const string ListTool = "list_events";
 
     private readonly Guid _tenantId;
+    private readonly string _provider;
     private readonly McpTools _calendar;
     private readonly bool _mayBook;
     private readonly ILogger _logger;
 
-    private CalendarToolbox(Guid tenantId, IReadOnlyList<ReceptionistToolDefinition> tools, McpTools calendar, bool mayBook, ILogger logger)
+    private CalendarToolbox(
+        Guid tenantId, string provider, IReadOnlyList<ReceptionistToolDefinition> tools, McpTools calendar, bool mayBook, ILogger logger)
     {
         _tenantId = tenantId;
+        _provider = provider;
         Tools = tools;
         _calendar = calendar;
         _mayBook = mayBook;
@@ -57,21 +60,11 @@ public sealed class CalendarToolbox : IReceptionistToolbox
         Guid tenantId, IVoiceStore store, McpTools calendar, McpToolCatalog catalog, McpGatewayClient gateway, ILogger logger,
         bool mayBook = false, CancellationToken ct = default)
     {
-        // One provider, read once and used for both the connection and the tools, so the two cannot name different things. Google
-        // Calendar is the only provider with an OAuth path today (plans/connecting-client-systems.md); when a second one has one, this
-        // is where a tenant's own connected provider is resolved rather than assumed.
-        const string provider = GoogleCalendarOptions.Provider;
-
-        // The owner connecting their calendar is what asks for this; without it every tool would only ever answer calendar_not_connected.
-        var connection = await store.GetMcpConnectionAsync(tenantId, provider, ct).ConfigureAwait(false);
-        if (!connection.IsSuccess || !connection.Value!.IsActive)
-        {
-            if (connection.IsSuccess || connection.ErrorCode == VoiceFailureCodes.NotFound)
-                logger.LogInformation("Tenant {TenantId}: no calendar is connected, so this call has no calendar tools.", tenantId);
-            else
-                logger.LogError("Tenant {TenantId}: the calendar connection could not be read ({Code}); this call has no calendar tools.", tenantId, connection.ErrorCode);
-            return null;
-        }
+        // Whichever calendar this tenant actually connected, read once and used for both the connection and the tools, so the two
+        // cannot name different things. It was `const provider = google_calendar`, which was true but said so by assumption rather
+        // than by looking.
+        var provider = await ConnectedCalendarAsync(tenantId, store, logger, ct).ConfigureAwait(false);
+        if (provider is null) return null;
 
         var offered = await catalog.ToolsAsync(provider, gateway, logger, ct).ConfigureAwait(false);
         if (offered is null)
@@ -87,7 +80,43 @@ public sealed class CalendarToolbox : IReceptionistToolbox
             return null;
         }
 
-        return new CalendarToolbox(tenantId, tools, calendar, mayBook && tools.Any(tool => tool.Name == BookingTool), logger);
+        return new CalendarToolbox(tenantId, provider, tools, calendar, mayBook && tools.Any(tool => tool.Name == BookingTool), logger);
+    }
+
+    /// <summary>
+    /// The booking provider this tenant has an active connection to, or null when it has none and the receptionist should simply have
+    /// no calendar tools.
+    ///
+    /// <para>
+    /// Only the calendars that can actually be connected are asked about - a provider declaring <c>Booking</c> *and* holding an OAuth
+    /// entry in <see cref="McpProviders"/>. The three booking codes in <c>VoiceMcpProviders</c> are accepted values, and two of them
+    /// have no OAuth path, so asking the store about them would be a round trip that can only ever answer not-found. Today that makes
+    /// this exactly one call, and the day a second calendar gets an OAuth entry it becomes two without this being touched.
+    /// </para>
+    ///
+    /// <para>
+    /// A connection that cannot be read is not the same as one that was never made: the first is logged as an error, the second is the
+    /// ordinary case for a business that has not connected a calendar and is not logged as a fault. A read failure does not stop the
+    /// others being asked - the tenant may have connected one of them, and refusing the whole call because an unrelated provider's row
+    /// was unreadable would lose a working calendar.
+    /// </para>
+    /// </summary>
+    private static async Task<string?> ConnectedCalendarAsync(Guid tenantId, IVoiceStore store, ILogger logger, CancellationToken ct)
+    {
+        var connectable = VoiceMcpProviders.Calendars.Where(code => McpProviders.For(code) is not null).ToList();
+
+        foreach (var provider in connectable)
+        {
+            var connection = await store.GetMcpConnectionAsync(tenantId, provider, ct).ConfigureAwait(false);
+            if (connection.IsSuccess && connection.Value!.IsActive) return provider;
+
+            if (!connection.IsSuccess && connection.ErrorCode != VoiceFailureCodes.NotFound)
+                logger.LogError(
+                    "Tenant {TenantId}: the {Provider} connection could not be read ({Code}).", tenantId, provider, connection.ErrorCode);
+        }
+
+        logger.LogInformation("Tenant {TenantId}: no calendar is connected, so this call has no calendar tools.", tenantId);
+        return null;
     }
 
     public async Task<Result<string>> RunAsync(ReceptionistToolCall call, CancellationToken ct = default)
@@ -122,7 +151,7 @@ public sealed class CalendarToolbox : IReceptionistToolbox
             return Result<string>.Failure("The calendar tool's arguments are not JSON.", VoiceFailureCodes.InvalidRequest);
         }
 
-        var result = await _calendar.CallAsync(_tenantId, GoogleCalendarOptions.Provider, call.Name, arguments, ct).ConfigureAwait(false);
+        var result = await _calendar.CallAsync(_tenantId, _provider, call.Name, arguments, ct).ConfigureAwait(false);
         if (result.IsSuccess) return Answer(result.Value!);
 
         // A booking whose answer was lost may still have been made, so it is looked for rather than sent again.
@@ -155,7 +184,7 @@ public sealed class CalendarToolbox : IReceptionistToolbox
 
         _logger.LogWarning("Tenant {TenantId}: a booking's answer was lost; the calendar is being read to see whether it was made.", _tenantId);
 
-        var listed = await _calendar.CallAsync(_tenantId, GoogleCalendarOptions.Provider, ListTool, query, ct).ConfigureAwait(false);
+        var listed = await _calendar.CallAsync(_tenantId, _provider, ListTool, query, ct).ConfigureAwait(false);
         if (!listed.IsSuccess)
         {
             _logger.LogError("Tenant {TenantId}: a booking's answer was lost and the calendar could not be read ({Code}), so its outcome is unknown.",

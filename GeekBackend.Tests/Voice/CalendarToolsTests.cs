@@ -62,6 +62,9 @@ public sealed class CalendarToolsTests
     private sealed class Store : IVoiceStore
     {
         public Result<VoiceMcpConnection> Connection { get; set; } = Result<VoiceMcpConnection>.Failure("unset", VoiceFailureCodes.NotFound);
+
+        /// <summary>Every provider this store was asked about, in order, so a test can see what was assumed and what was looked up.</summary>
+        public List<string> Asked { get; } = new();
         public Func<Result<VoiceMcpConnection>>? Save { get; set; }
         public List<SaveVoiceMcpConnectionCommand> Saved { get; } = new();
 
@@ -72,7 +75,11 @@ public sealed class CalendarToolsTests
         public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) =>
             throw new NotSupportedException();
 
-        public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default) => Task.FromResult(Connection);
+        public Task<Result<VoiceMcpConnection>> GetMcpConnectionAsync(Guid tenantId, string provider, CancellationToken ct = default)
+        {
+            Asked.Add(provider);
+            return Task.FromResult(Connection);
+        }
 
         public Task<Result<VoiceMcpConnection>> SaveMcpConnectionAsync(Guid tenantId, string provider, SaveVoiceMcpConnectionCommand command, CancellationToken ct = default)
         {
@@ -791,4 +798,47 @@ public sealed class CalendarToolsTests
         Assert.Empty(rig.Gateway.Seen);
     }
 
+    /// <summary>
+    /// Which calendar the receptionist uses is read off the tenant's own connections, not assumed to be Google's. The assumption was
+    /// a <c>const provider = google_calendar</c>, which was true and said so without looking - the kind of line that keeps being true
+    /// until the day it is not, and then is wrong on a live call.
+    ///
+    /// <para>
+    /// It asks only about calendars that can actually be connected: a provider declaring Booking <b>and</b> holding an OAuth entry.
+    /// Outlook and Cal.com are accepted values with no OAuth path, so a round trip for either could only ever answer not-found.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task The_connected_calendar_is_looked_up_and_only_connectable_ones_are_asked_about()
+    {
+        var rig = ToolRig();
+
+        await BoxAsync(rig);
+
+        var connectable = VoiceMcpProviders.Calendars.Where(code => McpProviders.For(code) is not null);
+        Assert.Equal(connectable, rig.Store.Asked);
+        Assert.DoesNotContain(VoiceMcpProviders.Outlook, rig.Store.Asked);
+        Assert.DoesNotContain(VoiceMcpProviders.CalCom, rig.Store.Asked);
+    }
+
+    /// <summary>
+    /// A tool call goes to the provider that was resolved. With one connectable calendar the resolved provider is Google's, so this
+    /// asserts the wiring rather than a second vendor: the body the gateway is sent names the same provider the connection was read
+    /// for, and nothing in between substitutes a constant.
+    /// </summary>
+    [Fact]
+    public async Task A_tool_runs_against_the_provider_the_connection_was_read_for()
+    {
+        // The rig's tenant already has an active Google Calendar connection, which is the one connectable calendar today.
+        var rig = ToolRig();
+
+        var box = await BoxAsync(rig);
+        Assert.NotNull(box);
+        await box!.RunAsync(new ReceptionistToolCall("call-1", "list_events", "{}"));
+
+        // Asked twice and about the same provider both times: once to resolve the connection, once by GoogleAccessTokens to get a
+        // live token for the call. Two different answers there would mean the tool ran against a provider nobody had checked.
+        var provider = Assert.Single(rig.Store.Asked.Distinct(StringComparer.Ordinal));
+        Assert.Contains(rig.Gateway.Seen, seen => seen.Body.Contains(provider, StringComparison.Ordinal));
+    }
 }
