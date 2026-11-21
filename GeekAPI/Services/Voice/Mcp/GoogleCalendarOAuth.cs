@@ -226,7 +226,7 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
     private static string? Text(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    private static string? ErrorOf(string body)
+    private string? ErrorOf(string body)
     {
         try
         {
@@ -235,6 +235,7 @@ public sealed class GoogleCalendarOAuth(HttpClient http, GoogleCalendarOptions o
         }
         catch (JsonException)
         {
+            logger.LogWarning("Google's error answer is not JSON, so its error code could not be read.");
             return null;
         }
     }
