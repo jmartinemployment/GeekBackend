@@ -14,7 +14,7 @@ namespace GeekAPI.Controllers.Voice;
 /// </summary>
 [ApiController]
 [Authorize(AuthenticationSchemes = ReceptionistAuth.Scheme)]
-public sealed class CalendarController(CalendarTools calendar) : ControllerBase
+public sealed class CalendarController(McpTools calendar) : ControllerBase
 {
     [HttpGet("api/v1/tenants/{tenantId:guid}/calendar/check")]
     public async Task<IActionResult> Check(Guid tenantId, CancellationToken ct)

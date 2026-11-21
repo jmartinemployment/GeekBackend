@@ -40,7 +40,7 @@ public sealed record BookingSettingRequest(bool Enabled);
 /// </summary>
 [ApiController]
 [Authorize(AuthenticationSchemes = ReceptionistAuth.Scheme)]
-public sealed class BookingSettingController(IVoiceStore store, CalendarTools calendar, ILogger<BookingSettingController> logger)
+public sealed class BookingSettingController(IVoiceStore store, McpTools calendar, ILogger<BookingSettingController> logger)
     : ControllerBase
 {
     /// <summary>

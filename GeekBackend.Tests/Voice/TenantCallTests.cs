@@ -354,7 +354,7 @@ public sealed class TenantCallTests
             model ?? new FakeReceptionistModel(configured: false),
             new RelayTickets(new FakeTimeProvider(Now)),
             new TwilioOptions("ACmaster", "master-token", BaseUrl),
-            new CalendarToolCatalog(new FakeTimeProvider(Now)),
+            new McpToolCatalog(new FakeTimeProvider(Now)),
             outcomes,
             Protector,
             NullLogger<TenantCallController>.Instance);

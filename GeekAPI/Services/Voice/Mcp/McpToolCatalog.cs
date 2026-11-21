@@ -19,7 +19,7 @@ namespace GeekAPI.Services.Voice.Mcp;
 /// Keyed by provider, a tenant can only ever be offered the tools of a provider it actually connected.
 /// </para>
 /// </summary>
-public sealed class CalendarToolCatalog(TimeProvider clock)
+public sealed class McpToolCatalog(TimeProvider clock)
 {
     public static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(30);
 

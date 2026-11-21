@@ -76,7 +76,7 @@ public static class VoiceServiceRegistration
         services.AddScoped<GoogleDriveCallRecordStorage>();
         services.AddScoped<S3CompatibleCallRecordStorage>();
         services.AddScoped<CallRecordStorages>();
-        services.AddScoped<CalendarTools>();
+        services.AddScoped<McpTools>();
 
         // Answering a caller from the business's own information, as one coordinator over workers that each do one job and decide
         // nothing (Services/Receptionist/Knowledge/KnowledgeOrchestrator.cs).
@@ -89,7 +89,7 @@ public static class VoiceServiceRegistration
         // Who takes the caller's next turn. One thing decides, every turn, so two roles cannot pass a caller back and forth
         // (Services/Receptionist/Agents/ReceptionistDispatcher.cs).
         services.AddScoped<ReceptionistDispatcher>();
-        services.AddSingleton<CalendarToolCatalog>();
+        services.AddSingleton<McpToolCatalog>();
         services.AddScoped<IVoiceOwnerStore>(sp =>
             new HttpVoiceOwnerRepository(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),

@@ -48,7 +48,7 @@ public sealed class TenantCallController : ControllerBase
     private readonly IReceptionistModel _model;
     private readonly RelayTickets _tickets;
     private readonly TwilioOptions _twilio;
-    private readonly CalendarToolCatalog _catalog;
+    private readonly McpToolCatalog _catalog;
     private readonly CallOutcomes _outcomes;
     private readonly VoiceCredentialProtector _protector;
     private readonly ILogger<TenantCallController> _logger;
@@ -62,7 +62,7 @@ public sealed class TenantCallController : ControllerBase
         IReceptionistModel model,
         RelayTickets tickets,
         TwilioOptions twilio,
-        CalendarToolCatalog catalog,
+        McpToolCatalog catalog,
         CallOutcomes outcomes,
         VoiceCredentialProtector protector,
         ILogger<TenantCallController> logger)
@@ -270,7 +270,7 @@ public sealed class TenantCallController : ControllerBase
         }
 
         var calendar = await CalendarToolbox.CreateAsync(
-            tenantId, _store, HttpContext.RequestServices.GetRequiredService<CalendarTools>(), _catalog,
+            tenantId, _store, HttpContext.RequestServices.GetRequiredService<McpTools>(), _catalog,
             HttpContext.RequestServices.GetRequiredService<McpGatewayClient>(), _logger, ticket.BookingEnabled, ct).ConfigureAwait(false);
 
         // What the business has published about itself, answered through the Library that already holds it. A business with no indexed

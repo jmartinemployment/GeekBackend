@@ -31,11 +31,11 @@ public sealed class CalendarToolbox : IReceptionistToolbox
     public const string ListTool = "list_events";
 
     private readonly Guid _tenantId;
-    private readonly CalendarTools _calendar;
+    private readonly McpTools _calendar;
     private readonly bool _mayBook;
     private readonly ILogger _logger;
 
-    private CalendarToolbox(Guid tenantId, IReadOnlyList<ReceptionistToolDefinition> tools, CalendarTools calendar, bool mayBook, ILogger logger)
+    private CalendarToolbox(Guid tenantId, IReadOnlyList<ReceptionistToolDefinition> tools, McpTools calendar, bool mayBook, ILogger logger)
     {
         _tenantId = tenantId;
         Tools = tools;
@@ -54,7 +54,7 @@ public sealed class CalendarToolbox : IReceptionistToolbox
     /// calendar. A business that has connected no calendar is the ordinary case, not an error, and is not logged as one.
     /// </summary>
     public static async Task<CalendarToolbox?> CreateAsync(
-        Guid tenantId, IVoiceStore store, CalendarTools calendar, CalendarToolCatalog catalog, McpGatewayClient gateway, ILogger logger,
+        Guid tenantId, IVoiceStore store, McpTools calendar, McpToolCatalog catalog, McpGatewayClient gateway, ILogger logger,
         bool mayBook = false, CancellationToken ct = default)
     {
         // One provider, read once and used for both the connection and the tools, so the two cannot name different things. Google

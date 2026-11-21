@@ -227,7 +227,7 @@ public sealed class ReceptionistConfigTests
             TimeProvider.System,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<GoogleAccessTokens>.Instance);
 
-        var calendar = new CalendarTools(tokens, new McpGatewayClient(
+        var calendar = new McpTools(tokens, new McpGatewayClient(
             new HttpClient(handler),
             new McpGatewayOptions("http://geek-mcp-gateway.railway.internal:3000", "gateway-key"),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<McpGatewayClient>.Instance));

@@ -108,13 +108,13 @@ public sealed class CalendarToolsTests
         public Store Store { get; } = new();
         public StubHandler Google { get; }
         public StubHandler Gateway { get; }
-        public CapturingLogger<CalendarTools> ToolsLog { get; } = new();
+        public CapturingLogger<McpTools> ToolsLog { get; } = new();
         public CapturingLogger<GoogleAccessTokens> TokensLog { get; } = new();
         public CapturingLogger<GoogleCalendarOAuth> GoogleLog { get; } = new();
         public CapturingLogger<McpGatewayClient> GatewayLog { get; } = new();
         public VoiceCredentialProtector Protector { get; }
         public GoogleAccessTokens Tokens { get; }
-        public CalendarTools Tools { get; }
+        public McpTools Tools { get; }
         public McpGatewayClient Client { get; }
         public string AccessCipher { get; }
         public string RefreshCipher { get; }
@@ -139,7 +139,7 @@ public sealed class CalendarToolsTests
             var gatewayClient = new McpGatewayClient(new HttpClient(Gateway), gatewayOptions ?? new McpGatewayOptions("http://geek-mcp-gateway.railway.internal:3000", GatewayKey), GatewayLog);
             Client = gatewayClient;
             Tokens = new GoogleAccessTokens(Store, Protector, googleOptions, oauth, clock, TokensLog);
-            Tools = new CalendarTools(Tokens, gatewayClient);
+            Tools = new McpTools(Tokens, gatewayClient);
         }
 
         public IEnumerable<string> AllLogLines => ToolsLog.Lines.Concat(TokensLog.Lines).Concat(GoogleLog.Lines).Concat(GatewayLog.Lines);
@@ -491,8 +491,8 @@ public sealed class CalendarToolsTests
             ? (toolsBody is null ? new HttpResponseMessage(toolsStatus) : Json(toolsBody, toolsStatus))
             : GatewayOk());
 
-    private static Task<CalendarToolbox?> BoxAsync(Rig rig, CalendarToolCatalog? catalog = null, bool mayBook = false) =>
-        CalendarToolbox.CreateAsync(Tenant, rig.Store, rig.Tools, catalog ?? new CalendarToolCatalog(new Clock(Now)), rig.Client, rig.GatewayLog, mayBook);
+    private static Task<CalendarToolbox?> BoxAsync(Rig rig, McpToolCatalog? catalog = null, bool mayBook = false) =>
+        CalendarToolbox.CreateAsync(Tenant, rig.Store, rig.Tools, catalog ?? new McpToolCatalog(new Clock(Now)), rig.Client, rig.GatewayLog, mayBook);
 
     [Fact]
     public async Task The_gateway_tool_list_is_read_with_googles_own_schemas_and_sends_no_token()
@@ -739,7 +739,7 @@ public sealed class CalendarToolsTests
     public async Task The_tool_list_is_read_once_and_then_kept_so_a_call_does_not_wait_for_it()
     {
         var rig = ToolRig();
-        var catalog = new CalendarToolCatalog(new Clock(Now));
+        var catalog = new McpToolCatalog(new Clock(Now));
 
         Assert.NotNull(await BoxAsync(rig, catalog));
         Assert.NotNull(await BoxAsync(rig, catalog));
@@ -752,7 +752,7 @@ public sealed class CalendarToolsTests
     public async Task A_tool_list_that_could_not_be_read_is_not_kept_so_the_next_call_tries_again()
     {
         var rig = ToolRig(null, HttpStatusCode.ServiceUnavailable);
-        var catalog = new CalendarToolCatalog(new Clock(Now));
+        var catalog = new McpToolCatalog(new Clock(Now));
 
         Assert.Null(await BoxAsync(rig, catalog));
         Assert.Null(await BoxAsync(rig, catalog));
@@ -769,7 +769,7 @@ public sealed class CalendarToolsTests
     public async Task One_providers_tools_are_never_served_for_another()
     {
         var rig = ToolRig();
-        var catalog = new CalendarToolCatalog(new Clock(Now));
+        var catalog = new McpToolCatalog(new Clock(Now));
 
         Assert.NotNull(await catalog.ToolsAsync(VoiceMcpProviders.GoogleCalendar, rig.Client, rig.GatewayLog));
         Assert.NotNull(await catalog.ToolsAsync(VoiceMcpProviders.GoogleCalendar, rig.Client, rig.GatewayLog));
@@ -784,7 +784,7 @@ public sealed class CalendarToolsTests
     public async Task A_provider_this_product_does_not_have_is_refused_without_asking_the_gateway()
     {
         var rig = ToolRig();
-        var catalog = new CalendarToolCatalog(new Clock(Now));
+        var catalog = new McpToolCatalog(new Clock(Now));
 
         Assert.Null(await catalog.ToolsAsync("not_a_provider", rig.Client, rig.GatewayLog));
 

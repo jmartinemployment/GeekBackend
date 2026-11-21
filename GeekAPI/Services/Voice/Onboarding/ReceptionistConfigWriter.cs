@@ -42,7 +42,7 @@ public sealed record ReceptionistConfigStepRequest(Guid? TenantId, ReceptionistC
 ///
 /// <para>The store is GeekRepository over internal HTTP; this adds no database access to GeekAPI.</para>
 /// </summary>
-public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialProtector protector, CalendarTools calendar)
+public sealed class ReceptionistConfigWriter(IVoiceStore store, VoiceCredentialProtector protector, McpTools calendar)
 {
     /// <summary>
     /// Asked for booking with no calendar behind it. Defined here because this is the service both doors onto the setting go through;
