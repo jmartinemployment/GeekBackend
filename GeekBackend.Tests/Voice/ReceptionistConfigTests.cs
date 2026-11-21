@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using GeekAPI.Controllers.Voice;
+using GeekAPI.Services.Receptionist.Relay;
 using GeekAPI.Services.Voice;
 using GeekAPI.Services.Voice.Mcp;
 using GeekAPI.Services.Voice.Onboarding;
@@ -568,6 +569,13 @@ public sealed class ReceptionistConfigTests
         Assert.Contains(VoiceTransferCallerIdModes.AssignedAiNumber, json, StringComparison.Ordinal);
         Assert.Contains(VoiceConsentModes.PassiveDisclosure, json, StringComparison.Ordinal);
         Assert.Contains(Greeting, json, StringComparison.Ordinal);
+
+        // The languages the owner may pick are offered from the registry, so the page cannot offer one the call would refuse.
+        using var answered = JsonDocument.Parse(json);
+        var offered = answered.RootElement.GetProperty("choices").GetProperty("languages").EnumerateArray()
+            .Select(language => language.GetProperty("code").GetString())
+            .ToList();
+        Assert.Equal(ReceptionistLanguages.Codes, offered);
 
         Assert.Equal(Tenant, Assert.Single(store.ConfigReads));
         Assert.Empty(store.SavedConfigs);

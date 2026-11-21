@@ -1,3 +1,4 @@
+using GeekAPI.Services.Receptionist.Relay;
 using GeekAPI.Services.Voice.Onboarding;
 using GeekAPI.Services.Voice.OwnerAuth;
 using GeekApplication.Interfaces.Voice;
@@ -76,6 +77,9 @@ public sealed class ReceptionistConfigController(
             transferModes = VoiceTransferModes.All,
             transferCallerIdModes = VoiceTransferCallerIdModes.All,
             consentModes = VoiceConsentModes.All,
+            // Code and English name only. The wording is spoken to callers and is not for a settings page; a language is listed only
+            // once its wording exists, because that is what ReceptionistLanguages.All is.
+            languages = ReceptionistLanguages.All.Select(language => new { code = language.Code, name = language.EnglishName }),
         },
     };
 }
