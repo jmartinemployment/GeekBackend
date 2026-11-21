@@ -327,7 +327,7 @@ public class CrmAccessTests
             async Task<(bool Reached, bool? Verified)> CallAsync(string? key)
             {
                 var reached = false;
-                var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new TestEnvironment("Production"));
+                var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new TestEnvironment("Production"), NullLogger<ApiKeyMiddleware>.Instance);
                 var context = new DefaultHttpContext();
                 context.Request.Path = "/api/crm/deals";
                 if (key is not null) context.Request.Headers["X-API-Key"] = key;

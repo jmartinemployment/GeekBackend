@@ -2,6 +2,7 @@ using GeekAPI.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace GeekBackend.Tests.Middleware;
@@ -39,7 +40,7 @@ public class ApiKeyMiddlewareAuthBoundaryTests
         var reached = false;
         var middleware = new ApiKeyMiddleware(
             _ => { reached = true; return Task.CompletedTask; },
-            new TestEnvironment("Production"));
+            new TestEnvironment("Production"), NullLogger<ApiKeyMiddleware>.Instance);
 
         var context = new DefaultHttpContext();
         context.Request.Path = "/api/geek-content-creator/creates";
@@ -61,7 +62,7 @@ public class ApiKeyMiddlewareAuthBoundaryTests
         var reached = false;
         var middleware = new ApiKeyMiddleware(
             _ => { reached = true; return Task.CompletedTask; },
-            new TestEnvironment("Production"));
+            new TestEnvironment("Production"), NullLogger<ApiKeyMiddleware>.Instance);
 
         var context = new DefaultHttpContext();
         context.Request.Path = path;
@@ -90,7 +91,7 @@ public class ApiKeyMiddlewareAuthBoundaryTests
         var reached = false;
         var middleware = new ApiKeyMiddleware(
             _ => { reached = true; return Task.CompletedTask; },
-            new TestEnvironment("Production"));
+            new TestEnvironment("Production"), NullLogger<ApiKeyMiddleware>.Instance);
 
         var context = new DefaultHttpContext();
         context.Request.Path = path;

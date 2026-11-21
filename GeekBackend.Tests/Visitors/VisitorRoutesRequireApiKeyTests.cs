@@ -2,6 +2,7 @@ using GeekAPI.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GeekBackend.Tests.Visitors;
 
@@ -18,7 +19,7 @@ public sealed class VisitorRoutesRequireApiKeyTests
     public async Task Without_a_key_the_route_answers_401_and_the_pipeline_stops(string method, string path)
     {
         var reached = false;
-        var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new TestEnvironment("Production"));
+        var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new TestEnvironment("Production"), NullLogger<ApiKeyMiddleware>.Instance);
         var context = new DefaultHttpContext();
         context.Request.Method = method;
         context.Request.Path = path;
@@ -36,7 +37,7 @@ public sealed class VisitorRoutesRequireApiKeyTests
         try
         {
             var reached = false;
-            var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new TestEnvironment("Production"));
+            var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new TestEnvironment("Production"), NullLogger<ApiKeyMiddleware>.Instance);
             var context = new DefaultHttpContext();
             context.Request.Method = "POST";
             context.Request.Path = "/api/visitors/internal/events";

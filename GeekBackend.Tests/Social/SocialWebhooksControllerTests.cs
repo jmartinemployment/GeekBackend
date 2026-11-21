@@ -366,7 +366,7 @@ public class SocialWebhooksControllerTests
     public async Task Only_the_Meta_webhook_path_skips_the_API_key_and_every_other_social_path_still_needs_it(string path, bool open)
     {
         var reached = false;
-        var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new TestEnvironment("Production"));
+        var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new TestEnvironment("Production"), NullLogger<ApiKeyMiddleware>.Instance);
         var context = new DefaultHttpContext();
         context.Request.Path = path;
         context.Response.Body = new MemoryStream();

@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging;
 
 namespace GeekBackend.Tests.Voice;
@@ -728,7 +729,7 @@ public sealed class McpConnectionTests
     private static async Task<(bool Reached, int Status)> Through(string path)
     {
         var reached = false;
-        var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new Environment_());
+        var middleware = new ApiKeyMiddleware(_ => { reached = true; return Task.CompletedTask; }, new Environment_(), NullLogger<ApiKeyMiddleware>.Instance);
         var context = new DefaultHttpContext();
         context.Request.Path = path;
         context.Request.Method = "GET";

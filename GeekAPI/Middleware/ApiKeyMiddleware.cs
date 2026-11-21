@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace GeekAPI.Middleware;
 
@@ -23,12 +24,14 @@ public class ApiKeyMiddleware
 
     private readonly RequestDelegate _next;
     private readonly bool _allowLegacyBearer;
+    private readonly ILogger<ApiKeyMiddleware> _logger;
     private const string ApiKeyHeader = "X-API-Key";
 
-    public ApiKeyMiddleware(RequestDelegate next, IHostEnvironment environment)
+    public ApiKeyMiddleware(RequestDelegate next, IHostEnvironment environment, ILogger<ApiKeyMiddleware> logger)
     {
         _next = next;
         _allowLegacyBearer = environment.IsDevelopment() || environment.IsEnvironment("Testing");
+        _logger = logger;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -139,7 +142,7 @@ public class ApiKeyMiddleware
             && segments[2].Equals("internal", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool TryAuthenticateBearer(HttpContext context, string token)
+    private bool TryAuthenticateBearer(HttpContext context, string token)
     {
         try
         {
@@ -186,15 +189,16 @@ public class ApiKeyMiddleware
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Fall through
+                _logger.LogWarning(ex, "A development bearer token could not be decoded; the request is refused as unauthenticated.");
             }
 
             return false;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "A development bearer token could not be read; the request is refused as unauthenticated.");
             return false;
         }
     }
