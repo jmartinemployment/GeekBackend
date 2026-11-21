@@ -73,11 +73,13 @@ public class GeekCrawlerStartRulesTests
             CrawlTypes.Local,
             CrawlTypes.ProjectSite,
             CrawlTypes.ConsultancyCompetitors,
+            CrawlTypes.Receptionist,
         ];
 
         Assert.All(accepted, t => Assert.True(CrawlTypes.IsValid(t)));
-        Assert.Equal(5, accepted.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(6, accepted.Distinct(StringComparer.Ordinal).Count());
         Assert.Equal("consultancy-competitors", CrawlTypes.ConsultancyCompetitors);
+        Assert.Equal("receptionist", CrawlTypes.Receptionist);
 
         foreach (var unknown in new[] { "project_site", "ProjectSite", "site", "own", "geo", "" })
             Assert.False(CrawlTypes.IsValid(unknown));
@@ -108,6 +110,18 @@ public class GeekCrawlerStartRulesTests
     {
         Assert.NotEqual(CrawlTypes.Competitors, CrawlTypes.ConsultancyCompetitors);
         Assert.NotEqual(CrawlTypes.Partner, CrawlTypes.ConsultancyCompetitors);
+    }
+
+    /// <summary>
+    /// A receptionist crawl is a client's own site. The evidence paths resolve runs by an exact type, so it must be a value of its own or a
+    /// plumber's pages would be read as a partner's, a competitor's or the operator's.
+    /// </summary>
+    [Fact]
+    public void Receptionist_is_not_partner_competitor_or_project_site_evidence()
+    {
+        foreach (var other in new[] { CrawlTypes.Partner, CrawlTypes.Competitors, CrawlTypes.Local, CrawlTypes.ProjectSite, CrawlTypes.ConsultancyCompetitors })
+            Assert.NotEqual(CrawlTypes.Receptionist, other);
+        Assert.Contains("receptionist", CrawlTypes.ValidListMessage, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -25,6 +25,13 @@ public static class CrawlTypes
     /// </summary>
     public const string ConsultancyCompetitors = "consultancy-competitors";
 
+    /// <summary>
+    /// A Geek-Receptionist client's own website (Jeff, 2026-11-21): the pages that client's receptionist answers callers from. It is never
+    /// partner or competitor evidence and never the operator's own site (<see cref="ProjectSite"/>), and Content Creator resolves runs by
+    /// an exact type, so it is never read as either. GeekAPI cannot start a crawl of this type: crawls are started on the crawler, not here.
+    /// </summary>
+    public const string Receptionist = "receptionist";
+
     private static readonly HashSet<string> Valid = new(StringComparer.Ordinal)
     {
         Competitors,
@@ -32,6 +39,7 @@ public static class CrawlTypes
         Local,
         ProjectSite,
         ConsultancyCompetitors,
+        Receptionist,
     };
 
     /// <summary>
