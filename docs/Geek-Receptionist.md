@@ -162,7 +162,7 @@ This is about the company's own phone line, not a tenant's.
      | Code | Question, word for word |
      |---|---|
      | `hipaa_healthcare_provider` | Is the business a healthcare provider? |
-     | `hipaa_health_plan` | Is the business a health plan? |
+     | `hipaa_health_plan` | Is the business a health insurer, HMO or other health plan? |
      | `hipaa_clearinghouse` | Is the business a healthcare clearinghouse? |
      | `hipaa_business_associate` | Does the business handle patient health information for a healthcare provider or health plan? |
      | `securities_broker_dealer` | Is the business a securities broker-dealer? |

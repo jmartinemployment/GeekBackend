@@ -167,7 +167,7 @@ public static class ExcludedIndustries
     public static readonly IReadOnlyList<ExcludedIndustry> All =
     [
         new("hipaa_healthcare_provider", "Is the business a healthcare provider?"),
-        new("hipaa_health_plan", "Is the business a health plan?"),
+        new("hipaa_health_plan", "Is the business a health insurer, HMO or other health plan?"),
         new("hipaa_clearinghouse", "Is the business a healthcare clearinghouse?"),
         new("hipaa_business_associate", "Does the business handle patient health information for a healthcare provider or health plan?"),
         new("securities_broker_dealer", "Is the business a securities broker-dealer?"),
