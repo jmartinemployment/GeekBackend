@@ -5,17 +5,6 @@ using GeekApplication.Results;
 namespace GeekAPI.Services.Voice;
 
 /// <summary>
-/// AES-256-GCM for the secrets Geek-Receptionist keeps for a tenant: the Twilio auth token and the calendar and storage OAuth
-/// tokens (docs/Geek-Receptionist.md section 8, VOICE_ENCRYPTION_KEY, 32 bytes, base64). GeekAPI encrypts before a value goes to
-/// /internal/v1/* and decrypts after one comes back, so GeekRepository and its database hold ciphertext only and the key lives in
-/// this service alone. The stored form is one base64 string: a format byte, the nonce (12 bytes), the tag (16 bytes), then the cipher.
-/// </summary>
-/// <remarks>
-/// Modeled on SocialCredentialProtector and copied rather than shared, with its own key variable. A missing or malformed key does
-/// not stop the service from starting: the first operation that needs it fails with <see cref="EncryptionUnavailable"/>, and a
-/// secret is never stored unencrypted. No message carries a secret, a key or any part of either.
-/// </remarks>
-/// <summary>
 /// What a sealed value is for. The purpose is bound into the ciphertext (as AES-GCM associated data), so a value sealed for one purpose
 /// cannot be opened as another: a sealed OAuth state cannot be passed off as a stored token, nor an access token as a refresh token.
 ///
@@ -49,6 +38,17 @@ public static class VoiceSecretPurposes
     public const string ConfigMessageDestinationEmail = "geek-voice/config-message-destination-email";
 }
 
+/// <summary>
+/// AES-256-GCM for the secrets Geek-Receptionist keeps for a tenant: the Twilio auth token and the calendar and storage OAuth
+/// tokens (docs/Geek-Receptionist.md section 8, VOICE_ENCRYPTION_KEY, 32 bytes, base64). GeekAPI encrypts before a value goes to
+/// /internal/v1/* and decrypts after one comes back, so GeekRepository and its database hold ciphertext only and the key lives in
+/// this service alone. The stored form is one base64 string: a format byte, the nonce (12 bytes), the tag (16 bytes), then the cipher.
+/// </summary>
+/// <remarks>
+/// Modeled on SocialCredentialProtector and copied rather than shared, with its own key variable. A missing or malformed key does
+/// not stop the service from starting: the first operation that needs it fails with <see cref="EncryptionUnavailable"/>, and a
+/// secret is never stored unencrypted. No message carries a secret, a key or any part of either.
+/// </remarks>
 public sealed class VoiceCredentialProtector
 {
     public const string KeyVariable = "VOICE_ENCRYPTION_KEY";
