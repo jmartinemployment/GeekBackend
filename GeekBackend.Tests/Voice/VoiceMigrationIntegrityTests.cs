@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using GeekApplication.Models.Voice;
 
 namespace GeekBackend.Tests.Voice;
 
@@ -132,5 +133,67 @@ public sealed class VoiceMigrationIntegrityTests
 
         foreach (var provider in GeekApplication.Models.Voice.VoiceMcpProviders.All)
             Assert.True(allowed.Contains(provider), $"C# accepts the provider {provider} and the database does not.");
+    }
+
+    /// <summary>
+    /// The providers a named CHECK constraint admits once every migration has run, or null when the last word on it was a DROP.
+    /// Read by name rather than by table, because both constraints have been dropped and re-added and only the last ADD is in force.
+    /// </summary>
+    private static IReadOnlyList<string>? Admitted(string constraint)
+    {
+        string? values = null;
+
+        foreach (var (_, sql) in Migrations())
+        foreach (Match match in Regex.Matches(
+            sql,
+            $@"(ADD|DROP)\s+CONSTRAINT(?:\s+IF\s+EXISTS)?\s+{Regex.Escape(constraint)}\b(?<body>[^;]*)",
+            RegexOptions.IgnoreCase))
+        {
+            if (string.Equals(match.Groups[1].Value, "DROP", StringComparison.OrdinalIgnoreCase))
+            {
+                values = null;
+                continue;
+            }
+
+            var list = Regex.Match(match.Groups["body"].Value, @"IN\s*\(([^)]*)\)", RegexOptions.IgnoreCase);
+            values = list.Success ? list.Groups[1].Value : null;
+        }
+
+        return values is null
+            ? null
+            : [.. Regex.Matches(values, @"'([^']*)'").Select(match => match.Groups[1].Value)];
+    }
+
+    /// <summary>
+    /// The database must admit exactly the providers the code has - not merely all of them. The existing check above is one-directional,
+    /// and a one-directional check is how a retired provider survives in SQL: the code stops offering it, every test still passes, and
+    /// the constraint goes on admitting rows naming a connection this product can no longer make.
+    /// </summary>
+    [Fact]
+    public void The_connection_table_admits_the_providers_the_code_has_and_no_others()
+    {
+        var admitted = Admitted("ck_tenant_mcp_connections_provider");
+
+        Assert.NotNull(admitted);
+        Assert.Equal(
+            VoiceMcpProviders.All.OrderBy(code => code, StringComparer.Ordinal),
+            admitted!.OrderBy(code => code, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// An appointment may only name a provider that books, and the database is the last place that can refuse one that does not.
+    /// This is the constraint migration 0086 narrowed after HubSpot - a CRM - was admitted by a carve written as "everything that is not
+    /// Drive is a calendar". Bound to <see cref="VoiceMcpProviders.Calendars"/>, which is itself derived from each provider's Booking
+    /// capability, so the SQL list and the C# list cannot drift apart again without this failing.
+    /// </summary>
+    [Fact]
+    public void An_appointment_may_only_name_a_provider_that_books()
+    {
+        var admitted = Admitted("ck_voice_appointments_mcp_provider");
+
+        Assert.NotNull(admitted);
+        Assert.Equal(
+            VoiceMcpProviders.Calendars.OrderBy(code => code, StringComparer.Ordinal),
+            admitted!.OrderBy(code => code, StringComparer.Ordinal));
     }
 }
