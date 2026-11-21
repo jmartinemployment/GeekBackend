@@ -122,6 +122,8 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
             or OnboardingFailureCodes.AttestationRequired
             or OnboardingFailureCodes.AttestorRequired
             or OnboardingFailureCodes.BusinessAddressRequired
+            or OnboardingFailureCodes.DeclarantAddressRequired
+            or OnboardingFailureCodes.DeclarantPhoneNotUs
             or OnboardingFailureCodes.DeclarationRequired
             or OnboardingFailureCodes.TermsRequired
             or OnboardingFailureCodes.VisitorUnverified

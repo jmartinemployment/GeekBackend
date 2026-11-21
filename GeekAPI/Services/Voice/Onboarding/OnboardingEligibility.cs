@@ -16,6 +16,8 @@ public static class OnboardingFailureCodes
     public const string AttestationRequired = "attestation_required";
     public const string AttestorRequired = "attestor_required";
     public const string BusinessAddressRequired = "business_address_required";
+    public const string DeclarantAddressRequired = "declarant_address_required";
+    public const string DeclarantPhoneNotUs = "declarant_phone_not_us";
     public const string DeclarationRequired = "declaration_required";
     public const string TermsRequired = "terms_required";
     public const string VisitorUnverified = "visitor_unverified";
@@ -42,7 +44,9 @@ public sealed record ValidateEligibilityRequest(
     string? DeclarationStatement = null,
     bool? DeclarationAgreed = null,
     string? TermsStatement = null,
-    bool? TermsAgreed = null);
+    bool? TermsAgreed = null,
+    string? DeclarantAddress = null,
+    string? DeclarantPhone = null);
 
 /// <summary>
 /// The two statements a person agrees to at the end of the signup declaration, word for word (plans/attestation-and-terms.md, stages 2
@@ -126,6 +130,14 @@ public sealed class OnboardingEligibility(
         if (!Given(businessAddress))
             return Refused(OnboardingFailureCodes.BusinessAddressRequired, "Give the business's address.");
 
+        var declarantAddress = request.DeclarantAddress?.Trim();
+        if (!Given(declarantAddress))
+            return Refused(OnboardingFailureCodes.DeclarantAddressRequired, "Give the address of the person making this declaration.");
+
+        var declarantPhone = UsPhone.ToE164(request.DeclarantPhone);
+        if (declarantPhone is null)
+            return Refused(OnboardingFailureCodes.DeclarantPhoneNotUs, "Enter the declarant's US telephone number, ten digits, such as (561) 555-0101.");
+
         if (request.DeclarationAgreed != true || !string.Equals(request.DeclarationStatement, SignupStatements.Declaration, StringComparison.Ordinal))
             return Refused(OnboardingFailureCodes.DeclarationRequired, "The declaration must be agreed to, in the words shown.");
 
@@ -161,6 +173,14 @@ public sealed class OnboardingEligibility(
         if (!sealedAddress.IsSuccess)
             return Result<EligibilityAccepted>.Failure(sealedAddress.Error!, sealedAddress.ErrorCode!);
 
+        var sealedDeclarantAddress = protector.Protect(declarantAddress!, VoiceSecretPurposes.SignupDeclarantAddress);
+        if (!sealedDeclarantAddress.IsSuccess)
+            return Result<EligibilityAccepted>.Failure(sealedDeclarantAddress.Error!, sealedDeclarantAddress.ErrorCode!);
+        var sealedDeclarantPhone = VoicePersonalDetails.SealPhone(
+            protector, declarantPhone, VoiceSecretPurposes.SignupDeclarantPhone, "Enter the declarant's US telephone number.");
+        if (!sealedDeclarantPhone.IsSuccess)
+            return Result<EligibilityAccepted>.Failure(sealedDeclarantPhone.Error!, sealedDeclarantPhone.ErrorCode!);
+
         var created = await voice.CreateTenantAsync(new CreateVoiceTenantCommand(
             request.BusinessName ?? string.Empty,
             request.BusinessDescription.Trim(),
@@ -172,7 +192,7 @@ public sealed class OnboardingEligibility(
         {
             IndustryAnswers = answerSet,
             Attestation = new VoiceSignupAttestation(
-                sealedName.Value!, sealedTitle.Value!, sealedAddress.Value!,
+                sealedName.Value!, sealedTitle.Value!, sealedAddress.Value!, sealedDeclarantAddress.Value!, sealedDeclarantPhone.Value!,
                 SignupStatements.Declaration, SignupStatements.Terms, now, visitor.IpAddress, visitor.CountryCode),
         }, ct).ConfigureAwait(false);
 

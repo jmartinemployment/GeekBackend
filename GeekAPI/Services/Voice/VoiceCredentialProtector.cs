@@ -41,6 +41,8 @@ public static class VoiceSecretPurposes
     public const string SignupAttestorName = "geek-voice/signup-attestor-name";
     public const string SignupAttestorTitle = "geek-voice/signup-attestor-title";
     public const string SignupBusinessAddress = "geek-voice/signup-business-address";
+    public const string SignupDeclarantAddress = "geek-voice/signup-declarant-address";
+    public const string SignupDeclarantPhone = "geek-voice/signup-declarant-phone";
 }
 
 /// <summary>

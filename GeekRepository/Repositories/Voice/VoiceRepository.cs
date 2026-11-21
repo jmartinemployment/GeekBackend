@@ -150,10 +150,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO geek_voice.signup_attestations (
                 id, tenant_id, attestor_name_encrypted, attestor_title_encrypted, business_address_encrypted,
-                declaration_statement, terms_statement, attested_at, ip_address, visitor_country)
+                declarant_address_encrypted, declarant_phone_encrypted, declaration_statement, terms_statement, attested_at, ip_address, visitor_country)
             VALUES (
                 @Id, @TenantId, @AttestorNameEncrypted, @AttestorTitleEncrypted, @BusinessAddressEncrypted,
-                @DeclarationStatement, @TermsStatement, @AttestedAt, @IpAddress::inet, @VisitorCountry);
+                @DeclarantAddressEncrypted, @DeclarantPhoneEncrypted, @DeclarationStatement, @TermsStatement, @AttestedAt, @IpAddress::inet, @VisitorCountry);
             """,
             new
             {
@@ -162,6 +162,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 attestation.AttestorNameEncrypted,
                 attestation.AttestorTitleEncrypted,
                 attestation.BusinessAddressEncrypted,
+                attestation.DeclarantAddressEncrypted,
+                attestation.DeclarantPhoneEncrypted,
                 attestation.DeclarationStatement,
                 attestation.TermsStatement,
                 AttestedAt = attestation.AttestedAt.UtcDateTime,
@@ -699,6 +701,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         if (a is null) return "A signup declaration is required.";
         if (Blank(a.AttestorNameEncrypted) || Blank(a.AttestorTitleEncrypted)) return "The declarant's name and title are required.";
         if (Blank(a.BusinessAddressEncrypted)) return "The business's address is required.";
+        if (Blank(a.DeclarantAddressEncrypted) || Blank(a.DeclarantPhoneEncrypted)) return "The declarant's address and telephone are required.";
         if (Blank(a.DeclarationStatement) || Blank(a.TermsStatement)) return "The words the declarant agreed to are required.";
         if (Blank(a.IpAddress) || Blank(a.VisitorCountry)) return "The declarant's address and country are required.";
         return null;

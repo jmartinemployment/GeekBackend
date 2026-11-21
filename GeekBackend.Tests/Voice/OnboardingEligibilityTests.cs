@@ -56,7 +56,8 @@ public sealed class OnboardingEligibilityTests
         string? country = "US", bool? attested = true, string? yesTo = null) =>
         new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, Answers(yesTo),
             "Pat Rivera", "Owner", "12 Palm Way, Boca Raton, FL 33432",
-            SignupStatements.Declaration, true, SignupStatements.Terms, true);
+            SignupStatements.Declaration, true, SignupStatements.Terms, true,
+            "9 Ocean Blvd, Delray Beach, FL 33444", "(561) 555-0199");
 
     /// <summary>The eight questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
     private static List<IndustryAnswerInput> Answers(string? yesTo = null) =>
@@ -335,7 +336,10 @@ public sealed class OnboardingEligibilityTests
         Assert.Equal("Pat Rivera", Protector.Unprotect(kept.AttestorNameEncrypted, VoiceSecretPurposes.SignupAttestorName).Value);
         Assert.Equal("Owner", Protector.Unprotect(kept.AttestorTitleEncrypted, VoiceSecretPurposes.SignupAttestorTitle).Value);
         Assert.Equal("12 Palm Way, Boca Raton, FL 33432", Protector.Unprotect(kept.BusinessAddressEncrypted, VoiceSecretPurposes.SignupBusinessAddress).Value);
+        Assert.Equal("9 Ocean Blvd, Delray Beach, FL 33444", Protector.Unprotect(kept.DeclarantAddressEncrypted, VoiceSecretPurposes.SignupDeclarantAddress).Value);
+        Assert.Equal("+15615550199", Protector.Unprotect(kept.DeclarantPhoneEncrypted, VoiceSecretPurposes.SignupDeclarantPhone).Value);
         Assert.DoesNotContain("Pat Rivera", kept.AttestorNameEncrypted);
+        Assert.DoesNotContain("5615550199", kept.DeclarantPhoneEncrypted);
         Assert.Equal(SignupStatements.Declaration, kept.DeclarationStatement);
         Assert.Equal(SignupStatements.Terms, kept.TermsStatement);
         Assert.Equal(Now, kept.AttestedAt);
@@ -381,6 +385,35 @@ public sealed class OnboardingEligibilityTests
         var result = await Gate(store).ValidateAsync(Signup() with { BusinessAddress = address }, FromUs);
 
         Assert.Equal(OnboardingFailureCodes.BusinessAddressRequired, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public async Task A_signup_with_no_declarant_address_is_refused_and_creates_nothing(string? address)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { DeclarantAddress = address }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.DeclarantAddressRequired, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("not a number")]
+    [InlineData("+442071838750")]
+    public async Task A_signup_whose_declarant_telephone_is_not_a_us_number_is_refused_and_creates_nothing(string? phone)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { DeclarantPhone = phone }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.DeclarantPhoneNotUs, result.ErrorCode);
         Assert.Empty(store.Created);
     }
 
@@ -460,6 +493,8 @@ public sealed class OnboardingEligibilityTests
     [InlineData(OnboardingFailureCodes.AttestationRequired, 400)]
     [InlineData(OnboardingFailureCodes.AttestorRequired, 400)]
     [InlineData(OnboardingFailureCodes.BusinessAddressRequired, 400)]
+    [InlineData(OnboardingFailureCodes.DeclarantAddressRequired, 400)]
+    [InlineData(OnboardingFailureCodes.DeclarantPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.DeclarationRequired, 400)]
     [InlineData(OnboardingFailureCodes.TermsRequired, 400)]
     [InlineData(OnboardingFailureCodes.VisitorUnverified, 400)]

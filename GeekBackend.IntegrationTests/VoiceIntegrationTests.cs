@@ -291,9 +291,9 @@ public sealed class VoiceIntegrationTests
 
         await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
         await conn.OpenAsync();
-        var row = await Dapper.SqlMapper.QuerySingleAsync<(string Name, string Title, string Address, string Declaration, string Terms, string Ip, string Country)>(conn,
-            "SELECT attestor_name_encrypted, attestor_title_encrypted, business_address_encrypted, declaration_statement, terms_statement, host(ip_address), visitor_country FROM geek_voice.signup_attestations WHERE tenant_id = @id", new { id });
-        Assert.Equal((attestation.AttestorNameEncrypted, attestation.AttestorTitleEncrypted, attestation.BusinessAddressEncrypted, attestation.DeclarationStatement, attestation.TermsStatement, "203.0.113.9", "US"), row);
+        var row = await Dapper.SqlMapper.QuerySingleAsync<(string Name, string Title, string Address, string DeclarantAddress, string DeclarantPhone, string Declaration, string Terms, string Ip, string Country)>(conn,
+            "SELECT attestor_name_encrypted, attestor_title_encrypted, business_address_encrypted, declarant_address_encrypted, declarant_phone_encrypted, declaration_statement, terms_statement, host(ip_address), visitor_country FROM geek_voice.signup_attestations WHERE tenant_id = @id", new { id });
+        Assert.Equal((attestation.AttestorNameEncrypted, attestation.AttestorTitleEncrypted, attestation.BusinessAddressEncrypted, attestation.DeclarantAddressEncrypted, attestation.DeclarantPhoneEncrypted, attestation.DeclarationStatement, attestation.TermsStatement, "203.0.113.9", "US"), row);
 
         var update = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
             Dapper.SqlMapper.ExecuteAsync(conn, "UPDATE geek_voice.signup_attestations SET declaration_statement = 'changed' WHERE tenant_id = @id", new { id }));
