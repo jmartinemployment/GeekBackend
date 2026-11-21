@@ -19,6 +19,7 @@ public static class OnboardingFailureCodes
     public const string DeclarantAddressRequired = "declarant_address_required";
     public const string DeclarantPhoneNotUs = "declarant_phone_not_us";
     public const string DeclarantEmailInvalid = "declarant_email_invalid";
+    public const string BusinessWebsiteInvalid = "business_website_invalid";
     public const string DeclarationRequired = "declaration_required";
     public const string TermsRequired = "terms_required";
     public const string VisitorUnverified = "visitor_unverified";
@@ -48,7 +49,28 @@ public sealed record ValidateEligibilityRequest(
     bool? TermsAgreed = null,
     string? DeclarantAddress = null,
     string? DeclarantPhone = null,
-    string? DeclarantEmail = null);
+    string? DeclarantEmail = null,
+    string? BusinessWebsite = null);
+
+/// <summary>
+/// The business's website, optional. Left empty it is none, which is a legitimate answer and is stored as null. Given, it must be an
+/// absolute http or https address with a host that has a dot, and is stored as typed, trimmed: a value that is not one is refused, never
+/// repaired into one.
+/// </summary>
+public static class BusinessWebsites
+{
+    public static Result<string?> Read(string? typed)
+    {
+        var value = typed?.Trim();
+        if (string.IsNullOrEmpty(value)) return Result<string?>.Success(null);
+        if (value.Length > SignupStatements.MaxFieldLength
+            || !Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            || !uri.Host.Contains('.', StringComparison.Ordinal))
+            return Result<string?>.Failure("Enter the business's website as a full address, such as https://bocacool.example.", OnboardingFailureCodes.BusinessWebsiteInvalid);
+        return Result<string?>.Success(value);
+    }
+}
 
 /// <summary>
 /// The two statements a person agrees to at the end of the signup declaration, word for word (plans/attestation-and-terms.md, stages 2
@@ -128,6 +150,10 @@ public sealed class OnboardingEligibility(
         if (!Given(attestorName) || !Given(attestorTitle))
             return Refused(OnboardingFailureCodes.AttestorRequired, "Give the name and title of the person making this declaration.");
 
+        var website = BusinessWebsites.Read(request.BusinessWebsite);
+        if (!website.IsSuccess)
+            return Refused(OnboardingFailureCodes.BusinessWebsiteInvalid, website.Error!);
+
         var businessAddress = request.BusinessAddress?.Trim();
         if (!Given(businessAddress))
             return Refused(OnboardingFailureCodes.BusinessAddressRequired, "Give the business's address.");
@@ -202,6 +228,7 @@ public sealed class OnboardingEligibility(
             sealedPhone.Value!)
         {
             IndustryAnswers = answerSet,
+            BusinessWebsite = website.Value,
             Attestation = new VoiceSignupAttestation(
                 sealedName.Value!, sealedTitle.Value!, sealedAddress.Value!, sealedDeclarantAddress.Value!, sealedDeclarantPhone.Value!, sealedDeclarantEmail.Value!,
                 SignupStatements.Declaration, SignupStatements.Terms, now, visitor.IpAddress, visitor.CountryCode),

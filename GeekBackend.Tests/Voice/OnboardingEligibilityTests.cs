@@ -422,6 +422,47 @@ public sealed class OnboardingEligibilityTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_business_with_no_website_is_accepted_and_stores_none(string? website)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { BusinessWebsite = website }, FromUs);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Null(Assert.Single(store.Created).BusinessWebsite);
+    }
+
+    [Fact]
+    public async Task A_business_website_is_stored_as_typed_but_trimmed()
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { BusinessWebsite = "  https://bocacool.example/hvac  " }, FromUs);
+
+        Assert.True(result.IsSuccess, result.Error);
+        Assert.Equal("https://bocacool.example/hvac", Assert.Single(store.Created).BusinessWebsite);
+    }
+
+    [Theory]
+    [InlineData("bocacool.example")]
+    [InlineData("ftp://bocacool.example")]
+    [InlineData("https://localhost")]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("not a website")]
+    public async Task A_website_that_is_not_a_full_http_address_is_refused_and_never_repaired(string website)
+    {
+        var store = new RecordingStore();
+
+        var result = await Gate(store).ValidateAsync(Signup() with { BusinessWebsite = website }, FromUs);
+
+        Assert.Equal(OnboardingFailureCodes.BusinessWebsiteInvalid, result.ErrorCode);
+        Assert.Empty(store.Created);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
     [InlineData("no-at-sign")]
     [InlineData("Pat <pat@example.test>")]
     public async Task A_signup_whose_declarant_email_is_not_an_address_is_refused_and_creates_nothing(string? email)
@@ -513,6 +554,7 @@ public sealed class OnboardingEligibilityTests
     [InlineData(OnboardingFailureCodes.DeclarantAddressRequired, 400)]
     [InlineData(OnboardingFailureCodes.DeclarantPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.DeclarantEmailInvalid, 400)]
+    [InlineData(OnboardingFailureCodes.BusinessWebsiteInvalid, 400)]
     [InlineData(OnboardingFailureCodes.DeclarationRequired, 400)]
     [InlineData(OnboardingFailureCodes.TermsRequired, 400)]
     [InlineData(OnboardingFailureCodes.VisitorUnverified, 400)]

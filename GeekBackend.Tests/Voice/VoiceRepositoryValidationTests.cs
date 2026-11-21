@@ -61,6 +61,14 @@ public sealed class VoiceRepositoryValidationTests
     public async Task A_tenant_with_a_bad_field_is_refused(string name, string industry, string country, string state, string email, string phone) =>
         await AssertInvalid(Store().CreateTenantAsync(new(name, industry, Now, country, state, email, phone) { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = AttestationFixture.Good(Now) }));
 
+    [Theory]
+    [InlineData("bocacool.example")]
+    [InlineData("ftp://bocacool.example")]
+    [InlineData("https://localhost")]
+    [InlineData("")]
+    public async Task A_tenant_whose_website_is_not_a_full_http_address_is_refused(string website) =>
+        await AssertInvalid(Store().CreateTenantAsync(GoodTenant() with { BusinessWebsite = website }));
+
     public static TheoryData<string, Func<VoiceSignupAttestation>> AttestationsThatCannotBeStored() => new()
     {
         { "no declarant name", () => AttestationFixture.Good(Now) with { AttestorNameEncrypted = " " } },

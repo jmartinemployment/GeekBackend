@@ -61,10 +61,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
             var row = await conn.QuerySingleAsync<TenantRow>(new CommandDefinition($"""
                 INSERT INTO geek_voice.tenants (
                     id, business_name, industry_vertical,
-                    compliance_attested_at, country_code, state_code, contact_email_encrypted, contact_phone_encrypted)
+                    compliance_attested_at, country_code, state_code, contact_email_encrypted, contact_phone_encrypted, business_website)
                 VALUES (
                     @TenantId, @BusinessName, @IndustryVertical,
-                    @ComplianceAttestedAt, @CountryCode, @StateCode, @ContactEmailEncrypted, @ContactPhoneEncrypted)
+                    @ComplianceAttestedAt, @CountryCode, @StateCode, @ContactEmailEncrypted, @ContactPhoneEncrypted, @BusinessWebsite)
                 RETURNING {TenantColumns};
                 """,
                 new
@@ -77,6 +77,7 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                     command.StateCode,
                     command.ContactEmailEncrypted,
                     command.ContactPhoneEncrypted,
+                    command.BusinessWebsite,
                 },
                 tx,
                 cancellationToken: ct));
@@ -696,6 +697,8 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         // rules moved to GeekAPI (VoicePersonalDetails), which is the last place that holds the clear value. What is still checkable
         // here is that the business sent one at all.
         if (Blank(c.ContactEmailEncrypted) || Blank(c.ContactPhoneEncrypted)) return "The contact email and phone are required.";
+        if (c.BusinessWebsite is not null && !System.Text.RegularExpressions.Regex.IsMatch(c.BusinessWebsite, @"^https?://[^\s/]+\.[^\s/]+"))
+            return "The website must be a full http or https address, or left empty.";
         // The declarant and the address are sealed too, so what can still be checked here is that each is there, and that the words
         // the person agreed to are there beside them.
         var a = c.Attestation;

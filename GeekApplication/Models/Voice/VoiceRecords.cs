@@ -200,6 +200,9 @@ public sealed record CreateVoiceTenantCommand(
     /// <summary>The business's no to every excluded-industry question, stored with the tenant in one transaction and kept forever.</summary>
     public required VoiceIndustryAnswerSet IndustryAnswers { get; init; }
 
+    /// <summary>The business's website: an absolute http or https address, or null when it has none. Not sealed, it is public.</summary>
+    public string? BusinessWebsite { get; init; }
+
     /// <summary>The named person's declaration and acceptance of the Terms, stored with the tenant in one transaction and kept forever.</summary>
     public required VoiceSignupAttestation Attestation { get; init; }
 }
