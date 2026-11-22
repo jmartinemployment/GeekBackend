@@ -53,6 +53,7 @@ public static class ReceptionistLanguages
         string EnglishName,
         Func<string, string> Disclosure,
         Func<string, string> Consent,
+        Func<string, string> ConsentRecorded,
         Func<string, string> Unanswered,
         string Failure);
 
@@ -68,6 +69,9 @@ public static class ReceptionistLanguages
             $"Thank you for calling {business}. You will be interacting with our AI receptionist. Your audio will be processed "
             + "to provide this service, and we do not retain call recordings or transcripts. To consent and continue, press 1. "
             + "To decline, press 2.",
+        ConsentRecorded: business =>
+            $"Thank you for calling {business}. You will be interacting with our AI receptionist. Your call will be recorded and sent to "
+            + "the business. To consent and continue, press 1. To decline, press 2.",
         Unanswered: business =>
             $"Thank you for calling {business}. We can't take your call right now. Please call again later. Goodbye.",
         Failure:

@@ -115,7 +115,7 @@ public sealed class TenantCallController : ControllerBase
         if (settings.Value!.ConsentMode == VoiceConsentModes.StrictKeypress)
         {
             _logger.LogInformation("Tenant {TenantId}: call {CallSid} may be answered; it is asked for consent in {Language}.", tenantId, callSid, language.Value!.Code);
-            return Twiml(ReceptionistConsent.Ask(tenant.Value!.BusinessName, new Uri(_twilio.PublicBaseUrl + ConsentResultPath(tenantId)), language.Value!));
+            return Twiml(ReceptionistConsent.Ask(tenant.Value!.BusinessName, new Uri(_twilio.PublicBaseUrl + ConsentResultPath(tenantId)), language.Value!, settings.Value!.RecordingDisclosureEnabled));
         }
 
         // Passive disclosure, which an owner has chosen over the keypress default: the caller is told as the call connects and is not

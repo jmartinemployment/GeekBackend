@@ -165,4 +165,18 @@ public class ReceptionistLanguageTests
             + "To decline, press 2.",
             ReceptionistConsent.ConsentText("Joe's TV", ReceptionistLanguages.DefaultLanguage));
     }
+
+    [Fact]
+    public void Only_a_business_that_turned_recording_on_tells_callers_the_call_is_recorded()
+    {
+        var language = ReceptionistLanguages.DefaultLanguage;
+
+        var notRecorded = ReceptionistConsent.ConsentText("Joe's TV", language);
+        var recorded = ReceptionistConsent.ConsentText("Joe's TV", language, recorded: true);
+
+        Assert.DoesNotContain("recorded", notRecorded, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("recorded", recorded, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("press 1", recorded, StringComparison.Ordinal);
+        Assert.Contains("Joe's TV", recorded, StringComparison.Ordinal);
+    }
 }

@@ -31,13 +31,15 @@ public static class ReceptionistConsent
     public static string DisclosureText(string business, ReceptionistLanguages.Language language) => language.Disclosure(business);
 
     /// <summary>Jeff's approved wording, word for word, with the business name, in the receptionist's language.</summary>
-    public static string ConsentText(string business, ReceptionistLanguages.Language language) => language.Consent(business);
+    /// <param name="recorded">True only for a business that turned recording on: its callers are told the call will be recorded, and a business that did not is never told so.</param>
+    public static string ConsentText(string business, ReceptionistLanguages.Language language, bool recorded = false) =>
+        recorded ? language.ConsentRecorded(business) : language.Consent(business);
 
     /// <summary>
     /// Asks for consent and posts the key to <paramref name="action"/>. With no key, Twilio does not post and goes on to the next verb:
     /// the closing message and a hang-up.
     /// </summary>
-    public static VoiceResponse Ask(string business, Uri action, ReceptionistLanguages.Language language)
+    public static VoiceResponse Ask(string business, Uri action, ReceptionistLanguages.Language language, bool recorded = false)
     {
         var response = new VoiceResponse();
         var gather = new Gather(
@@ -47,7 +49,7 @@ public static class ReceptionistConsent
             method: HttpMethod.Post);
         // <Say> is a different TTS path from ConversationRelay and carries its own language: leaving it unset would ask for consent in
         // English and then converse in the stored language, which is the half-translated call this registry exists to prevent.
-        gather.Say(ConsentText(business, language), language: language.Code);
+        gather.Say(ConsentText(business, language, recorded), language: language.Code);
         response.Append(gather);
         response.Say(CallTwiml.UnansweredText(business, language), language: language.Code);
         response.Hangup();
