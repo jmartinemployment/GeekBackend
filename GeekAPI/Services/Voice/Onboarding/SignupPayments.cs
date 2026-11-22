@@ -37,6 +37,14 @@ public sealed class SignupPayments(IVoiceStore store, IVoiceSignupAnswerStore si
         if (!accepted.Value!.Accepted)
             return Result<PayPalApproval>.Failure("The Terms must be accepted before a plan is chosen.", OnboardingFailureCodes.TermsRequired);
 
+        // A bucket connected during signup is a Standard-and-above ability, and the plan is chosen after it, so the check is here: a tier
+        // without object storage is refused for a business that connected a bucket, and nothing is quietly saved and never used.
+        var bucket = await store.GetStorageConnectionAsync(tenantId, ct).ConfigureAwait(false);
+        if (bucket.IsSuccess && !VoiceSubscriptionTiers.WithObjectStorage.Contains(tier.Code, StringComparer.Ordinal))
+            return Result<PayPalApproval>.Failure("Writing call records to your own bucket is part of Standard and above. Choose Standard or above, or use Google Drive, which is on every plan.", OnboardingFailureCodes.TierRequired);
+        if (!bucket.IsSuccess && bucket.ErrorCode != VoiceFailureCodes.NotFound)
+            return Result<PayPalApproval>.Failure(bucket.Error ?? "The storage connection could not be read.", bucket.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
+
         return await paypal.StartSubscriptionAsync(tenantId, tier, returnUrl, cancelUrl, ct).ConfigureAwait(false);
     }
 

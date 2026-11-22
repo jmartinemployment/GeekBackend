@@ -48,6 +48,7 @@ public static class VoiceServiceRegistration
         services.AddSingleton(PayPalPlans.FromEnvironment());
         services.AddHttpClient<PayPalSignup>(client => client.Timeout = TimeSpan.FromSeconds(30));
         services.AddScoped<SignupPayments>();
+        services.AddScoped<SignupConnections>();
         services.AddScoped<IVoiceBillingStore>(sp =>
             new HttpVoiceBillingRepository(
                 sp.GetRequiredService<IHttpClientFactory>().CreateClient("GeekRepositoryInternal"),

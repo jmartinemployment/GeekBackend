@@ -44,7 +44,7 @@ public sealed class SignupPaymentsTests
         }
     }
 
-    private sealed class Store(string status) : IVoiceStore
+    private sealed class Store(string status, bool bucketConnected = false) : IVoiceStore
     {
         public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) =>
             Task.FromResult(tenantId == Tenant
@@ -57,9 +57,11 @@ public sealed class SignupPaymentsTests
         public Task<Result<VoiceCallStored>> UpsertCallAsync(Guid tenantId, UpsertVoiceCallCommand command, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceReceptionistConfig>> GetConfigAsync(Guid tenantId, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<Result<VoiceReceptionistConfig>> SaveConfigAsync(Guid tenantId, VoiceReceptionistConfig config, CancellationToken ct = default) => throw new NotSupportedException();
-        // Bring-your-own-storage is not what this test is about; a fake that is asked says there is none.
+        // Unless a test connected a bucket, a fake that is asked says there is none.
         public Task<Result<VoiceStorageConnection>> GetStorageConnectionAsync(Guid tenantId, CancellationToken ct = default) =>
-            Task.FromResult(Result<VoiceStorageConnection>.Failure("No storage connection.", VoiceFailureCodes.NotFound));
+            Task.FromResult(bucketConnected
+                ? Result<VoiceStorageConnection>.Success(new VoiceStorageConnection(tenantId, VoiceStorageProviders.AwsS3, "k", "s", "bucket", "", "us-east-1", true))
+                : Result<VoiceStorageConnection>.Failure("No storage connection.", VoiceFailureCodes.NotFound));
 
         public Task<Result<VoiceStorageConnection>> SaveStorageConnectionAsync(Guid tenantId, SaveVoiceStorageConnectionCommand command, CancellationToken ct = default) =>
             throw new NotSupportedException();
@@ -74,12 +76,34 @@ public sealed class SignupPaymentsTests
     private static HttpResponseMessage Json(string json, HttpStatusCode status) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
-    private static (SignupPayments Payments, PayPal Http) Build(string status = VoiceTenantStatuses.PendingPayment, PayPal? http = null, PayPalPlans? plans = null, bool termsAccepted = true)
+    private static (SignupPayments Payments, PayPal Http) Build(string status = VoiceTenantStatuses.PendingPayment, PayPal? http = null, PayPalPlans? plans = null, bool termsAccepted = true, bool bucketConnected = false)
     {
         http ??= new PayPal();
         plans ??= PayPalPlans.From(name => name == "PAYPAL_PLAN_STARTER" ? "P-STARTER" : name.StartsWith("PAYPAL_PLAN_", StringComparison.Ordinal) ? "P-OTHER" : null);
         var signup = new PayPalSignup(new HttpClient(http), new PayPalOptions("https://paypal.test", "id", "secret"), plans, NullLogger<PayPalSignup>.Instance);
-        return (new SignupPayments(new Store(status), new RecordingSignupAnswerStore { TermsAccepted = termsAccepted }, signup), http);
+        return (new SignupPayments(new Store(status, bucketConnected), new RecordingSignupAnswerStore { TermsAccepted = termsAccepted }, signup), http);
+    }
+
+    [Theory]
+    [InlineData("STARTER")]
+    public async Task A_bucket_needs_a_tier_that_includes_object_storage_and_nothing_is_started_without_one(string tier)
+    {
+        var (payments, http) = Build(bucketConnected: true);
+
+        var result = await payments.StartSubscriptionAsync(new StartSignupPaymentRequest(Tenant, tier, Back, Cancel));
+
+        Assert.Equal(OnboardingFailureCodes.TierRequired, result.ErrorCode);
+        Assert.DoesNotContain(http.Requests, r => r.Path == "/v1/billing/subscriptions");
+    }
+
+    [Fact]
+    public async Task A_bucket_on_a_tier_that_includes_object_storage_goes_on_to_PayPal()
+    {
+        var (payments, _) = Build(bucketConnected: true);
+
+        var result = await payments.StartSubscriptionAsync(new StartSignupPaymentRequest(Tenant, "STANDARD", Back, Cancel));
+
+        Assert.True(result.IsSuccess, result.Error);
     }
 
     [Fact]

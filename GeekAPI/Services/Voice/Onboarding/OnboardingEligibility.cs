@@ -20,6 +20,7 @@ public static class OnboardingFailureCodes
     public const string DeclarantEmailInvalid = "declarant_email_invalid";
     public const string BusinessWebsiteInvalid = "business_website_invalid";
     public const string TermsRequired = "terms_required";
+    public const string TierRequired = "tier_required";
     public const string VisitorUnverified = "visitor_unverified";
     public const string VisitorCountryNotSupported = "visitor_country_not_supported";
 }

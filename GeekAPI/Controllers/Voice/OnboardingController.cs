@@ -137,6 +137,7 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
             or OnboardingFailureCodes.DeclarantEmailInvalid
             or OnboardingFailureCodes.BusinessWebsiteInvalid
             or OnboardingFailureCodes.TermsRequired
+            or OnboardingFailureCodes.TierRequired
             or OnboardingFailureCodes.VisitorUnverified
             or OnboardingFailureCodes.VisitorCountryNotSupported
             or BillingFailureCodes.TierUnknown

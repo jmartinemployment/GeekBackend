@@ -21,7 +21,14 @@ public sealed class McpConnectionService(
     VoiceCredentialProtector protector,
     ILogger<McpConnectionService> logger)
 {
-    public async Task<Result<string>> BeginAsync(Guid tenantId, string provider, CancellationToken ct = default)
+    public async Task<Result<string>> BeginAsync(Guid tenantId, string provider, CancellationToken ct = default) =>
+        await BeginAsync(tenantId, provider, allowWaitingForPayment: false, ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// <paramref name="allowWaitingForPayment"/> is true only for signup, which connects before the business has paid so the connection can be
+    /// shown to work first. The owner's own route never sets it.
+    /// </summary>
+    public async Task<Result<string>> BeginAsync(Guid tenantId, string provider, bool allowWaitingForPayment, CancellationToken ct = default)
     {
         var connection = McpProviders.For(provider);
         if (connection is null) return Result<string>.Failure(NotSupported(provider), McpFailureCodes.ProviderNotSupported);
@@ -31,7 +38,9 @@ public sealed class McpConnectionService(
 
         var tenant = await store.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
         if (!tenant.IsSuccess) return Result<string>.Failure(tenant.Error ?? "The tenant could not be read.", tenant.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
-        if (tenant.Value!.Status != VoiceTenantStatuses.Active)
+        var allowed = tenant.Value!.Status == VoiceTenantStatuses.Active
+            || (allowWaitingForPayment && tenant.Value.Status == VoiceTenantStatuses.PendingPayment);
+        if (!allowed)
             return Result<string>.Failure("A calendar can be connected only after the subscription is active.", McpFailureCodes.TenantNotActive);
 
         var sealedState = state.Create(tenantId, provider);
