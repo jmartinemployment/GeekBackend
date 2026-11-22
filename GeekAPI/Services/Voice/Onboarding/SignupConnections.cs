@@ -14,6 +14,9 @@ public sealed record BeginSignupConnectionRequest(Guid? TenantId, string? Provid
 /// <summary>The approval Google sent back, handed on by the portal.</summary>
 public sealed record CompleteSignupConnectionRequest(Guid? TenantId, string? Provider, string? Code, string? State, string? Error);
 
+/// <summary>The portal asking for a connection to be shown to work.</summary>
+public sealed record CheckSignupConnectionRequest(Guid? TenantId, string? Provider);
+
 /// <summary>The bucket a visitor typed in. The keys are sealed on arrival and never answered back.</summary>
 public sealed record SaveSignupBucketRequest(Guid? TenantId, string? Provider, string? Bucket, string? Region, string? AccessKeyId, string? SecretAccessKey, string? KeyPrefix);
 

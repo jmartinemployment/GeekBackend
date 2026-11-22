@@ -33,7 +33,7 @@ public sealed class SignupConnectionsController(SignupConnections connections) :
         return result.IsSuccess ? Ok(new { connected = true, provider = request!.Provider }) : Refuse(result.Error, result.ErrorCode, "The connection could not be completed.");
     }
 
-    [HttpPut("bucket")]
+    [HttpPost("bucket")]
     public async Task<IActionResult> SaveBucket([FromBody] SaveSignupBucketRequest? request, CancellationToken ct)
     {
         var result = await connections.SaveBucketAsync(request, ct);
@@ -41,11 +41,11 @@ public sealed class SignupConnectionsController(SignupConnections connections) :
     }
 
     /// <summary>Uses the connection: the calendar lists its calendars, a Drive folder or a bucket is written a small file.</summary>
-    [HttpGet("check")]
-    public async Task<IActionResult> Check([FromQuery] Guid? tenantId, [FromQuery] string? provider, CancellationToken ct)
+    [HttpPost("check")]
+    public async Task<IActionResult> Check([FromBody] CheckSignupConnectionRequest? request, CancellationToken ct)
     {
-        var result = await connections.CheckAsync(tenantId, provider, ct);
-        return result.IsSuccess ? Ok(new { connected = true, provider, shown = result.Value }) : Refuse(result.Error, result.ErrorCode, "The connection could not be checked.");
+        var result = await connections.CheckAsync(request?.TenantId, request?.Provider, ct);
+        return result.IsSuccess ? Ok(new { connected = true, provider = request!.Provider, shown = result.Value }) : Refuse(result.Error, result.ErrorCode, "The connection could not be checked.");
     }
 
     private ObjectResult Refuse(string? error, string? code, string fallback) =>
