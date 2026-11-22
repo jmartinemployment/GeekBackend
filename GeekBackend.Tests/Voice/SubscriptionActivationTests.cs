@@ -191,7 +191,7 @@ public sealed class SubscriptionActivationTests
         await world.Activation.ActivateAsync(Request());
 
         var config = Assert.Single(world.Store.SavedConfigs);
-        Assert.True(config.RecordingDisclosureEnabled);
+        Assert.False(config.RecordingDisclosureEnabled);
         Assert.Contains("Boca Cool HVAC", config.GreetingMessage);
         Assert.Contains("a business in Florida that works in Plumbing, heating, & air-conditioning contractors", config.SystemPromptTemplate);
     }

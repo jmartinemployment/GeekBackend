@@ -12,14 +12,14 @@ public sealed record ReceptionistScript(string Greeting, string Prompt);
 /// <summary>
 /// What a new tenant's receptionist starts with, until the tenant saves its own settings. The script is the one Jeff supplied, word for
 /// word, except that the Role paragraph names the tenant's business, state and industry, all taken from the signup record. The
-/// greeting carries the recording notice because recording_disclosure_enabled starts TRUE (Fla. Stat. 934.03, plan section 5, item 3).
+/// greeting carries no recording notice because Zero Data Retention is the default and recording_disclosure_enabled starts FALSE (Jeff, 2026-11-22); a business that records turns it on itself.
 /// No voice is chosen: ConversationRelay speaks with Twilio's default voice. The settings the signup cannot supply start empty: no hours, no qualifying questions, no
 /// emergency keywords, and voicemail only, because a transfer needs a number the tenant has not given.
 /// </summary>
 public static partial class ReceptionistDefaults
 {
     private const string GreetingTemplate =
-        "Thank you for calling {business name}. I'm the AI receptionist, and this call may be recorded. How can I help you today?";
+        "Thank you for calling {business name}. I'm the AI receptionist. How can I help you today?";
 
     private const string ScriptTemplate = """
         ## Role
@@ -175,7 +175,7 @@ public static partial class ReceptionistDefaults
         TransferTargetNumberEncrypted: null,
         TransferCallerIdMode: VoiceTransferCallerIdModes.OriginalCaller,
         EmergencyKeywords: [],
-        RecordingDisclosureEnabled: true,
+        RecordingDisclosureEnabled: false,
         ConsentMode: VoiceConsentModes.StrictKeypress);
 
     /// <summary>The tokens a template names, so a test can prove each one is a value the signup supplies.</summary>

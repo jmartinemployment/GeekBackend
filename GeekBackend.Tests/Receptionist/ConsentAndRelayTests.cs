@@ -62,7 +62,7 @@ public sealed class CapturingLogger : ILogger
 public sealed class ConsentAndRelayTests
 {
     private const string Consent =
-        "Thank you for calling Dag Plumbing. You will be interacting with our AI receptionist. Your audio will be temporarily recorded and processed to provide this service, but we do not retain call recordings or transcripts. To consent and continue, press 1. To decline, press 2.";
+        "Thank you for calling Dag Plumbing. You will be interacting with our AI receptionist. Your audio will be processed to provide this service, and we do not retain call recordings or transcripts. To consent and continue, press 1. To decline, press 2.";
 
     // ----- Consent TwiML -----
 

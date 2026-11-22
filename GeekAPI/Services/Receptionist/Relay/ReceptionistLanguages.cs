@@ -65,8 +65,8 @@ public static class ReceptionistLanguages
         Disclosure: business =>
             $"Hi, you've reached {business}'s AI assistant. Calls are processed in real time and not recorded. How can I help you today?",
         Consent: business =>
-            $"Thank you for calling {business}. You will be interacting with our AI receptionist. Your audio will be temporarily recorded "
-            + "and processed to provide this service, but we do not retain call recordings or transcripts. To consent and continue, press 1. "
+            $"Thank you for calling {business}. You will be interacting with our AI receptionist. Your audio will be processed "
+            + "to provide this service, and we do not retain call recordings or transcripts. To consent and continue, press 1. "
             + "To decline, press 2.",
         Unanswered: business =>
             $"Thank you for calling {business}. We can't take your call right now. Please call again later. Goodbye.",

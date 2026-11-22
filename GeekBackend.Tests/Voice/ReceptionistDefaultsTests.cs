@@ -54,7 +54,7 @@ public sealed class ReceptionistDefaultsTests
     {
         var script = ReceptionistDefaults.ScriptFor(Tenant()).Value!;
 
-        Assert.Equal("Thank you for calling Boca Cool HVAC. I'm the AI receptionist, and this call may be recorded. How can I help you today?", script.Greeting);
+        Assert.Equal("Thank you for calling Boca Cool HVAC. I'm the AI receptionist. How can I help you today?", script.Greeting);
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public sealed class ReceptionistDefaultsTests
 
         Assert.Equal(script.Greeting, config.GreetingMessage);
         Assert.Equal(script.Prompt, config.SystemPromptTemplate);
-        Assert.True(config.RecordingDisclosureEnabled);
+        Assert.False(config.RecordingDisclosureEnabled);
         Assert.Equal(VoiceTransferModes.VoicemailOnly, config.TransferMode);
         Assert.Null(config.TransferTargetNumberEncrypted);
         Assert.Equal(VoiceTransferCallerIdModes.OriginalCaller, config.TransferCallerIdMode);
