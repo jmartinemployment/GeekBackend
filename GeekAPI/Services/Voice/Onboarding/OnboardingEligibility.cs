@@ -76,8 +76,8 @@ public static class BusinessWebsites
 public static class SignupStatements
 {
     public const string Terms =
-        "I agree to the Geek-Receptionist Subscription Terms, subject to Geek-Receptionist verifying a connection to each system the business requires. "
-        + "No payment is taken before that connection is verified, and if a required system cannot be connected I may continue without it or stop.";
+        "By continuing, I agree to the Terms of Service and the Privacy Policy of Geek @ Your Spot LLC, "
+        + "and that calls to this business may be answered and recorded by an AI receptionist that tells callers so.";
 
     /// <summary>The longest name or address accepted; a longer one is refused rather than cut short.</summary>
     public const int MaxFieldLength = 300;

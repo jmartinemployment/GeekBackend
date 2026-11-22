@@ -488,10 +488,12 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Fact]
-    public void The_terms_the_person_agrees_to_say_they_are_subject_to_the_connections_being_verified()
+    public void The_statement_the_person_agrees_to_names_the_company_and_the_ai_receptionist()
     {
-        Assert.Contains("subject to", SignupStatements.Terms);
-        Assert.Contains("No payment is taken before that connection is verified", SignupStatements.Terms);
+        Assert.Equal(
+            "By continuing, I agree to the Terms of Service and the Privacy Policy of Geek @ Your Spot LLC, and that calls to this business may be answered and recorded by an AI receptionist that tells callers so.",
+            SignupStatements.Terms);
+        Assert.DoesNotContain("subject to", SignupStatements.Terms);
     }
 
     [Fact]

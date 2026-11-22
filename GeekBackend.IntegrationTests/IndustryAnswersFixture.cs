@@ -28,7 +28,7 @@ internal static class AttestationFixture
 {
     public static VoiceSignupAttestation Good(DateTimeOffset at) => new(
         "sealed-name", "sealed-address", "sealed-declarant-address", "sealed-declarant-phone", "sealed-declarant-email",
-        "I agree to the Geek-Receptionist Subscription Terms, subject to Geek-Receptionist verifying a connection to each system the business requires. No payment is taken before that connection is verified, and if a required system cannot be connected I may continue without it or stop.",
+        "By continuing, I agree to the Terms of Service and the Privacy Policy of Geek @ Your Spot LLC, and that calls to this business may be answered and recorded by an AI receptionist that tells callers so.",
         at, "203.0.113.9", "US");
 }
 
