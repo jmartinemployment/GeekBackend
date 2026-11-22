@@ -460,7 +460,7 @@ public sealed class OnboardingEligibilityTests
     public void The_statement_the_person_agrees_to_names_the_company_and_the_ai_receptionist()
     {
         Assert.Equal(
-            "By continuing, I agree to the Terms of Service and the Privacy Policy of Geek @ Your Spot LLC, and that calls to this business may be answered and recorded by an AI receptionist that tells callers so.",
+            "By continuing, I agree to the Terms of Service and the Privacy Policy of Geek @ Your Spot LLC, and that calls to this business may be answered by an AI receptionist that tells callers so.",
             SignupStatements.Terms);
         Assert.DoesNotContain("subject to", SignupStatements.Terms);
     }

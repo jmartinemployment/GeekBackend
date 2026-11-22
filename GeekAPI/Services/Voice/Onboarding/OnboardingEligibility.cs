@@ -73,7 +73,7 @@ public static class SignupStatements
 {
     public const string Terms =
         "By continuing, I agree to the Terms of Service and the Privacy Policy of Geek @ Your Spot LLC, "
-        + "and that calls to this business may be answered and recorded by an AI receptionist that tells callers so.";
+        + "and that calls to this business may be answered by an AI receptionist that tells callers so.";
 
     /// <summary>The longest name or address accepted; a longer one is refused rather than cut short.</summary>
     public const int MaxFieldLength = 300;
