@@ -27,7 +27,7 @@ internal static class IndustryAnswersFixture
 internal static class AttestationFixture
 {
     public static VoiceSignupAttestation Good(DateTimeOffset at) => new(
-        "sealed-name", "sealed-title", "sealed-address", "sealed-declarant-address", "sealed-declarant-phone", "sealed-declarant-email", GeekAPI.Services.Voice.Onboarding.SignupStatements.Declaration,
+        "sealed-name", "sealed-address", "sealed-declarant-address", "sealed-declarant-phone", "sealed-declarant-email",
         GeekAPI.Services.Voice.Onboarding.SignupStatements.Terms, at, "203.0.113.9", "US");
 }
 

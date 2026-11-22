@@ -27,8 +27,7 @@ internal static class IndustryAnswersFixture
 internal static class AttestationFixture
 {
     public static VoiceSignupAttestation Good(DateTimeOffset at) => new(
-        "sealed-name", "sealed-title", "sealed-address", "sealed-declarant-address", "sealed-declarant-phone", "sealed-declarant-email",
-        "I declare that I am authorised to answer for this business and that the answers given in this document are true to the best of my knowledge.",
+        "sealed-name", "sealed-address", "sealed-declarant-address", "sealed-declarant-phone", "sealed-declarant-email",
         "I agree to the Geek-Receptionist Subscription Terms, subject to Geek-Receptionist verifying a connection to each system the business requires. No payment is taken before that connection is verified, and if a required system cannot be connected I may continue without it or stop.",
         at, "203.0.113.9", "US");
 }

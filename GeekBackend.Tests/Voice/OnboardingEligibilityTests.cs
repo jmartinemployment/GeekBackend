@@ -55,8 +55,8 @@ public sealed class OnboardingEligibilityTests
     private static ValidateEligibilityRequest Signup(
         string? country = "US", bool? attested = true, string? yesTo = null) =>
         new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, Answers(yesTo),
-            "Pat Rivera", "Owner", "12 Palm Way, Boca Raton, FL 33432",
-            SignupStatements.Declaration, true, SignupStatements.Terms, true,
+            "Pat Rivera", "12 Palm Way, Boca Raton, FL 33432",
+            SignupStatements.Terms, true,
             "9 Ocean Blvd, Delray Beach, FL 33444", "(561) 555-0199", "pat@example.test");
 
     /// <summary>The eight questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
@@ -334,7 +334,6 @@ public sealed class OnboardingEligibilityTests
         Assert.True(result.IsSuccess, result.Error);
         var kept = Assert.Single(store.Created).Attestation;
         Assert.Equal("Pat Rivera", Protector.Unprotect(kept.AttestorNameEncrypted, VoiceSecretPurposes.SignupAttestorName).Value);
-        Assert.Equal("Owner", Protector.Unprotect(kept.AttestorTitleEncrypted, VoiceSecretPurposes.SignupAttestorTitle).Value);
         Assert.Equal("12 Palm Way, Boca Raton, FL 33432", Protector.Unprotect(kept.BusinessAddressEncrypted, VoiceSecretPurposes.SignupBusinessAddress).Value);
         Assert.Equal("9 Ocean Blvd, Delray Beach, FL 33444", Protector.Unprotect(kept.DeclarantAddressEncrypted, VoiceSecretPurposes.SignupDeclarantAddress).Value);
         Assert.Equal("+15615550199", Protector.Unprotect(kept.DeclarantPhoneEncrypted, VoiceSecretPurposes.SignupDeclarantPhone).Value);
@@ -342,7 +341,6 @@ public sealed class OnboardingEligibilityTests
         Assert.DoesNotContain("pat@example.test", kept.DeclarantEmailEncrypted);
         Assert.DoesNotContain("Pat Rivera", kept.AttestorNameEncrypted);
         Assert.DoesNotContain("5615550199", kept.DeclarantPhoneEncrypted);
-        Assert.Equal(SignupStatements.Declaration, kept.DeclarationStatement);
         Assert.Equal(SignupStatements.Terms, kept.TermsStatement);
         Assert.Equal(Now, kept.AttestedAt);
         Assert.Equal("203.0.113.9", kept.IpAddress);
@@ -350,16 +348,14 @@ public sealed class OnboardingEligibilityTests
     }
 
     [Theory]
-    [InlineData(null, "Owner")]
-    [InlineData("", "Owner")]
-    [InlineData("   ", "Owner")]
-    [InlineData("Pat Rivera", null)]
-    [InlineData("Pat Rivera", " ")]
-    public async Task A_signup_with_no_named_person_is_refused_and_creates_nothing(string? name, string? title)
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task A_signup_with_no_named_person_is_refused_and_creates_nothing(string? name)
     {
         var store = new RecordingStore();
 
-        var result = await Gate(store).ValidateAsync(Signup() with { AttestorName = name, AttestorTitle = title }, FromUs);
+        var result = await Gate(store).ValidateAsync(Signup() with { AttestorName = name }, FromUs);
 
         Assert.Equal(OnboardingFailureCodes.AttestorRequired, result.ErrorCode);
         Assert.Empty(store.Created);
@@ -478,22 +474,6 @@ public sealed class OnboardingEligibilityTests
     [Theory]
     [InlineData(false, null)]
     [InlineData(null, null)]
-    [InlineData(true, "I declare something else.")]
-    [InlineData(true, null)]
-    public async Task A_declaration_that_was_not_agreed_to_in_the_words_shown_is_refused(bool? agreed, string? words)
-    {
-        var store = new RecordingStore();
-
-        var result = await Gate(store).ValidateAsync(
-            Signup() with { DeclarationAgreed = agreed, DeclarationStatement = words ?? (agreed == true ? null : SignupStatements.Declaration) }, FromUs);
-
-        Assert.Equal(OnboardingFailureCodes.DeclarationRequired, result.ErrorCode);
-        Assert.Empty(store.Created);
-    }
-
-    [Theory]
-    [InlineData(false, null)]
-    [InlineData(null, null)]
     [InlineData(true, "I agree to something else.")]
     [InlineData(true, null)]
     public async Task Terms_that_were_not_agreed_to_in_the_words_shown_are_refused(bool? agreed, string? words)
@@ -555,7 +535,6 @@ public sealed class OnboardingEligibilityTests
     [InlineData(OnboardingFailureCodes.DeclarantPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.DeclarantEmailInvalid, 400)]
     [InlineData(OnboardingFailureCodes.BusinessWebsiteInvalid, 400)]
-    [InlineData(OnboardingFailureCodes.DeclarationRequired, 400)]
     [InlineData(OnboardingFailureCodes.TermsRequired, 400)]
     [InlineData(OnboardingFailureCodes.VisitorUnverified, 400)]
     [InlineData(OnboardingFailureCodes.VisitorCountryNotSupported, 400)]

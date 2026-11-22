@@ -150,23 +150,21 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
     {
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO geek_voice.signup_attestations (
-                id, tenant_id, attestor_name_encrypted, attestor_title_encrypted, business_address_encrypted,
-                declarant_address_encrypted, declarant_phone_encrypted, declarant_email_encrypted, declaration_statement, terms_statement, attested_at, ip_address, visitor_country)
+                id, tenant_id, attestor_name_encrypted, business_address_encrypted,
+                declarant_address_encrypted, declarant_phone_encrypted, declarant_email_encrypted, terms_statement, attested_at, ip_address, visitor_country)
             VALUES (
-                @Id, @TenantId, @AttestorNameEncrypted, @AttestorTitleEncrypted, @BusinessAddressEncrypted,
-                @DeclarantAddressEncrypted, @DeclarantPhoneEncrypted, @DeclarantEmailEncrypted, @DeclarationStatement, @TermsStatement, @AttestedAt, @IpAddress::inet, @VisitorCountry);
+                @Id, @TenantId, @AttestorNameEncrypted, @BusinessAddressEncrypted,
+                @DeclarantAddressEncrypted, @DeclarantPhoneEncrypted, @DeclarantEmailEncrypted, @TermsStatement, @AttestedAt, @IpAddress::inet, @VisitorCountry);
             """,
             new
             {
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 attestation.AttestorNameEncrypted,
-                attestation.AttestorTitleEncrypted,
                 attestation.BusinessAddressEncrypted,
                 attestation.DeclarantAddressEncrypted,
                 attestation.DeclarantPhoneEncrypted,
                 attestation.DeclarantEmailEncrypted,
-                attestation.DeclarationStatement,
                 attestation.TermsStatement,
                 AttestedAt = attestation.AttestedAt.UtcDateTime,
                 attestation.IpAddress,
@@ -703,10 +701,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         // the person agreed to are there beside them.
         var a = c.Attestation;
         if (a is null) return "A signup declaration is required.";
-        if (Blank(a.AttestorNameEncrypted) || Blank(a.AttestorTitleEncrypted)) return "The declarant's name and title are required.";
+        if (Blank(a.AttestorNameEncrypted)) return "The name of the person who accepted the Terms is required.";
         if (Blank(a.BusinessAddressEncrypted)) return "The business's address is required.";
         if (Blank(a.DeclarantAddressEncrypted) || Blank(a.DeclarantPhoneEncrypted) || Blank(a.DeclarantEmailEncrypted)) return "The declarant's address, telephone and email are required.";
-        if (Blank(a.DeclarationStatement) || Blank(a.TermsStatement)) return "The words the declarant agreed to are required.";
+        if (Blank(a.TermsStatement)) return "The words the person agreed to are required.";
         if (Blank(a.IpAddress) || Blank(a.VisitorCountry)) return "The declarant's address and country are required.";
         return null;
     }

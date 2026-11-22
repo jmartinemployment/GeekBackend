@@ -126,7 +126,6 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
             or OnboardingFailureCodes.DeclarantPhoneNotUs
             or OnboardingFailureCodes.DeclarantEmailInvalid
             or OnboardingFailureCodes.BusinessWebsiteInvalid
-            or OnboardingFailureCodes.DeclarationRequired
             or OnboardingFailureCodes.TermsRequired
             or OnboardingFailureCodes.VisitorUnverified
             or OnboardingFailureCodes.VisitorCountryNotSupported

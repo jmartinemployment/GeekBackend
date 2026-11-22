@@ -72,12 +72,10 @@ public sealed class VoiceRepositoryValidationTests
     public static TheoryData<string, Func<VoiceSignupAttestation>> AttestationsThatCannotBeStored() => new()
     {
         { "no declarant name", () => AttestationFixture.Good(Now) with { AttestorNameEncrypted = " " } },
-        { "no declarant title", () => AttestationFixture.Good(Now) with { AttestorTitleEncrypted = "" } },
         { "no business address", () => AttestationFixture.Good(Now) with { BusinessAddressEncrypted = "" } },
         { "no declarant address", () => AttestationFixture.Good(Now) with { DeclarantAddressEncrypted = " " } },
         { "no declarant telephone", () => AttestationFixture.Good(Now) with { DeclarantPhoneEncrypted = "" } },
         { "no declarant email", () => AttestationFixture.Good(Now) with { DeclarantEmailEncrypted = "" } },
-        { "no declaration words", () => AttestationFixture.Good(Now) with { DeclarationStatement = "" } },
         { "no terms words", () => AttestationFixture.Good(Now) with { TermsStatement = " " } },
         { "no visitor address", () => AttestationFixture.Good(Now) with { IpAddress = "" } },
         { "no visitor country", () => AttestationFixture.Good(Now) with { VisitorCountry = "" } },

@@ -20,7 +20,6 @@ public static class OnboardingFailureCodes
     public const string DeclarantPhoneNotUs = "declarant_phone_not_us";
     public const string DeclarantEmailInvalid = "declarant_email_invalid";
     public const string BusinessWebsiteInvalid = "business_website_invalid";
-    public const string DeclarationRequired = "declaration_required";
     public const string TermsRequired = "terms_required";
     public const string VisitorUnverified = "visitor_unverified";
     public const string VisitorCountryNotSupported = "visitor_country_not_supported";
@@ -41,10 +40,7 @@ public sealed record ValidateEligibilityRequest(
     bool? ComplianceAttested,
     IReadOnlyList<IndustryAnswerInput>? IndustryAnswers,
     string? AttestorName = null,
-    string? AttestorTitle = null,
     string? BusinessAddress = null,
-    string? DeclarationStatement = null,
-    bool? DeclarationAgreed = null,
     string? TermsStatement = null,
     bool? TermsAgreed = null,
     string? DeclarantAddress = null,
@@ -73,20 +69,17 @@ public static class BusinessWebsites
 }
 
 /// <summary>
-/// The two statements a person agrees to at the end of the signup declaration, word for word (plans/attestation-and-terms.md, stages 2
+/// The statement a person agrees to at the end of the signup, word for word (plans/attestation-and-terms.md, stages 2
 /// and 3). The form sends the words it showed and the gate refuses any other, as it does for the industry questions, so what is stored
-/// beside the person is what they were shown. The portal holds the same two strings (<c>src/lib/signup/declaration.ts</c>); change both together.
+/// beside the person is what they were shown. The portal holds the same string (<c>src/lib/signup/declaration.ts</c>); change both together.
 /// </summary>
 public static class SignupStatements
 {
-    public const string Declaration =
-        "I declare that I am authorised to answer for this business and that the answers given in this document are true to the best of my knowledge.";
-
     public const string Terms =
         "I agree to the Geek-Receptionist Subscription Terms, subject to Geek-Receptionist verifying a connection to each system the business requires. "
         + "No payment is taken before that connection is verified, and if a required system cannot be connected I may continue without it or stop.";
 
-    /// <summary>The longest name, title or address accepted; a longer one is refused rather than cut short.</summary>
+    /// <summary>The longest name or address accepted; a longer one is refused rather than cut short.</summary>
     public const int MaxFieldLength = 300;
 }
 
@@ -146,9 +139,8 @@ public sealed class OnboardingEligibility(
             return Refused(OnboardingFailureCodes.BusinessDescriptionRequired, "Say what the business does.");
 
         var attestorName = request.AttestorName?.Trim();
-        var attestorTitle = request.AttestorTitle?.Trim();
-        if (!Given(attestorName) || !Given(attestorTitle))
-            return Refused(OnboardingFailureCodes.AttestorRequired, "Give the name and title of the person making this declaration.");
+        if (!Given(attestorName))
+            return Refused(OnboardingFailureCodes.AttestorRequired, "Give the name of the person accepting the Terms.");
 
         var website = BusinessWebsites.Read(request.BusinessWebsite);
         if (!website.IsSuccess)
@@ -169,9 +161,6 @@ public sealed class OnboardingEligibility(
         var declarantEmail = request.DeclarantEmail?.Trim();
         if (!VoicePersonalDetails.IsEmailAddress(declarantEmail))
             return Refused(OnboardingFailureCodes.DeclarantEmailInvalid, "Enter the email address of the person making this declaration.");
-
-        if (request.DeclarationAgreed != true || !string.Equals(request.DeclarationStatement, SignupStatements.Declaration, StringComparison.Ordinal))
-            return Refused(OnboardingFailureCodes.DeclarationRequired, "The declaration must be agreed to, in the words shown.");
 
         if (request.TermsAgreed != true || !string.Equals(request.TermsStatement, SignupStatements.Terms, StringComparison.Ordinal))
             return Refused(OnboardingFailureCodes.TermsRequired, "The Terms must be agreed to, in the words shown.");
@@ -198,9 +187,6 @@ public sealed class OnboardingEligibility(
         var sealedName = protector.Protect(attestorName!, VoiceSecretPurposes.SignupAttestorName);
         if (!sealedName.IsSuccess)
             return Result<EligibilityAccepted>.Failure(sealedName.Error!, sealedName.ErrorCode!);
-        var sealedTitle = protector.Protect(attestorTitle!, VoiceSecretPurposes.SignupAttestorTitle);
-        if (!sealedTitle.IsSuccess)
-            return Result<EligibilityAccepted>.Failure(sealedTitle.Error!, sealedTitle.ErrorCode!);
         var sealedAddress = protector.Protect(businessAddress!, VoiceSecretPurposes.SignupBusinessAddress);
         if (!sealedAddress.IsSuccess)
             return Result<EligibilityAccepted>.Failure(sealedAddress.Error!, sealedAddress.ErrorCode!);
@@ -230,8 +216,8 @@ public sealed class OnboardingEligibility(
             IndustryAnswers = answerSet,
             BusinessWebsite = website.Value,
             Attestation = new VoiceSignupAttestation(
-                sealedName.Value!, sealedTitle.Value!, sealedAddress.Value!, sealedDeclarantAddress.Value!, sealedDeclarantPhone.Value!, sealedDeclarantEmail.Value!,
-                SignupStatements.Declaration, SignupStatements.Terms, now, visitor.IpAddress, visitor.CountryCode),
+                sealedName.Value!, sealedAddress.Value!, sealedDeclarantAddress.Value!, sealedDeclarantPhone.Value!, sealedDeclarantEmail.Value!,
+                SignupStatements.Terms, now, visitor.IpAddress, visitor.CountryCode),
         }, ct).ConfigureAwait(false);
 
         return created.IsSuccess
