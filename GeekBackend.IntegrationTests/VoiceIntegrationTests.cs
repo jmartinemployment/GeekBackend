@@ -291,16 +291,59 @@ public sealed class VoiceIntegrationTests
 
         await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
         await conn.OpenAsync();
-        var row = await Dapper.SqlMapper.QuerySingleAsync<(string Name, string Address, string DeclarantAddress, string DeclarantPhone, string DeclarantEmail, string Terms, string Ip, string Country)>(conn,
-            "SELECT attestor_name_encrypted, business_address_encrypted, declarant_address_encrypted, declarant_phone_encrypted, declarant_email_encrypted, terms_statement, host(ip_address), visitor_country FROM geek_voice.signup_attestations WHERE tenant_id = @id", new { id });
-        Assert.Equal((attestation.AttestorNameEncrypted, attestation.BusinessAddressEncrypted, attestation.DeclarantAddressEncrypted, attestation.DeclarantPhoneEncrypted, attestation.DeclarantEmailEncrypted, attestation.TermsStatement, "203.0.113.9", "US"), row);
+        var row = await Dapper.SqlMapper.QuerySingleAsync<(string Name, string Address, string DeclarantAddress, string DeclarantPhone, string DeclarantEmail, string Ip, string Country)>(conn,
+            "SELECT attestor_name_encrypted, business_address_encrypted, declarant_address_encrypted, declarant_phone_encrypted, declarant_email_encrypted, host(ip_address), visitor_country FROM geek_voice.signup_attestations WHERE tenant_id = @id", new { id });
+        Assert.Equal((attestation.AttestorNameEncrypted, attestation.BusinessAddressEncrypted, attestation.DeclarantAddressEncrypted, attestation.DeclarantPhoneEncrypted, attestation.DeclarantEmailEncrypted, "203.0.113.9", "US"), row);
 
         var update = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
-            Dapper.SqlMapper.ExecuteAsync(conn, "UPDATE geek_voice.signup_attestations SET terms_statement = 'changed' WHERE tenant_id = @id", new { id }));
+            Dapper.SqlMapper.ExecuteAsync(conn, "UPDATE geek_voice.signup_attestations SET visitor_country = 'changed' WHERE tenant_id = @id", new { id }));
         var delete = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
             Dapper.SqlMapper.ExecuteAsync(conn, "DELETE FROM geek_voice.signup_attestations WHERE tenant_id = @id", new { id }));
         var truncate = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
             Dapper.SqlMapper.ExecuteAsync(conn, "TRUNCATE geek_voice.signup_attestations"));
+        Assert.Contains("kept forever", update.MessageText, StringComparison.Ordinal);
+        Assert.Contains("kept forever", delete.MessageText, StringComparison.Ordinal);
+        Assert.Contains("kept forever", truncate.MessageText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_terms_are_accepted_once_after_the_tenant_exists_and_the_database_refuses_to_change_or_delete_them()
+    {
+        if (!IntegrationTestConfig.IsDatabaseConfigured) return;
+        await SqlMigrationTestHelper.ApplyAsync();
+        var store = NewRepository();
+
+        var created = await store.CreateTenantAsync(new(
+            "Boca Cool HVAC " + Unique()[..6], "Heating and air conditioning", Now, "US", "FL", "dispatch@example.test", "+15615550101") { IndustryAnswers = IndustryAnswersFixture.AllNo(Now), Attestation = AttestationFixture.Good(Now) });
+        Assert.True(created.IsSuccess, created.Error);
+        var id = created.Value!.Id;
+
+        var before = await store.GetTermsAcceptanceAsync(id);
+        Assert.True(before.IsSuccess, before.Error);
+        Assert.False(before.Value!.Accepted);
+
+        var later = Now.AddHours(1);
+        var accepted = await store.RecordTermsAcceptanceAsync(new VoiceTermsAcceptance(id, "By continuing, I agree.", later, "203.0.113.9", "US"));
+        Assert.True(accepted.IsSuccess, accepted.Error);
+        Assert.True((await store.GetTermsAcceptanceAsync(id)).Value!.Accepted);
+
+        var twice = await store.RecordTermsAcceptanceAsync(new VoiceTermsAcceptance(id, "By continuing, I agree.", later, "203.0.113.9", "US"));
+        Assert.Equal(VoiceFailureCodes.Conflict, twice.ErrorCode);
+
+        var unknown = await store.GetTermsAcceptanceAsync(Guid.NewGuid());
+        Assert.Equal(VoiceFailureCodes.NotFound, unknown.ErrorCode);
+
+        await using var conn = new Npgsql.NpgsqlConnection(IntegrationTestConfig.DatabaseUrl!);
+        await conn.OpenAsync();
+        var stamped = await Dapper.SqlMapper.ExecuteScalarAsync<DateTime>(conn, "SELECT compliance_attested_at FROM geek_voice.tenants WHERE id = @id", new { id });
+        Assert.Equal(later.UtcDateTime, DateTime.SpecifyKind(stamped, DateTimeKind.Utc), TimeSpan.FromMilliseconds(1));
+
+        var update = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "UPDATE geek_voice.signup_terms_acceptances SET statement = 'changed' WHERE tenant_id = @id", new { id }));
+        var delete = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "DELETE FROM geek_voice.signup_terms_acceptances WHERE tenant_id = @id", new { id }));
+        var truncate = await Assert.ThrowsAsync<Npgsql.PostgresException>(() =>
+            Dapper.SqlMapper.ExecuteAsync(conn, "TRUNCATE geek_voice.signup_terms_acceptances"));
         Assert.Contains("kept forever", update.MessageText, StringComparison.Ordinal);
         Assert.Contains("kept forever", delete.MessageText, StringComparison.Ordinal);
         Assert.Contains("kept forever", truncate.MessageText, StringComparison.Ordinal);

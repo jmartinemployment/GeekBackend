@@ -220,10 +220,18 @@ public sealed record VoiceSignupAttestation(
     string DeclarantAddressEncrypted,
     string DeclarantPhoneEncrypted,
     string DeclarantEmailEncrypted,
-    string TermsStatement,
     DateTimeOffset AttestedAt,
     string IpAddress,
     string VisitorCountry);
+
+/// <summary>
+/// The Terms a business accepted, after its receptionist was set up and before it paid (Jeff, 2026-11-22): the exact sentence shown, when
+/// it was accepted, and the visitor's address and country. One per tenant, written by its own call, kept forever.
+/// </summary>
+public sealed record VoiceTermsAcceptance(Guid TenantId, string Statement, DateTimeOffset AcceptedAt, string IpAddress, string VisitorCountry);
+
+/// <summary>Whether a tenant has accepted the Terms yet.</summary>
+public sealed record VoiceTermsAcceptanceState(bool Accepted);
 
 /// <summary>One excluded-industry question of /signup as it was answered: the industry's code, the exact words shown, and the answer.</summary>
 public sealed record VoiceIndustryAnswer(string Industry, string Question, bool Answer);

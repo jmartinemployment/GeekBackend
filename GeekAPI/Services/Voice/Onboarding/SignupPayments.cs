@@ -19,7 +19,7 @@ public sealed record SignupVaultSaved(string PaypalVaultTokenId);
 /// eligibility gate and is still waiting for payment, so nothing can be started for a tenant that is active, suspended, cancelled or
 /// unknown. The visitor approves both in PayPal; activation then checks both again with PayPal before anything is bought.
 /// </summary>
-public sealed class SignupPayments(IVoiceStore store, PayPalSignup paypal)
+public sealed class SignupPayments(IVoiceStore store, IVoiceSignupAnswerStore signupAnswers, PayPalSignup paypal)
 {
     public async Task<Result<PayPalApproval>> StartSubscriptionAsync(StartSignupPaymentRequest? request, CancellationToken ct = default)
     {
@@ -30,6 +30,13 @@ public sealed class SignupPayments(IVoiceStore store, PayPalSignup paypal)
         var checkedRequest = await CheckAsync(request, ct).ConfigureAwait(false);
         if (!checkedRequest.IsSuccess) return Result<PayPalApproval>.Failure(checkedRequest.Error!, checkedRequest.ErrorCode!);
         var (tenantId, returnUrl, cancelUrl) = checkedRequest.Value;
+
+        // The Terms come before the money: nothing is started with PayPal for a business that has not accepted them.
+        var accepted = await signupAnswers.GetTermsAcceptanceAsync(tenantId, ct).ConfigureAwait(false);
+        if (!accepted.IsSuccess) return Result<PayPalApproval>.Failure(accepted.Error!, accepted.ErrorCode!);
+        if (!accepted.Value!.Accepted)
+            return Result<PayPalApproval>.Failure("The Terms must be accepted before a plan is chosen.", OnboardingFailureCodes.TermsRequired);
+
         return await paypal.StartSubscriptionAsync(tenantId, tier, returnUrl, cancelUrl, ct).ConfigureAwait(false);
     }
 

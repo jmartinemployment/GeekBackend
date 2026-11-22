@@ -20,7 +20,7 @@ namespace GeekAPI.Controllers.Voice;
 [RequireApiKey]
 [Route("api/v1/onboarding")]
 [EnableRateLimiting(OnboardingRateLimit.PolicyName)]
-public sealed class OnboardingController(OnboardingEligibility eligibility, IndustryRefusals refusals, SignupPayments payments, SubscriptionActivation activation, ReceptionistConfigWriter config) : ControllerBase
+public sealed class OnboardingController(OnboardingEligibility eligibility, IndustryRefusals refusals, TermsAcceptances terms, SignupPayments payments, SubscriptionActivation activation, ReceptionistConfigWriter config) : ControllerBase
 {
     /// <summary>
     /// What a business answered about how its receptionist should behave, on one step of the form. Every field is optional, so the
@@ -51,6 +51,17 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
         return result.IsSuccess
             ? Ok(new { recorded = result.Value!.Answers })
             : Refuse(result.Error, result.ErrorCode, "The answers could not be stored.");
+    }
+
+    /// <summary>
+    /// The Terms accepted, after the receptionist's setup and before the plan: the exact sentence the portal showed, for the tenant
+    /// validate-eligibility created. Refused for any other words, and for a tenant that is not waiting for payment.
+    /// </summary>
+    [HttpPost("terms-acceptance")]
+    public async Task<IActionResult> AcceptTerms([FromBody] AcceptTermsRequest? request, CancellationToken ct)
+    {
+        var result = await terms.AcceptAsync(request, OnboardingVisitor.From(HttpContext), ct);
+        return result.IsSuccess ? Ok(new { accepted = true }) : Refuse(result.Error, result.ErrorCode, "The Terms could not be recorded.");
     }
 
     [HttpPost("validate-eligibility")]
@@ -119,7 +130,6 @@ public sealed class OnboardingController(OnboardingEligibility eligibility, Indu
             or OnboardingFailureCodes.ContactPhoneNotUs
             or OnboardingFailureCodes.ContactEmailInvalid
             or OnboardingFailureCodes.IndustryExcluded
-            or OnboardingFailureCodes.AttestationRequired
             or OnboardingFailureCodes.AttestorRequired
             or OnboardingFailureCodes.BusinessAddressRequired
             or OnboardingFailureCodes.DeclarantAddressRequired

@@ -13,7 +13,6 @@ public static class OnboardingFailureCodes
     public const string ContactPhoneNotUs = "contact_phone_not_us";
     public const string ContactEmailInvalid = "contact_email_invalid";
     public const string IndustryExcluded = "industry_excluded";
-    public const string AttestationRequired = "attestation_required";
     public const string AttestorRequired = "attestor_required";
     public const string BusinessAddressRequired = "business_address_required";
     public const string DeclarantAddressRequired = "declarant_address_required";
@@ -37,12 +36,9 @@ public sealed record ValidateEligibilityRequest(
     string? StateCode,
     string? ContactEmail,
     string? ContactPhone,
-    bool? ComplianceAttested,
     IReadOnlyList<IndustryAnswerInput>? IndustryAnswers,
     string? AttestorName = null,
     string? BusinessAddress = null,
-    string? TermsStatement = null,
-    bool? TermsAgreed = null,
     string? DeclarantAddress = null,
     string? DeclarantPhone = null,
     string? DeclarantEmail = null,
@@ -132,9 +128,6 @@ public sealed class OnboardingEligibility(
                 : Result<EligibilityAccepted>.Failure(recorded.Error ?? "The answers could not be stored.", recorded.ErrorCode ?? VoiceFailureCodes.StoreUnavailable);
         }
 
-        if (request.ComplianceAttested != true)
-            return Refused(OnboardingFailureCodes.AttestationRequired, "The compliance attestation must be accepted.");
-
         if (string.IsNullOrWhiteSpace(request.BusinessDescription))
             return Refused(OnboardingFailureCodes.BusinessDescriptionRequired, "Say what the business does.");
 
@@ -161,9 +154,6 @@ public sealed class OnboardingEligibility(
         var declarantEmail = request.DeclarantEmail?.Trim();
         if (!VoicePersonalDetails.IsEmailAddress(declarantEmail))
             return Refused(OnboardingFailureCodes.DeclarantEmailInvalid, "Enter the email address of the person making this declaration.");
-
-        if (request.TermsAgreed != true || !string.Equals(request.TermsStatement, SignupStatements.Terms, StringComparison.Ordinal))
-            return Refused(OnboardingFailureCodes.TermsRequired, "The Terms must be agreed to, in the words shown.");
 
         var phone = UsPhone.ToE164(request.ContactPhone);
         if (phone is null)
@@ -217,7 +207,7 @@ public sealed class OnboardingEligibility(
             BusinessWebsite = website.Value,
             Attestation = new VoiceSignupAttestation(
                 sealedName.Value!, sealedAddress.Value!, sealedDeclarantAddress.Value!, sealedDeclarantPhone.Value!, sealedDeclarantEmail.Value!,
-                SignupStatements.Terms, now, visitor.IpAddress, visitor.CountryCode),
+                now, visitor.IpAddress, visitor.CountryCode),
         }, ct).ConfigureAwait(false);
 
         return created.IsSuccess
@@ -248,6 +238,39 @@ public sealed class IndustryRefusals(IVoiceSignupAnswerStore signupAnswers, Time
 
         return await signupAnswers.RecordIndustryRefusalAsync(
             new VoiceIndustryAnswerSet(answers, clock.GetUtcNow(), visitor.IpAddress, visitor.CountryCode), ct).ConfigureAwait(false);
+    }
+}
+
+/// <summary>The portal handing over the Terms the visitor accepted, for the tenant its signup created: the sentence it showed, word for word.</summary>
+public sealed record AcceptTermsRequest(Guid? TenantId, string? Statement);
+
+/// <summary>
+/// The acceptance of the Terms, which comes after the receptionist's setup and before the plan and the payment (Jeff, 2026-11-22). Only
+/// for a business still waiting for payment, only in the words <see cref="SignupStatements.Terms"/> holds, and only from a visitor whose
+/// address and country were verified, as for the signup itself. Stored once and kept forever; asking again changes nothing.
+/// </summary>
+public sealed class TermsAcceptances(IVoiceSignupAnswerStore signupAnswers, IVoiceStore tenants, TimeProvider clock)
+{
+    public async Task<Result<VoiceTermsAcceptanceState>> AcceptAsync(AcceptTermsRequest? request, VisitorOrigin visitor, CancellationToken ct = default)
+    {
+        if (request?.TenantId is not { } tenantId || tenantId == Guid.Empty)
+            return Result<VoiceTermsAcceptanceState>.Failure("A tenant is required.", VoiceFailureCodes.InvalidRequest);
+        if (string.IsNullOrWhiteSpace(visitor.IpAddress) || string.IsNullOrWhiteSpace(visitor.CountryCode))
+            return Result<VoiceTermsAcceptanceState>.Failure("The visitor's location could not be verified.", OnboardingFailureCodes.VisitorUnverified);
+        if (!string.Equals(request.Statement, SignupStatements.Terms, StringComparison.Ordinal))
+            return Result<VoiceTermsAcceptanceState>.Failure("The Terms must be agreed to, in the words shown.", OnboardingFailureCodes.TermsRequired);
+
+        var tenant = await tenants.GetTenantAsync(tenantId, ct).ConfigureAwait(false);
+        if (!tenant.IsSuccess) return Result<VoiceTermsAcceptanceState>.Failure(tenant.Error!, tenant.ErrorCode!);
+        if (tenant.Value!.Status != VoiceTenantStatuses.PendingPayment)
+            return Result<VoiceTermsAcceptanceState>.Failure("This signup is already finished.", ActivationFailureCodes.TenantNotPending);
+
+        var recorded = await signupAnswers.RecordTermsAcceptanceAsync(
+            new VoiceTermsAcceptance(tenantId, SignupStatements.Terms, clock.GetUtcNow(), visitor.IpAddress, visitor.CountryCode), ct).ConfigureAwait(false);
+        // Already accepted is the answer the visitor wanted: the first row stands, and they go on.
+        return recorded.IsSuccess || recorded.ErrorCode == VoiceFailureCodes.Conflict
+            ? Result<VoiceTermsAcceptanceState>.Success(new VoiceTermsAcceptanceState(true))
+            : recorded;
     }
 }
 

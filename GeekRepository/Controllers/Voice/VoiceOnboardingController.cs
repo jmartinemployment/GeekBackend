@@ -21,6 +21,15 @@ public sealed class VoiceOnboardingController(IVoiceStore voice, IVoiceSignupAns
     public async Task<IActionResult> RecordIndustryRefusal([FromBody] VoiceIndustryAnswerSet set, CancellationToken ct) =>
         set is null ? BadRequest("The answers are required.") : ToAction(await answers.RecordIndustryRefusalAsync(set, ct));
 
+    /// <summary>A business's acceptance of the Terms, after its setup and before it pays: one row per tenant, kept forever.</summary>
+    [HttpPost("/internal/v1/onboarding/terms-acceptances")]
+    public async Task<IActionResult> RecordTermsAcceptance([FromBody] VoiceTermsAcceptance acceptance, CancellationToken ct) =>
+        acceptance is null ? BadRequest("The acceptance is required.") : ToAction(await answers.RecordTermsAcceptanceAsync(acceptance, ct));
+
+    [HttpGet("{tenantId:guid}/terms-acceptance")]
+    public async Task<IActionResult> GetTermsAcceptance(Guid tenantId, CancellationToken ct) =>
+        ToAction(await answers.GetTermsAcceptanceAsync(tenantId, ct));
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateVoiceTenantCommand command, CancellationToken ct) =>
         command is null ? BadRequest("A tenant is required.") : ToAction(await voice.CreateTenantAsync(command, ct));

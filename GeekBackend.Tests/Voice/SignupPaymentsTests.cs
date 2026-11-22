@@ -74,12 +74,24 @@ public sealed class SignupPaymentsTests
     private static HttpResponseMessage Json(string json, HttpStatusCode status) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
-    private static (SignupPayments Payments, PayPal Http) Build(string status = VoiceTenantStatuses.PendingPayment, PayPal? http = null, PayPalPlans? plans = null)
+    private static (SignupPayments Payments, PayPal Http) Build(string status = VoiceTenantStatuses.PendingPayment, PayPal? http = null, PayPalPlans? plans = null, bool termsAccepted = true)
     {
         http ??= new PayPal();
         plans ??= PayPalPlans.From(name => name == "PAYPAL_PLAN_STARTER" ? "P-STARTER" : name.StartsWith("PAYPAL_PLAN_", StringComparison.Ordinal) ? "P-OTHER" : null);
         var signup = new PayPalSignup(new HttpClient(http), new PayPalOptions("https://paypal.test", "id", "secret"), plans, NullLogger<PayPalSignup>.Instance);
-        return (new SignupPayments(new Store(status), signup), http);
+        return (new SignupPayments(new Store(status), new RecordingSignupAnswerStore { TermsAccepted = termsAccepted }, signup), http);
+    }
+
+    [Fact]
+    public async Task A_subscription_is_not_started_for_a_business_that_has_not_accepted_the_Terms()
+    {
+        var (payments, http) = Build(termsAccepted: false);
+
+        var result = await payments.StartSubscriptionAsync(new StartSignupPaymentRequest(Tenant, "STARTER", Back, Cancel));
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(OnboardingFailureCodes.TermsRequired, result.ErrorCode);
+        Assert.Empty(http.Requests);
     }
 
     [Fact]

@@ -27,6 +27,12 @@ public sealed class HttpVoiceRepository : IVoiceStore, IVoiceSignupAnswerStore
     public Task<Result<VoiceIndustryAnswersRecorded>> RecordIndustryRefusalAsync(VoiceIndustryAnswerSet answers, CancellationToken ct = default) =>
         _transport.SendAsync<VoiceIndustryAnswersRecorded>(HttpMethod.Post, "internal/v1/onboarding/industry-refusals", answers, ct);
 
+    public Task<Result<VoiceTermsAcceptanceState>> RecordTermsAcceptanceAsync(VoiceTermsAcceptance acceptance, CancellationToken ct = default) =>
+        _transport.SendAsync<VoiceTermsAcceptanceState>(HttpMethod.Post, "internal/v1/onboarding/terms-acceptances", acceptance, ct);
+
+    public Task<Result<VoiceTermsAcceptanceState>> GetTermsAcceptanceAsync(Guid tenantId, CancellationToken ct = default) =>
+        _transport.SendAsync<VoiceTermsAcceptanceState>(HttpMethod.Get, $"internal/v1/onboarding/tenants/{tenantId}/terms-acceptance", null, ct);
+
     public Task<Result<VoiceTenant>> GetTenantAsync(Guid tenantId, CancellationToken ct = default) =>
         _transport.SendAsync<VoiceTenant>(HttpMethod.Get, $"internal/v1/onboarding/tenants/{tenantId}", null, ct);
 

@@ -53,10 +53,9 @@ public sealed class OnboardingEligibilityTests
     }
 
     private static ValidateEligibilityRequest Signup(
-        string? country = "US", bool? attested = true, string? yesTo = null) =>
-        new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", attested, Answers(yesTo),
+        string? country = "US", string? yesTo = null) =>
+        new("Boca Cool HVAC", "Heating and air conditioning", country, "FL", "owner@bocacool.example", "+15615550101", Answers(yesTo),
             "Pat Rivera", "12 Palm Way, Boca Raton, FL 33432",
-            SignupStatements.Terms, true,
             "9 Ocean Blvd, Delray Beach, FL 33444", "(561) 555-0199", "pat@example.test");
 
     /// <summary>The eight questions as the form sends them, each answered no, except the one industry a test says yes to.</summary>
@@ -311,19 +310,6 @@ public sealed class OnboardingEligibilityTests
         Assert.Equal(OnboardingFailureCodes.CountryNotSupported, result.ErrorCode);
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(null)]
-    public async Task Anything_but_an_accepted_attestation_is_refused(bool? attested)
-    {
-        var store = new RecordingStore();
-
-        var result = await Gate(store).ValidateAsync(Signup(attested: attested), FromUs);
-
-        Assert.Equal(OnboardingFailureCodes.AttestationRequired, result.ErrorCode);
-        Assert.Empty(store.Created);
-    }
-
     [Fact]
     public async Task An_accepted_signup_stores_who_declared_what_they_agreed_to_with_the_name_title_and_address_sealed()
     {
@@ -341,7 +327,6 @@ public sealed class OnboardingEligibilityTests
         Assert.DoesNotContain("pat@example.test", kept.DeclarantEmailEncrypted);
         Assert.DoesNotContain("Pat Rivera", kept.AttestorNameEncrypted);
         Assert.DoesNotContain("5615550199", kept.DeclarantPhoneEncrypted);
-        Assert.Equal(SignupStatements.Terms, kept.TermsStatement);
         Assert.Equal(Now, kept.AttestedAt);
         Assert.Equal("203.0.113.9", kept.IpAddress);
         Assert.Equal("US", kept.VisitorCountry);
@@ -471,22 +456,6 @@ public sealed class OnboardingEligibilityTests
         Assert.Empty(store.Created);
     }
 
-    [Theory]
-    [InlineData(false, null)]
-    [InlineData(null, null)]
-    [InlineData(true, "I agree to something else.")]
-    [InlineData(true, null)]
-    public async Task Terms_that_were_not_agreed_to_in_the_words_shown_are_refused(bool? agreed, string? words)
-    {
-        var store = new RecordingStore();
-
-        var result = await Gate(store).ValidateAsync(
-            Signup() with { TermsAgreed = agreed, TermsStatement = words ?? (agreed == true ? null : SignupStatements.Terms) }, FromUs);
-
-        Assert.Equal(OnboardingFailureCodes.TermsRequired, result.ErrorCode);
-        Assert.Empty(store.Created);
-    }
-
     [Fact]
     public void The_statement_the_person_agrees_to_names_the_company_and_the_ai_receptionist()
     {
@@ -501,10 +470,10 @@ public sealed class OnboardingEligibilityTests
     {
         var store = new RecordingStore();
 
-        // Wrong country, an excluded industry and no attestation at once: the country rule speaks first.
-        var first = await Gate(store).ValidateAsync(Signup(country: "CA", attested: false, yesTo: "hipaa_clearinghouse"), FromUs);
-        // An excluded industry and no attestation: the industry rule speaks before the attestation rule.
-        var second = await Gate(store).ValidateAsync(Signup(attested: false, yesTo: "hipaa_clearinghouse"), FromUs);
+        // Wrong country and an excluded industry at once: the country rule speaks first.
+        var first = await Gate(store).ValidateAsync(Signup(country: "CA", yesTo: "hipaa_clearinghouse"), FromUs);
+        // An excluded industry alone: the industry rule speaks.
+        var second = await Gate(store).ValidateAsync(Signup(yesTo: "hipaa_clearinghouse"), FromUs);
 
         Assert.Equal(OnboardingFailureCodes.CountryNotSupported, first.ErrorCode);
         Assert.Equal(OnboardingFailureCodes.IndustryExcluded, second.ErrorCode);
@@ -530,7 +499,6 @@ public sealed class OnboardingEligibilityTests
     [InlineData(OnboardingFailureCodes.IndustryNotAnswered, 400)]
     [InlineData(OnboardingFailureCodes.ContactPhoneNotUs, 400)]
     [InlineData(OnboardingFailureCodes.IndustryExcluded, 400)]
-    [InlineData(OnboardingFailureCodes.AttestationRequired, 400)]
     [InlineData(OnboardingFailureCodes.AttestorRequired, 400)]
     [InlineData(OnboardingFailureCodes.BusinessAddressRequired, 400)]
     [InlineData(OnboardingFailureCodes.DeclarantAddressRequired, 400)]

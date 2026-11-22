@@ -28,7 +28,7 @@ internal static class AttestationFixture
 {
     public static VoiceSignupAttestation Good(DateTimeOffset at) => new(
         "sealed-name", "sealed-address", "sealed-declarant-address", "sealed-declarant-phone", "sealed-declarant-email",
-        GeekAPI.Services.Voice.Onboarding.SignupStatements.Terms, at, "203.0.113.9", "US");
+        at, "203.0.113.9", "US");
 }
 
 /// <summary>A refusal store that records what it was asked to keep, or answers with the failure a test gives it.</summary>
@@ -41,5 +41,24 @@ internal sealed class RecordingSignupAnswerStore(Func<Result<VoiceIndustryAnswer
         Refusals.Add(answers);
         return Task.FromResult(answer is not null ? answer() : Result<VoiceIndustryAnswersRecorded>.Success(new VoiceIndustryAnswersRecorded(answers.Answers.Count)));
     }
+
+    /// <summary>The Terms acceptances this store was asked to keep; a test sets <see cref="TermsAccepted"/> for what it answers when asked.</summary>
+    public List<VoiceTermsAcceptance> Acceptances { get; } = new();
+
+    public bool TermsAccepted { get; set; }
+
+    /// <summary>When set, recording answers with this failure instead of keeping the row, as the database does for a second acceptance.</summary>
+    public string? RecordFails { get; set; }
+
+    public Task<Result<VoiceTermsAcceptanceState>> RecordTermsAcceptanceAsync(VoiceTermsAcceptance acceptance, CancellationToken ct = default)
+    {
+        if (RecordFails is not null) return Task.FromResult(Result<VoiceTermsAcceptanceState>.Failure("refused", RecordFails));
+        Acceptances.Add(acceptance);
+        TermsAccepted = true;
+        return Task.FromResult(Result<VoiceTermsAcceptanceState>.Success(new VoiceTermsAcceptanceState(true)));
+    }
+
+    public Task<Result<VoiceTermsAcceptanceState>> GetTermsAcceptanceAsync(Guid tenantId, CancellationToken ct = default) =>
+        Task.FromResult(Result<VoiceTermsAcceptanceState>.Success(new VoiceTermsAcceptanceState(TermsAccepted)));
 }
 

@@ -93,6 +93,64 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         }
     }
 
+    // ----- Terms acceptance (one per tenant, kept forever) -----
+
+    public async Task<Result<VoiceTermsAcceptanceState>> RecordTermsAcceptanceAsync(VoiceTermsAcceptance acceptance, CancellationToken ct = default)
+    {
+        if (acceptance is null || acceptance.TenantId == Guid.Empty) return Invalid<VoiceTermsAcceptanceState>("A tenant is required.");
+        if (Blank(acceptance.Statement)) return Invalid<VoiceTermsAcceptanceState>("The words that were accepted are required.");
+        if (Blank(acceptance.IpAddress) || !System.Net.IPAddress.TryParse(acceptance.IpAddress, out _)) return Invalid<VoiceTermsAcceptanceState>("The visitor's address is required with the acceptance.");
+        if (Blank(acceptance.VisitorCountry)) return Invalid<VoiceTermsAcceptanceState>("The visitor's country is required with the acceptance.");
+
+        try
+        {
+            await using var conn = (NpgsqlConnection)db.CreateConnection();
+            await conn.OpenAsync(ct);
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await conn.ExecuteAsync(new CommandDefinition("""
+                INSERT INTO geek_voice.signup_terms_acceptances (id, tenant_id, statement, accepted_at, ip_address, visitor_country)
+                VALUES (@Id, @TenantId, @Statement, @AcceptedAt, @IpAddress::inet, @VisitorCountry);
+                """,
+                new
+                {
+                    Id = Guid.NewGuid(),
+                    acceptance.TenantId,
+                    acceptance.Statement,
+                    AcceptedAt = acceptance.AcceptedAt.UtcDateTime,
+                    acceptance.IpAddress,
+                    acceptance.VisitorCountry,
+                },
+                tx,
+                cancellationToken: ct));
+            // tenants.compliance_attested_at was set when the business was created, before anything was accepted. Accepting is the moment
+            // it names, so it is moved to it, in the same transaction as the row that proves it.
+            await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE geek_voice.tenants SET compliance_attested_at = @AcceptedAt WHERE id = @TenantId;",
+                new { acceptance.TenantId, AcceptedAt = acceptance.AcceptedAt.UtcDateTime },
+                tx,
+                cancellationToken: ct));
+            await tx.CommitAsync(ct);
+            return Result<VoiceTermsAcceptanceState>.Success(new VoiceTermsAcceptanceState(true));
+        }
+        catch (PostgresException ex) when (IsRefusal(ex))
+        {
+            return Refused<VoiceTermsAcceptanceState>(ex, "The Terms were already accepted for this tenant.");
+        }
+    }
+
+    public async Task<Result<VoiceTermsAcceptanceState>> GetTermsAcceptanceAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        await using var conn = (NpgsqlConnection)db.CreateConnection();
+        await conn.OpenAsync(ct);
+        var row = await conn.QuerySingleOrDefaultAsync<(bool TenantExists, bool Accepted)>(new CommandDefinition("""
+            SELECT EXISTS (SELECT 1 FROM geek_voice.tenants WHERE id = @tenantId) AS tenant_exists,
+                   EXISTS (SELECT 1 FROM geek_voice.signup_terms_acceptances WHERE tenant_id = @tenantId) AS accepted;
+            """, new { tenantId }, cancellationToken: ct));
+        return row.TenantExists
+            ? Result<VoiceTermsAcceptanceState>.Success(new VoiceTermsAcceptanceState(row.Accepted))
+            : NotFound<VoiceTermsAcceptanceState>("The tenant was not found.");
+    }
+
     // ----- Excluded-industry answers (kept forever: rows are only ever added) -----
 
     public async Task<Result<VoiceIndustryAnswersRecorded>> RecordIndustryRefusalAsync(VoiceIndustryAnswerSet answers, CancellationToken ct = default)
@@ -151,10 +209,10 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         await conn.ExecuteAsync(new CommandDefinition("""
             INSERT INTO geek_voice.signup_attestations (
                 id, tenant_id, attestor_name_encrypted, business_address_encrypted,
-                declarant_address_encrypted, declarant_phone_encrypted, declarant_email_encrypted, terms_statement, attested_at, ip_address, visitor_country)
+                declarant_address_encrypted, declarant_phone_encrypted, declarant_email_encrypted, attested_at, ip_address, visitor_country)
             VALUES (
                 @Id, @TenantId, @AttestorNameEncrypted, @BusinessAddressEncrypted,
-                @DeclarantAddressEncrypted, @DeclarantPhoneEncrypted, @DeclarantEmailEncrypted, @TermsStatement, @AttestedAt, @IpAddress::inet, @VisitorCountry);
+                @DeclarantAddressEncrypted, @DeclarantPhoneEncrypted, @DeclarantEmailEncrypted, @AttestedAt, @IpAddress::inet, @VisitorCountry);
             """,
             new
             {
@@ -165,7 +223,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
                 attestation.DeclarantAddressEncrypted,
                 attestation.DeclarantPhoneEncrypted,
                 attestation.DeclarantEmailEncrypted,
-                attestation.TermsStatement,
                 AttestedAt = attestation.AttestedAt.UtcDateTime,
                 attestation.IpAddress,
                 attestation.VisitorCountry,
@@ -704,7 +761,6 @@ public sealed partial class VoiceRepository(IDbConnectionFactory db, ILogger<Voi
         if (Blank(a.AttestorNameEncrypted)) return "The name of the person who accepted the Terms is required.";
         if (Blank(a.BusinessAddressEncrypted)) return "The business's address is required.";
         if (Blank(a.DeclarantAddressEncrypted) || Blank(a.DeclarantPhoneEncrypted) || Blank(a.DeclarantEmailEncrypted)) return "The declarant's address, telephone and email are required.";
-        if (Blank(a.TermsStatement)) return "The words the person agreed to are required.";
         if (Blank(a.IpAddress) || Blank(a.VisitorCountry)) return "The declarant's address and country are required.";
         return null;
     }

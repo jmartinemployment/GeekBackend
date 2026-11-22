@@ -38,6 +38,7 @@ public static class VoiceServiceRegistration
                 sp.GetRequiredService<ILogger<HttpVoiceRepository>>()));
         services.AddScoped<OnboardingEligibility>();
         services.AddScoped<IndustryRefusals>();
+        services.AddScoped<TermsAcceptances>();
         // The only writer of a whole receptionist config: the signup form's steps, and the owner's own changes afterwards.
         services.AddScoped<ReceptionistConfigWriter>();
         services.AddSingleton<VoiceCredentialProtector>();
