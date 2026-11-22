@@ -4,6 +4,7 @@ using GeekApplication.Results;
 using GeekRepository.Data;
 using GeekRepository.Data.Entities.Visitors;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace GeekRepository.Repositories.Visitors;
 
@@ -52,6 +53,7 @@ public sealed class VisitorRepository : IVisitorRepository
             _db.ChangeTracker.Clear();
             try
             {
+                await using var visitorLock = await LockVisitorAsync(command.VisitorId, ct).ConfigureAwait(false);
                 var row = await LoadSessionAsync(command.SessionId, track: true, ct).ConfigureAwait(false);
                 if (row is null)
                 {
@@ -99,11 +101,13 @@ public sealed class VisitorRepository : IVisitorRepository
                 }
 
                 await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+                if (visitorLock is not null) await visitorLock.CommitAsync(ct).ConfigureAwait(false);
                 return Result<VisitorSession>.Success(VisitorRowMapping.ToRecord(row));
             }
             catch (Exception ex) when (IsRetryable(ex) && attempt < Attempts)
             {
-                // Another beacon for the same session or visitor landed first: load it and try again.
+                // Another beacon for the same session or visitor landed first: load it and try again. With the lock above this is the
+                // exception, not the rule: Postgres no longer logs a duplicate key for every pair of beacons that arrive together.
             }
             catch (OperationCanceledException)
             {
@@ -372,6 +376,7 @@ public sealed class VisitorRepository : IVisitorRepository
             _db.ChangeTracker.Clear();
             try
             {
+                await using var visitorLock = await LockVisitorAsync(command.VisitorId, ct).ConfigureAwait(false);
                 var visitor = await _db.Visitors.FirstOrDefaultAsync(v => v.Id == command.VisitorId, ct).ConfigureAwait(false);
                 if (visitor is null)
                 {
@@ -405,6 +410,7 @@ public sealed class VisitorRepository : IVisitorRepository
                 }
 
                 await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+                if (visitorLock is not null) await visitorLock.CommitAsync(ct).ConfigureAwait(false);
                 return Result<VisitorProfile>.Success(VisitorRowMapping.ToRecord(visitor));
             }
             catch (Exception ex) when (IsRetryable(ex) && attempt < Attempts)
@@ -753,6 +759,32 @@ public sealed class VisitorRepository : IVisitorRepository
     /// already there. The in-memory provider reports the second as an argument error, Postgres as
     /// a unique violation inside a DbUpdateException. Both are the same fact and are retried.
     /// </summary>
+    /// <summary>
+    /// Serialises the writes that can create a session or a visitor for one visitor: a transaction that holds a Postgres advisory lock
+    /// until it commits, so a second beacon that arrives while the first is creating the session waits and then finds it, instead of
+    /// both inserting and the second failing on <c>sessions_pkey</c> (a duplicate key Postgres and Entity Framework both log as an
+    /// error, a few times a day, however well the retry hid it). The lock is released with the transaction, on commit or on dispose,
+    /// and is taken per visitor, so beacons of different visitors never wait on each other. Only Postgres has advisory locks; the
+    /// in-memory provider the unit tests use has nothing to serialise and returns null.
+    /// </summary>
+    private async Task<IDbContextTransaction?> LockVisitorAsync(Guid visitorId, CancellationToken ct)
+    {
+        if (!_db.Database.IsNpgsql()) return null;
+        var transaction = await _db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await _db.Database
+                .ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({visitorId.ToString("N")}, 0))", ct)
+                .ConfigureAwait(false);
+            return transaction;
+        }
+        catch
+        {
+            await transaction.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
     private static bool IsRetryable(Exception ex) =>
         ex is DbUpdateException || ex is ArgumentException;
 
