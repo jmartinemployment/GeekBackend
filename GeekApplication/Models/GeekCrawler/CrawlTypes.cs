@@ -32,6 +32,14 @@ public static class CrawlTypes
     /// </summary>
     public const string Receptionist = "receptionist";
 
+    /// <summary>
+    /// A prospect bought from Apollo.io (Jeff, 2026-11-23): a business the operator may sell to. It is a third party's site, crawled exactly
+    /// like <see cref="Partner"/>, but it is never partner or competitor evidence and never the operator's own site, and Content Creator
+    /// resolves runs by an exact type, so it is never read as any of them. GeekAPI cannot start a crawl of this type: crawls are started on
+    /// the crawler, not here.
+    /// </summary>
+    public const string Prospect = "prospect";
+
     private static readonly HashSet<string> Valid = new(StringComparer.Ordinal)
     {
         Competitors,
@@ -40,6 +48,7 @@ public static class CrawlTypes
         ProjectSite,
         ConsultancyCompetitors,
         Receptionist,
+        Prospect,
     };
 
     /// <summary>

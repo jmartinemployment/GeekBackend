@@ -74,12 +74,14 @@ public class GeekCrawlerStartRulesTests
             CrawlTypes.ProjectSite,
             CrawlTypes.ConsultancyCompetitors,
             CrawlTypes.Receptionist,
+            CrawlTypes.Prospect,
         ];
 
         Assert.All(accepted, t => Assert.True(CrawlTypes.IsValid(t)));
-        Assert.Equal(6, accepted.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(7, accepted.Distinct(StringComparer.Ordinal).Count());
         Assert.Equal("consultancy-competitors", CrawlTypes.ConsultancyCompetitors);
         Assert.Equal("receptionist", CrawlTypes.Receptionist);
+        Assert.Equal("prospect", CrawlTypes.Prospect);
 
         foreach (var unknown in new[] { "project_site", "ProjectSite", "site", "own", "geo", "" })
             Assert.False(CrawlTypes.IsValid(unknown));
@@ -122,6 +124,18 @@ public class GeekCrawlerStartRulesTests
         foreach (var other in new[] { CrawlTypes.Partner, CrawlTypes.Competitors, CrawlTypes.Local, CrawlTypes.ProjectSite, CrawlTypes.ConsultancyCompetitors })
             Assert.NotEqual(CrawlTypes.Receptionist, other);
         Assert.Contains("receptionist", CrawlTypes.ValidListMessage, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A prospect crawl is a third party's site bought from Apollo.io. The evidence paths resolve runs by an exact type, so it must be a value
+    /// of its own or a prospect's pages would be read as a partner's, a competitor's, the operator's or a receptionist client's.
+    /// </summary>
+    [Fact]
+    public void Prospect_is_not_partner_competitor_project_site_or_receptionist_evidence()
+    {
+        foreach (var other in new[] { CrawlTypes.Partner, CrawlTypes.Competitors, CrawlTypes.Local, CrawlTypes.ProjectSite, CrawlTypes.ConsultancyCompetitors, CrawlTypes.Receptionist })
+            Assert.NotEqual(CrawlTypes.Prospect, other);
+        Assert.Contains("prospect", CrawlTypes.ValidListMessage, StringComparison.Ordinal);
     }
 
     [Fact]
