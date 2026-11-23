@@ -43,8 +43,12 @@ public sealed class SocialModelSettings
     public int TimeoutSeconds { get; private init; } = DefaultTimeoutSeconds;
     public string AnthropicVersion { get; private init; } = DefaultAnthropicVersion;
 
+    /// <summary>Set when a caller has a key of its own instead of the provider-wide one (the receptionist's <c>receptionist</c>).</summary>
+    private string? KeyVariableOverride { get; init; }
+
     /// <summary>The setting that holds the key, named in a not_configured message.</summary>
-    public string KeyVariable => Provider is null ? ProviderVariable : $"LlmProviders__{SocialModelProviders.SettingsSection(Provider)}__ApiKey";
+    public string KeyVariable => KeyVariableOverride
+        ?? (Provider is null ? ProviderVariable : $"LlmProviders__{SocialModelProviders.SettingsSection(Provider)}__ApiKey");
 
     /// <summary>The setting that holds the model, named in a not_configured message.</summary>
     public string ModelVariable => Provider is null ? ProviderVariable : $"LlmProviders__{SocialModelProviders.SettingsSection(Provider)}__Model";
@@ -52,7 +56,13 @@ public sealed class SocialModelSettings
     public static SocialModelSettings FromEnvironment() => From(Environment.GetEnvironmentVariable);
 
     /// <summary>Reads the settings through <paramref name="read"/>, so a test supplies values without touching the environment.</summary>
-    public static SocialModelSettings From(Func<string, string?> read)
+    public static SocialModelSettings From(Func<string, string?> read) => From(read, keyVariable: null);
+
+    /// <summary>
+    /// As <see cref="From(Func{string, string?})"/>, but the key is read from <paramref name="keyVariable"/> alone when one is given:
+    /// that use has a key of its own, so neither the provider-wide key nor <see cref="AnthropicKeyVariable"/> stands in for it.
+    /// </summary>
+    public static SocialModelSettings From(Func<string, string?> read, string? keyVariable)
     {
         ArgumentNullException.ThrowIfNull(read);
 
@@ -67,8 +77,8 @@ public sealed class SocialModelSettings
         var section = SocialModelProviders.SettingsSection(provider);
         string Setting(string name) => read($"LlmProviders__{section}__{name}")?.Trim() ?? string.Empty;
 
-        var key = Setting("ApiKey");
-        if (key.Length == 0 && provider == SocialModelProviders.Anthropic)
+        var key = keyVariable is null ? Setting("ApiKey") : read(keyVariable)?.Trim() ?? string.Empty;
+        if (keyVariable is null && key.Length == 0 && provider == SocialModelProviders.Anthropic)
             key = read(AnthropicKeyVariable)?.Trim() ?? string.Empty;
 
         var timeoutText = Setting("TimeoutSeconds");
@@ -84,6 +94,7 @@ public sealed class SocialModelSettings
         return new SocialModelSettings
         {
             Provider = provider,
+            KeyVariableOverride = keyVariable,
             ApiKey = key,
             Model = Setting("Model"),
             BaseUrl = baseUrl.Length > 0 ? baseUrl : DefaultBaseUrl(provider),

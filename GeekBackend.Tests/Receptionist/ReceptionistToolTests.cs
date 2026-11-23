@@ -43,7 +43,7 @@ public sealed class ReceptionistToolTests
         var env = new Dictionary<string, string>
         {
             ["LlmProviders__DefaultProvider"] = provider,
-            [$"LlmProviders__{provider}__ApiKey"] = "key-1",
+            ["receptionist"] = "key-1",
             [$"LlmProviders__{provider}__Model"] = "model-1",
         };
         return new LlmReceptionistModel(new HttpClient(handler), ReceptionistModelSettings.From(k => env.GetValueOrDefault(k)), NullLogger<LlmReceptionistModel>.Instance);

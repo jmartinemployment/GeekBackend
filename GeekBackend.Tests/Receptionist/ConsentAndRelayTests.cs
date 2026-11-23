@@ -155,9 +155,9 @@ public sealed class ConsentAndRelayTests
     {
         var noKey = Settings_(new() { ["LlmProviders__DefaultProvider"] = "OpenAi", ["LlmProviders__OpenAi__Model"] = "m" });
         Assert.False(noKey.IsConfigured);
-        Assert.Contains("LlmProviders__OpenAi__ApiKey", noKey.Reason);
+        Assert.Contains("receptionist", noKey.Reason);
 
-        var noModel = Settings_(new() { ["LlmProviders__DefaultProvider"] = "Anthropic", ["LlmProviders__Anthropic__ApiKey"] = "k" });
+        var noModel = Settings_(new() { ["LlmProviders__DefaultProvider"] = "Anthropic", ["receptionist"] = "k" });
         Assert.False(noModel.IsConfigured);
         Assert.Contains("LlmProviders__Anthropic__Model", noModel.Reason);
     }
@@ -171,7 +171,7 @@ public sealed class ConsentAndRelayTests
         var settings = Settings_(new()
         {
             ["LlmProviders__DefaultProvider"] = value,
-            [$"LlmProviders__{section}__ApiKey"] = "k",
+            ["receptionist"] = "k",
             [$"LlmProviders__{section}__Model"] = "the-model",
         });
         Assert.True(settings.IsConfigured);
@@ -323,9 +323,23 @@ public sealed class ConsentAndRelayTests
     private static ReceptionistModelSettings Configured(string provider, string section) => Settings_(new()
     {
         ["LlmProviders__DefaultProvider"] = provider,
-        [$"LlmProviders__{section}__ApiKey"] = "key-1",
+        ["receptionist"] = "key-1",
         [$"LlmProviders__{section}__Model"] = "model-1",
     });
+
+    [Fact]
+    public void The_providers_shared_key_does_not_stand_in_for_the_receptionists_own()
+    {
+        var settings = Settings_(new()
+        {
+            ["LlmProviders__DefaultProvider"] = "OpenAi",
+            ["LlmProviders__OpenAi__ApiKey"] = "the-shared-key",
+            ["LlmProviders__OpenAi__Model"] = "m",
+        });
+
+        Assert.False(settings.IsConfigured);
+        Assert.Equal("receptionist is not set.", settings.Reason);
+    }
 
     [Fact]
     public async Task Anthropic_is_sent_the_system_prompt_and_turns_and_its_text_is_the_reply()
