@@ -48,7 +48,7 @@ flowchart LR
 
 **Hard rules**
 
-1. **Only GeekAPI talks to GeekRepository** — no product service (OrderStack, RankPilot, etc.) holds a GeekRepository address or database credentials for platform auth/content.
+1. **Only GeekAPI talks to GeekRepository** — no product service (OrderStack, RankPilot, etc.) holds `REPO_URL` or database credentials for platform auth/content.
 2. **No authorization server in GeekBackend** — no `/connect/*`, no OpenIddict issuer on GeekAPI.
 3. **Geek-SEO is not part of this data plane.** Geek-SEO was never an authorized service (Jeff, 2026-09-29). Its persistence layer (`SeoDbContext`, `repo/seo/*`, the `geek_seo` schema) was removed from GeekRepository, and nothing here is project-referenced to it or calls it: the rule is "copy, never reuse". See `docs/geekseo-repository-schema.md` (retired).
 4. **Long-running work uses push, not poll.** Job and crawl progress is delivered over **SignalR hubs on GeekAPI** (or Geek-SEO hubs for site analysis). Clients subscribe via hub `Join*` methods; REST GET is for snapshot, history, and reconnect catch-up only — **never on a timer**. Workers wake on `NOTIFY`/channel events with one-shot orphan recovery on startup — no continuous `SELECT pending` tickers. See [`content-creator-v2/plan/realtime-progress.md`](../content-creator-v2/plan/realtime-progress.md) and [`content-creator-v2/plan/correctness-and-fallbacks.md`](../content-creator-v2/plan/correctness-and-fallbacks.md).
@@ -103,7 +103,7 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 | `/api/crm/*` | `X-API-Key` | Geek-CRM (`geek_crm` via `repo/crm/*`); see [`docs/GEEK-CRM-DATA-MODEL.md`](docs/GEEK-CRM-DATA-MODEL.md) |
 | `/api/auth/*`, `/hubs/sync` | — | **410 Gone** (use GeekOAuth) |
 
-**Outbound:** `HttpClient` `GeekRepository` → the address fixed in `Program.cs` with `REPO_API_KEY` (interim; JWT S2S is target).
+**Outbound:** `HttpClient` `GeekRepository` → `REPO_URL` with `REPO_API_KEY` (interim; JWT S2S is target).
 
 **Does not:** Issue tokens, host login UI, or run Geek SEO product logic.
 
@@ -207,6 +207,7 @@ Sellability comes from the boundaries: a clean copy-out stays possible ("copy, n
 
 | Variable | Purpose |
 |----------|---------|
+| `REPO_URL` | GeekRepository base URL |
 | `GEEK_BACKEND_API_KEY` | Inbound trust for auth-storage and admin adapters |
 | `CORS_ORIGINS` | Browser origins allowed to call API |
 | `PORT` | Listen port |

@@ -26,6 +26,7 @@ path under it now relays a bare 404. It is not a live pipe; see `AGENTS.md`.
 
 | Variable | Purpose |
 |----------|---------|
+| `REPO_URL` | GeekRepository base URL |
 | `REPO_API_KEY` | Machine auth to repository |
 | `GEEK_BACKEND_API_KEY` | Client API key + SEO internal proxy |
 | `CORS_ORIGINS` | Allowed browser origins |

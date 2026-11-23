@@ -182,12 +182,14 @@ LOG_LEVEL="Information"                    # Debug, Information, Warning, Error
 SERILOG_MIN_LEVEL="Information"
 
 # GeekAPI → GeekRepository
+REPO_URL="https://your-geekrepository.up.railway.app"
 # REPO_API_KEY — local/CI interim only; production uses geekapi client_credentials JWT (see Architecture.md)
 GEEK_BACKEND_API_KEY="api-key-for-inbound-calls"
 CORS_ORIGINS="https://www.geekatyourspot.com,http://127.0.0.1"
 
 # Integration tests (optional)
 TEST_DATABASE_URL="postgresql://..."
+TEST_REPO_URL="http://127.0.0.1:5050"
 ```
 
 ## Tests

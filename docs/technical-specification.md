@@ -606,7 +606,7 @@ over; nothing is emailed, the report is read from `api/visitors/internal/reports
 ToolBaseUrl, ConsultationAnchorHref, ConsultationCtaLabel, ConsultationClosingLead, ConsultationClosingLink,
 ConsultationClosingLinkWithoutQuestions, DefaultBlogAuthorId, GtmContainerId, ImplementerPositioning); other sections read in
 code: `LlmProviders`, `ContentCreatorV2` (DraftingEnabled, ContextPolicy, ContextObjectStore, MalwareScanner), `GccV2Skills`.
-**Environment, GeekAPI:** PORT, ASPNETCORE_ENVIRONMENT, CORS_ORIGINS, REPO_API_KEY, GEEK_BACKEND_API_KEY,
+**Environment, GeekAPI:** PORT, ASPNETCORE_ENVIRONMENT, CORS_ORIGINS, REPO_URL, REPO_API_KEY, GEEK_BACKEND_API_KEY,
 GEEK_OAUTH_AUTHORITY, AUTH_SERVER_URL, AUTH_URL, OAUTH_CLIENT_ID, CLIENT_SECRET_GEEKAPI, GEEK_CRAWLER_RAG_URL,
 GEEK_CRAWLER_RAG_API_KEY, GEEK_CRAWLER_WORKER_COUNT (and other GEEK_CRAWLER_*), OPENAI_API_KEY, ANTHROPIC_API_KEY,
 GROQ_API_KEY, GEEK_CONTENT_MODEL_<STAGE>, IMAGE_GENERATOR_BASE_URL, GEEKATYOURSPOT_GITHUB_TOKEN, WORDPRESS_URL, GEEK_CC_GSC_*,

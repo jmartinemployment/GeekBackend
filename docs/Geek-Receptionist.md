@@ -37,7 +37,7 @@ Claude Code and Cursor **MUST** enforce this exact three-tier topology across al
    - **MUST** handle all public REST routes, PayPal billing verification, Twilio webhooks, Twilio Subaccount provisioning, SignalR live dashboard hubs, owner logins and their tokens (Section 7), and internal HTTP calls to `GeekRepository` and `GeekMcpGateway`.
    - **MUST NOT** reference `Npgsql`, `Dapper`, or `Microsoft.EntityFrameworkCore`.
    - **MUST NOT** contain `DATABASE_URL` or connect directly to any database.
-   - **MUST** communicate with `GeekRepository` exclusively over HTTP at the address fixed in `GeekAPI/Program.cs` (`http://geek-repository.railway.internal:5050` in production; there is no `REPO_URL` variable). All `/internal/v1/*` (`geek_voice`) calls send header `X-Internal-Api-Key: {GEEK_REPOSITORY_API_KEY}`. Existing non-voice routes continue to use `REPO_URL` and `X-Repo-Key`.
+   - **MUST** communicate with `GeekRepository` exclusively over HTTP using `REPO_URL`. All `/internal/v1/*` (`geek_voice`) calls send header `X-Internal-Api-Key: {GEEK_REPOSITORY_API_KEY}`. Existing non-voice routes continue to use `REPO_URL` and `X-Repo-Key`.
    - **MUST** use SignalR Hubs exclusively for real-time server-to-client dashboard updates (`CallStarted`, `AppointmentBooked`, `CallCompleted`). No hub carries what was said on a call (Section 5, item 6). **MUST NOT** use raw C# `System.Net.WebSockets` for client dashboard communication.
 2. **`GeekRepository` (C# Data Persistence Service):**
    - **MUST** be the **sole service** connecting to Supabase PostgreSQL (`DATABASE_URL` stored in Railway environment variables).
@@ -384,6 +384,7 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | `PAYPAL_CLIENT_ID` | ✓ | Client ID | PayPal REST app client ID |
 | `PAYPAL_CLIENT_SECRET` | ✓ | Secret | PayPal REST app secret |
 | `PAYPAL_PLAN_STARTER`, `PAYPAL_PLAN_STANDARD`, `PAYPAL_PLAN_PRO`, `PAYPAL_PLAN_PREMIUM` | ✓ | PayPal plan id (`P-...`) | The plan /signup subscribes a visitor to for each tier. Sandbox: `P-93Y59179GB9223215NL3BFNI`, `P-8LX7403571151502NNL5QMQA`, `P-8CS30918MX536813NNL5QMQI`, `P-7S735698AD441763PNL5QMQI`; the live account needs its own. Unset: that tier's signup is refused `503 billing_not_configured`; activation checks the plan's price, so a wrong plan is refused, never charged |
+| `REPO_URL` | ✓ | `http://geek-repository.railway.internal:5050` | Railway private network URL for `GeekRepository` (service `geek-repository`, port `5050`); used by every route, voice and non-voice |
 | `GEEK_REPOSITORY_API_KEY` | ✓ | Secret | Shared internal API key sent via `X-Internal-Api-Key` to `GeekRepository` |
 | `MCP_GATEWAY_URL` | ✓ | `http://geek-mcp-gateway.railway.internal:3000` | Railway private network URL for `GeekMcpGateway` (service `geek-mcp-gateway`, port `3000`, no public domain) |
 | `MCP_GATEWAY_API_KEY` | ✓ | Secret | Shared key `GeekAPI` sends to `GeekMcpGateway` in header `X-Internal-Api-Key` |
