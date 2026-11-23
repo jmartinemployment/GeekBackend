@@ -10,8 +10,8 @@ namespace GeekAPI.Services.Workflow.Infrastructure;
 /// GeekRepository-backed persistence store — calls the generic content-writer-v2 blobs API
 /// (repo/content-writer-v2/blobs/{collection}/{id}) in GeekRepository. Only valid to construct
 /// inside a host process that already owns a trusted, pre-configured "GeekRepository" named
-/// HttpClient (X-Repo-Key already attached) — i.e. GeekAPI. This class never builds its own
-/// client or reads REPO_API_KEY; see AGENTS.md "Persistence and target architecture" for why
+/// HttpClient (the signed GeekAPI token already attached) — i.e. GeekAPI. This class never builds its own
+/// client or reads a key; see AGENTS.md "Persistence and target architecture" for why
 /// content-writer-v2 does not hold that credential itself.
 /// </summary>
 public sealed class GeekRepositoryPersistenceStore : IPersistenceStore

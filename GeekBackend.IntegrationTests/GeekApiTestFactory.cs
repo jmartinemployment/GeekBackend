@@ -46,7 +46,6 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
 
     public GeekApiTestFactory()
     {
-        Environment.SetEnvironmentVariable("REPO_API_KEY", "integration-test-key");
         // The key GeekAPI signs its GeekRepository requests with, and the public half GeekRepository checks them against: a fresh pair
         // per run, so no key is committed and a test can never pass with one that production holds.
         using (var signing = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
@@ -54,7 +53,6 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
             Environment.SetEnvironmentVariable("GEEK_API_REPOSITORY_SIGNING_KEY", Convert.ToBase64String(signing.ExportPkcs8PrivateKey()));
             Environment.SetEnvironmentVariable("GEEK_API_PUBLIC_KEY", Convert.ToBase64String(signing.ExportSubjectPublicKeyInfo()));
         }
-        Environment.SetEnvironmentVariable("GEEK_REPOSITORY_API_KEY", "integration-test-internal-key");
         Environment.SetEnvironmentVariable("GEEK_BACKEND_API_KEY", "integration-test-backend-key");
         Environment.SetEnvironmentVariable("GEEK_CRAWLER_RAG_URL", "http://rag.test");
         Environment.SetEnvironmentVariable("GEEK_CRAWLER_RAG_API_KEY", "integration-test-rag-key");
@@ -66,7 +64,6 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("REPO_URL", Environment.GetEnvironmentVariable("TEST_REPO_URL") ?? "http://127.0.0.1:5050");
-        builder.UseSetting("REPO_API_KEY", "integration-test-key");
         builder.UseSetting("GEEK_BACKEND_API_KEY", "integration-test-backend-key");
         builder.UseSetting("GEEK_CRAWLER_WORKER_COUNT", "0");
         builder.UseSetting("CORS_ORIGINS", "https://www.geekatyourspot.com");
@@ -75,7 +72,6 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["REPO_URL"] = Environment.GetEnvironmentVariable("TEST_REPO_URL") ?? "http://127.0.0.1:5050",
-                ["REPO_API_KEY"] = "integration-test-key",
                 ["GEEK_BACKEND_API_KEY"] = "integration-test-backend-key",
                 ["GEEK_CRAWLER_WORKER_COUNT"] = "0",
                 ["CORS_ORIGINS"] = "https://www.geekatyourspot.com",

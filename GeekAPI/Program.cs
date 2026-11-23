@@ -78,20 +78,8 @@ builder.Services.AddCors(options =>
             .AllowCredentials()));
 
 var repoUrl = Environment.GetEnvironmentVariable("REPO_URL") ?? "http://localhost:5050";
-// X-Repo-Key is the only credential GeekRepository accepts, so an unset REPO_API_KEY is a
-// misconfiguration rather than a mode. This used to attach the header only when the key was
-// non-empty, which meant an empty key produced a client that called GeekRepository with no
-// credential at all — failing open on the tier that holds the data, and only at the first request.
-var repoApiKey = Environment.GetEnvironmentVariable("REPO_API_KEY");
-if (string.IsNullOrWhiteSpace(repoApiKey))
-{
-    throw new InvalidOperationException(
-        "REPO_API_KEY is not set. It is the only credential GeekRepository accepts, and a client "
-        + "built without it would call GeekRepository unauthenticated.");
-}
-
-// GeekAPI proves who it is to GeekRepository with a token it signs on every request (plans/credential-rotation-and-exposure-fix.md,
-// Phase 2). The keys below are still sent until GeekRepository has been seen accepting the token, and are then removed.
+// GeekAPI proves who it is to GeekRepository with a token it signs on every request, and with nothing else: GeekRepository
+// accepts no key (plans/credential-rotation-and-exposure-fix.md, Phase 2). An unset signing key stops the start.
 var repositoryTokenSigner = GeekAPI.HttpClients.GeekRepositoryTokenSigner.FromEnvironment(TimeProvider.System);
 builder.Services.AddSingleton(repositoryTokenSigner);
 builder.Services.AddTransient<GeekAPI.HttpClients.GeekRepositoryTokenHandler>();
@@ -101,20 +89,7 @@ var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", c
     client.BaseAddress = new Uri(repoUrl);
     client.Timeout = TimeSpan.FromMinutes(5);
 });
-repositoryClientBuilder.ConfigureHttpClient(client =>
-    client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey));
 repositoryClientBuilder.AddHttpMessageHandler<GeekAPI.HttpClients.GeekRepositoryTokenHandler>();
-
-// Geek-Receptionist: /internal/v1/* is the one route set GeekRepository authenticates by X-Internal-Api-Key
-// (GEEK_REPOSITORY_API_KEY), a second credential kept apart from X-Repo-Key. Unset is a misconfiguration for the
-// same reason an unset REPO_API_KEY is.
-var internalApiKey = Environment.GetEnvironmentVariable("GEEK_REPOSITORY_API_KEY");
-if (string.IsNullOrWhiteSpace(internalApiKey))
-{
-    throw new InvalidOperationException(
-        "GEEK_REPOSITORY_API_KEY is not set. GeekRepository accepts /internal/v1/* only with it, and a client "
-        + "built without it would send every Geek-Receptionist call unauthenticated.");
-}
 
 // Every server that calls GeekAPI with X-API-Key has a key of its own (GEEK_API_CALLERS, GEEK_API_KEY_<NAME>), and the shared
 // GEEK_BACKEND_API_KEY is accepted only until the last caller has moved. A missing, malformed or shared key is a misconfiguration:
@@ -129,7 +104,6 @@ builder.Services.AddHttpClient("GeekRepositoryInternal", client =>
 {
     client.BaseAddress = new Uri(repoUrl);
     client.Timeout = TimeSpan.FromSeconds(30);
-    client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
 }).AddHttpMessageHandler<GeekAPI.HttpClients.GeekRepositoryTokenHandler>();
 builder.Services.AddVoiceOnboarding();
 
@@ -269,7 +243,7 @@ builder.Services.AddReceptionistRelay();
 // that looks like an unrelated crash, not a clean refusal, and would have shipped silently until
 // someone hit it.
 //
-// Required now, the same as REPO_API_KEY above: GeekAPI refuses to start without it rather than
+// Required: GeekAPI refuses to start without it rather than
 // exposing billing-adjacent routes a policy that does not exist.
 var gccV2HubAuthority = (Environment.GetEnvironmentVariable("GEEK_OAUTH_AUTHORITY")
     ?? Environment.GetEnvironmentVariable("AUTH_SERVER_URL")
@@ -367,7 +341,7 @@ builder.Services.AddHttpClient<GeekAPI.Services.Gcw.HttpImageGeneratorClient>(cl
 builder.Services.AddScoped<DepartmentContentService>();
 
 // Workflow (GeekAPI-owned): persistence reuses the "GeekRepository" named HttpClient already
-// configured above (X-Repo-Key already attached). See GeekBackend/AGENTS.md § Service topology
+// configured above (the signed GeekAPI token already attached). See GeekBackend/AGENTS.md § Service topology
 // and the content-writer "copy, never reuse" rule.
 builder.Services.AddWorkflow(builder.Configuration,
     sp => new GeekRepositoryPersistenceStore(

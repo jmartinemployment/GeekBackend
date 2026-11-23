@@ -12,27 +12,6 @@ public static class RepositoryAuthExtensions
 {
     public static IServiceCollection AddGeekRepositoryAuth(this IServiceCollection services)
     {
-        // REPO_API_KEY is the only credential in front of these tables, so an unset one is a
-        // misconfiguration this service must not run with. Resolving it here — once, at startup —
-        // also means the request path has no branch for a missing key and nothing to fall back to.
-        var expectedKey = Environment.GetEnvironmentVariable("REPO_API_KEY");
-        if (string.IsNullOrWhiteSpace(expectedKey))
-        {
-            throw new InvalidOperationException(
-                "REPO_API_KEY is not set. GeekRepository holds the credentials for these tables "
-                + "and will not start without the key that guards them.");
-        }
-
-        // GEEK_REPOSITORY_API_KEY guards /internal/v1/* (docs/Geek-Receptionist.md). It is its own credential, resolved the same way:
-        // once, at startup, with no request-time path on which it is missing.
-        var internalKey = Environment.GetEnvironmentVariable("GEEK_REPOSITORY_API_KEY");
-        if (string.IsNullOrWhiteSpace(internalKey))
-        {
-            throw new InvalidOperationException(
-                "GEEK_REPOSITORY_API_KEY is not set. It guards /internal/v1/*, the receptionist's tenant data, "
-                + "and GeekRepository will not start without it.");
-        }
-
         // GeekAPI's public key, the only thing that can say a request came from GeekAPI. Resolved once, at startup, and the service
         // refuses to run without it or with a value that is not a P-256 public key.
         var publicKeyText = Environment.GetEnvironmentVariable(GeekRepositoryToken.PublicKeyVariable);
@@ -66,35 +45,19 @@ public static class RepositoryAuthExtensions
         services.AddSingleton(sp => new GeekApiTokenValidator(
             new ECDsaSecurityKey(publicKey), sp.GetRequiredService<TokenReplayGuard>(), sp.GetRequiredService<TimeProvider>()));
 
+        // One credential: the token GeekAPI signs. There is no key header, no second scheme and no path on which anything else
+        // authenticates, so a request that cannot show a valid GeekAPI signature is refused.
         services.AddAuthentication(options =>
         {
-            options.DefaultAuthenticateScheme = RepositoryAuthConstants.KeySelectorScheme;
-            options.DefaultChallengeScheme = RepositoryAuthConstants.KeySelectorScheme;
+            options.DefaultAuthenticateScheme = GeekApiTokenAuthenticationHandler.SchemeName;
+            options.DefaultChallengeScheme = GeekApiTokenAuthenticationHandler.SchemeName;
         })
-        .AddPolicyScheme(RepositoryAuthConstants.KeySelectorScheme, displayName: null, options =>
-        {
-            // A request carrying Authorization is judged by the token alone, and a bad token is a failure, never a fall back to a key.
-            // Without it, during the migration only, one policy and two keys, chosen by path: /internal/v1/* is judged by
-            // X-Internal-Api-Key and everything else by X-Repo-Key. A request cannot pick its own credential.
-            options.ForwardDefaultSelector = context =>
-                context.Request.Headers.ContainsKey("Authorization")
-                    ? GeekApiTokenAuthenticationHandler.SchemeName
-                    : context.Request.Path.StartsWithSegments(RepositoryAuthConstants.InternalRoutePrefix, StringComparison.OrdinalIgnoreCase)
-                        ? InternalApiKeyAuthenticationHandler.SchemeName
-                        : RepoApiKeyAuthenticationHandler.SchemeName;
-        })
-        .AddScheme<GeekApiTokenAuthenticationOptions, GeekApiTokenAuthenticationHandler>(GeekApiTokenAuthenticationHandler.SchemeName, _ => { })
-        .AddScheme<RepoApiKeyAuthenticationOptions, RepoApiKeyAuthenticationHandler>(
-            RepoApiKeyAuthenticationHandler.SchemeName,
-            options => options.ExpectedKey = expectedKey)
-        .AddScheme<InternalApiKeyAuthenticationOptions, InternalApiKeyAuthenticationHandler>(
-            InternalApiKeyAuthenticationHandler.SchemeName,
-            options => options.ExpectedKey = internalKey);
+        .AddScheme<GeekApiTokenAuthenticationOptions, GeekApiTokenAuthenticationHandler>(GeekApiTokenAuthenticationHandler.SchemeName, _ => { });
 
         services.AddAuthorizationBuilder()
             .AddPolicy(RepositoryAuthConstants.InternalServicePolicy, policy =>
             {
-                policy.AddAuthenticationSchemes(RepositoryAuthConstants.KeySelectorScheme);
+                policy.AddAuthenticationSchemes(GeekApiTokenAuthenticationHandler.SchemeName);
                 policy.RequireAuthenticatedUser();
                 policy.RequireAssertion(context =>
                     context.User.Claims.Any(static claim =>

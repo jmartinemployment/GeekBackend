@@ -183,7 +183,6 @@ SERILOG_MIN_LEVEL="Information"
 
 # GeekAPI → GeekRepository
 REPO_URL="https://your-geekrepository.up.railway.app"
-# REPO_API_KEY — local/CI interim only; production uses geekapi client_credentials JWT (see Architecture.md)
 GEEK_BACKEND_API_KEY="api-key-for-inbound-calls"
 CORS_ORIGINS="https://www.geekatyourspot.com,http://127.0.0.1"
 
@@ -235,7 +234,7 @@ TEST_DATABASE_URL="postgresql://..." dotnet test GEEKBACKEND.slnx
 ## Security (current)
 
 - **Identity:** GeekOAuth — passwords, TOTP, and tokens are not stored in GeekBackend Postgres.
-- **GeekAPI / GeekRepository:** `X-API-Key` / `REPO_API_KEY` for machine access; SEO internal proxy requires user id headers from GeekSeoBackend.
+- **GeekAPI / GeekRepository:** `X-API-Key` (GeekAPI) and a signed GeekAPI token (GeekRepository) for machine access; SEO internal proxy requires user id headers from GeekSeoBackend.
 - **Legacy paths:** `/api/auth/*`, `/repo/auth/*` return **410 Gone**.
 
 ## Development

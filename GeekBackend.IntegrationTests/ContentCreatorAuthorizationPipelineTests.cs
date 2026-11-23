@@ -22,7 +22,7 @@ namespace GeekBackend.IntegrationTests;
 ///     would have meant the policy did not exist at all, so every [Authorize(Policy = ManagePolicy)]
 ///     route would throw "policy not found" on first request: a 500 indistinguishable from an
 ///     unrelated crash, not a clean refusal. GeekAPI now refuses to start without the variable,
-///     the same way it already refused to start without REPO_API_KEY.
+///     the same way it already refused to start without its GeekRepository signing key.
 ///   - GccApiTestFactory's substitute authentication handler ("IntegrationTest") only becomes the
 ///     *default* scheme; ManagePolicy is deliberately pinned to the real "Bearer" scheme by name
 ///     (AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)) so production is never at
