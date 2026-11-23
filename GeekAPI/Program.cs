@@ -77,7 +77,13 @@ builder.Services.AddCors(options =>
             .AllowAnyHeader()
             .AllowCredentials()));
 
-var repoUrl = Environment.GetEnvironmentVariable("REPO_URL") ?? "http://localhost:5050";
+// GeekRepository's address is not a setting (Jeff, 2026-11-23: "not an exposed variable"). In production it is Railway's private
+// name for the service, which only resolves inside the project's private network and is not a secret; outside production it is the
+// local GeekRepository on its development port. Nothing reads it from the environment, so it cannot be pointed somewhere else by
+// editing a variable, and an unset variable can no longer quietly send every call to localhost.
+var repoUrl = builder.Environment.IsProduction()
+    ? "http://geek-repository.railway.internal:5050"
+    : "http://localhost:5050";
 // X-Repo-Key is the only credential GeekRepository accepts, so an unset REPO_API_KEY is a
 // misconfiguration rather than a mode. This used to attach the header only when the key was
 // non-empty, which meant an empty key produced a client that called GeekRepository with no

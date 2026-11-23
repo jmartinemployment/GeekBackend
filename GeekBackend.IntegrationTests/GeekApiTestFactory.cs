@@ -58,7 +58,6 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
-        builder.UseSetting("REPO_URL", Environment.GetEnvironmentVariable("TEST_REPO_URL") ?? "http://127.0.0.1:5050");
         builder.UseSetting("REPO_API_KEY", "integration-test-key");
         builder.UseSetting("GEEK_BACKEND_API_KEY", "integration-test-backend-key");
         builder.UseSetting("GEEK_CRAWLER_WORKER_COUNT", "0");
@@ -67,7 +66,6 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["REPO_URL"] = Environment.GetEnvironmentVariable("TEST_REPO_URL") ?? "http://127.0.0.1:5050",
                 ["REPO_API_KEY"] = "integration-test-key",
                 ["GEEK_BACKEND_API_KEY"] = "integration-test-backend-key",
                 ["GEEK_CRAWLER_WORKER_COUNT"] = "0",
