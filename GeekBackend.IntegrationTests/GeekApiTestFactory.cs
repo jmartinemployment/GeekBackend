@@ -47,6 +47,13 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
     public GeekApiTestFactory()
     {
         Environment.SetEnvironmentVariable("REPO_API_KEY", "integration-test-key");
+        // The key GeekAPI signs its GeekRepository requests with, and the public half GeekRepository checks them against: a fresh pair
+        // per run, so no key is committed and a test can never pass with one that production holds.
+        using (var signing = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256))
+        {
+            Environment.SetEnvironmentVariable("GEEK_API_REPOSITORY_SIGNING_KEY", Convert.ToBase64String(signing.ExportPkcs8PrivateKey()));
+            Environment.SetEnvironmentVariable("GEEK_API_PUBLIC_KEY", Convert.ToBase64String(signing.ExportSubjectPublicKeyInfo()));
+        }
         Environment.SetEnvironmentVariable("GEEK_REPOSITORY_API_KEY", "integration-test-internal-key");
         Environment.SetEnvironmentVariable("GEEK_BACKEND_API_KEY", "integration-test-backend-key");
         Environment.SetEnvironmentVariable("GEEK_CRAWLER_RAG_URL", "http://rag.test");

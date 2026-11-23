@@ -90,6 +90,12 @@ if (string.IsNullOrWhiteSpace(repoApiKey))
         + "built without it would call GeekRepository unauthenticated.");
 }
 
+// GeekAPI proves who it is to GeekRepository with a token it signs on every request (plans/credential-rotation-and-exposure-fix.md,
+// Phase 2). The keys below are still sent until GeekRepository has been seen accepting the token, and are then removed.
+var repositoryTokenSigner = GeekAPI.HttpClients.GeekRepositoryTokenSigner.FromEnvironment(TimeProvider.System);
+builder.Services.AddSingleton(repositoryTokenSigner);
+builder.Services.AddTransient<GeekAPI.HttpClients.GeekRepositoryTokenHandler>();
+
 var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", client =>
 {
     client.BaseAddress = new Uri(repoUrl);
@@ -97,6 +103,7 @@ var repositoryClientBuilder = builder.Services.AddHttpClient("GeekRepository", c
 });
 repositoryClientBuilder.ConfigureHttpClient(client =>
     client.DefaultRequestHeaders.Add("X-Repo-Key", repoApiKey));
+repositoryClientBuilder.AddHttpMessageHandler<GeekAPI.HttpClients.GeekRepositoryTokenHandler>();
 
 // Geek-Receptionist: /internal/v1/* is the one route set GeekRepository authenticates by X-Internal-Api-Key
 // (GEEK_REPOSITORY_API_KEY), a second credential kept apart from X-Repo-Key. Unset is a misconfiguration for the
@@ -123,7 +130,7 @@ builder.Services.AddHttpClient("GeekRepositoryInternal", client =>
     client.BaseAddress = new Uri(repoUrl);
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.Add("X-Internal-Api-Key", internalApiKey);
-});
+}).AddHttpMessageHandler<GeekAPI.HttpClients.GeekRepositoryTokenHandler>();
 builder.Services.AddVoiceOnboarding();
 
 builder.Services.AddScoped<ICaseStudyRepository, HttpCaseStudyRepository>();

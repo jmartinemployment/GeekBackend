@@ -1,6 +1,10 @@
+using System.Security.Cryptography;
+using GeekApplication.Security;
 using GeekRepository.Auth;
 using GeekRepository.Middleware;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.IdentityModel.Tokens;
 
 namespace GeekRepository.Extensions;
 
@@ -29,6 +33,39 @@ public static class RepositoryAuthExtensions
                 + "and GeekRepository will not start without it.");
         }
 
+        // GeekAPI's public key, the only thing that can say a request came from GeekAPI. Resolved once, at startup, and the service
+        // refuses to run without it or with a value that is not a P-256 public key.
+        var publicKeyText = Environment.GetEnvironmentVariable(GeekRepositoryToken.PublicKeyVariable);
+        if (string.IsNullOrWhiteSpace(publicKeyText))
+        {
+            throw new InvalidOperationException(
+                $"{GeekRepositoryToken.PublicKeyVariable} is not set. It is GeekAPI's public key, the proof that a request came from "
+                + "GeekAPI, and GeekRepository will not start without it.");
+        }
+
+        ECDsa publicKey;
+        try
+        {
+            publicKey = ECDsa.Create();
+            publicKey.ImportSubjectPublicKeyInfo(Convert.FromBase64String(publicKeyText.Trim()), out _);
+        }
+        catch (Exception ex) when (ex is FormatException or CryptographicException)
+        {
+            throw new InvalidOperationException(
+                $"{GeekRepositoryToken.PublicKeyVariable} is not a base64 SubjectPublicKeyInfo public key ({ex.GetType().Name}).", ex);
+        }
+
+        if (publicKey.KeySize != 256)
+        {
+            throw new InvalidOperationException(
+                $"{GeekRepositoryToken.PublicKeyVariable} is a {publicKey.KeySize}-bit key; GeekAPI signs with P-256 (ES256) only.");
+        }
+
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddSingleton<TokenReplayGuard>();
+        services.AddSingleton(sp => new GeekApiTokenValidator(
+            new ECDsaSecurityKey(publicKey), sp.GetRequiredService<TokenReplayGuard>(), sp.GetRequiredService<TimeProvider>()));
+
         services.AddAuthentication(options =>
         {
             options.DefaultAuthenticateScheme = RepositoryAuthConstants.KeySelectorScheme;
@@ -36,13 +73,17 @@ public static class RepositoryAuthExtensions
         })
         .AddPolicyScheme(RepositoryAuthConstants.KeySelectorScheme, displayName: null, options =>
         {
-            // One policy, two credentials, chosen by path: /internal/v1/* is judged by X-Internal-Api-Key and everything else by
-            // X-Repo-Key. A request cannot pick its own credential.
+            // A request carrying Authorization is judged by the token alone, and a bad token is a failure, never a fall back to a key.
+            // Without it, during the migration only, one policy and two keys, chosen by path: /internal/v1/* is judged by
+            // X-Internal-Api-Key and everything else by X-Repo-Key. A request cannot pick its own credential.
             options.ForwardDefaultSelector = context =>
-                context.Request.Path.StartsWithSegments(RepositoryAuthConstants.InternalRoutePrefix, StringComparison.OrdinalIgnoreCase)
-                    ? InternalApiKeyAuthenticationHandler.SchemeName
-                    : RepoApiKeyAuthenticationHandler.SchemeName;
+                context.Request.Headers.ContainsKey("Authorization")
+                    ? GeekApiTokenAuthenticationHandler.SchemeName
+                    : context.Request.Path.StartsWithSegments(RepositoryAuthConstants.InternalRoutePrefix, StringComparison.OrdinalIgnoreCase)
+                        ? InternalApiKeyAuthenticationHandler.SchemeName
+                        : RepoApiKeyAuthenticationHandler.SchemeName;
         })
+        .AddScheme<GeekApiTokenAuthenticationOptions, GeekApiTokenAuthenticationHandler>(GeekApiTokenAuthenticationHandler.SchemeName, _ => { })
         .AddScheme<RepoApiKeyAuthenticationOptions, RepoApiKeyAuthenticationHandler>(
             RepoApiKeyAuthenticationHandler.SchemeName,
             options => options.ExpectedKey = expectedKey)
