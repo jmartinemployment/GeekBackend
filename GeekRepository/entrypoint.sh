@@ -31,9 +31,12 @@ SHM_DIR=${WG_SHM_DIR:-/dev/shm}
 command -v wireproxy >/dev/null 2>&1 || { echo "[FATAL] entrypoint: wireproxy is not installed in this image" >&2; exit 1; }
 command -v nc >/dev/null 2>&1 || { echo "[FATAL] entrypoint: nc is not installed in this image" >&2; exit 1; }
 
-# The CA certificate is public. The app's Mongo connection string points tlsCAFile at it.
-CA_FILE=${MONGO_CA_FILE:-/app/ca.crt}
-( umask 022; printf '%s\n' "$MONGO_CA_PEM" > "$CA_FILE" )
+# The CA certificate is public. The C# Mongo driver does not read a tlsCAFile option (the connection string accepts it and the handshake then
+# fails with UntrustedRoot), and .NET on Linux trusts the system store, so the CA is installed there. A failure stops the container.
+command -v update-ca-certificates >/dev/null 2>&1 || { echo "[FATAL] entrypoint: update-ca-certificates is not installed in this image" >&2; exit 1; }
+CA_FILE=${MONGO_CA_FILE:-/usr/local/share/ca-certificates/geek-mongo-ca.crt}
+( umask 022; printf '%s\n' "$MONGO_CA_PEM" > "$CA_FILE" ) || { echo "[FATAL] entrypoint: cannot write $CA_FILE" >&2; exit 1; }
+update-ca-certificates >&2 || { echo "[FATAL] entrypoint: update-ca-certificates failed, so the Mongo CA is not trusted" >&2; exit 1; }
 
 umask 077
 CONF=$(mktemp "$SHM_DIR/wp.XXXXXX")
