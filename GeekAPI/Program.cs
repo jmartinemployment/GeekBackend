@@ -109,6 +109,15 @@ if (string.IsNullOrWhiteSpace(internalApiKey))
         + "built without it would send every Geek-Receptionist call unauthenticated.");
 }
 
+// Every server that calls GeekAPI with X-API-Key has a key of its own (GEEK_API_CALLERS, GEEK_API_KEY_<NAME>), and the shared
+// GEEK_BACKEND_API_KEY is accepted only until the last caller has moved. A missing, malformed or shared key is a misconfiguration:
+// a service that started anyway would answer 401 to every caller, or accept one key for two of them.
+var apiKeyProblems = GeekAPI.Auth.ApiCallerKeys.Problems();
+if (apiKeyProblems.Count > 0)
+{
+    throw new InvalidOperationException("API key configuration is invalid: " + string.Join(" ", apiKeyProblems));
+}
+
 builder.Services.AddHttpClient("GeekRepositoryInternal", client =>
 {
     client.BaseAddress = new Uri(repoUrl);

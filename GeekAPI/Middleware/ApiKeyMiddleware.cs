@@ -1,6 +1,5 @@
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
+using GeekAPI.Auth;
 using Microsoft.Extensions.Logging;
 
 namespace GeekAPI.Middleware;
@@ -103,8 +102,8 @@ public class ApiKeyMiddleware
             return;
         }
 
-        var apiKey = Environment.GetEnvironmentVariable("GEEK_BACKEND_API_KEY");
-        if (apiKey == null || !KeyMatches(apiKey, extractedApiKey.ToString()))
+        var caller = AuthenticateCaller(context, extractedApiKey.ToString());
+        if (caller is null)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             await context.Response.WriteAsJsonAsync(new { success = false, error = "Invalid API key" }, context.RequestAborted);
@@ -126,13 +125,6 @@ public class ApiKeyMiddleware
 
         await _next(context);
     }
-
-    // Compared in fixed time, so how long a wrong key takes does not tell the caller how much of it was right. Both sides are hashed first
-    // so the two buffers are always the same length.
-    private static bool KeyMatches(string expected, string presented) =>
-        CryptographicOperations.FixedTimeEquals(
-            SHA256.HashData(Encoding.UTF8.GetBytes(expected)),
-            SHA256.HashData(Encoding.UTF8.GetBytes(presented)));
 
     private static bool IsInternalApiPath(string path)
     {
@@ -211,17 +203,34 @@ public class ApiKeyMiddleware
         context.User = new ClaimsPrincipal(identity);
     }
 
-    private static bool TryAuthenticateSeoInternal(HttpContext context)
+    private bool TryAuthenticateSeoInternal(HttpContext context)
     {
         if (!context.Request.Headers.TryGetValue(ApiKeyHeader, out var extractedApiKey))
             return false;
 
-        var apiKey = Environment.GetEnvironmentVariable("GEEK_BACKEND_API_KEY");
-        if (apiKey is null || !KeyMatches(apiKey, extractedApiKey.ToString()))
+        if (AuthenticateCaller(context, extractedApiKey.ToString()) is null)
             return false;
 
         ApplyUserFromHeaders(context);
         return true;
+    }
+
+    /// <summary>
+    /// Checks the presented key against every caller's key (<see cref="ApiCallerKeys"/>) and, when one matches, records only the caller's
+    /// name on the request and in the log. The old shared key still matches, as <c>legacy</c>, and each use of it is a warning: it is
+    /// removed once those warnings stop.
+    /// </summary>
+    private string? AuthenticateCaller(HttpContext context, string presented)
+    {
+        var caller = ApiCallerKeys.Authenticate(presented);
+        if (caller is null) return null;
+
+        context.Items[ApiCallerKeys.CallerItem] = caller;
+        if (caller == ApiCallerKeys.LegacyCaller)
+            _logger.LogWarning("API key accepted for the shared legacy key on {Path}; this caller has no key of its own yet.", context.Request.Path.Value);
+        else
+            _logger.LogDebug("API key accepted for caller {Caller} on {Path}.", caller, context.Request.Path.Value);
+        return caller;
     }
 
     private static void ApplyUserFromHeaders(HttpContext context)

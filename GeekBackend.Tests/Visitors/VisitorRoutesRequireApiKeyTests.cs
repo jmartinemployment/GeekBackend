@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace GeekBackend.Tests.Visitors;
 
 /// <summary>Every visitor route sits under /api/visitors/internal/, which ApiKeyMiddleware guards.</summary>
+[Xunit.Collection(GeekBackend.Tests.Middleware.ApiKeyEnvironmentCollection.Name)]
 public sealed class VisitorRoutesRequireApiKeyTests
 {
     [Theory]

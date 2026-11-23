@@ -28,6 +28,7 @@ namespace GeekBackend.Tests.Middleware;
 /// survives.
 /// </para>
 /// </remarks>
+[Xunit.Collection(GeekBackend.Tests.Middleware.ApiKeyEnvironmentCollection.Name)]
 public class ApiKeyMiddlewareAuthBoundaryTests
 {
     [Theory]
