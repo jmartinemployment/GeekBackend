@@ -103,7 +103,7 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 | `/api/crm/*` | `X-API-Key` | Geek-CRM (`geek_crm` via `repo/crm/*`); see [`docs/GEEK-CRM-DATA-MODEL.md`](docs/GEEK-CRM-DATA-MODEL.md) |
 | `/api/auth/*`, `/hubs/sync` | — | **410 Gone** (use GeekOAuth) |
 
-**Outbound:** `HttpClient` `GeekRepository` → `REPO_URL` with `REPO_API_KEY` (interim; JWT S2S is target).
+**Outbound:** `HttpClient` `GeekRepository` → `REPO_URL` with a short-lived ES256 token GeekAPI signs per request (`GEEK_API_REPOSITORY_SIGNING_KEY`); GeekRepository verifies it with `GEEK_API_PUBLIC_KEY` and accepts nothing else.
 
 **Does not:** Issue tokens, host login UI, or run Geek SEO product logic.
 
@@ -121,41 +121,25 @@ GeekAPI **must not** reference GeekRepository. All data access is **HTTP** from 
 | EF (product contexts) | Content Creator and the content-writer stores | Per-context EF mapping |
 | EF mapping over raw SQL scripts | `geek_gtm`, `geek_visitors`, `geek_social`, `geek_crm` | `Migrations/Sql/*.sql`, applied by `SqlMigrationRunner` (it records script names, not hashes) |
 
-Controllers use **InternalService** policy (`REPO_API_KEY` / `internal.api` scope).
+Controllers use **InternalService** policy (the signed GeekAPI token, `internal.api` scope).
 
 ---
 
-## Service-to-service auth: today vs target
+## Service-to-service auth: GeekAPI to GeekRepository
 
-Shared static secrets (`REPO_API_KEY` / `X-Repo-Key`) are **not** the long-term design. They create a single long-lived bearer that, if leaked, grants full data-plane access with no audience binding, no rotation story, and no audit trail per call. Production incidents tied to bootstrap secrets are why this path is treated as **technical debt**.
-
-### Target (zero-trust S2S)
+GeekRepository answers only GeekAPI, by proof of identity (Jeff, 2026-11-23). There is no shared key.
 
 | Property | Value |
 |----------|--------|
-| Grant | `client_credentials` |
-| Client | `geekapi` (confidential), registered on **authorization server** |
-| Token | Short-lived JWT |
-| `aud` | `geek-repository` |
+| Token | ES256 (ECDSA P-256) JWT, signed by GeekAPI per request, valid 60 seconds, unique `jti`, replay refused |
+| `iss` / `aud` | `geek-api` / `geek-repository` |
+| Signing key | `GEEK_API_REPOSITORY_SIGNING_KEY` on GeekAPI only (base64 PKCS#8) |
+| Verification key | `GEEK_API_PUBLIC_KEY` on GeekRepository only (base64 SubjectPublicKeyInfo) |
 | Scope | `internal.api` |
-| Transport | TLS only |
-| Validation | GeekRepository validates JWT against auth issuer JWKS (`AUTH_SERVER_URL` → auth, not api) |
+| Refusals | unsigned, other algorithm or curve, other issuer or audience, expired, minted with a life over 120 seconds, no `jti`, no `iat`, replayed |
+| Startup | each service refuses to start without its key; a key that is not on the P-256 curve is refused |
 
-GeekAPI obtains a machine token from auth, attaches `Authorization: Bearer`, and GeekRepository validates issuer, audience, signature, expiry, and scope. **No shared repo API key in production.**
-
-### Interim (local / integration tests only)
-
-`REPO_API_KEY` exists in code today for bootstrap and tests. Treat it as:
-
-- **Allowed:** local dev, CI with isolated databases, emergency break-glass with immediate rotation plan
-- **Forbidden:** production reliance, documentation as “the” security model, or duplication across many Railway services
-
-**Migration checklist**
-
-1. Deploy authorization server with `geekapi` client + `internal.api` scope.
-2. GeekRepository: JWT validation (issuer = auth), drop `RepoApiKeyAuthenticationHandler` from production config.
-3. GeekAPI: client-credentials token provider + delegating handler on `GeekRepository` HttpClient; remove `REPO_API_KEY` from Railway.
-4. Remove `REPO_API_KEY` from `.env.example` and integration defaults once JWT path is green in CI.
+No header other than a valid `Authorization: Bearer` opens any route; `X-Repo-Key` and `X-Internal-Api-Key` are gone. A compromised GeekRepository holds only the public key and cannot mint requests. Not in the token: method, path or body binding, and the replay guard is per instance (enough while GeekRepository runs one instance). Record: `Geek-Receptionist/plans/credential-rotation-and-exposure-fix.md` (Phase 2).
 
 ---
 
@@ -228,7 +212,7 @@ Sellability comes from the boundaries: a clean copy-out stays possible ("copy, n
 
 **Remove from Railway when JWT S2S is live**
 
-- `REPO_API_KEY`, `OPENIDDICT_*`, `GEEK_*_CLIENT_SECRET` (issuer-era), `AUTH_SERVER_URL` pointing at **api** as issuer, `GEEK_SEO_*`
+- `OPENIDDICT_*`, `GEEK_*_CLIENT_SECRET` (issuer-era), `AUTH_SERVER_URL` pointing at **api** as issuer, `GEEK_SEO_*`
 
 ---
 
@@ -255,7 +239,7 @@ dotnet build GEEKBACKEND.slnx
 dotnet test GEEKBACKEND.slnx
 ```
 
-Integration tests may use `REPO_API_KEY` until the JWT client-credentials path is wired in test fixtures. Prefer issuing test JWTs from a test issuer over static repo keys when adding new tests.
+Integration tests generate a fresh signing key pair per run (`GeekApiTestFactory`); no key is committed.
 
 ---
 

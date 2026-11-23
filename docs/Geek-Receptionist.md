@@ -385,7 +385,6 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | `PAYPAL_CLIENT_SECRET` | ✓ | Secret | PayPal REST app secret |
 | `PAYPAL_PLAN_STARTER`, `PAYPAL_PLAN_STANDARD`, `PAYPAL_PLAN_PRO`, `PAYPAL_PLAN_PREMIUM` | ✓ | PayPal plan id (`P-...`) | The plan /signup subscribes a visitor to for each tier. Sandbox: `P-93Y59179GB9223215NL3BFNI`, `P-8LX7403571151502NNL5QMQA`, `P-8CS30918MX536813NNL5QMQI`, `P-7S735698AD441763PNL5QMQI`; the live account needs its own. Unset: that tier's signup is refused `503 billing_not_configured`; activation checks the plan's price, so a wrong plan is refused, never charged |
 | `REPO_URL` | ✓ | `http://geek-repository.railway.internal:5050` | Railway private network URL for `GeekRepository` (service `geek-repository`, port `5050`); used by every route, voice and non-voice |
-| `GEEK_REPOSITORY_API_KEY` | ✓ | Secret | Shared internal API key sent via `X-Internal-Api-Key` to `GeekRepository` |
 | `MCP_GATEWAY_URL` | ✓ | `http://geek-mcp-gateway.railway.internal:3000` | Railway private network URL for `GeekMcpGateway` (service `geek-mcp-gateway`, port `3000`, no public domain) |
 | `MCP_GATEWAY_API_KEY` | ✓ | Secret | Shared key `GeekAPI` sends to `GeekMcpGateway` in header `X-Internal-Api-Key` |
 | `PORTAL_BASE_URL` | ✓ | `https://geek-receptionist.geekatyourspot.com` | Origin of the Geek-Receptionist site; Google redirects the owner's browser to `PORTAL_BASE_URL/oauth/mcp/{provider}/callback`, so it is also the origin of the registered Google redirect URI (configurable until DNS is provisioned on Vercel); unset: a calendar connection fails with 503 `oauth_not_configured` |
@@ -399,7 +398,6 @@ This section satisfies the cross-references in `Architecture.md` and `GeekAPI/RE
 | Variable | Required | Value / Format | Description |
 |----------|:--------:|----------------|-------------|
 | `DATABASE_URL` | ✓ | Postgres URI | Supabase PostgreSQL connection string (**MUST live ONLY in `GeekRepository`**) |
-| `GEEK_REPOSITORY_API_KEY` | ✓ | Secret | Validates `X-Internal-Api-Key` on all `/internal/v1/*` requests from `GeekAPI` |
 
 ### B1. `GeekMcpGateway` Routes (folder `GeekMcpGateway/`, `Dockerfile.gateway`)
 

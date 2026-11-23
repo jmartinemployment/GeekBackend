@@ -22,7 +22,7 @@ Browser (content-creator-v2, Next.js on Vercel)
    | REST via same-origin BFF /api/cw/*  + SignalR /hubs/workflow-realtime
    v
 GeekAPI  (.NET 10, Railway)  -- gateway, generation, guards, export
-   |-- X-Repo-Key --> GeekRepository (.NET 10, Railway)  -- the data plane
+   |-- signed GeekAPI token --> GeekRepository (.NET 10, Railway)  -- the data plane
    |                      |-- Postgres (DATABASE_URL: content_creator, content_creator_v2, content_writer_*, geek_gtm, ...)
    |                      '-- Mongo db geek_crawler (crawl_runs, crawl_pages, crawl_links)
    |-- X-Api-Key --> Geek-Crawler-Rag (Python/FastAPI, Hostinger VPS) -- index, retrieve, verify
@@ -77,7 +77,7 @@ Anthropic SDK: LLM calls are raw HTTP. SignalR comes from the shared framework. 
   optional `X-Geek-User-Id`. Public: `/health`, `/hello`, `/robots.txt`, `/api/case-studies`, `/api/departments`,
   `/api/use-cases`, three OAuth callbacks, `GET /api/blog/*`. `/api/*/internal/*` needs the API key. Bearer validation is
   local (no introspection), as GeekOAuth's own documents intend.
-- **GeekRepository:** scheme `RepoApiKey`, header `X-Repo-Key` compared in fixed time with `REPO_API_KEY` (required at startup);
+- **GeekRepository:** scheme `GeekApiToken`: `Authorization: Bearer` with an ES256 token GeekAPI signs per request (issuer `geek-api`, audience `geek-repository`, 60 seconds, unique id, replay refused), verified with `GEEK_API_PUBLIC_KEY`. No key header is accepted on any route; the service refuses to start without the public key.
   policy `InternalService` on all controllers; `/health` anonymous.
 - **GeekOAuth:** Authorization Code with PKCE required, client credentials, refresh token. Access token 15 minutes, identity
   5 minutes, refresh 14 days. Scopes: openid, profile, email, offline_access, internal.api, devices.manage,
@@ -606,12 +606,12 @@ over; nothing is emailed, the report is read from `api/visitors/internal/reports
 ToolBaseUrl, ConsultationAnchorHref, ConsultationCtaLabel, ConsultationClosingLead, ConsultationClosingLink,
 ConsultationClosingLinkWithoutQuestions, DefaultBlogAuthorId, GtmContainerId, ImplementerPositioning); other sections read in
 code: `LlmProviders`, `ContentCreatorV2` (DraftingEnabled, ContextPolicy, ContextObjectStore, MalwareScanner), `GccV2Skills`.
-**Environment, GeekAPI:** PORT, ASPNETCORE_ENVIRONMENT, CORS_ORIGINS, REPO_URL, REPO_API_KEY, GEEK_BACKEND_API_KEY,
+**Environment, GeekAPI:** PORT, ASPNETCORE_ENVIRONMENT, CORS_ORIGINS, REPO_URL, GEEK_API_REPOSITORY_SIGNING_KEY, GEEK_BACKEND_API_KEY,
 GEEK_OAUTH_AUTHORITY, AUTH_SERVER_URL, AUTH_URL, OAUTH_CLIENT_ID, CLIENT_SECRET_GEEKAPI, GEEK_CRAWLER_RAG_URL,
 GEEK_CRAWLER_RAG_API_KEY, GEEK_CRAWLER_WORKER_COUNT (and other GEEK_CRAWLER_*), OPENAI_API_KEY, ANTHROPIC_API_KEY,
 GROQ_API_KEY, GEEK_CONTENT_MODEL_<STAGE>, IMAGE_GENERATOR_BASE_URL, GEEKATYOURSPOT_GITHUB_TOKEN, WORDPRESS_URL, GEEK_CC_GSC_*,
 GEEK_CC_DRIVE_*, GEEK_CC_SHAREPOINT_*, GEEK_CC_OCR_*. **GeekRepository:** DATABASE_URL (which also holds the `geek_visitors` schema,
-created by `Migrations/Sql/0042_geek_visitors_schema.sql`), PORT, REPO_API_KEY, MONGO_CRAWLER_URL (the crawl store, and Mongo's only
+created by `Migrations/Sql/0042_geek_visitors_schema.sql`), PORT, GEEK_API_PUBLIC_KEY, MONGO_CRAWLER_URL (the crawl store, and Mongo's only
 use), SKIP_AUTH_SQL_MIGRATIONS, GEEK_GTM_ENCRYPTION_KEY. **content-creator-v2:** NEXT_PUBLIC_GEEK_API_URL, NEXT_PUBLIC_AUTH_URL,
 NEXT_PUBLIC_OAUTH_CLIENT_ID, NEXT_PUBLIC_APP_URL, NEXT_PUBLIC_WORKFLOW_HUB_URL. **RAG:** MONGO_CRAWLER_URL, MONGO_DB_NAME,
 QDRANT_URL, QDRANT_COLLECTION, QDRANT_API_KEY, EMBEDDING_MODEL, API_KEY, INDEX_STATUS_WEBHOOK_URL, INDEX_STATUS_WEBHOOK_KEY and
