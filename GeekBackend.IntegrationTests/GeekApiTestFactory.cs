@@ -38,9 +38,9 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
     public RagProtocolStubHandler Rag { get; } = new();
 
     /// <summary>
-    /// Stands in for api.openai.com. Not optional: OpenAiProvider falls back to the ambient
-    /// OPENAI_API_KEY env var, so without this the LLM tests call the real API on any machine
-    /// that has a key -- billing tokens, and passing locally while CI fails for want of one.
+    /// Stands in for api.openai.com, so the LLM tests never reach the real API. OpenAiProvider once fell back to
+    /// an ambient OPENAI_API_KEY, which let these tests bill real tokens on any machine that had one; that fallback
+    /// is gone (one key per use, 2026-11-23) and the stub stays so that cannot come back unnoticed.
     /// </summary>
     public OpenAiStubHandler OpenAi { get; } = new();
 
@@ -72,7 +72,9 @@ public sealed class GeekApiTestFactory : WebApplicationFactory<GeekApi::Program>
                 ["GEEK_BACKEND_API_KEY"] = "integration-test-backend-key",
                 ["GEEK_CRAWLER_WORKER_COUNT"] = "0",
                 ["CORS_ORIGINS"] = "https://www.geekatyourspot.com",
-                ["LlmProviders:OpenAi:ApiKey"] = "integration-test-openai-key",
+                [OpenAiOptions.WritingKeyVariable] = "integration-test-openai-writing-key",
+                [OpenAiOptions.ExtractionKeyVariable] = "integration-test-openai-extraction-key",
+                [OpenAiOptions.UtilityKeyVariable] = "integration-test-openai-utility-key",
             });
         });
         builder.ConfigureServices(services =>

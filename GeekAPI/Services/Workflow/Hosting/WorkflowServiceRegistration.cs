@@ -44,6 +44,13 @@ public static class WorkflowServiceRegistration
                 sp.GetRequiredService<ILogger<PersistentClientStore>>()));
 
         services.Configure<LlmProvidersOptions>(configuration.GetSection(LlmProvidersOptions.SectionName));
+        // The OpenAI keys are root settings named as the keys are named in OpenAI's console, so they are not bound by the section above.
+        services.PostConfigure<LlmProvidersOptions>(o =>
+        {
+            o.OpenAi.WritingApiKey = configuration[OpenAiOptions.WritingKeyVariable]?.Trim() ?? string.Empty;
+            o.OpenAi.ExtractionApiKey = configuration[OpenAiOptions.ExtractionKeyVariable]?.Trim() ?? string.Empty;
+            o.OpenAi.UtilityApiKey = configuration[OpenAiOptions.UtilityKeyVariable]?.Trim() ?? string.Empty;
+        });
         services.Configure<CompanyProfileOptions>(configuration.GetSection(CompanyProfileOptions.SectionName));
 
         services.AddHttpClient<OpenAiProvider>();

@@ -20,7 +20,7 @@ public sealed class OpenAiProviderOutcomeTests
     {
         var options = Options.Create(new LlmProvidersOptions
         {
-            OpenAi = { ApiKey = "k", Model = "gpt-4.1", BaseUrl = "http://localhost/v1/chat/completions", TimeoutSeconds = timeoutSeconds },
+            OpenAi = { WritingApiKey = "k", Model = "gpt-4.1", BaseUrl = "http://localhost/v1/chat/completions", TimeoutSeconds = timeoutSeconds },
         });
         return new OpenAiProvider(new HttpClient(handler), options, NullLogger<OpenAiProvider>.Instance);
     }

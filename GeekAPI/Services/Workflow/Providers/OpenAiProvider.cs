@@ -33,14 +33,13 @@ public class OpenAiProvider : IContentGenerationProvider
 
     public async Task<ChatCompletionResult> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken = default)
     {
-        var apiKey = string.IsNullOrWhiteSpace(_options.ApiKey)
-            ? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-            : _options.ApiKey;
+        var apiKey = _options.ResolveApiKey(request.TaskClass);
 
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new ContentGenerationException(
-                "OpenAI API key is not configured. Set OPENAI_API_KEY (or LlmProviders__OpenAi__ApiKey).");
+                $"OpenAI API key for {request.TaskClass} is not configured. Set {OpenAiOptions.KeyVariableFor(request.TaskClass)}. "
+                + "Each use has its own key and there is no shared key to fall back to.");
         }
 
         var model = ProviderModelGuard.Require(

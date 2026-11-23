@@ -470,8 +470,8 @@ public sealed class RagProtocolStubHandler : HttpMessageHandler
 /// a network call.
 ///
 /// <para>
-/// This exists because of a two-week blind spot. <c>OpenAiProvider</c> falls back to the ambient
-/// <c>OPENAI_API_KEY</c> environment variable when config carries none, so on a developer machine
+/// This exists because of a two-week blind spot. <c>OpenAiProvider</c> then fell back to the ambient
+/// <c>OPENAI_API_KEY</c> environment variable when config carried none (removed 2026-11-23), so on a developer machine
 /// the LLM tests quietly called the real API -- billing real tokens and passing -- while the same
 /// tests failed in CI with "OpenAI API key is not configured". Every
 /// "Cross-repository citation contract" run from 2026-09-11 onward was red for that reason, and

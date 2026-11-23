@@ -516,7 +516,7 @@ public class GccRequestThatFitsTests(ITestOutputHelper output)
             {
                 OpenAi =
                 {
-                    ApiKey = "k", Model = model, UtilityModel = utility ?? string.Empty,
+                    WritingApiKey = "k", ExtractionApiKey = "k", UtilityApiKey = "k", Model = model, UtilityModel = utility ?? string.Empty,
                     BaseUrl = "http://localhost/v1/chat/completions",
                 },
             }),

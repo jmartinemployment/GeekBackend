@@ -28,7 +28,44 @@ public class LlmProvidersOptions
 public class OpenAiOptions
 {
     public string BaseUrl { get; set; } = "https://api.openai.com/v1/chat/completions";
-    public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Each use of OpenAI has a key of its own, and the setting that holds it is named exactly as the key is named in OpenAI's console
+    /// (Jeff, 2026-11-23: "the name should match on Railway"). These are root settings, not <c>LlmProviders__OpenAi__*</c>.
+    /// </summary>
+    public const string WritingKeyVariable = "content-creator-v2";
+    public const string ExtractionKeyVariable = "extraction";
+    public const string UtilityKeyVariable = "utility";
+
+    /// <summary>The key for <see cref="LlmTaskClass.Writing"/>: Content Creator prose. Held in <see cref="WritingKeyVariable"/>.</summary>
+    public string WritingApiKey { get; set; } = string.Empty;
+
+    /// <summary>The key for <see cref="LlmTaskClass.Extraction"/>: structured data from crawled pages. Held in <see cref="ExtractionKeyVariable"/>.</summary>
+    public string ExtractionApiKey { get; set; } = string.Empty;
+
+    /// <summary>The key for <see cref="LlmTaskClass.Utility"/>: image prompts and FAQ formatting. Held in <see cref="UtilityKeyVariable"/>.</summary>
+    public string UtilityApiKey { get; set; } = string.Empty;
+
+    /// <summary>The setting that holds the key for a task class, named in the refusal when it is empty.</summary>
+    public static string KeyVariableFor(LlmTaskClass taskClass) => taskClass switch
+    {
+        LlmTaskClass.Writing => WritingKeyVariable,
+        LlmTaskClass.Extraction => ExtractionKeyVariable,
+        LlmTaskClass.Utility => UtilityKeyVariable,
+        _ => throw new ArgumentOutOfRangeException(nameof(taskClass), taskClass, "No OpenAI key is defined for this task class."),
+    };
+
+    /// <summary>
+    /// The key for a task class, and only that key: there is no shared key and no other setting to fall back to, so a use whose key
+    /// is missing fails by name instead of quietly spending on another use's key.
+    /// </summary>
+    public string ResolveApiKey(LlmTaskClass taskClass) => taskClass switch
+    {
+        LlmTaskClass.Writing => WritingApiKey,
+        LlmTaskClass.Extraction => ExtractionApiKey,
+        LlmTaskClass.Utility => UtilityApiKey,
+        _ => throw new ArgumentOutOfRangeException(nameof(taskClass), taskClass, "No OpenAI key is defined for this task class."),
+    };
 
     /// <summary>
     /// The writing model -- prose a reader will read. Also the fallback for every other task class,
