@@ -20,12 +20,30 @@ RUN dotnet restore GeekBackend/GeekRepository/GeekRepository.csproj \
         --self-contained true \
         -o /app/publish
 
+# wireproxy: the userspace WireGuard client that carries GeekRepository's Mongo connection (no CAP_NET_ADMIN needed). Built from source at one
+# commit rather than downloaded: the commit below is the last release made before the project moved from pufferffish to the personal account
+# windtf (2025-11-02), v1.0.9, 2024-04-19. A commit hash names exact content, and the build stops if the checkout is anything else.
+# Newer releases are not used; moving to one means reading what changed first.
+FROM golang:1.22-bookworm AS wireproxy
+ARG WIREPROXY_COMMIT=e749217090d15887f4dda6f82bb85837ef562658
+RUN git clone https://github.com/windtf/wireproxy /w \
+    && cd /w \
+    && git checkout --detach "$WIREPROXY_COMMIT" \
+    && [ "$(git rev-parse HEAD)" = "$WIREPROXY_COMMIT" ] \
+    && CGO_ENABLED=0 go build -trimpath -o /out/wireproxy ./cmd/wireproxy
+
 FROM mcr.microsoft.com/playwright/dotnet:v1.51.0-noble
 WORKDIR /app
 COPY --from=build /app/publish .
+COPY --from=wireproxy /out/wireproxy /usr/local/bin/wireproxy
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+COPY GeekRepository/entrypoint.sh /app/entrypoint.sh
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN chmod +x ./GeekRepository
+RUN chmod +x ./GeekRepository /app/entrypoint.sh /usr/local/bin/wireproxy
 ENV PORT=5050
 ENV ASPNETCORE_URLS=http://0.0.0.0:5050
 EXPOSE 5050
-ENTRYPOINT ["./GeekRepository"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["./GeekRepository"]
