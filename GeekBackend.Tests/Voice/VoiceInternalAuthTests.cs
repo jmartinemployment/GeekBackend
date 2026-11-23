@@ -148,6 +148,16 @@ public sealed class VoiceInternalAuthTests
     }
 
     [Fact]
+    public async Task A_request_with_any_Authorization_header_is_judged_by_the_token_alone_even_with_the_right_key()
+    {
+        NewSigner();
+        await using var app = await StartAsync();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, await GetAsync(app, "/repo/ping",
+            ("Authorization", ["Basic dXNlcjpwYXNz"]), ("X-Repo-Key", [RepoKey])));
+    }
+
+    [Fact]
     public async Task A_token_signed_by_another_key_is_refused()
     {
         NewSigner();

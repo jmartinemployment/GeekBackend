@@ -20,10 +20,10 @@ public sealed class GeekRepositoryTokenSigner
     public GeekRepositoryTokenSigner(ECDsa privateKey, TimeProvider time)
     {
         ArgumentNullException.ThrowIfNull(privateKey);
-        if (privateKey.KeySize != 256)
+        if (!GeekRepositoryToken.IsP256(privateKey))
         {
             throw new InvalidOperationException(
-                $"{GeekRepositoryToken.SigningKeyVariable} is a {privateKey.KeySize}-bit key; GeekRepository accepts P-256 (ES256) only.");
+                $"{GeekRepositoryToken.SigningKeyVariable} is not a key on the P-256 curve; GeekRepository accepts P-256 (ES256) only.");
         }
 
         _key = privateKey;

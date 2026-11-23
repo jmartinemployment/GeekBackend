@@ -97,15 +97,23 @@ public sealed class GeekRepositoryTokenTests
     {
         var p = new Pair();
         using var stranger = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        Assert.False((await p.Validator.CheckAsync(Mint(stranger))).IsValid);
+        var check = await p.Validator.CheckAsync(Mint(stranger));
+
+        Assert.False(check.IsValid);
+        Assert.Contains("Signature", check.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task A_token_for_another_audience_or_from_another_issuer_is_refused()
     {
         var p = new Pair();
-        Assert.False((await p.Validator.CheckAsync(Mint(p.Private, audience: "geek-oauth", jti: "a1"))).IsValid);
-        Assert.False((await p.Validator.CheckAsync(Mint(p.Private, issuer: "someone-else", jti: "a2"))).IsValid);
+        var audience = await p.Validator.CheckAsync(Mint(p.Private, audience: "geek-oauth", jti: "a1"));
+        var issuer = await p.Validator.CheckAsync(Mint(p.Private, issuer: "someone-else", jti: "a2"));
+
+        Assert.False(audience.IsValid);
+        Assert.Contains("Audience", audience.Reason, StringComparison.Ordinal);
+        Assert.False(issuer.IsValid);
+        Assert.Contains("Issuer", issuer.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -113,7 +121,10 @@ public sealed class GeekRepositoryTokenTests
     {
         var p = new Pair();
         var expired = Mint(p.Private, issuedAgo: TimeSpan.FromMinutes(10), lifetime: TimeSpan.FromSeconds(60), jti: "old");
-        Assert.False((await p.Validator.CheckAsync(expired)).IsValid);
+        var check = await p.Validator.CheckAsync(expired);
+
+        Assert.False(check.IsValid);
+        Assert.Contains("Expired", check.Reason, StringComparison.Ordinal);
     }
 
     [Fact]

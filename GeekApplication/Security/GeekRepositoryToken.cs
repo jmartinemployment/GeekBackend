@@ -20,6 +20,16 @@ public static class GeekRepositoryToken
 
     public static readonly TimeSpan ClockSkew = TimeSpan.FromSeconds(5);
 
+    /// <summary>The OID of the NIST P-256 curve (secp256r1). ES256 means this curve, and another curve of the same size is not it.</summary>
+    public const string P256Oid = "1.2.840.10045.3.1.7";
+
+    /// <summary>True only for a key on the P-256 curve itself; a 256-bit key on another curve (brainpoolP256r1, secp256k1) is not.</summary>
+    public static bool IsP256(System.Security.Cryptography.ECDsa key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return key.ExportParameters(false).Curve.Oid.Value == P256Oid;
+    }
+
     /// <summary>GeekAPI's signing key: base64 PKCS#8. Set on GeekAPI only.</summary>
     public const string SigningKeyVariable = "GEEK_API_REPOSITORY_SIGNING_KEY";
 

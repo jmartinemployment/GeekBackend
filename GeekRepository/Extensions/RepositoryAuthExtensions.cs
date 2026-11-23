@@ -55,10 +55,10 @@ public static class RepositoryAuthExtensions
                 $"{GeekRepositoryToken.PublicKeyVariable} is not a base64 SubjectPublicKeyInfo public key ({ex.GetType().Name}).", ex);
         }
 
-        if (publicKey.KeySize != 256)
+        if (!GeekRepositoryToken.IsP256(publicKey))
         {
             throw new InvalidOperationException(
-                $"{GeekRepositoryToken.PublicKeyVariable} is a {publicKey.KeySize}-bit key; GeekAPI signs with P-256 (ES256) only.");
+                $"{GeekRepositoryToken.PublicKeyVariable} is not a key on the P-256 curve; GeekAPI signs with P-256 (ES256) only.");
         }
 
         services.TryAddSingleton(TimeProvider.System);

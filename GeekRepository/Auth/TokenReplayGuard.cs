@@ -28,7 +28,9 @@ public sealed class TokenReplayGuard
         ArgumentException.ThrowIfNullOrEmpty(tokenId);
         var now = _time.GetUtcNow();
         Purge(now);
-        return _seen.TryAdd(tokenId, expires + GeekRepositoryToken.ClockSkew);
+        // Kept past the instant the token stops validating (exp plus one skew) by a further skew, so the purge cannot forget an id
+        // while a clock reading a moment earlier than ours would still accept the token.
+        return _seen.TryAdd(tokenId, expires + GeekRepositoryToken.ClockSkew + GeekRepositoryToken.ClockSkew);
     }
 
     private void Purge(DateTimeOffset now)
